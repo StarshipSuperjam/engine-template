@@ -4267,7 +4267,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:6455202451e4abeb7c96e2370e400f516d97c1584e687c2f12b998e4b421c724",
+        "fingerprint": "sha256:fca4ffba61bcf6c6343f786d2db96a7f92cbdfc07221a009177d686fa6fb4cbf",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -7108,7 +7108,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:f94cd69c6a7419139b6a5726a03263c4813d98c12a85c5388bf888206a665c70",
+        "fingerprint": "sha256:04f6106b6814e422573918182ad0ef52e155054820761ec8699e3a868b9b055e",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7790,23 +7790,6 @@
       "source": {
         "fingerprint": "sha256:abe53da6ccea6d810dc14acc4632ec8940a788ad790f2053d670303501691568",
         "path": ".engine/tools/quiet_call.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:recall_benchmark",
-      "name": ".engine/tools/recall_benchmark.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "recall_benchmark",
-      "source": {
-        "fingerprint": "sha256:4bfe883bebc23ee3f85be1038dfb128b47e7aa4af7e419b9b3da61c0fce1116f",
-        "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"
@@ -9148,7 +9131,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:cbf5b7fd4d454910b78b9fba8b543125667fe068c8e2269b09d936a7a9cc176a",
+        "fingerprint": "sha256:bc41e1d4ab0d102be76f3bb23fb8c6d74d8ec7005627aa1f138681d3ecce5f53",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9762,23 +9745,6 @@
       "source": {
         "fingerprint": "sha256:c1ac00596b0013daf9375f388783d4a981464befd4e5bb486cc7de697c26e5dc",
         "path": ".engine/tools/test_quiet_call.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_recall_benchmark",
-      "name": ".engine/tools/test_recall_benchmark.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "test_recall_benchmark",
-      "source": {
-        "fingerprint": "sha256:6acc7f8e8a8e91daf338970404d7f4fc8850c0427b5bf809bcf9dd2c342ac5b0",
-        "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"

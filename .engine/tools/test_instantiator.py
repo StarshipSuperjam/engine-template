@@ -1925,7 +1925,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d), contextlib.redirect_stdout(buf):
                 rc = inst.main(["verify"])
             self.assertEqual(rc, 0)
-            self.assertIn("workshop where the engine is built", buf.getvalue())
+            self.assertIn("not by hand", buf.getvalue())
 
     def test_verify_runs_after_setup_swapped_the_floor(self):
         import contextlib, io
@@ -1934,9 +1934,9 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d):
                 _finished_fixture(d)                        # full apply ran → root CLAUDE.md is the deployed floor
                 with contextlib.redirect_stdout(buf):
-                    rc = inst.main(["verify"])
+                    rc = inst.main(["verify", "--first-run"])   # the walkthrough's token lets the real run through
             self.assertEqual(rc, 0)
-            self.assertNotIn("workshop where the engine is built", buf.getvalue(),
+            self.assertNotIn("not by hand", buf.getvalue(),
                              "a real first-run verify is not blocked by the guard")
 
     def test_retire_refuses_in_the_workshop_and_deletes_nothing(self):
@@ -1948,7 +1948,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d), contextlib.redirect_stdout(buf):
                 rc = inst.main(["retire"])
             self.assertEqual(rc, 0)
-            self.assertIn("workshop where the engine is built", buf.getvalue())
+            self.assertIn("not by hand", buf.getvalue())
             self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                             "a bare retire in the workshop must not self-delete the real setup tool")
 
@@ -1959,11 +1959,27 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d):
                 _finished_fixture(d)
                 with contextlib.redirect_stdout(buf):
-                    rc = inst.main(["retire"])
+                    rc = inst.main(["retire", "--first-run"])   # the walkthrough's token lets the real run through
             self.assertEqual(rc, 0)
-            self.assertNotIn("workshop where the engine is built", buf.getvalue())
+            self.assertNotIn("not by hand", buf.getvalue())
             self.assertFalse(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                              "a real first-run retire tidies the one-time setup tool away")
+
+    def test_retire_refuses_without_the_token_even_after_the_floor_swap(self):
+        # #323: post-swap the root is the DEPLOYED floor, so the retired construction-marker guard would have
+        # let a bare retire self-delete the setup tooling. The token guard does not — a bare hand-run refuses
+        # and deletes nothing, in a fresh copy pre-tidy exactly as in the workshop.
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)                        # deployed floor in place, NOT the construction file
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["retire"])              # bare — no --first-run token
+            self.assertEqual(rc, 0)
+            self.assertIn("not by hand", buf.getvalue())
+            self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                            "a bare retire must refuse even after the floor swap, not self-delete the tooling")
 
     def test_retire_rederives_the_self_map_when_the_tree_carries_one(self):
         # #513: retire re-derives the wiring map beside the knowledge graph, so a deployed repo ships a map
@@ -2319,7 +2335,7 @@ class TestFinishCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
-                rc = inst.main(["verify"])
+                rc = inst.main(["verify", "--first-run"])
             self.assertEqual(rc, 0)
 
     def test_verify_verb_exits_one_on_a_hard_finding(self):
@@ -2327,14 +2343,14 @@ class TestFinishCli(unittest.TestCase):
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
                 inst.wiring.apply(inst._ORPHAN_WIRE)
-                rc = inst.main(["verify"])
+                rc = inst.main(["verify", "--first-run"])
             self.assertEqual(rc, 1, "a hard finding makes the verify verb exit non-zero")
 
     def test_retire_verb_completes_on_clean(self):
         with tempfile.TemporaryDirectory() as d:
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
-                rc = inst.main(["retire"])
+                rc = inst.main(["retire", "--first-run"])
             self.assertEqual(rc, 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
 
