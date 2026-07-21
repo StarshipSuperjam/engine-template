@@ -15,5 +15,6 @@
     "product-design": "0.2.0"
   },
   "identity": "solo",
-  "home_repository": "StarshipSuperjam/engine-template"
+  "home_repository": "StarshipSuperjam/engine-template",
+  "min_upgradeable_from": "0.3.2"
 }
