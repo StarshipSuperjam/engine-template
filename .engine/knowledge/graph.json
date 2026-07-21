@@ -818,7 +818,8 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-memory-transcript-first-recall"
         ]
       },
       "slug": "contract-frontmatter",
@@ -880,7 +881,8 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-memory-transcript-first-recall"
         ]
       },
       "slug": "contract-shape",
@@ -943,7 +945,8 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-memory-transcript-first-recall"
         ]
       },
       "slug": "contract-threshold",
@@ -3339,7 +3342,7 @@
       },
       "slug": "eADR-0018-cognitive-substrate-one-workflow",
       "source": {
-        "fingerprint": "sha256:965befacfae649cbcab7f4330fea9348e08fbd61bb2d54c937c6701a46689d3d",
+        "fingerprint": "sha256:e1485439fd47358b83876b430399be7bdd8d53e4eafc82f68e248299c8c13b4d",
         "path": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md"
       },
       "status": "accepted",
@@ -3359,7 +3362,7 @@
       },
       "slug": "eADR-0019-memory-knowledge-distinct-substrates",
       "source": {
-        "fingerprint": "sha256:3cbef15dc05111f024aac6ee30dadfeb0fee5a5fef0f8d268586e100379576db",
+        "fingerprint": "sha256:cfca6833a665c64e94ac07b1b17c133f71072f0ff9be2577709ba62ecdd05493",
         "path": ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md"
       },
       "status": "accepted",
@@ -3681,6 +3684,26 @@
       "source": {
         "fingerprint": "sha256:64d43cfd1ffe40a68fca4aa70175247774ad6ff1fa3f8fc3b66e3a6975ddbdc1",
         "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0038-memory-transcript-first-recall",
+      "name": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0038-memory-transcript-first-recall",
+      "source": {
+        "fingerprint": "sha256:2a57b8fa4f0bea942b13e6ae72ca76118662e734da709f4b73cf99c7c6b1003b",
+        "path": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md"
       },
       "status": "accepted",
       "type": "contract"
