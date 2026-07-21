@@ -4207,7 +4207,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:afc79a0347c60d2457638fe6c3483d8a42a8d3e6dda9ff0eb9720edc11bb2648",
+        "fingerprint": "sha256:7745f60bcc0d81d4f16624826bf1914ae4d603f72ea37a56cc1a92b2233e04f9",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -4894,7 +4894,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:61d0be4d52cd654e20023899e4524086546455df09d287a221ca2fb040ae32d9",
+        "fingerprint": "sha256:8e152a594963a783065849005395f20ac2b3ec3281cf3e3e6a8048a64a765e39",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -6129,6 +6129,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_599d_upgrade_floor",
+      "name": ".engine/tools/demo_599d_upgrade_floor.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_599d_upgrade_floor",
+      "source": {
+        "fingerprint": "sha256:35af0d3d7cac9ad6e6a2027d12dd047d9a279e653576f131e0254e603bc8e380",
+        "path": ".engine/tools/demo_599d_upgrade_floor.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -7091,7 +7108,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:e8bcbecf8bd6fe808c78deea11cad42660588228ab0ed91c10daa092c7e67615",
+        "fingerprint": "sha256:9af33aeea018904b582b654e6361340e99ed831bbaab143083efa0cd915a2e0f",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7516,7 +7533,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:666d2eb9f41dd47fd30c3e9a2157db01302fc08c0319b11926e83fdd28790d65",
+        "fingerprint": "sha256:1ce7337e32a38ba292e3d8f9f46bf68ddc544a0f49307741dac024f21827c027",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7805,7 +7822,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:89068a678adb32fd770da5b0148b6c8827f09665ca7faf0e758e39abc48c61ca",
+        "fingerprint": "sha256:7d8dc7e4fe3c1fb56cc485285fe3c6becd631699813cb7a33dfb5ba05e7b1c7f",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -8730,6 +8747,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_deployed_selftests",
+      "name": ".engine/tools/test_deployed_selftests.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_deployed_selftests",
+      "source": {
+        "fingerprint": "sha256:8546c5c03663dbeecca3fa6c727758882a15d5e5fe59919530ef022cc61af7fb",
+        "path": ".engine/tools/test_deployed_selftests.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_design_form",
       "name": ".engine/tools/product_design/test_design_form.py",
       "owner": "product-design",
@@ -8995,7 +9029,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:ddd03009645186f7c9a3b1872ed6baba748bffde2b8e1b687c3ee98a14b27cb4",
+        "fingerprint": "sha256:c01559130adf13f8a724edc61599c6d0dda800165d872b8e843a8d41000e3700",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -9420,7 +9454,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:712e95c5a050c2f345a98558ec649148f85da5abfab93155f5dff2c48b164bed",
+        "fingerprint": "sha256:ddd0f4add5bf6b437154256809db18f895d84a978c4cd39ef51f6a8432754f5c",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -9709,7 +9743,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:f7fe6b796a32cca07e800d43cc36afae26aeb15b34cd5f3673a9ee8bfb0e03b8",
+        "fingerprint": "sha256:e0f1fa2ce8a8dca93427f09b6c549982051276e8820e50b1eaf930d0f800b756",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -10015,7 +10049,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:f586a53b72e8e49b487ba5bd8c460192d75a9178d6b3cb0a7e643d778b0cbb30",
+        "fingerprint": "sha256:5f55697dfac51fcb2a1962cdfb31ab6fe1024bded5a22667bd64ad0427c4d7ee",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
