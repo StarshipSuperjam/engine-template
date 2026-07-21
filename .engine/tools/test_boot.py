@@ -2,7 +2,7 @@
 """Tests for boot, the SessionStart orientation pack.
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: the present-marker
-byte-identity (boot's card title == the floor's verify-presence token in CLAUDE.deployed.md), that a
+byte-identity (boot's card title == the floor's verify-presence token in the root CLAUDE.md floor), that a
 refused state cursor DEGRADES and never halts, that boot CONSUMES attention's order and never re-ranks,
 that governance-critical alarms pin first and the protected-branch signal is honest in all three states
 (off / unknown-never-green / on), that any reader failure fails open with the card still rendered, that
@@ -27,19 +27,15 @@ import modes
 import module_coherence
 import validate
 
-DEPLOYED_FLOOR = os.path.join(validate.ROOT, "CLAUDE.deployed.md")
 ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
 
 
 def _floor_text() -> str:
-    """The deployed floor's text wherever it lives. In the construction repo the floor is CLAUDE.deployed.md
-    (the root CLAUDE.md is the construction-governance file); in a GENERATED repo, first-run's swap-in (#272)
-    makes the floor the root CLAUDE.md and removes CLAUDE.deployed.md. Read the floor from CLAUDE.deployed.md
-    if present, else CLAUDE.md — so the present-marker contract is checked against the real floor in both, and
-    the test never errors on an adopter's post-swap tree. Both paths are import-bound from validate.ROOT."""
-    path = DEPLOYED_FLOOR if os.path.isfile(DEPLOYED_FLOOR) else ROOT_CLAUDE
-    with open(path, encoding="utf-8") as fh:
+    """The floor's text. Since #323 the committed root CLAUDE.md IS the adopter floor (the separate
+    CLAUDE.deployed.md retired with the greenfield swap), in this home repo and in a generated repo alike — so
+    the present-marker contract is checked against the root floor. Import-bound from validate.ROOT."""
+    with open(ROOT_CLAUDE, encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -526,10 +522,8 @@ class TestDegradedNotice(unittest.TestCase):
 
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
-        # The locked present marker, and its byte-identical presence in the deployed floor. The floor
-        # is read wherever it lives — CLAUDE.deployed.md in this construction repo, the root CLAUDE.md in a
-        # generated repo after first-run's swap-in (#272) removes CLAUDE.deployed.md — so the contract holds in
-        # both and the test never errors on an adopter's post-swap tree.
+        # The locked present marker, and its byte-identical presence in the root CLAUDE.md floor (the committed
+        # adopter floor since #323) — so the contract holds in this home repo and in a generated repo alike.
         self.assertEqual(boot.PRESENT_MARKER, "Project status")
         floor = _floor_text()
         self.assertIn(boot.PRESENT_MARKER, floor,
@@ -705,7 +699,8 @@ class TestRefusedState(unittest.TestCase):
         try:
             with mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
-                                                  "integration_debt": {"open_count": 0}}, False)):
+                                                  "integration_debt": {"open_count": 0}}, False)), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):  # content test — isolate from cap-shedding
                 pack = boot.assemble_pack()
         finally:
             for p in patchers:
@@ -1029,6 +1024,7 @@ class TestGovernanceAlarms(unittest.TestCase):
         try:
             with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
                  mock.patch.object(boot, "open_findings", return_value=(count, register, low, rows)), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
                                                   "integration_debt": {"open_count": 0}}, False)):
@@ -1933,6 +1929,7 @@ class TestFailOpen(unittest.TestCase):
         try:
             with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
                  mock.patch.object(boot, "gh_token", return_value="t"), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
                  mock.patch.object(boot.protection_guard, "get_json", return_value={"message": "x"}):
                 pack = boot.assemble_pack()
         finally:

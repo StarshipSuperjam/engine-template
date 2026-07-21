@@ -230,6 +230,23 @@ def fence_present(text: str, fence_id: str, *, style: _FenceStyle = HASH_FENCE) 
     return _find_fence(text.split("\n"), fence_id, style) is not None
 
 
+def fence_read(text: str, fence_id: str, *, style: _FenceStyle = HASH_FENCE) -> "list | None":
+    """Return the BODY lines between a well-formed `fence_id` fence of `style` — the read-side inverse of
+    fence_apply, and the one place the engine reads a fenced block back OUT of a file. The floor source lives
+    fenced in the release's root CLAUDE.md/AGENTS.md (not a whole-file `.deployed.md`), so the upgrade and
+    arrival paths extract it with this. Returns the body lines exactly as fenced (no whole-file trailing-newline
+    artifact to trim); None when the fence is absent (no source to read — the caller treats it like a release
+    that ships no floor); raises WiringError when the fence is malformed (begin-without-end, duplicate, nesting),
+    so the caller degrades rather than guessing a boundary."""
+    _check_id(fence_id)
+    lines = text.split("\n")
+    span = _find_fence(lines, fence_id, style)
+    if span is None:
+        return None
+    b, e = span
+    return lines[b + 1:e]
+
+
 CODEOWNERS_FENCE = "codeowners"
 
 

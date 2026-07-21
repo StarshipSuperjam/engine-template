@@ -35,12 +35,6 @@ import validate  # noqa: E402
 import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home seam this now gates on)
 
 POINTER_REL = ".engine/memory-backup/pointer.json"
-# Retained NOT for this check's gate (which now reads origin==home) but because license_health and
-# greenfield_intake still import it as the shared construction marker; it is removed when the marker
-# itself is retired alongside the deployed-floor promotion.
-_CONSTRUCTION_MARKER = "construction governance"   # the root CLAUDE.md genesis header (superseded at v1)
-
-
 def _is_construction_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Delegates to the shared

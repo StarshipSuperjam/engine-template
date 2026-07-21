@@ -46,11 +46,6 @@ import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home se
 _MANIFEST_REL = os.path.join(".engine", "provisioning", "first-run-assets.json")
 _TOOLS_REL = os.path.join(".engine", "tools")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
-# Retained only for the cross-tool marker-parity test (test_instantiator) until the marker itself is retired
-# alongside the deployed-floor promotion; this check's gate no longer reads it.
-_CONSTRUCTION_MARKER = "construction governance"   # the root CLAUDE.md genesis header (superseded at v1)
-
-
 def _is_construction_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Reads the REAL root

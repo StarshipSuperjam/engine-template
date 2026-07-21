@@ -81,7 +81,7 @@ _COPY_IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "worktrees", "node
 # pass: the whole `.engine`, the shared-file wiring targets (`.claude`, `.codex`, `.mcp.json`), and the floor
 # sources. `.venv`/caches/worktrees are excluded (see _COPY_IGNORE).
 _COPY_DIRS = (".engine", ".claude", ".codex", ".agents", ".github")
-_COPY_FILES = (".mcp.json", ".gitignore", "CLAUDE.md", "AGENTS.md", "CLAUDE.deployed.md", "AGENTS.deployed.md")
+_COPY_FILES = (".mcp.json", ".gitignore", "CLAUDE.md", "AGENTS.md")
 
 
 def _clone_engine(real_root: str, dest: str) -> str:

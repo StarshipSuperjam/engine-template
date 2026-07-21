@@ -1595,7 +1595,15 @@ class TestSeedLicense(unittest.TestCase):
 
 class TestSeedState(unittest.TestCase):
     """Reset a generated repo's traveled construction cursor to genesis; recognition is a structural,
-    rename-immune foreign-register predicate + a construction-repo belt; risk-oriented and fail-safe."""
+    rename-immune foreign-register predicate + a home-repo belt; risk-oriented and fail-safe."""
+
+    def setUp(self):
+        # The belt now keys on repo_identity.is_home_repo (git origin == recorded home); default these tests to a
+        # DEPLOYED repo (not home) so the register-recognition logic BELOW the belt is exercised. The belt itself
+        # has its own test (test_home_repo_belt_preserves_the_real_cursor).
+        p = mock.patch.object(inst.repo_identity, "is_home_repo", return_value=False)
+        p.start()
+        self.addCleanup(p.stop)
 
     def _write_cursor(self, d, register, phase="workshop phase #449", count=31):
         os.makedirs(os.path.join(d, ".engine", "state"), exist_ok=True)
@@ -1656,18 +1664,17 @@ class TestSeedState(unittest.TestCase):
             outcome = inst._seed_state(lambda t: None, inst.load_copy())   # must not raise
         self.assertEqual(outcome, "present", "an unreadable/malformed cursor is preserved, never crashes the phase")
 
-    def test_construction_root_belt_preserves_the_real_cursor(self):
-        # BELT: with the construction-governance CLAUDE.md at root (the workshop, or an un-redirected test),
-        # _seed_state preserves even a foreign-register cursor — it can NEVER clobber the real construction cursor.
+    def test_home_repo_belt_preserves_the_real_cursor(self):
+        # BELT: in the engine's OWN home repo (repo_identity.is_home_repo — git origin == recorded home),
+        # _seed_state preserves even a foreign-register cursor — it can NEVER clobber the workshop's real cursor.
         with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.repo_identity, "is_home_repo", return_value=True), \
                 mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
-            with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
-                fh.write("# engine-template — construction governance\n\nbody\n")
             self._write_cursor(d, "https://github.com/StarshipSuperjam/engine-template/issues", count=31)
             outcome = inst._seed_state(lambda t: None, inst.load_copy())
             cur = self._cursor(d)
         self.assertEqual(outcome, "present")
-        self.assertEqual(cur["integration_debt"]["open_count"], 31, "the construction-repo belt preserved the real cursor")
+        self.assertEqual(cur["integration_debt"]["open_count"], 31, "the home-repo belt preserved the real cursor")
 
     def test_prefix_slug_org_sibling_is_not_falsely_preserved(self):
         # a bare substring would falsely PRESERVE a repo whose slug is a PREFIX of the template's within the
@@ -1682,7 +1689,7 @@ class TestSeedState(unittest.TestCase):
         self.assertEqual(cur["integration_debt"]["open_count"], 0)
 
     def test_unknown_origin_past_the_belt_resets(self):
-        # repo_slug None (offline/no-remote) past the construction belt: a non-null register can only be the
+        # repo_slug None (offline/no-remote) past the home-repo belt: a non-null register can only be the
         # traveled workshop cursor (a fresh repo hasn't set its own), so reset — risk-oriented, and safe
         # because the belt already ruled out the workshop.
         with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
@@ -1695,127 +1702,6 @@ class TestSeedState(unittest.TestCase):
 
 
 # ==== the deployed-floor swap-in (issue #272) ========================================================
-
-def _seed_floor_root(tmp, *, claude=None, floor=None):
-    """Plant a fixture root for a _seed_deployed_floor test: optionally a root CLAUDE.md (its exact text) and
-    the CLAUDE.deployed.md floor source (its exact text). Either may be omitted to model the absent-file cases.
-    The caller holds the surrounding inst._redirect_root(tmp)."""
-    if claude is not None:
-        with open(os.path.join(tmp, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-            fh.write(claude)
-    if floor is not None:
-        with open(os.path.join(tmp, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
-            fh.write(floor)
-
-
-_CONSTRUCTION_CLAUDE = "# engine-template — construction governance (read first)\nInternal build notes.\n"
-_FLOOR = "# Your project runs on an Engine\n\nI show a Project status block first each session.\n"
-
-
-class TestConstructionClaudeRecognizer(unittest.TestCase):
-    def test_recognizer_matches_only_the_construction_marker_preserving_on_any_doubt(self):
-        self.assertTrue(inst._is_construction_claude(_CONSTRUCTION_CLAUDE))
-        self.assertTrue(inst._is_construction_claude("CONSTRUCTION GOVERNANCE first"))       # case-insensitive, line 1
-        self.assertTrue(inst._is_construction_claude("\n\n" + _CONSTRUCTION_CLAUDE))         # leading blank lines tolerated
-        self.assertFalse(inst._is_construction_claude(_FLOOR))                               # the floor (no marker)
-        self.assertFalse(inst._is_construction_claude("# My Project\n\nMy own words.\n"))    # operator content
-        self.assertFalse(inst._is_construction_claude(""))                                   # empty
-        self.assertFalse(inst._is_construction_claude(None))                                 # absent/unreadable
-
-    def test_an_operator_claude_that_only_mentions_the_phrase_mid_document_is_not_a_match(self):
-        # The marker must lead the file (the file IS the engine's construction guide), not merely appear inside
-        # it — so an operator CLAUDE.md whose BODY happens to use the phrase (e.g. a construction-industry
-        # project documenting its own governance) is preserved, never clobbered.
-        mentions = ("# Acme site project\n\nWe follow strict construction governance rules on every job.\n")
-        self.assertFalse(inst._is_construction_claude(mentions))
-
-    def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
-        # The "construction governance" marker constant is byte-bound across the tools that still READ it, so a
-        # marker reader cannot silently drift. #323 re-keyed the three home-scoped CHECKS — memory_pointer,
-        # census, AND the bite-harness (hard_check_bite) — onto the shared origin==home seam
-        # (repo_identity.is_home_repo), so none of them reads this marker any more; the bite-harness dropped its
-        # constant entirely. The still-LIVE marker readers are the floor-swap recognizer
-        # (inst._is_construction_claude, via inst._CONSTRUCTION_CLAUDE_MARKER) and license_health /
-        # greenfield_intake (which import memory_pointer_public_safety_check._CONSTRUCTION_MARKER) — those two
-        # constants must stay byte-identical or a floor swap and a leftover-LICENSE/brownfield read could
-        # disagree about the same file. census retains its constant only as a retired-in-the-next-slice binding
-        # (no reader); it is pinned here so it can't quietly diverge before removal.
-        import memory_pointer_public_safety_check as sentinel
-        import census_completeness_check as census
-        self.assertEqual(inst._CONSTRUCTION_CLAUDE_MARKER, sentinel._CONSTRUCTION_MARKER)
-        self.assertEqual(census._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
-
-
-class TestSeedDeployedFloor(unittest.TestCase):
-    def test_greenfield_swaps_the_floor_in_removes_the_source_and_discloses(self):
-        said = []
-        with tempfile.TemporaryDirectory() as d:
-            inst.os.makedirs(os.path.join(d, ".engine"))
-            with inst._redirect_root(d):
-                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE, floor=_FLOOR)
-                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
-                now = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
-                source_gone = not os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
-        self.assertEqual(outcome, "swapped")
-        # 6a: the floor is written wrapped in the engine `floor` fence (the keyed model greenfield, upgrade,
-        # and brownfield all share) — not the raw floor — so the upgrade keyed-merge has a block to replace.
-        self.assertTrue(inst.wiring.fence_present(now, inst._FLOOR_FENCE, style=inst.wiring.MD_FENCE),
-                        "the floor becomes the engine `floor` fenced section in CLAUDE.md")
-        self.assertIn(_FLOOR.rstrip("\n"), now, "the floor content lives inside the engine block")
-        self.assertTrue(source_gone, "the consumed CLAUDE.deployed.md is removed")
-        blob = "\n".join(said)
-        self.assertTrue(said, "the swap is disclosed, never silent")
-        self.assertIn("working guide", blob.lower())
-        self.assertIn("/engine-conduct", blob, "customization points at conduct, not editing CLAUDE.md")
-
-    def test_brownfield_operator_claude_is_preserved_untouched(self):
-        said = []
-        mine = "# My Project\n\nMy own working notes — nothing to do with the Engine.\n"
-        with tempfile.TemporaryDirectory() as d:
-            inst.os.makedirs(os.path.join(d, ".engine"))
-            with inst._redirect_root(d):
-                _seed_floor_root(d, claude=mine, floor=_FLOOR)
-                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
-                now = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
-                floor_kept = os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
-        self.assertEqual(outcome, "present")
-        self.assertEqual(now, mine, "an operator CLAUDE.md (no marker) is left exactly as it is")
-        self.assertTrue(floor_kept, "a no-op never deletes the floor source")
-        self.assertEqual(said, [], "no disclosure on a no-op")
-
-    def test_rerun_after_a_swap_is_a_noop(self):
-        said = []
-        with tempfile.TemporaryDirectory() as d:
-            inst.os.makedirs(os.path.join(d, ".engine"))
-            with inst._redirect_root(d):
-                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE, floor=_FLOOR)
-                inst._seed_deployed_floor(lambda t: None, inst.load_copy())          # first pass swaps
-                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())    # CLAUDE.md is now the floor
-        self.assertEqual(outcome, "present", "CLAUDE.md is now the floor (no marker) → second pass is a no-op")
-        self.assertEqual(said, [], "a re-run never re-touches CLAUDE.md")
-
-    def test_floor_absent_never_strands_the_construction_file(self):
-        said = []
-        with tempfile.TemporaryDirectory() as d:
-            inst.os.makedirs(os.path.join(d, ".engine"))
-            with inst._redirect_root(d):
-                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE)                      # construction file, NO floor source
-                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
-                still_there = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
-        self.assertEqual(outcome, "present", "no floor source → preserve, never strand the repo with no CLAUDE.md")
-        self.assertEqual(still_there, _CONSTRUCTION_CLAUDE, "the construction file is left in place, not deleted")
-        self.assertEqual(said, [], "no disclosure on a preserve")
-
-    def test_absent_claude_is_a_noop(self):
-        with tempfile.TemporaryDirectory() as d:
-            inst.os.makedirs(os.path.join(d, ".engine"))
-            with inst._redirect_root(d):
-                _seed_floor_root(d, floor=_FLOOR)                                     # floor present, NO root CLAUDE.md
-                outcome = inst._seed_deployed_floor(lambda t: None, inst.load_copy())
-                floor_kept = os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
-        self.assertEqual(outcome, "present", "no root CLAUDE.md to recognize → preserve-on-doubt")
-        self.assertTrue(floor_kept, "with nothing to swap, the floor source is left alone")
-
 
 class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
     """A durable parity guard on the TEMPLATE's OWN root LICENSE (issue #147): the committed LICENSE must stay
@@ -1881,11 +1767,10 @@ class TestApplyCli(unittest.TestCase):
 
 class TestFirstRunVerbGuards(unittest.TestCase):
     """#297 — the one-time lifecycle verbs refuse a bare hand-run so re-running them on an already-set-up project
-    (or in this workshop) never re-fires the file-replacing setup steps. apply is gated by the `--first-run`
-    token the setup walkthrough passes (a construction-repo check can't go on apply — a legitimate apply
-    interrupted before the floor swap is content-identical to the workshop, and the locked design requires that
-    interrupted apply to resume). verify/retire refuse while the root CLAUDE.md is still the construction file —
-    a real first-run reaches them only after apply swapped the deployed floor in."""
+    (or in this workshop) never re-fires the file-replacing setup steps. All three are gated by the `--first-run`
+    token the setup walkthrough passes (#323: token-only, not a marker check — a fresh copy inherits the
+    committed floor, so there is no construction file to key on); retire additionally refuses in the engine's own
+    home repo (repo_identity.is_home_repo). A bare hand-run then refuses in the workshop AND in a fresh copy."""
 
     def test_bare_apply_is_a_noop_and_touches_nothing(self):
         import contextlib, io
@@ -1898,12 +1783,10 @@ class TestFirstRunVerbGuards(unittest.TestCase):
                 rc = inst.main(["apply"])                  # bare hand-run — no first-run token
             self.assertEqual(rc, 0)
             self.assertIn(inst._APPLY_NOT_FIRST_RUN, buf.getvalue())
-            # the one-time reconciles did NOT fire: the markers their recognizers key on are untouched
+            # the one-time reconciles did NOT fire: the README front + LICENSE the seeds would change are untouched
             with open(os.path.join(d, "README.md"), encoding="utf-8") as fh:
                 self.assertIn(inst._MARKETING_SEED_MARKER, fh.read(), "the README front was not replaced")
             self.assertTrue(os.path.isfile(os.path.join(d, "LICENSE")), "the LICENSE was not cleared")
-            with inst._redirect_root(d):
-                self.assertTrue(inst._root_is_construction(), "the construction CLAUDE.md was not swapped")
 
     def test_apply_with_first_run_token_runs_the_real_logic(self):
         # The token lets apply through to its real logic — proven by it reaching the not-confirmed refusal on an
@@ -2036,17 +1919,6 @@ class TestFirstRunVerbGuards(unittest.TestCase):
                 result = inst.retire(announce=lambda _s: None)
                 self.assertEqual(result["self_map"], "absent (nothing to re-derive)")
                 self.assertFalse(os.path.isfile(self_map.SELF_MAP_PATH))
-
-    def test_root_construction_check_degrades_on_a_non_text_file(self):
-        # The guard's "never block on doubt" promise: a binary/non-UTF-8 root CLAUDE.md must read as
-        # not-construction (so verify/retire pass through), not crash the verb.
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with open(os.path.join(d, "CLAUDE.md"), "wb") as fh:
-                fh.write(b"\xff\xfe\x00\x01 not valid utf-8")
-            with inst._redirect_root(d):
-                self.assertFalse(inst._root_is_construction(), "a non-text root file degrades, never raises")
-
 
 # ==== VERIFY + RETIRE ===============================================================
 
@@ -2710,10 +2582,13 @@ class TestGatherTeamRecommendation(unittest.TestCase):
 
 
 class TestInsertFloor(unittest.TestCase):
-    """The INSERT-on-arrival floor: append-when-absent, never a duplicate, sourced from the release."""
+    """The INSERT-on-arrival floor: append-when-absent, never a duplicate, sourced from the release's root
+    CLAUDE.md `floor` fence (#323)."""
     def _release_with_floor(self, d):
-        with open(os.path.join(d, inst._DEPLOYED_FLOOR_REL), "w", encoding="utf-8") as fh:
-            fh.write("# Your project runs on an Engine\n\nProject status block.\n")
+        import wiring
+        with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+            fh.write(wiring.fence_apply("", inst._FLOOR_FENCE,
+                     ["# Your project runs on an Engine", "", "Project status block."], style=wiring.MD_FENCE))
 
     def test_inserts_into_operator_guide_keeping_content(self):
         import wiring
@@ -2917,8 +2792,15 @@ class TestAugmentDemoRunsGreen(unittest.TestCase):
 
 class TestSeedProductVersion(unittest.TestCase):
     """The product-version seed (#516): a deployed repo gets its own product-version.json at first-run so the
-    release path cuts the PRODUCT once deployed. Seed-iff-absent; construction-belt protects the workshop;
+    release path cuts the PRODUCT once deployed. Seed-iff-absent; the home-repo belt protects the workshop;
     disclosed on an actual seed."""
+
+    def setUp(self):
+        # The belt keys on repo_identity.is_home_repo; default to a DEPLOYED repo (not home) so the seed logic
+        # runs. The belt itself has its own test (test_home_repo_belt_never_seeds).
+        p = mock.patch.object(inst.repo_identity, "is_home_repo", return_value=False)
+        p.start()
+        self.addCleanup(p.stop)
 
     def _pv(self, d):
         with open(os.path.join(d, "product-version.json")) as fh:
@@ -2933,12 +2815,11 @@ class TestSeedProductVersion(unittest.TestCase):
         self.assertTrue(said, "the seed is disclosed, never silent")
         self.assertIn("product-version.json", "\n".join(said))
 
-    def test_construction_root_belt_never_seeds(self):
-        # BELT: the construction-governance CLAUDE.md at root (the workshop, where the engine IS the product) ->
-        # never seed a product file; the engine cuts the engine version there.
-        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
-            with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
-                fh.write("# engine-template — construction governance\n\nbody\n")
+    def test_home_repo_belt_never_seeds(self):
+        # BELT: in the engine's OWN home repo (repo_identity.is_home_repo — the workshop, where the engine IS the
+        # product) -> never seed a product file; the engine cuts the engine version there.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.repo_identity, "is_home_repo", return_value=True):
             outcome = inst._seed_product_version(lambda t: None, inst.load_copy())
         self.assertEqual(outcome, "present")
         self.assertFalse(os.path.exists(os.path.join(d, "product-version.json")))

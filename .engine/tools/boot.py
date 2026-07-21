@@ -45,7 +45,7 @@ The boot pack is the AI's BRIEFING, not a message to the operator: it reaches th
 operator's screen (`additionalContext` is model-only), so the operator meets it only through
 the AI relaying it (the operator-presentation relay). `assemble_pack` builds the briefing — an
 AI-facing preamble, the present-marker line the AI is told to render FIRST (a short titled `Project status`
-block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in CLAUDE.deployed.md), the
+block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in the root CLAUDE.md floor fence), the
 INFORM-marked must-push items (governance alarms + a grounding-failure tell) the AI relays in plain words,
 then the full operator-toned dashboard for grounding. The present-marker line + must-push partition are a
 fixed RELAY over signals the substrates already detected — boot computes no new state. `render_dashboard` is
@@ -89,9 +89,10 @@ import standing_situation  # noqa: E402  ("where we are" derived live from GitHu
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
-# The card title a healthy boot always renders — byte-identical to the present-marker the floor names
-# in CLAUDE.deployed.md. The byte-identity is locked by test_boot.py; renaming it
-# here without the floor (or vice-versa) breaks the double-fault check, so the two move together.
+# The card title a healthy boot always renders — byte-identical to the present-marker the floor names in the
+# root CLAUDE.md floor fence (the committed adopter floor since #323). The byte-identity is locked by
+# test_boot.py; renaming it here without the floor (or vice-versa) breaks the double-fault check, so the two
+# move together.
 PRESENT_MARKER = "Project status"
 
 # The standing, AI-facing advertisement of the knowledge faculty (#92). A cold session — one with no work

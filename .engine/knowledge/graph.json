@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:acd06479919bf64502557103617b954422a714b19dfb6cd8d2620363b1789aad",
+        "fingerprint": "sha256:2f25e3a316095ad18531f19740a47fc7f612481beda72e2444d53f1c97ab6e09",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:7399e5441b48fedea2ff27ec8ba108916afb2ddd521e1a480a23d5b6e2999d88",
+        "fingerprint": "sha256:8978d4f7b82bedeab49c6830ae9fe0a05c0ff17be950a5501bbeae9f228c2925",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -1537,6 +1537,7 @@
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
+          "operation:engine-development",
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
@@ -1586,6 +1587,7 @@
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
+          "operation:engine-development",
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
@@ -2342,7 +2344,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:648b451814ef5baa008280fb2a0a154b886dda7aee7ecd3e8c8b96e80a4718bd",
+        "fingerprint": "sha256:ee9f4cc8aaeca728478e61c047c68d46d8a3ab3bf6b10ff7a02418a2908cf86c",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -2502,7 +2504,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f04fcf565d5194040547508e5d61baa0047843e76b02e73f303498b8fb2875b9",
+        "fingerprint": "sha256:18338b9fc789c180c3934b0ac517173111a656a8249e8ec8bcde4cb1c3f69a43",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3826,7 +3828,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:cd447258a12b47615ed7aa78340082113c5da68adbef1402ab6eff038de23669",
+        "fingerprint": "sha256:79aac76ae5cb955b9b7bcfb997cfb4b2d0410b8e34d1863234e205853493c10b",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4047,7 +4049,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:84845a30bc59e478c7fde27ff1d596d7c6ceecda85a1f34b0146afa6813ace25",
+        "fingerprint": "sha256:bf5e0ebc44149f586672d8f32819b0e0e58f7696244c95211436e4def08a7e9d",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4154,6 +4156,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:engine-development",
+      "name": ".engine/operations/engine-development.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-development",
+      "source": {
+        "fingerprint": "sha256:19e7f13a807dea952d529175433945ae79d6d5f580b8871bb9f0fba422498e1e",
+        "path": ".engine/operations/engine-development.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:engine-remove",
       "name": ".engine/operations/engine-remove.md",
       "owner": "core",
@@ -4227,7 +4249,7 @@
       },
       "slug": "external-contribution-issue",
       "source": {
-        "fingerprint": "sha256:0bccfc206aa018e8cc6d8ce71db93f1baefe27eb09a289d5a9ded36c5d7cdc08",
+        "fingerprint": "sha256:5ae04326e56576245f404eb8a35e67edfba846434a32b56ab68cc12d08244bf0",
         "path": ".engine/operations/external-contribution-issue.md"
       },
       "status": "active",
@@ -4247,7 +4269,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:f415e746dc5f7442593061fdb97656b5159fa6389525de1cd95f2ef422f581df",
+        "fingerprint": "sha256:f4cc7dfc2c2e4f02559d08ecf9b0c7d037b29f4b4eadfbd2b1c65d34152d8641",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4307,7 +4329,7 @@
       },
       "slug": "module-add",
       "source": {
-        "fingerprint": "sha256:c043f9ac6e58907435b1610fb1996ba6535719f48f54f0f898ffefe617ffa912",
+        "fingerprint": "sha256:e1b48cc15c43a23f1c89a77c3f8fbfb77164be2fc2f0d3c4708d008e8a8808c8",
         "path": ".engine/operations/module-add.md"
       },
       "status": "active",
@@ -4894,7 +4916,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:6be6e3c077ee6b1eb36ab4b86ec313faa2224ee10c2f36132f9377a04e02bcbc",
+        "fingerprint": "sha256:c148a471987efaeb39c9b93b4d23db38f540ad7e69050c52ac3783757688112c",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -5697,7 +5719,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:44e65d2e923a8f5bb4055c6dac1891c6c34951606989ff4dc98eb04cb9696108",
+        "fingerprint": "sha256:d5a699354d482466253b97090cbeb399549878134ea6bc77f183bf44ccc449d0",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5799,7 +5821,7 @@
       },
       "slug": "census_completeness_check",
       "source": {
-        "fingerprint": "sha256:22a8a8e56c571c338c1b56c639cb7f3d54e69723f22edb10ec13c58ad05d1453",
+        "fingerprint": "sha256:fb0b0018325ef2c00ce9ba4f6726e7a98c5b301c21749d91d5345dcb44f0dd3f",
         "path": ".engine/tools/census_completeness_check.py"
       },
       "status": "active",
@@ -5816,7 +5838,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:b1fb4e19ce09590361a3ffc23028ad5d92786a579e7ff55443a15dbdf0598267",
+        "fingerprint": "sha256:2cbddb15190d318951ca51952219e6f639e0bc87d61ee31dba0ab8b572110d9a",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -6020,7 +6042,7 @@
       },
       "slug": "contribute_issue",
       "source": {
-        "fingerprint": "sha256:497091876c28ccd892f816d1a29b2a6e534c89b370fc2108113530544abc00a7",
+        "fingerprint": "sha256:f0ebeb0079e996a63664d25e23a8bf4ca30a6e4b93d96781e2f832b95e53c673",
         "path": ".engine/tools/external_contribution/contribute_issue.py"
       },
       "status": "active",
@@ -6088,7 +6110,7 @@
       },
       "slug": "demo_594_upgrade_tail_reexec",
       "source": {
-        "fingerprint": "sha256:885155639b98d249c112dbf31c0510c68704323a7d204aca127802cebe5e686f",
+        "fingerprint": "sha256:f156ea2ddc3b473328c4c76f917969e30eb8c0fb576fead6c9d62196b0ba83d9",
         "path": ".engine/tools/demo_594_upgrade_tail_reexec.py"
       },
       "status": "active",
@@ -6105,7 +6127,7 @@
       },
       "slug": "demo_599_upgrade_reconcile",
       "source": {
-        "fingerprint": "sha256:a1f28e14e549aef1d3a88aea0d84d5ed36293edf3deec6181e38c49feb0c1517",
+        "fingerprint": "sha256:6305cadc03801200f2dfb703bf476d6a2307b92986f6af14410c97755ab83eb2",
         "path": ".engine/tools/demo_599_upgrade_reconcile.py"
       },
       "status": "active",
@@ -6498,6 +6520,23 @@
       "source": {
         "fingerprint": "sha256:1eb08bb6d4fae3797a8cfa55932115026aceba8569fffb8a58a328f063b1a968",
         "path": ".engine/tools/demo_map_reachability.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_mechanic_build",
+      "name": ".engine/tools/demo_mechanic_build.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_mechanic_build",
+      "source": {
+        "fingerprint": "sha256:0945f09e58b3b47c1a9fe1851750ff1f1084a576aa8215a2713adc984130f5fb",
+        "path": ".engine/tools/demo_mechanic_build.py"
       },
       "status": "active",
       "type": "tool"
@@ -6955,7 +6994,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:a792c4e010fcea4927f73590d32ed43fa31e9775aee2e4fadc8836a48629ef03",
+        "fingerprint": "sha256:c7a5fe4722bb41e89818a61d70566cbf074af055451486675cedf5e13e24075a",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -7023,7 +7062,7 @@
       },
       "slug": "greenfield_intake",
       "source": {
-        "fingerprint": "sha256:a32c7f9203292ac1e2aff6fb6f81aee6bd2f77b561182ee4670494cc4bccf61a",
+        "fingerprint": "sha256:6728058f439d2ff1bcba558410583f460fad7758cbc9c4c11222d74a0bb1eb77",
         "path": ".engine/tools/greenfield_intake.py"
       },
       "status": "active",
@@ -7125,7 +7164,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:dcf5e2121a5d8dc2b436de2c231972e0bf3a8513205f89a9b905f191a4fb84d0",
+        "fingerprint": "sha256:a1f573443690eca2da96cb55b402a995da165383a52bd6895e5fc25ee484e192",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7363,7 +7402,7 @@
       },
       "slug": "license_health",
       "source": {
-        "fingerprint": "sha256:5b9fcbd6c0869b0066cd22254901488de3c4ae936006400f10f691340733bc4b",
+        "fingerprint": "sha256:d408cd7ef8f827f780bc7846afeb915e3216814c7eb7d52df79c8023ce124614",
         "path": ".engine/tools/license_health.py"
       },
       "status": "active",
@@ -7421,6 +7460,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:mechanic_build",
+      "name": ".engine/tools/mechanic_build.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "mechanic_build",
+      "source": {
+        "fingerprint": "sha256:2659c96750aeadecede6f5777de3dd98ebdab5fe392044346e7f94b2a654aff5",
+        "path": ".engine/tools/mechanic_build.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:memory.__init__",
       "name": ".engine/tools/memory/__init__.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -7448,7 +7504,7 @@
       },
       "slug": "memory_pointer_public_safety_check",
       "source": {
-        "fingerprint": "sha256:22da29c61eb120d3ab22fdc5affe8b3544ad22e260a854e6171797c1494cfd50",
+        "fingerprint": "sha256:1e3d3f7a42c7dca2e9534e466c86d17e3462ea7f8c930bbb13785ac3d722cbd7",
         "path": ".engine/tools/memory_pointer_public_safety_check.py"
       },
       "status": "active",
@@ -7533,7 +7589,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:55ad1c09dab0ebe97d0d10930ac770b9985e5d5d93e43c22ce97e3982aee0533",
+        "fingerprint": "sha256:1b999c3631f484653786702a07e38622682022ee4e9d101c94127777319d63e5",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7550,7 +7606,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:5c5189728e4dea149f4e39461858d05f9d007f26509e55d235d522fe973db332",
+        "fingerprint": "sha256:503b225cb5a86f11167c92483e8885b3a43c728abffdb94ebe2e6c61b2d569d8",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7754,7 +7810,7 @@
       },
       "slug": "provider_parity_check",
       "source": {
-        "fingerprint": "sha256:56e86e82583c81207a46105eb9ce55fe9437d68ff5ed2bb771c6b01ff59ec53e",
+        "fingerprint": "sha256:14ee399d504813ea4de90e3968f361aafb2bff378d2574995d32e74853171c55",
         "path": ".engine/tools/provider_parity_check.py"
       },
       "status": "active",
@@ -8111,7 +8167,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:f7933c64164ad7b82a73592f3f47151e279237ca8162df813b4ab808f1e7a210",
+        "fingerprint": "sha256:08d4655f98b7c67ba004e7a17d5f8f16e5b0aae5faf3f0b5a679b5f6445ed6e8",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -8213,7 +8269,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:84f92e6d3733a83fd3da0db5fdfa66fcc5d6b2e97eefec2cddfda4c6cdd73005",
+        "fingerprint": "sha256:d98d5685a3ad0a47c84cf70dde5dbf88b4857bbd619722bb766446b7afd0da73",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -8485,7 +8541,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f926083d9ed93cda732e3dd677b7b32786b970ab11daee5c940aacaad1f7b126",
+        "fingerprint": "sha256:211c480d2dc536538f976cd0908996588a4d80dcad21b2aba3a046cb42ca8f51",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8604,7 +8660,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:d344aa8a7a34e97047c4b789276ab49d66468397b80a57985bcad033689d6c05",
+        "fingerprint": "sha256:2ce1c64d6bdf60dc7f724ef9103c00c7d7f79b0bffb6249e33ac8111c95da940",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -8706,7 +8762,7 @@
       },
       "slug": "test_conduct",
       "source": {
-        "fingerprint": "sha256:357dddb2be6dd217ad25ca4dbc4a60ee044d816999ed73ef8e12f634a8e25836",
+        "fingerprint": "sha256:d929fc9bf9be1ab42f76d32f5096feb67ab9137904d2c7f98bb03b3391b1760b",
         "path": ".engine/tools/test_conduct.py"
       },
       "status": "active",
@@ -8825,7 +8881,7 @@
       },
       "slug": "test_deployed_selftests",
       "source": {
-        "fingerprint": "sha256:f0f7067f057c8a6eda0a5ec8a3c70f66a2200899ee78ede1175d088d58c61b46",
+        "fingerprint": "sha256:b96a77c57f266f6c62b258070dd19b63824a7c087c9eb5d36a0f7a23f0dc0649",
         "path": ".engine/tools/test_deployed_selftests.py"
       },
       "status": "active",
@@ -9012,7 +9068,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:b5a213258d904d9e2cdec9560c6a1c211756e1288627cf0cf395252deaa89390",
+        "fingerprint": "sha256:0ae1e3699122c6da9238147c4cfbedc9087fc3fb234b86693647e8af7e5c3410",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",
@@ -9080,7 +9136,7 @@
       },
       "slug": "test_greenfield_intake",
       "source": {
-        "fingerprint": "sha256:caa356483bb2a1a2a079a9b7f9dc36f0f2c224560e4158c963b7df76942fe620",
+        "fingerprint": "sha256:ad4e411fe30b2c17506a5864866e5e530f71011fdf1e15252fcedb76f0781fc2",
         "path": ".engine/tools/test_greenfield_intake.py"
       },
       "status": "active",
@@ -9165,7 +9221,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:0dbadebe8dbe2e52700129fb762dcd2bc927ddca07c8d42f03e8a8529461e208",
+        "fingerprint": "sha256:18fb1804b9cc502bd4d0cef8fb186ebdc658e34f452e820bfbab9d39a0d20168",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9386,7 +9442,7 @@
       },
       "slug": "test_license_health",
       "source": {
-        "fingerprint": "sha256:021d588b5ba61a8b75d1c4303c51c8ac55f97a7723f5cfdeb01f30b6f9aaace2",
+        "fingerprint": "sha256:e86f26222e9d3639335e103605d3d50a7347d554b0b0d5fd9f433892b3faeef3",
         "path": ".engine/tools/test_license_health.py"
       },
       "status": "active",
@@ -9439,6 +9495,23 @@
       "source": {
         "fingerprint": "sha256:57c0943b8c7844312123d7479b16d8d0a53d83b0215909c0f3890e1bb78daf89",
         "path": ".engine/tools/memory/test_mcp_server.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_mechanic_build",
+      "name": ".engine/tools/test_mechanic_build.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_mechanic_build",
+      "source": {
+        "fingerprint": "sha256:6b0415f934a23b42880f0a04fd2864de5d6344af02a964b3bfff6e9a9e13c10e",
+        "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",
       "type": "tool"
@@ -9522,7 +9595,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:dba010575108e920ec10ddda7ebda4b03de7dee66965dab4fc338fab87258bab",
+        "fingerprint": "sha256:97bdf2aab2fe92b1e3fb5a2e3fb2adb0a42403b0269273996ec0bf0f16ff5272",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -10151,7 +10224,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:4197f6a7a5c4c7017b39aedb95f29796374150f56badc52db845a75558600a6a",
+        "fingerprint": "sha256:5816b9ac52c3cf6d012b7e808d8e2e93e806c3133c12054477f5c129be1ffa3e",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10525,7 +10598,7 @@
       },
       "slug": "upstream_clean_check",
       "source": {
-        "fingerprint": "sha256:568ac4852ac48b1db62945bd6d798a4b4842831622d63ecf271e23e5b06451d7",
+        "fingerprint": "sha256:1f7850525b6cc1ba395f66824baccd7c3e8fe865671c53d988a4ebab9479b674",
         "path": ".engine/tools/external_contribution/upstream_clean_check.py"
       },
       "status": "active",
@@ -10576,7 +10649,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:e84397b049ccba1598419209df20880341de115258a7a882ba42b5b3981dbe4e",
+        "fingerprint": "sha256:47c4157d38cf419312c0d807cb127f37e4ef6a4dd00f4a64b5c57934fdbf7b13",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -10593,7 +10666,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:7a3c2c754c8a5fffa2e10e13bdd0d2de7ffc6c2b60c9d82afb81546a880838fc",
+        "fingerprint": "sha256:f50f2c224ff9310eaadcaa600efc6157a52f042a1fe6c9b6b09a2cf9343cab49",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

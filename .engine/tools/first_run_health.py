@@ -209,7 +209,10 @@ def _git(root: str, *args: str) -> None:
 def _fixture(tmp: str, name: str, *, origin: str, home: str,
              tool_present: bool = True, floor_swapped: bool = False) -> str:
     """A throwaway committed git checkout with a set origin remote, an installed manifest recording `home`,
-    optionally the one-time setup tool, and either the construction or the deployed-floor root CLAUDE.md."""
+    optionally the one-time setup tool, and a placeholder root CLAUDE.md. The CLAUDE.md content is incidental —
+    detect_first_run_pending keys on the origin vs recorded home and the setup tool's presence, never the file's
+    text — so `floor_swapped` only varies a cosmetic label (a fresh copy inherits the committed floor either way
+    since #323; there is no distinct construction file)."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".engine", "tools"), exist_ok=True)
     _git(root, "init", "-q")
@@ -223,7 +226,7 @@ def _fixture(tmp: str, name: str, *, origin: str, home: str,
             fh.write("# the one-time setup tool (placeholder for the fixture)\n")
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
         fh.write("# Your project runs on an Engine\n" if floor_swapped
-                 else "# construction governance\n")
+                 else "# a fresh copy of the engine template\n")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "seed")
     return root

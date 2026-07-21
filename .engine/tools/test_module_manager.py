@@ -1020,15 +1020,18 @@ class TestMergeClaudeFloor(unittest.TestCase):
     FENCE = module_manager._FLOOR_FENCE
     STYLE = wiring.MD_FENCE
 
-    def _release(self, d, floor_text="# New floor\n\nProject status v2.\n", construction=True):
+    def _release(self, d, floor_text="# New floor\n\nProject status v2.\n"):
+        # Since #323 the release's root CLAUDE.md IS the fenced adopter floor — the source _merge_claude_floor
+        # reads (its `floor` fence body). floor_text=None models a pre-promotion release with no floor fence
+        # (its root file absent here → skipped).
         rel = os.path.join(d, "release")
         os.makedirs(rel, exist_ok=True)
         if floor_text is not None:
-            with open(os.path.join(rel, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
-                fh.write(floor_text)
-        if construction:
+            lines = floor_text.split("\n")
+            if lines and lines[-1] == "":
+                lines = lines[:-1]
             with open(os.path.join(rel, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-                fh.write("# engine-template — construction governance\n\nbuild notes\n")
+                fh.write(wiring.fence_apply("", self.FENCE, lines, style=self.STYLE))
         return rel
 
     def _write_local(self, live, text):
@@ -1050,7 +1053,9 @@ class TestMergeClaudeFloor(unittest.TestCase):
         self.assertIn(bottom, after)
         self.assertIn("Project status v2.", after)
         self.assertNotIn("old", after)
-        self.assertNotIn("construction governance", after)     # the release construction file never overlays
+        # Only the release fence's BODY was merged, never its markers — so the local file has exactly one
+        # well-formed floor fence, not a doubled/nested one.
+        self.assertEqual(after.count("BEGIN engine-managed block: floor"), 1)
 
     def test_no_local_fence_is_skipped_not_appended(self):
         # A pre-6a raw-floor (or any fence-less) CLAUDE.md is LEFT UNTOUCHED — never a duplicate floor.

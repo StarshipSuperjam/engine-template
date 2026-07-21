@@ -47,14 +47,7 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # .engine/tools for the sibling import below
-import memory_pointer_public_safety_check as _construction  # noqa: E402 — reuse the construction-marker constant
-
-# The engine's OWN template/construction repo carries this header in its root CLAUDE.md (removed at v1, never
-# in a deployed repo). There, the absence of a product spec is legitimate — the repo builds the engine, not a
-# product — so the nudge must no-op, exactly as the leftover-license offer no-ops here (the engine==product
-# carve-out). Reused from the canonical source, never re-literaled.
-_CONSTRUCTION_MARKER = _construction._CONSTRUCTION_MARKER
-_CLAUDE_MD_REL = "CLAUDE.md"
+import repo_identity  # noqa: E402  (is_home_repo — the home-repo identity seam; #323)
 
 # The product-design intake runbook — present iff the optional product-design module is installed, so the
 # `engine-design` command it drives actually exists. The module provides this path and nothing else does.
@@ -86,14 +79,12 @@ def detect_greenfield(cwd: "str | None" = None) -> "dict | None":
 
 
 def _is_construction_repo(root: str) -> bool:
-    """True iff `root` is the engine's own template/construction repo — its root CLAUDE.md carries the
-    construction-governance marker. Unreadable/absent CLAUDE.md → False (treat as a product repo, so the nudge
-    still helps a real greenfield project; boot only ever offers, never acts)."""
-    try:
-        with open(os.path.join(root, _CLAUDE_MD_REL), "r", encoding="utf-8", errors="replace") as fh:
-            return _CONSTRUCTION_MARKER in fh.read().lower()
-    except OSError:
-        return False
+    """True iff `root` is the engine's OWN home repo — its git origin equals its recorded home_repository
+    (repo_identity.is_home_repo; #323). There a missing product spec is legitimate — the repo builds the engine,
+    not a product — so the nudge no-ops, exactly as the leftover-license offer no-ops (the engine==product
+    carve-out). Fails TOWARD home when the origin can't be read, so an unplaceable repo is treated as home and
+    the nudge stays quiet; boot only ever offers, never acts."""
+    return repo_identity.is_home_repo(root)
 
 
 def _demo() -> int:
@@ -102,28 +93,41 @@ def _demo() -> int:
     RETURNS NON-ZERO on any mismatch (the falsification can fail). Mutation-free — every case runs against a
     throwaway temp root, so the real tree is never touched."""
     import shutil
+    import subprocess
     import tempfile
 
-    def _seed(files: dict) -> str:
+    HOME = "StarshipSuperjam/engine-template"
+
+    def _seed(files: dict, *, origin: str) -> str:
+        # The home-repo carve-out now keys on git origin == recorded home (repo_identity.is_home_repo), so each
+        # case is a throwaway git checkout with a set origin and a recorded home — a real falsification of the
+        # origin-keyed detector, not a marker string.
         d = tempfile.mkdtemp(prefix="engine-greenfield-demo-")
         for rel, body in files.items():
             path = os.path.join(d, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(body)
+        os.makedirs(os.path.join(d, ".engine"), exist_ok=True)
+        with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"home_repository": HOME}, fh)
+        subprocess.run(["git", "-C", d, "init", "-q"], capture_output=True, check=False)
+        if origin:
+            subprocess.run(["git", "-C", d, "remote", "add", "origin", origin], capture_output=True, check=False)
         return d
 
+    product = "https://github.com/adopter/their-product.git"   # origin != home -> a deployed repo
+    home = f"https://github.com/{HOME}.git"                     # origin == home -> the engine's own home
     cases = [
-        ("no-intake-installed", {}, lambda r: r is None),
-        ("installed-and-greenfield", {_INTAKE_REL: "x\n"}, lambda r: r is not None
+        ("no-intake-installed", {}, product, lambda r: r is None),
+        ("installed-and-greenfield", {_INTAKE_REL: "x\n"}, product, lambda r: r is not None
          and r.get("greenfield") is True and r.get("fingerprint") == _FINGERPRINT),
-        ("installed-with-a-description", {_INTAKE_REL: "x\n", _INDEX_REL: "x\n"}, lambda r: r is None),
-        ("engine-construction-repo", {_INTAKE_REL: "x\n", _CLAUDE_MD_REL: "# Construction governance\n"},
-         lambda r: r is None),
+        ("installed-with-a-description", {_INTAKE_REL: "x\n", _INDEX_REL: "x\n"}, product, lambda r: r is None),
+        ("engine-home-repo", {_INTAKE_REL: "x\n"}, home, lambda r: r is None),
     ]
     failures = []
-    for label, rels, ok in cases:
-        root = _seed(rels)
+    for label, rels, origin, ok in cases:
+        root = _seed(rels, origin=origin)
         try:
             result = detect_greenfield(root)
         finally:
@@ -137,8 +141,8 @@ def _demo() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO PASSED — the greenfield-intake detector stays silent when the intake isn't installed, offers "
-          "the nudge when the intake is installed but no description exists, and self-resolves once a "
-          "description is started.")
+          "the nudge in a deployed repo (origin != home) with the intake installed but no description, "
+          "self-resolves once a description is started, and no-ops in the engine's own home repo (origin == home).")
     return 0
 
 

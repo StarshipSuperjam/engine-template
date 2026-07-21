@@ -49,7 +49,7 @@ vocabulary (hook/mcp/ontology-entry/permission/gitignore), the part locked in mo
 per-type directive BODY is rendered for manifests that carry wires. The
 operator-reachable access path is the `/engine-parts` command (`.claude/skills/engine-parts/`), the
 plain-language "what is my engine made of" readout — it runs `show`, is auto-advertised by /engine-help,
-and is pointed at from getting-started.md and CLAUDE.deployed.md; `show` and the directly-openable
+and is pointed at from getting-started.md and the root CLAUDE.md floor; `show` and the directly-openable
 committed file remain the readout it renders (#400).
 """
 from __future__ import annotations

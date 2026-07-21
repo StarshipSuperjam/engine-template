@@ -53,8 +53,8 @@ repository already runs. If the release cannot be reached, the add reports that 
 asking. But the engine may also *offer* one: when an operator's request maps to a capability that an **installed
 optional package does not provide but an uninstalled one would**, offer to add that module via this same add
 path — say what it turns on and let the operator decide. This is always an **offer**, never a silent install:
-the operator's yes is what installs it, exactly as when they ask directly (the deployed floor,
-`CLAUDE.deployed.md`, carries this as a standing rule). The threshold is judgment, kept deliberately plain so it
+the operator's yes is what installs it, exactly as when they ask directly (the adopter floor — the root
+`CLAUDE.md` — carries this as a standing rule). The threshold is judgment, kept deliberately plain so it
 guides without a brittle rule: offer when the request **clearly** maps to what an uninstalled module is built
 for — a direct ask for its capability, or the same need coming up more than once — not on a faint keyword brush
 that would turn every mention into a prompt to install. When unsure, name the capability and ask, rather than

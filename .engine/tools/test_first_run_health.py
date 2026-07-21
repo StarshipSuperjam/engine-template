@@ -53,7 +53,8 @@ def _repo(tmp: str, name: str, *, origin: str, home: str | None = HOME,
         with open(os.path.join(root, ".engine", "tools", "instantiator.py"), "w", encoding="utf-8") as fh:
             fh.write("# placeholder setup tool\n")
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-        fh.write("# Your project runs on an Engine\n" if floor_swapped else "# construction governance\n")
+        fh.write("# Your project runs on an Engine\n" if floor_swapped
+                 else "# a fresh copy of the engine template\n")   # content is incidental; keyed on origin + tool
     if commit:
         _git(root, "add", "-A")
         _git(root, "commit", "-qm", "seed")

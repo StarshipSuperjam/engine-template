@@ -177,26 +177,19 @@ def findings(tier: str, root: str | None = None) -> list:
     for slug in sorted(codex_agents - claude_agents):
         miss("agent", slug, "Codex", f"the review persona '{slug}'")
 
-    # FLOORS
+    # FLOORS — since #323 the committed root CLAUDE.md/AGENTS.md ARE the fenced adopter floor (the separate
+    # .deployed.md files retired with the greenfield swap), so the one pair to check is the root pair.
     pairs = [("CLAUDE.md", "AGENTS.md")]
-    construction = os.path.isfile(os.path.join(base, "CLAUDE.deployed.md")) \
-        or os.path.isfile(os.path.join(base, "AGENTS.deployed.md"))
-    if construction:
-        pairs.append(("CLAUDE.deployed.md", "AGENTS.deployed.md"))
     for claude_floor, agents_floor in pairs:
         for present, absent in ((claude_floor, agents_floor), (agents_floor, claude_floor)):
             if os.path.isfile(os.path.join(base, present)) \
                     and not os.path.isfile(os.path.join(base, absent)):
                 miss("floor", absent, "one runtime only",
                      f"the instruction floor pair ({present} exists, {absent} is missing)")
-    # Floor CONTENT parity — the two legs a presence check cannot carry:
-    #   CONDUCT SET: every present floor must reference BOTH codes-of-conduct files. On the Claude
-    #   side that reference is the mechanical @import; on the Codex side it is the required-reading
-    #   instruction the conduct-loading ledger entry leans on — losing it silently severs a Codex
-    #   session's only route to the operator's conduct.
-    #   SWAP MARKER: in the construction repo, both construction floors must lead with the marker
-    #   heading the first-run swap keys on — losing it silently breaks the floor swap for every
-    #   generated repo.
+    # Floor CONTENT parity — the leg a presence check cannot carry. CONDUCT SET: every present floor must
+    # reference BOTH codes-of-conduct files. On the Claude side that reference is the mechanical @import; on the
+    # Codex side it is the required-reading instruction the conduct-loading ledger entry leans on — losing it
+    # silently severs a Codex session's only route to the operator's conduct.
     conduct_refs = (".engine/conduct/defaults.md", ".engine/conduct/operator.md")
     floor_files = {f for pair in pairs for f in pair}
     for floor_rel in sorted(floor_files):
@@ -215,14 +208,6 @@ def findings(tier: str, root: str | None = None) -> list:
                            f"standing conduct. Restore the reference (on the Claude floor the "
                            f"@import; on the Codex floor the required-reading instruction).",
                            validate.loc(path)))
-        if construction and floor_rel in ("CLAUDE.md", "AGENTS.md"):
-            first = next((ln for ln in text.splitlines() if ln.strip()), "")
-            if "construction governance" not in first.lower():
-                out.append(validate.finding(tier,
-                           f"'{floor_rel}' no longer leads with the construction-governance marker "
-                           f"heading — the first-run floor swap keys on it, so a generated repo "
-                           f"would keep the construction file instead of receiving its own floor. "
-                           f"Restore the marker in the leading heading.", validate.loc(path)))
     if not os.path.isfile(os.path.join(base, "AGENTS.md")) \
             and not os.path.isfile(os.path.join(base, "CLAUDE.md")):
         # Both floors gone at once: the pair legs above see no asymmetry, so this is the one shape
