@@ -616,7 +616,7 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
     live tree, an AI-authored plain-language impact statement (what changed · a note that consumers
     depend on it · why that reads breaking-or-additive), plus the behavioral-correlate marking. The
     break/no-break demonstration runs "where a behavioral correlate exists"; with
-    no acceptance-benchmark instrument built, none is available, so the marking is honest, not faked."""
+    no acceptance-benchmark instrument available, the marking is honest, not faked."""
     out: list[dict] = []
     for sub in _CONTRACT_GLOBS:
         live_dir = os.path.join(validate.ROOT, sub)
@@ -1030,8 +1030,8 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
 # --------------------------------------------------------------------------- release-PR body (legibility)
 def _gate_path_line(state: str, product: bool = False) -> str:
     """The legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never
-    alike. Only `sub-bar` is reachable today — no acceptance-benchmark instrument is built, so nothing measures
-    a release — but `passed`/`errored` are rendered here structurally so a future benchmark reads legibly
+    alike. Only `sub-bar` is reachable — no acceptance-benchmark instrument measures a release — but
+    `passed`/`errored` are rendered here structurally so a benchmark reads legibly
     rather than as a retrofit (the standing legibility invariant, not a one-of-three accident). `product` swaps
     the subject to 'this release' for a deployed repo's product cut (the sub-bar text is already neutral)."""
     subject = "this release" if product else "the engine"
@@ -1413,8 +1413,8 @@ def main(argv: list) -> int:
     pb.add_argument("--proposal", required=True, help="the proposal JSON written by `propose --json`")
     pb.add_argument("--applied", required=True, help="the result JSON written by `apply --json`")
     pb.add_argument("--gate-state", default="sub-bar", choices=["passed", "sub-bar", "errored"],
-                    help="the acceptance-benchmark outcome to render (only 'sub-bar' is reachable until the "
-                         "benchmark is built)")
+                    help="the acceptance-benchmark outcome to render (only 'sub-bar' is reachable while no "
+                         "benchmark measures a release)")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "propose":
