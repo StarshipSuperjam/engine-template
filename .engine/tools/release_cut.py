@@ -703,9 +703,12 @@ def _schema_ok(instance, schema_path: str) -> list[str]:
 
 
 def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict | None,
-          dry_run: bool) -> dict:
+          dry_run: bool, min_upgradeable_from: str | None = None) -> dict:
     """Record the chosen versions atomically. Returns a result dict (applied/refused + the proposed-vs-
-    applied record for traceability). Writes nothing on a raise-only violation or a validation failure."""
+    applied record for traceability). Writes nothing on a raise-only violation or a validation failure.
+    `min_upgradeable_from` (optional) records the clean-upgrade floor into engine.json; a malformed value is
+    refused fail-loud at the door (below), never persisted. When None, any prior floor is carried forward
+    unchanged (engine.json is copied byte-preserved)."""
     present = _present_modules()
     engine = module_coherence.load_engine_manifest()
     if engine is None:
@@ -731,6 +734,9 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     for mid, ver in targets.items():
         if not _valid_version(ver):
             bad_fmt.append(f"package '{mid}' version '{ver}' is not a valid version (expected like 1.2.0)")
+    if min_upgradeable_from is not None and not _valid_version(min_upgradeable_from):
+        bad_fmt.append(f"minimum-upgradeable-from '{min_upgradeable_from}' is not a valid version "
+                       f"(expected like 0.3.2) — a malformed floor would silently disable the upgrade guard")
     if bad_fmt:
         return {"applied": False, "reason": "invalid-version", "violations": bad_fmt,
                 "recovery": "use dotted-number versions, optionally with a -prerelease suffix (1.2.0, 1.0.0-rc1)."}
@@ -784,6 +790,8 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
             if mid in pkgs:
                 pkgs[mid] = ver
         new_engine["packages"] = pkgs
+        if min_upgradeable_from is not None:               # record/refresh the clean-upgrade floor when given;
+            new_engine["min_upgradeable_from"] = min_upgradeable_from   # else the dict copy carries any prior one
         errors += [f"engine.json: {m}" for m in _schema_ok(new_engine, ENGINE_SCHEMA)]
 
         # each CHANGED module manifest — mutate version only; unchanged capabilities are left untouched
@@ -1362,7 +1370,8 @@ def _cmd_apply(args) -> int:
                       f"proposal written by `propose --json`.", file=sys.stderr)
                 return 2
             proposal = validate.load_json(args.proposal)
-        result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
+        result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run,
+                       min_upgradeable_from=getattr(args, "min_upgradeable_from", None))
     ok = bool(result.get("applied")) or result.get("reason") == "dry-run"
     if args.json:
         print(json.dumps(result, indent=2))
@@ -1395,6 +1404,9 @@ def main(argv: list) -> int:
     pa.add_argument("--all", help="set every present package to this version (the first-cut / uniform case)")
     pa.add_argument("--package", action="append", help="id=version override for one package (repeatable)")
     pa.add_argument("--proposal", help="a proposal JSON from `propose` to enforce the confirmed floor against")
+    pa.add_argument("--min-upgradeable-from", dest="min_upgradeable_from",
+                    help="record the oldest engine release with a clean one-run upgrade path to this release "
+                         "(for example 0.3.2) into engine.json; omit to carry any prior floor forward unchanged")
     pa.add_argument("--dry-run", action="store_true", help="compute + validate but write nothing")
     pa.add_argument("--json", action="store_true")
     pb = sub.add_parser("pr-body", help="render the release pull-request body from a proposal + apply-result")

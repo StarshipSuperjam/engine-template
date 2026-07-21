@@ -1699,6 +1699,10 @@ _FIRST_RUN_ASSET_FILES = (
     # activity (a deployed repo cuts products), so this is maintainer build evidence, imported by nothing —
     # retires here; the permanent regression lives in test_release_cut.MigrationAccumulation.
     ".engine/tools/demo_599c_migration_accumulation.py",
+    # demo_599d: the clean-upgrade FLOOR is a construction-repo concern (engine-version cuts), so this behavioral
+    # falsification is maintainer evidence, imported by nothing — retires here; the permanent regression lives in
+    # test_module_manager.TestUpgradeFloorPreflight.
+    ".engine/tools/demo_599d_upgrade_floor.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",

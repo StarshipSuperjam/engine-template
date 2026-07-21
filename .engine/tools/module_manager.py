@@ -1862,6 +1862,38 @@ def _describe_wire(w: dict) -> str:
     return label
 
 
+def _below_floor_refusal(deployed_release: str | None, release_tree: str) -> str | None:
+    """The clean-upgrade floor preflight (#599 Slice 4). Returns a plain refusal reason when the DEPLOYED engine
+    is OLDER than the target release's recorded `min_upgradeable_from`, else None (proceed). Below the floor the
+    deployed engine's own already-shipped upgrade code predates the reconcile, so an automatic update cannot fully
+    tidy files renamed/removed since then — it would stall without opening a pull request. So refuse cleanly here,
+    pre-overlay, and route to the undo + staying on the current version. Fails OPEN (proceed) on anything that must
+    not block a legitimate update: an absent/unreadable target engine.json, a target that declares no floor, or a
+    deployed version that is absent, unparseable, or the 0.0.0-dev construction sentinel — a bad string never
+    coerces to 'below floor' (validate._ver_tuple would silently map it low). Single-homed: called from both
+    upgrade() and plan_upgrade() so the compare-and-refuse and its operator copy cannot drift."""
+    mf = os.path.join(release_tree, ".engine", "engine.json")
+    if not os.path.isfile(mf):
+        return None
+    try:
+        floor = (validate.load_json(mf) or {}).get("min_upgradeable_from")
+    except Exception:   # noqa: BLE001 — an unreadable target manifest never blocks; other gates handle it
+        return None
+    if not isinstance(floor, str) or not floor:   # absent, or a JSON-valid-but-mistyped floor -> proceed
+        return None
+    dep = str(deployed_release or "").strip()     # coerce: a non-string deployed version must never crash here
+    m = re.match(r"^(\d+\.\d+\.\d+)", dep)
+    if not m or m.group(1) == "0.0.0":            # absent, unparseable, or the dev/construction build -> proceed
+        return None
+    if validate._ver_tuple(dep) >= validate._ver_tuple(floor):
+        return None
+    return (f"This engine (release {dep}) is older than the oldest release that can update cleanly to this one "
+            f"({floor}). An automatic update from a version this old can't fully tidy up the files that were "
+            f"renamed or removed since then, so it would stop without opening a pull request. The engine is "
+            f"unchanged — stay on {dep} for now; a clean automatic path from a version this old isn't built yet. "
+            f"(If a previous update stopped half-applied, ask me to undo it.)")
+
+
 def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
                  available: str | None = None, target_ref: str | None = None) -> dict:
     """READ-ONLY upgrade impact preview: what an update WOULD change — the engine files it replaces or adds,
@@ -1923,6 +1955,11 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
                 release_tree = _fetch_release_tree(target_ref, tmp, repo=home)
             except Exception as exc:   # noqa: BLE001
                 return _preview_degrade(out, home, exc, target=target_ref)
+        # FLOOR PREFLIGHT (#599 Slice 4): if this engine is below the target's clean-upgrade floor, say so in the
+        # preview too — an update from a version this old would refuse, so the operator learns it before --confirm.
+        below = _below_floor_refusal(out["current"], release_tree)
+        if below:
+            return {**out, "refused": True, "status": "below-floor", "reason": below}
         # Read the release's manifests + capture the installed ones — the SAME reads upgrade() does, no writes.
         candidates = {}
         for mid in present_ids:
@@ -2152,6 +2189,11 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             cur = os.path.join(_modules_dir(mid), "manifest.json")
             old_by_id[mid] = validate.load_json(cur) if os.path.isfile(cur) else {}
         result["to"] = target_versions
+        # FLOOR PREFLIGHT (#599 Slice 4): refuse cleanly BEFORE any overlay if this engine is older than the
+        # target's clean-upgrade floor — a version this old can't reconcile cleanly and would stall without a PR.
+        below = _below_floor_refusal(engine.get("engine_release"), release_tree)
+        if below:
+            return {**result, "refused": True, "reason": below}
         # Capture the OLD engine-owned surface NOW — pre-overlay, with THIS (source) version's code: the old
         # `provides` globbed against the pristine deployed tree, UNIONED with the old FOUNDATION_INFRA (a code
         # constant only the pre-overlay process holds). The reconcile delete leg (in the tail) needs it to
@@ -3355,16 +3397,38 @@ def _git_status_paths(root: str) -> set:
     return paths
 
 
+def _git_deleted_paths(root: str) -> set:
+    """Repo-relative paths git reports as a DELETION of a tracked file (status 'D' in either column of
+    `git status --porcelain`). A staged or unstaged deletion of a tracked file is losslessly reversible — the
+    discard's `git checkout <branch>` restores it from HEAD, and the recovery point commits it first — so it is
+    NEVER operator work at risk. The reconcile's delete leg leaves a renamed-away OLD path here as a staged
+    deletion (a rename that also rewrote the file shows as `D`+`A`, not `R`), and it must not be mistaken for
+    the operator's own uncommitted work and refuse the undo (#599). Empty when git is unavailable."""
+    paths: set = set()
+    for line in (_git(root, "status", "--porcelain") or "").splitlines():
+        if len(line) < 4:
+            continue
+        if "D" in line[:2]:                    # 'D' in either status column — a tracked-file deletion
+            p = line[3:]
+            if " -> " in p:                    # defensive: a rename never carries 'D', but keep the new side
+                p = p.split(" -> ", 1)[1]
+            paths.add(p.strip().strip('"'))
+    return paths
+
+
 def _upgrade_footprint() -> set:
     """Every repo-relative path an upgrade's tail can WRITE — single-sourced so the discard's foreign-work
-    guard and the staged-update signal cannot drift from what an update actually touches. The overlay's own
-    membership (a module's `provides` files + module manifests + FOUNDATION_CODE) ∪ the wiring-seam target
-    files ∪ engine.json ∪ CODEOWNERS ∪ the keyed-merge floor files (CLAUDE.md/AGENTS.md) — the tail's floor
-    merge writes the last pair, which FOUNDATION_CODE deliberately carves out of the overlay set."""
-    paths = set(overlay_replace_paths())
+    guard cannot drift from what an update actually touches. Seeded from the RECONCILE DELIVER SET
+    (`engine_synced_paths`, project_retire=False): the overlay membership (a module's `provides` files +
+    module manifests + FOUNDATION_CODE) PLUS the `.engine/_fixtures/**` namespace the reconcile delivers PLUS
+    the five keyed/rendered foundation files (engine.json, CODEOWNERS, root CLAUDE.md/AGENTS.md, .gitignore) —
+    then the wiring-seam target files. Sourcing from the deliver set is what keeps a reconcile-delivered fixture
+    from reading as the operator's own work at discard time (#599: the pre-Slice-2a footprint knew only the
+    overlay copy-map, never the fixtures the reconcile now delivers). `project_retire=False` skips the
+    first-run-assets read so this never raises on the rollback path."""
+    manifests_by_id = {m.get("id"): m for _rel, m in module_coherence.discover_manifests()}
+    paths = set(engine_synced_paths(validate.ROOT, manifests_by_id, project_retire=False))
     paths.update(module_coherence.WIRING_TARGETS.values())
-    paths.update({module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS",
-                  _ROOT_CLAUDE_REL, _ROOT_AGENTS_REL})
     return paths
 
 
@@ -3439,7 +3503,10 @@ def _discard_staged_update(resync, transport) -> dict:
     root = validate.ROOT
     result: dict = {"state": "staged", "undone": False}
     # (a) GUARD — refuse if the operator has their OWN uncommitted work (anything the update didn't write).
-    foreign = sorted(_git_status_paths(root) - _upgrade_footprint())
+    # Tracked-file deletions are excluded: a staged/unstaged delete is losslessly restored by the branch
+    # switch below (and captured on the recovery point first), so a reconcile's renamed-away old path — or even
+    # the operator's own deletion — is never work at risk, and must not false-refuse the undo (#599).
+    foreign = sorted(_git_status_paths(root) - _upgrade_footprint() - _git_deleted_paths(root))
     if foreign:
         result["refused"] = True
         result["your_changes"] = foreign[:20]

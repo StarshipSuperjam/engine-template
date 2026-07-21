@@ -102,14 +102,19 @@ check it, rather than quietly waiting, because the home itself may be wrong.
 first, then applies its settings and re-checks consistency. If it stops partway, the working copy is changed
 but **nothing was opened for review or merged** — safe either way. `/engine-upgrade` shows both choices:
 - **Finish it** — `module_manager.py upgrade --confirm` **again**; the second run uses the just-installed
-  version's own logic to complete the stalled step. (If it keeps stopping, the version you're updating *to*
-  predates this finish-the-update fix; wait for a newer release and update to that.)
+  version's own logic to complete the stalled step.
 - **Undo it** — `module_manager.py rollback --confirm` puts the engine back the way it was. It **saves a
   recovery point** of your current state first (nothing is lost), **refuses** if you have unrelated unsaved
   work of your own (asking you to set it aside first), and puts back any saved memory the update changed.
 
 Bare `upgrade` reports a half-finished tree as *unfinished*, not "up to date", and bare `rollback` shows the
 same choice — so you can always tell where you stand.
+
+**Too old to update cleanly.** Before it changes anything (and in the preview), an update checks whether your engine
+is below the release's **clean-upgrade floor** — the oldest version proven to update to it in one clean pass. Below
+it the update **refuses and changes nothing**, names both versions, and says plainly to stay put for now (undoing
+any earlier half-applied update first): an engine that old carries earlier update code that predates the
+file-tidying machinery, so a clean automatic path from it isn't built yet. An honest stop, not a failure.
 
 **Undoing an update you've already merged.** This can't be undone locally — the engine never rewrites your main
 line. Instead its pull request is reverted (a normal reviewed change you merge — "reverting the pull request

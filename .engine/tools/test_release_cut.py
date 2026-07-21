@@ -342,6 +342,29 @@ class Apply(unittest.TestCase):
             self.assertEqual(t.engine()["engine_release"], "0.0.0-dev")
             self.assertEqual(t.module_version("core"), "0.0.0-dev")
 
+    def test_apply_records_upgrade_floor_and_carries_it_forward(self):
+        # #599 Slice 4: --min-upgradeable-from records the clean-upgrade floor into engine.json; a later cut
+        # that does not pass one carries the prior floor forward unchanged (engine.json is copied byte-preserved).
+        with _Tree({"core": _module("core")}) as t:
+            self.assertNotIn("min_upgradeable_from", t.engine())               # absent to start
+            r = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False, min_upgradeable_from="0.3.2")
+            self.assertTrue(r["applied"])
+            self.assertEqual(t.engine()["min_upgradeable_from"], "0.3.2")      # recorded
+            r2 = rc.apply("0.1.1", "0.1.1", {}, None, dry_run=False)           # no floor arg this cut
+            self.assertTrue(r2["applied"])
+            self.assertEqual(t.engine()["min_upgradeable_from"], "0.3.2")      # carried forward unchanged
+
+    def test_apply_refuses_a_malformed_upgrade_floor_and_writes_nothing(self):
+        # #599 Slice 4 (risk-gate): a malformed floor would coerce to a low tuple and silently disable the guard,
+        # so it is refused fail-loud at the door and nothing is written.
+        with _Tree({"core": _module("core")}) as t:
+            r = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False, min_upgradeable_from="0..3")
+            self.assertFalse(r["applied"])
+            self.assertEqual(r.get("reason"), "invalid-version")
+            self.assertTrue(any("minimum-upgradeable-from" in v for v in r.get("violations", [])))
+            self.assertEqual(t.engine()["engine_release"], "0.0.0-dev")        # untouched
+            self.assertNotIn("min_upgradeable_from", t.engine())
+
     def test_below_confirmed_floor_refused(self):
         # target 0.1.5 is ABOVE the current 0.1.0 (so raise-only passes) but BELOW the confirmed floor
         # 0.2.0 — this must be caught by the below-floor guard specifically, not raise-only.

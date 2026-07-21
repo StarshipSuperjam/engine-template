@@ -551,6 +551,14 @@ class TestDeclarationCensus(unittest.TestCase):
     flag (a pure addition never trips it). Binding the exact shipped set here makes any new declaration a
     visible, reviewable test edit instead of a quiet file drop."""
 
+    @unittest.skipUnless(
+        hcb._is_construction_root(ROOT),
+        "construction-repo drift canary: it pins the SOURCE's exact declaration set so a newly-authored declaration "
+        "is a visible test edit. It is scoped to the construction checkout because a deployed repo does not author "
+        "these declarations, and a deployed repo's fixture surface can differ from the source's (installed modules, "
+        "a fork-native product's own checks, accumulated state), so pinning the exact source set is not meaningful "
+        "there. A fresh deployed repo carries the same committed declarations; this guard is the honest scope, not a "
+        "claim that the set changes on deploy.")
     def test_exact_shipped_declaration_set(self):
         found = sorted(
             os.path.relpath(p, ROOT)

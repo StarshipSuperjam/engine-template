@@ -2179,6 +2179,93 @@ def _git(root, *args):
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
 
 
+class TestUpgradeFloorPreflight(unittest.TestCase):
+    """#599 Slice 4: the clean-upgrade floor refuses a below-floor engine cleanly (pre-overlay) and fails OPEN
+    on absent/dev/unparseable inputs so it never blocks a legitimate update. The refusal names both versions and
+    routes to the undo — it promises no unsupported recovery."""
+
+    def _release_tree(self, d, floor):
+        tree = os.path.join(d, "rel")
+        eng = {"engine_release": "9.9.9", "packages": {"base": "9.9.9"}, "identity": "solo"}
+        if floor is not None:
+            eng["min_upgradeable_from"] = floor
+        module_manager._write_json(os.path.join(tree, ".engine", "engine.json"), eng)
+        module_manager._write_json(os.path.join(tree, ".engine", "modules", "base", "manifest.json"),
+                                   {"id": "base", "version": "9.9.9", "status": "required",
+                                    "provides": {}, "depends": {}})
+        return tree
+
+    def test_below_floor_returns_a_refusal_naming_both_versions_and_routing_to_undo(self):
+        with tempfile.TemporaryDirectory() as d:
+            reason = module_manager._below_floor_refusal("0.2.0", self._release_tree(d, "0.3.2"))
+            self.assertIsNotNone(reason)
+            self.assertIn("0.2.0", reason)
+            self.assertIn("0.3.2", reason)
+            self.assertIn("engine is unchanged", reason.lower())
+            self.assertIn("undo", reason.lower())                      # routes to the real, built recovery
+            self.assertNotIn("re-instantiate", reason.lower())         # never the unsupported recovery
+            self.assertNotIn("re-create", reason.lower())
+
+    def test_at_or_above_floor_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            tree = self._release_tree(d, "0.3.2")
+            self.assertIsNone(module_manager._below_floor_refusal("0.3.2", tree))   # equal -> proceed
+            self.assertIsNone(module_manager._below_floor_refusal("0.4.0", tree))   # above -> proceed
+
+    def test_absent_floor_or_absent_manifest_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(module_manager._below_floor_refusal("0.1.0", self._release_tree(d, None)))  # no floor
+            self.assertIsNone(module_manager._below_floor_refusal("0.1.0", d))      # no .engine/engine.json at all
+
+    def test_dev_absent_or_unparseable_deployed_version_proceeds(self):
+        # validate._ver_tuple coerces junk to a low tuple; an explicit guard must stop that reading as below-floor.
+        with tempfile.TemporaryDirectory() as d:
+            tree = self._release_tree(d, "0.3.2")
+            for dep in ("0.0.0-dev", "0.0.0", "", None, "garbage", "not.a.version"):
+                self.assertIsNone(module_manager._below_floor_refusal(dep, tree), dep)
+
+    def test_non_string_version_values_do_not_crash(self):
+        # A JSON-valid but MISTYPED floor (or deployed version) — reachable via a hand-corrupted local manifest or
+        # a mis-cut remote release — must fail OPEN, never raise into a caller whose try has no except.
+        with tempfile.TemporaryDirectory() as d:
+            for floor in (5, ["0.3.2"], {"v": 1}, None):
+                self.assertIsNone(module_manager._below_floor_refusal("0.2.0", self._release_tree(d, floor)))
+            tree = self._release_tree(d, "0.3.2")
+            for dep in (5, 3.1, ["0.2.0"], {"v": 1}):
+                self.assertIsNone(module_manager._below_floor_refusal(dep, tree), dep)
+
+    def _deployed_root(self, d, version):
+        root = os.path.join(d, f"dep-{version}")
+        module_manager._write_json(os.path.join(root, ".engine", "engine.json"),
+                                   {"engine_release": version, "packages": {"base": version}, "identity": "solo",
+                                    "home_repository": "acme/engine-home"})
+        module_manager._write_json(os.path.join(root, ".engine", "modules", "base", "manifest.json"),
+                                   {"id": "base", "version": version, "status": "required",
+                                    "provides": {}, "depends": {}})
+        return root
+
+    def test_upgrade_and_preview_refuse_below_floor_before_any_overlay(self):
+        # STANDING integration coverage (plan item 4): the preflight must be WIRED into the mutating upgrade() and
+        # the read-only preview, refusing pre-overlay — not just correct as an isolated helper. A refactor that
+        # moved the check after the overlay, or dropped it from plan_upgrade, must fail here.
+        with tempfile.TemporaryDirectory() as d:
+            release = self._release_tree(d, "0.3.2")
+            deployed = self._deployed_root(d, "0.2.0")
+            with module_manager._redirect_root(deployed):
+                prev = module_manager.plan_upgrade(release_tree=release, target_ref="9.9.9", available="9.9.9")
+                self.assertTrue(prev.get("refused"))
+                self.assertEqual(prev.get("status"), "below-floor")
+                up = module_manager.upgrade(release_tree=release, opener=lambda *a, **k: None, backup=None)
+                self.assertTrue(up.get("refused"))
+                self.assertNotEqual(up.get("applied"), True)          # refused BEFORE any overlay/write
+                self.assertIn("0.3.2", up.get("reason") or "")
+                # an at/above-floor deployed engine is NOT refused by the floor
+                above = self._deployed_root(d, "0.3.2")
+            with module_manager._redirect_root(above):
+                ok = module_manager.plan_upgrade(release_tree=release, target_ref="9.9.9", available="9.9.9")
+                self.assertNotEqual(ok.get("status"), "below-floor")
+
+
 def _init_repo(root):
     """A throwaway git repo with the fixture engine committed as the pre-update baseline (branch `main`)."""
     _git(root, "init", "-b", "main")
@@ -2290,6 +2377,51 @@ class TestRollback(unittest.TestCase):
                 self.assertIn(must, fp)
             for target in module_coherence.WIRING_TARGETS.values():
                 self.assertIn(target, fp)
+
+    def test_footprint_covers_the_reconcile_delivered_fixtures(self):
+        # #599 Defect A: the Slice-2a reconcile delivers the `.engine/_fixtures/**` namespace (untracked adds),
+        # but the pre-Slice-2a footprint knew only the overlay copy-map — so a delivered fixture read as the
+        # operator's OWN work and `rollback` refused. Sourcing the footprint from the deliver set closes that.
+        # Falsifiable: the old `overlay_replace_paths()` footprint carried no fixtures, so this would fail on it.
+        fp = module_manager._upgrade_footprint()          # against the real construction tree (has fixtures)
+        self.assertTrue(any(p.startswith(".engine/_fixtures/") for p in fp),
+                        "the reconcile deliver set (.engine/_fixtures/**) must be inside the rollback footprint")
+
+    def test_undo_does_not_false_refuse_a_reconcile_renamed_away_tracked_file(self):
+        # #599 / arch-B1: the reconcile os.removes a renamed-away OLD path (no longer in the post-overlay
+        # manifest); a rename that also rewrote the file shows as a staged 'D', not an 'R'. A staged tracked-file
+        # deletion is losslessly reversible (the discard's branch checkout restores it, the recovery point commits
+        # it first), so the undo must NOT read it as the operator's own uncommitted work and refuse.
+        # Falsifiable: without excluding tracked deletions, the renamed-away path lands in `foreign` -> refusal.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+            renamed_away = ".engine/tools/base_renamed_away.py"        # an engine file the release renames away
+            with open(os.path.join(live, renamed_away), "w") as fh:
+                fh.write("# old name, tracked in the baseline; the release renames it away\n")
+            _init_repo(live)                                          # commit the baseline WITH the old file
+            _stage_a_stalled_update(live)                             # the release's manifest no longer names it
+            # RENAME + REWRITE: the release renames it to a NEW, dissimilar successor it DOES provide. Because the
+            # content differs, git does not collapse the pair into an 'R' (which would land on the in-footprint new
+            # path and pass anyway) — it shows a bare 'D' (old) + 'A' (new): the exact shape the delete-side fix
+            # must handle. The new path is provided, so it is in the footprint; the old path is not.
+            successor = ".engine/tools/base_renamed_new.py"
+            man_path = os.path.join(live, ".engine", "modules", "base", "manifest.json")
+            man = validate.load_json(man_path)
+            man["provides"]["tool"].append(successor)
+            module_manager._write_json(man_path, man)
+            with open(os.path.join(live, successor), "w") as fh:
+                fh.write("# the rewritten successor: entirely different body, so git sees D+A, not a rename R\n")
+            os.remove(os.path.join(live, renamed_away))               # the reconcile's delete leg (the old path)
+            _git(live, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+            with module_manager._redirect_root(live):
+                self.assertIn(renamed_away, module_manager._git_deleted_paths(live))       # the delete is seen
+                self.assertNotIn(renamed_away, module_manager._upgrade_footprint())        # and it's renamed away
+                res = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)
+        self.assertTrue(res.get("undone"), res)                       # the undo proceeds, not a false refusal
+        self.assertNotEqual(res.get("refused"), True, res)
 
     def test_memory_leg_restores_with_consent_and_never_override_after_the_code_is_back(self):
         # The staged discard's step (f): once engine.json is reverted, put the pre-update memory back — with
