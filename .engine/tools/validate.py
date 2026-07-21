@@ -1514,11 +1514,12 @@ def effective_policy_values(default: dict, override: dict, *, structural_keys, t
 
     PURE + fixture-testable: the merged value is static data, so a deterministic consumer (attention's
     ranking function) stays deterministic — the merge adds another recorded input; no clock, no IO. The
-    override is taken as DATA: this function does not read a file — the consumer (or the config-authoring step)
-    loads it. Findings are ordered by key (sorted) for a reproducible result. No data rule wires this in
-    core: the leg is built + fixture-tested, and its live consumer is a `custom/script` stale-key rule that
-    runs it on a committed override file when one is present — the config-authoring step provides that file's
-    path (the interface_resolution_findings / agent_coherence_findings precedent)."""
+    override is taken as DATA: this function does not read a file — the consumer loads it and passes it in.
+    Findings are ordered by key (sorted) for a reproducible result. No data rule wires this in core: the leg
+    is pure and fixture-tested, and it is consumed live by attention's `load_policy_values` (every ranking,
+    via the core merge — never re-implemented). A separate live `custom/script` stale-key rule classifies
+    saved overrides against the same inputs to surface them in plain operator language, but does not call this
+    function."""
     structural = set(structural_keys)
     effective = dict(default)
     findings = []
