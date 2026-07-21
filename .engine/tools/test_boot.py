@@ -155,6 +155,45 @@ class TestFirstRunOffer(unittest.TestCase):
         self.assertIn("turn my safety gate back on", dash)
 
 
+class TestHomeWorkshopGrounding(unittest.TestCase):
+    """#323: the home-development grounding — AI-facing, fires ONLY in the engine's own home repo, carries the
+    operative development discipline inline, and names the engine-development runbook. It must never enter the
+    operator relay (the machinery-out-of-operator-narration rule). The cap is pinned high so these content
+    assertions are isolated from tier-shedding (the shed behaviour is TestPackCapGuard's concern)."""
+    _HOME = {"present": True, "main": "/x", "home": "o/r", "own": "o/r"}
+
+    def _pack(self, home_workshop):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.first_run_health, "detect_home_workshop", return_value=home_workshop), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
+                 mock.patch.object(boot, "read_state",
+                                   return_value=({"schema_version": 1, "standing_situation": {},
+                                                  "integration_debt": {"open_count": 0}}, False)):
+                return boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_grounding_renders_in_the_home_repo(self):
+        pack = self._pack(self._HOME).lower()
+        self.assertIn("engine's own home repo", pack)
+        self.assertIn("engine-development.md", pack)   # names the runbook
+        self.assertIn("plan gate", pack)               # carries the operative discipline inline
+        self.assertIn("deliverable gate", pack)
+
+    def test_no_grounding_in_a_deployed_copy(self):
+        pack = self._pack(None).lower()
+        self.assertNotIn("engine's own home repo", pack)
+        self.assertNotIn("engine-development.md", pack)
+
+    def test_grounding_is_ai_facing_never_the_operator_relay(self):
+        # It self-labels for the assistant and is NOT one of the numbered must-relay lines (which sit under
+        # "relay each of these to the operator"). So it grounds the session without cluttering the operator's view.
+        pack = self._pack(self._HOME)
+        self.assertIn("for you, not the operator", pack)
+
+
 class TestProductLine(unittest.TestCase):
     """eADR-0026: the dashboard names what the engine builds ONLY when that is an external product (a recorded
     product_repository signal); a self-building deployment (no signal) gets no line, and the rendered slug is

@@ -132,6 +132,61 @@ class TestDetectFirstRunPending(unittest.TestCase):
         self.assertIsNone(first_run_health.detect_first_run_pending(cwd=plain))
 
 
+class TestDetectHomeWorkshop(unittest.TestCase):
+    # The strict-positive complement (#323): fires ONLY on a confirmed origin==home match, so boot surfaces the
+    # home-development grounding in the engine's own home and NOWHERE else. Marker-independent — it keys on git
+    # origin vs recorded home, never on the root CLAUDE.md content.
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def test_fires_in_the_workshop_where_origin_equals_home(self):
+        repo = _repo(self.tmp, "workshop", origin=f"https://github.com/{HOME}.git")
+        d = first_run_health.detect_home_workshop(cwd=repo)
+        self.assertIsNotNone(d)
+        self.assertTrue(d["present"])
+        self.assertEqual(d["own"], HOME)
+        self.assertEqual(d["home"], HOME)
+
+    def test_quiet_in_a_downstream_copy(self):
+        repo = _repo(self.tmp, "copy", origin="https://github.com/adopter/their-product.git")
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=repo))
+
+    def test_quiet_when_origin_cannot_be_read(self):
+        # STRICT positive (the deliberate opposite of is_home_repo's fail-toward-home): an unreadable origin is
+        # NOT confirmably home, so the overlay stays quiet — it must never point a repo with no engine-development
+        # runbook (a deployed copy) at that retired doc.
+        repo = _repo(self.tmp, "noorigin", origin="")
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=repo))
+
+    def test_quiet_when_home_is_absent(self):
+        repo = _repo(self.tmp, "nohome", origin=f"https://github.com/{HOME}.git", home=None)
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=repo))
+
+    def test_quiet_on_a_corrupt_manifest(self):
+        repo = _repo(self.tmp, "corrupt", origin=f"https://github.com/{HOME}.git")
+        with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=repo))
+
+    def test_a_case_and_git_skewed_home_origin_still_fires(self):
+        repo = _repo(self.tmp, "skew", origin="git@github.com:starshipsuperjam/Engine-Template.git")
+        self.assertIsNotNone(first_run_health.detect_home_workshop(cwd=repo))
+
+    def test_unresolvable_checkout_degrades_quietly(self):
+        plain = os.path.join(self.tmp, "notgit")
+        os.makedirs(plain, exist_ok=True)
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=plain))
+
+    def test_home_and_copy_are_mutually_exclusive(self):
+        # A placed checkout is home XOR a downstream copy — the two detectors never both fire.
+        home = _repo(self.tmp, "home2", origin=f"https://github.com/{HOME}.git")
+        copy = _repo(self.tmp, "copy2", origin="https://github.com/adopter/their-product.git")
+        self.assertIsNotNone(first_run_health.detect_home_workshop(cwd=home))
+        self.assertIsNone(first_run_health.detect_first_run_pending(cwd=home))
+        self.assertIsNone(first_run_health.detect_home_workshop(cwd=copy))
+        self.assertIsNotNone(first_run_health.detect_first_run_pending(cwd=copy))
+
+
 class TestIsDownstreamCopy(unittest.TestCase):
     # The shared, injectable, normalized predicate both callers (show branch + boot detector) run through.
     def test_none_own_slug_is_never_a_copy(self):

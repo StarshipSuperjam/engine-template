@@ -5697,7 +5697,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:0de52de2ff08caaaeefb58e16eda05bcc77acb3c045a2c98f40282470353c72f",
+        "fingerprint": "sha256:44e65d2e923a8f5bb4055c6dac1891c6c34951606989ff4dc98eb04cb9696108",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6955,7 +6955,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:3779ef7f4dc902e293aa37e30d09d302c1adc0bd9e12a5b06c72c4a93d2dc2f7",
+        "fingerprint": "sha256:a792c4e010fcea4927f73590d32ed43fa31e9775aee2e4fadc8836a48629ef03",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -8485,7 +8485,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:5e87eddd122b5e90882024051afc1a46b6bd85d8f607ba716be43b802a5c238b",
+        "fingerprint": "sha256:f926083d9ed93cda732e3dd677b7b32786b970ab11daee5c940aacaad1f7b126",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9012,7 +9012,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:6eb9c1a0cbb14e0f19a81512305a960c726de95ea055445360d06911cfb95992",
+        "fingerprint": "sha256:b5a213258d904d9e2cdec9560c6a1c211756e1288627cf0cf395252deaa89390",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",

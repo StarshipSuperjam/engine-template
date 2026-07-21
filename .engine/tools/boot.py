@@ -1164,6 +1164,15 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
     try:
+        # The home-workshop signal (#323): the examined main checkout IS the engine's own home (git origin ==
+        # recorded home). OFFLINE, READ-ONLY. Strict-positive (fires only on a confirmed origin==home match),
+        # the complement of the first-run copy signal above — the two are mutually exclusive. Assemble_pack
+        # renders it as an AI-facing grounding line pointing the session at the engine-development runbook;
+        # a deployed copy never sees it (origin != home, and the runbook is retired from a copy anyway).
+        home_workshop = first_run_health.detect_home_workshop()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        home_workshop = None
+    try:
         # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
@@ -1328,6 +1337,10 @@ def gather_signals(session_id: str | None = None) -> dict:
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
         "first_run": first_run,
+        # the home-workshop signal (#323): this checkout IS the engine's own home (origin == recorded home), or
+        # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
+        # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
+        "home_workshop": home_workshop,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
@@ -2258,6 +2271,24 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
     out.append(modes.describe_explore_scope())
     out.append("")
+
+    # The home-workshop grounding (#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
+    # own home repo (origin == recorded home); a deployed project never sees it. It carries the operative
+    # development discipline inline — not merely a pointer — so a home session grounds on it even before opening
+    # the runbook, and it names the engine-development runbook for the full record. Self-labelled AI-facing so it
+    # never enters the operator relay (the machinery-out-of-operator-narration rule): the operator sees the AI's
+    # behaviour (plan gate, PR, deliverable gate), not this instruction. The runbook path appears only inside
+    # this larger sentence, never as a bare string literal — the file is a retired first-run asset, and a
+    # standalone constant equal to its exact path would trip the first-run reference-closure check.
+    if s.get("home_workshop"):
+        out.append(
+            "GROUNDING (for you, not the operator — a deployed project never sees this): you are in the engine's "
+            "OWN HOME repo, where the Engine itself is developed (a project that runs on the Engine receives it "
+            "as updates; here its machinery IS the work). Develop through the reviewed gate — every change is a "
+            "pull request against protected `main`, cold-context audited before you build it (the plan gate) and "
+            "again before merge (the deliverable gate), reaching main only through the maintainer's merge. The "
+            "full runbook is `.engine/operations/engine-development.md`; read it to ground before building.")
+        out.append("")
 
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
     # knowledge-faculty advertisement (#92), the surface-catalog recognition slice (D-309 / #495), the
