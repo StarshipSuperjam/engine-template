@@ -33,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (ROOT/ENGINE_DIR + paths)
 import boot               # noqa: E402  (the derived repo coordinates)
+import repo_identity      # noqa: E402  (is_home_repo — the retire home-repo belt, #323)
 import module_coherence   # noqa: E402  (the present modules + their versions)
 import module_catalog     # noqa: E402  (the shared optional-module catalog reader)
 import module_manager     # noqa: E402  (remove() — the delete-unselected reuse; derive_uv_groups)
@@ -75,10 +76,19 @@ _ALREADY_SET_UP = ("This project is already set up — first-time setup only run
 # operator back there. The flag itself is internal machinery, so the copy never mentions it.
 _APPLY_NOT_FIRST_RUN = ("First-time setup runs through the setup walkthrough, not by hand — run /engine-setup, "
                         "which sets a project up or tells you it's already done. Nothing was changed.")
-# verify/retire refuse while the root CLAUDE.md is still the engine's construction file (the workshop, or a
-# generated repo whose setup has not finished). {what} = "check for consistency" / "tidy up".
-_WORKSHOP_NO_SETUP = ("This is the workshop where the engine is built — first-time setup never runs here, so "
-                      "there's nothing to {what}. Nothing was changed.")
+# verify/retire are steps of the one-time setup lifecycle: like `apply`, they run only through the setup
+# walkthrough (which passes the --first-run token), never a bare hand-run. Token-gated — NOT a
+# construction-marker check — so a bare run refuses in the workshop AND in a fresh copy whose setup hasn't
+# finished. (The marker the old guard read is being retired: after the floor promotion a fresh copy carries
+# the deployed floor, not the construction file, so `_root_is_construction()` would no longer catch it.)
+# {what} = "Checking setup for consistency" / "Tidying up the one-time setup files".
+_LIFECYCLE_HAND_RUN = ("{what} runs through the setup walkthrough, not by hand — run /engine-setup, which sets "
+                       "a project up or tells you it's already done. Nothing was changed.")
+# The retire home-repo belt (#323): retire irreversibly self-deletes the setup tooling, so beyond the token it
+# also refuses in the engine's OWN home repo (git origin == recorded home), where a tokened hand-run would
+# otherwise delete the engine's own instantiator/tests/demos. Read on-disk origin, failing TOWARD refusing.
+_LIFECYCLE_HOME_REPO = ("This is the engine's own home repository, so the one-time setup cleanup never runs "
+                        "here — it would delete the engine's own tooling. Nothing was changed.")
 _EMPTY_CATALOG_LINE = ("There are no optional add-ons to choose yet — the essentials are already included, "
                        "and I'll set those up when you confirm.")
 _TIER_PROMPT = (
@@ -1703,6 +1713,11 @@ _FIRST_RUN_ASSET_FILES = (
     # falsification is maintainer evidence, imported by nothing — retires here; the permanent regression lives in
     # test_module_manager.TestUpgradeFloorPreflight.
     ".engine/tools/demo_599d_upgrade_floor.py",
+    # #323 Slice 1: the home-repo scope-seam falsification — the two public-safety scope guards (the vault-pointer
+    # leak guard + the demo census) now key on git origin == recorded home, not a CLAUDE.md marker. Maintainer
+    # build evidence over the real check surfaces, imported by nothing (the permanent regressions live in
+    # test_repo_identity + each guard's own delegation test); retires here so it does not travel.
+    ".engine/tools/demo_home_repo_seam.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",
@@ -2676,14 +2691,14 @@ def _finish_demo() -> int:
         with _redirect_root(tmp):
             rc_apply, out_apply = _run(["apply"])             # bare apply → no-op, points back to the walkthrough
             rc_token, out_token = _run(["apply", "--first-run"])  # the walkthrough's token lets apply through
-            rc_verify, out_verify = _run(["verify"])          # workshop verify → refuse
-            rc_retire, out_retire = _run(["retire"])          # workshop retire → refuse (the dangerous one)
+            rc_verify, out_verify = _run(["verify"])          # bare verify → refuse (no --first-run token)
+            rc_retire, out_retire = _run(["retire"])          # bare retire → refuse (the dangerous one)
             tool_alive = os.path.isfile(os.path.join(tmp, ".engine", "tools", "instantiator.py"))
             still_construction = _root_is_construction()
         bare_apply_noop = (rc_apply == 0 and _APPLY_NOT_FIRST_RUN in out_apply)
         token_reaches_apply = (_APPLY_NOT_FIRST_RUN not in out_token and "hasn't been confirmed" in out_token)
-        verify_refused = ("workshop where the engine is built" in out_verify)
-        retire_refused = ("workshop where the engine is built" in out_retire)
+        verify_refused = ("not by hand" in out_verify)
+        retire_refused = ("not by hand" in out_retire)
         print(f"    → bare apply changed nothing and sent you back to setup ({bare_apply_noop}); the setup "
               f"walkthrough's run still goes through ({token_reaches_apply}).")
         print(f"    → bare verify refused ({verify_refused}); bare retire refused ({retire_refused}) and the "
@@ -3572,11 +3587,12 @@ def main(argv: list) -> int:
         # The consistency check. A hard finding pauses (exit 1) with a plain explanation + the two next
         # actions; clean is exit 0. The standing review-gate surfacing is boot's, so verify run on its own
         # leaves the gate status to the start-of-session check rather than re-checking GitHub here.
-        # FIRST-RUN GUARD (#297): refuse while the root CLAUDE.md is still the construction file — the workshop,
-        # or a generated repo whose setup has not finished. A real first-run verify runs only after apply
-        # swapped the floor in, so this never blocks a legitimate run.
-        if _root_is_construction():
-            print(_WORKSHOP_NO_SETUP.format(what="check for consistency"))
+        # FIRST-RUN GUARD (#297, #323): a step of the one-time setup lifecycle — token-gated exactly like
+        # `apply`, so a bare hand-run refuses in the workshop AND in a fresh copy whose setup hasn't finished.
+        # The walkthrough passes --first-run; see _LIFECYCLE_HAND_RUN for why this is a token, not a marker or
+        # an origin check.
+        if "--first-run" not in argv:
+            print(_LIFECYCLE_HAND_RUN.format(what="Checking setup for consistency"))
             return 0
         res = verify()
         return 1 if res.get("paused") else 0
@@ -3584,11 +3600,21 @@ def main(argv: list) -> int:
         # The tidy-up: refuses (exit 1) on an inconsistent setup — the irreversible self-delete never runs on
         # a broken setup; otherwise removes the one-time setup files, re-derives the saved information, and
         # confirms completion (exit 0).
-        # FIRST-RUN GUARD (#297): refuse while the root CLAUDE.md is still the construction file. This is the
-        # highest-severity case — a bare retire in the workshop would self-delete the REAL instantiator, tests,
-        # demos, and setup skill. A real first-run retire runs only after apply swapped the floor in.
-        if _root_is_construction():
-            print(_WORKSHOP_NO_SETUP.format(what="tidy up"))
+        # FIRST-RUN GUARD (#297, #323): the highest-severity verb — a bare retire would irreversibly
+        # self-delete the REAL instantiator, tests, demos, and setup skill. TWO belts, each failing TOWARD
+        # refusing, so neither is ever the sole thing permitting the delete:
+        #   1. the --first-run token — a bare hand-run refuses in the workshop AND in a fresh copy pre-setup
+        #      (the token is carried only by the legitimate walkthrough);
+        #   2. the home-repo belt — retire never runs in the engine's OWN home repo (git origin == recorded
+        #      home), so even a tokened hand-run in the workshop cannot self-delete the engine's tooling. It
+        #      reads the ON-DISK origin (never an env var) and fails TOWARD refusing when it can't place the
+        #      repo, so it only ever ADDS a guard on the delete — the legitimate first-run in a real copy
+        #      (origin != home) passes it.
+        if "--first-run" not in argv:
+            print(_LIFECYCLE_HAND_RUN.format(what="Tidying up the one-time setup files"))
+            return 0
+        if repo_identity.is_home_repo(validate.ROOT):
+            print(_LIFECYCLE_HOME_REPO)
             return 0
         res = retire()
         return 1 if res.get("refused") else 0

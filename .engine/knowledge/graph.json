@@ -4267,7 +4267,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:6455202451e4abeb7c96e2370e400f516d97c1584e687c2f12b998e4b421c724",
+        "fingerprint": "sha256:fca4ffba61bcf6c6343f786d2db96a7f92cbdfc07221a009177d686fa6fb4cbf",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -5799,7 +5799,7 @@
       },
       "slug": "census_completeness_check",
       "source": {
-        "fingerprint": "sha256:df127af3c758680a5b4473c0c8b8d8219ba455c9d8a8d14c613120cd918583b9",
+        "fingerprint": "sha256:22a8a8e56c571c338c1b56c639cb7f3d54e69723f22edb10ec13c58ad05d1453",
         "path": ".engine/tools/census_completeness_check.py"
       },
       "status": "active",
@@ -6435,6 +6435,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_home_repo_seam",
+      "name": ".engine/tools/demo_home_repo_seam.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_home_repo_seam",
+      "source": {
+        "fingerprint": "sha256:f4b16244e8cc74b84eff0de8c335a1371dff66ba175b9ec4980f0bcead83e7d1",
+        "path": ".engine/tools/demo_home_repo_seam.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_hook_runner",
       "name": ".engine/tools/demo_hook_runner.py",
       "owner": "core",
@@ -7023,7 +7040,7 @@
       },
       "slug": "hard_check_bite_check",
       "source": {
-        "fingerprint": "sha256:f2727cca7b40bda000dfebbff3d8fea8fa0d91b84da562d2105be8a6d48f1603",
+        "fingerprint": "sha256:e3c1f44eabe7301b5d16492523d5fad8595bb32b4d08542dba6a314392b6c9bb",
         "path": ".engine/tools/hard_check_bite_check.py"
       },
       "status": "active",
@@ -7108,7 +7125,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:f94cd69c6a7419139b6a5726a03263c4813d98c12a85c5388bf888206a665c70",
+        "fingerprint": "sha256:1d637b408424950361809c1dcd208a4a9556992112de2a51a4f8fb65d7e16b6a",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7431,7 +7448,7 @@
       },
       "slug": "memory_pointer_public_safety_check",
       "source": {
-        "fingerprint": "sha256:72572b49b0d833a5df7192d7b78849e93e333bbf18ce345d84409c8da6f9a087",
+        "fingerprint": "sha256:22da29c61eb120d3ab22fdc5affe8b3544ad22e260a854e6171797c1494cfd50",
         "path": ".engine/tools/memory_pointer_public_safety_check.py"
       },
       "status": "active",
@@ -7516,7 +7533,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9d4a5746564406008a76418a3e929430fc1c774ca66c9d8c129e540af255e739",
+        "fingerprint": "sha256:55ad1c09dab0ebe97d0d10930ac770b9985e5d5d93e43c22ce97e3982aee0533",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7892,6 +7909,23 @@
       "source": {
         "fingerprint": "sha256:85ef34224ac42c48f5c0c22db644dd3cad23fd59477de5ba9095e47f91224ebe",
         "path": ".engine/tools/repo_behavior.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:repo_identity",
+      "name": ".engine/tools/repo_identity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "repo_identity",
+      "source": {
+        "fingerprint": "sha256:1d04a928ed1d6ff043cce7b4a5a43ca6468a78583548e9dc9f921861341cacda",
+        "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
       "type": "tool"
@@ -8553,7 +8587,7 @@
       },
       "slug": "test_census_completeness",
       "source": {
-        "fingerprint": "sha256:c261f302eeee25191ee2635dbbd224ac98764a35e731d85de00f55baa1ccd212",
+        "fingerprint": "sha256:5e3b42c9661a02d623f3b3a6e05864e01f39c5d038ab9ef9f929c0576db6b745",
         "path": ".engine/tools/test_census_completeness.py"
       },
       "status": "active",
@@ -8893,7 +8927,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:a6b1303c96e9c4ea714ac74183523239222b826b8019fc419a105271c0155d17",
+        "fingerprint": "sha256:579da3fc3f17c2d73567b312f3e2f6ae43afca6fbd4cf4d7b8d9f936e61812e1",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -8978,7 +9012,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:ed421e2d964bbd935777376e75dd561d6604583949c7793b2c01d099e31259f0",
+        "fingerprint": "sha256:6eb9c1a0cbb14e0f19a81512305a960c726de95ea055445360d06911cfb95992",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",
@@ -9063,7 +9097,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:1b7a36ca5652a55492123b179c42f19e0e870556efbb6037cd31b8eaf7f2e335",
+        "fingerprint": "sha256:a3dd1cfcc00ad95ec5c20d793913b6146cb175b3c653f330db4755418017858b",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -9131,7 +9165,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:43c0bbd28320f33596cbb6f0814f2936549509375b0e8cd50f33b0bc8e67854d",
+        "fingerprint": "sha256:0dbadebe8dbe2e52700129fb762dcd2bc927ddca07c8d42f03e8a8529461e208",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9420,7 +9454,7 @@
       },
       "slug": "test_memory_pointer_public_safety",
       "source": {
-        "fingerprint": "sha256:25d575820a4d861175af90cded95fccceca1923e6f3528a585f029650b8482b2",
+        "fingerprint": "sha256:8fe8b13ed618251ec708bf276c11c8843f7c80e4c6f288629a7c3e019c7308e7",
         "path": ".engine/tools/test_memory_pointer_public_safety.py"
       },
       "status": "active",
@@ -9830,6 +9864,23 @@
       "source": {
         "fingerprint": "sha256:b32b27a61d833a0c16c954466becb8e67eb3b06946800a84680e55386786f3d4",
         "path": ".engine/tools/test_repo_behavior.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_repo_identity",
+      "name": ".engine/tools/test_repo_identity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_repo_identity",
+      "source": {
+        "fingerprint": "sha256:3db9d1cc7a505de5fc8dfbe8e8d5a5d4450c54f036c6ce29aff048c97cd2b819",
+        "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
       "type": "tool"
@@ -10253,7 +10304,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f3bb0ff206bee5942cddd8893d638dba6f2b98ab23b78d04eda2689e81c19762",
+        "fingerprint": "sha256:4a558aafdc6bb1613c29ed07ee6349635b87ba35e53718d9798a9796bcfcc7ae",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

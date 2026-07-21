@@ -65,6 +65,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import repo_identity  # noqa: E402  (the dependency-light home-repo identity seam; slug/home primitives re-exported below)
 import wiring     # noqa: E402  (the wiring library: is_applied per directive for the forward wiring leg)
 import hooks      # noqa: E402  (the block-eligible invariant registry the block-budget leg checks)
 import modes      # noqa: E402  (modes declares its explore write-gate block; the consumer assembles it)
@@ -250,70 +251,20 @@ def load_engine_manifest():
     return validate.load_json(path) if os.path.isfile(path) else None
 
 
-def home_repository() -> str | None:
-    """The engine's HOME repository slug (`owner/repo`) recorded in the manifest — the single coordinate for
-    where the engine fetches its own updates from AND where a fork-native deployment escalates a contribution
-    to (schema: engine.v1.json `home_repository`). `None` when the manifest is absent or records no/blank home.
-    A present-but-MALFORMED manifest RAISES (loud), via `load_engine_manifest` -> `validate.load_json` — this
-    preserves the fail-loud commitment that `module_manager._home_repository` (which delegates here) and its
-    callers `overlay_disclosure.is_deployed` / `release_cut` rely on: a corrupt manifest must not be silently
-    read as "no home". A caller that must not crash on a corrupt manifest degrades LOCALLY (the
-    external-contribution submit flow wraps this call so a malformed home falls to its strict full check)."""
-    engine = load_engine_manifest() or {}
-    home = engine.get("home_repository")
-    return home if isinstance(home, str) and home.strip() else None
-
-
-def normalize_slug(slug: str | None) -> str | None:
-    """A GitHub `owner/repo` slug normalized for equality — strip surrounding whitespace and a trailing slash,
-    case-fold (GitHub slugs are case-insensitive), and drop a trailing `.git`. `None`/blank -> `None`. This is
-    the ONE slug-normalizer the contribution-home comparison uses; it mirrors `instantiator._norm`'s
-    strip/casefold/.git discipline and adds the trailing-slash strip. Kept here so the home/own comparison is
-    single-homed rather than re-implemented per call site."""
-    if not isinstance(slug, str):
-        return None
-    s = slug.strip().rstrip("/").casefold()
-    if s.endswith(".git"):
-        s = s[:-4]
-    return s or None
-
-
-def slug_eq(a: str | None, b: str | None) -> bool:
-    """True iff two `owner/repo` slugs are the SAME repository, compared as EXACT normalized full slugs (never
-    a repo-name-only match). Safety-load-bearing: it is the switch that lets the engine's own source travel to
-    the engine's home, so a loose match (name-only, substring) would let engine code ride into a look-alike
-    third-party repo. `None` on either side is never equal (an unconfirmed home never satisfies it)."""
-    na, nb = normalize_slug(a), normalize_slug(b)
-    return na is not None and na == nb
-
-
-_READ_HOME = object()  # sentinel: "no home passed -> read THIS repo's home", distinct from a passed home of None
-
-
-def is_downstream_copy(own_slug: str | None, home_slug: str | None = _READ_HOME) -> bool:
-    """True iff a repo is a DOWNSTREAM copy of the engine — its recorded update home is a DIFFERENT
-    repository than its own origin `own_slug`. This is the READ-ONLY, injectable, normalized sibling of
-    `overlay_disclosure.is_deployed()`, purpose-built for first-run detection (#353), and the ONE place the
-    downstream-copy rule lives so its two callers (the instantiator `show` branch and the boot detector)
-    cannot drift:
-      - both slugs are PARAMETERS. `own_slug` is always the caller's (never resolved here). `home_slug` is
-        the caller's too: OMIT it to have THIS repo's recorded `home_repository()` read fail-soft (the `show`
-        branch), or PASS the EXAMINED checkout's home — INCLUDING an explicit `None` for an absent home (the
-        boot detector) — and it is used verbatim. The `_READ_HOME` sentinel distinguishes "not passed" from a
-        passed `None`, so a caller that read an absent home never silently falls back to this repo's home.
-      - the compare is `slug_eq`-normalized (casefold / `.git` / trailing-slash), so an SSH-vs-HTTPS or
-        case-skewed origin never reads as "different".
-      - SAFE, fail-toward-quiet: returns False (NOT a copy) whenever the home is absent/blank/unreadable OR
-        `own_slug` is None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet —
-        a consumer never nags a repo it cannot positively place. A MALFORMED manifest read here degrades to
-        False (this predicate must never crash its read-only caller), unlike the fail-LOUD `home_repository()`
-        the update path deliberately relies on — the reason this is a distinct predicate from `is_deployed`."""
-    if home_slug is _READ_HOME:
-        try:
-            home_slug = home_repository()
-        except Exception:  # noqa: BLE001 — a corrupt manifest degrades to "not a copy"; never crash the caller
-            return False
-    return bool(home_slug and own_slug and not slug_eq(home_slug, own_slug))
+# ---- home-repo identity primitives: single-homed in `repo_identity`, re-exported here ----------------
+# These moved to the dependency-light `repo_identity` module so the lean HARD CI safety checks
+# (memory-pointer-public-safety, census-completeness, hard-check-bite) can gate on the home-repo signal
+# WITHOUT importing this module's modes/close/hooks lifecycle machinery into a `pull_request_target`-adjacent
+# path. Re-exported under their long-standing `module_coherence.<name>` names so every existing caller
+# (module_manager, first_run_health, release_cut, external_contribution/submit, instantiator) is unaffected,
+# and the identity rule stays single-homed — no parallel copy to drift. `load_engine_manifest` (above) stays
+# here: it is this module's general engine-manifest reader, distinct from the identity seam. `home_repository`
+# preserves its fail-LOUD-on-malformed contract (via `validate.load_json` in `repo_identity`).
+home_repository = repo_identity.home_repository
+normalize_slug = repo_identity.normalize_slug
+slug_eq = repo_identity.slug_eq
+is_downstream_copy = repo_identity.is_downstream_copy
+_READ_HOME = repo_identity._READ_HOME
 
 
 # ---- what may travel in a contribution back to the ENGINE'S OWN HOME (issue #556) -----------------

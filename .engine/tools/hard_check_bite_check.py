@@ -57,6 +57,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (finding.v1, run_unit, REGISTRY, ROOT, CHECK_DIR)
+import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home recognizer, #323)
 
 _FIXTURES_REL = os.path.join(".engine", "_fixtures")
 # The closed kinds drive against a single fixture by a path/data target; custom/script is covered by its three
@@ -72,11 +73,11 @@ _CS_PROPERTY = "no reachable failure path outside the construction repository"
 # must carry it alongside the named variables, so this class of declaration can no more be minted casually
 # than the other two.
 _REQ_PROPERTY = "the aimed bite is witnessable only with a live repository connection"
-# The construction recognizer — the same marker (and lowercased read) the two construction-scoped checks'
-# own `_is_construction_repo()` gates on (census_completeness_check / memory_pointer_public_safety_check),
-# so the harness and the checks agree on what "the construction repo" is. Keyed on the PASSED root (unlike
-# the checks, which deliberately read the real root) so a test can drive both branches.
-_CONSTRUCTION_MARKER = "construction governance"
+# The home recognizer is the shared origin==home seam (repo_identity.is_home_repo, #323) — the SAME signal the
+# two home-scoped checks' own `_is_construction_repo()` gates on, so the harness and the checks can never
+# disagree about what "the home repo" is (a disagreement would let a check no-op in a copy while the harness
+# still demanded its bite — a false red). See _is_construction_root below; keyed on the PASSED root so a test
+# can drive both branches (the live run passes validate.ROOT).
 
 
 def _load(path: str):
@@ -212,14 +213,14 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
 
 
 def _is_construction_root(root: str) -> bool:
-    """True iff `root`'s CLAUDE.md is the construction-governance body — the same marker and lowercased read as
-    the construction-scoped checks' own gate, but keyed on the passed root so tests can drive both branches (the
-    live run passes validate.ROOT). No/unreadable CLAUDE.md reads as not-construction, mirroring the checks."""
-    try:
-        with open(os.path.join(root, "CLAUDE.md"), encoding="utf-8") as fh:
-            return _CONSTRUCTION_MARKER in fh.read().lower()
-    except Exception:  # noqa: BLE001 — no/unreadable CLAUDE.md -> not the construction repo
-        return False
+    """True iff `root` is the engine's OWN home repo — its git origin equals the recorded home_repository, via
+    the shared `repo_identity.is_home_repo` seam (#323). This is the SAME signal the two home-scoped checks'
+    `_is_construction_repo()` gate on, so the harness honors a construction-scoped exemption in EXACTLY the
+    repos where those checks no-op — the two can never disagree (the pre-#323 marker read diverged from the
+    re-keyed checks in a fresh copy that still carried the marker but had its own origin). Keyed on the passed
+    root so tests can drive both branches; the live run passes validate.ROOT. An unreadable origin/home fails
+    TOWARD home, matching the checks' own fail-direction (both then treat an unplaceable repo as home)."""
+    return repo_identity.is_home_repo(root)
 
 
 def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list | None":

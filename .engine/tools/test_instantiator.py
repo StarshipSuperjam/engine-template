@@ -1730,19 +1730,20 @@ class TestConstructionClaudeRecognizer(unittest.TestCase):
         self.assertFalse(inst._is_construction_claude(mentions))
 
     def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
-        # The floor-swap recognizer and EVERY construction-scoped check must agree on what "the construction
-        # CLAUDE.md" is, or one could swap/act on a file another still treats as the construction repo. Four
-        # copies of the marker exist (self-contained per-tool, so extraction never forces a guarded-file edit);
-        # this binds them all so they cannot silently drift — a drift would make a construction-scoped check
-        # no-op in the construction repo (fail OPEN, the worst direction). #424 U13c adds census_completeness;
-        # #512 adds the bite-harness copy (whose drift would let the checker-of-checkers excuse a broken
-        # construction-scoped check here, the same worst direction).
+        # The "construction governance" marker constant is byte-bound across the tools that still READ it, so a
+        # marker reader cannot silently drift. #323 re-keyed the three home-scoped CHECKS — memory_pointer,
+        # census, AND the bite-harness (hard_check_bite) — onto the shared origin==home seam
+        # (repo_identity.is_home_repo), so none of them reads this marker any more; the bite-harness dropped its
+        # constant entirely. The still-LIVE marker readers are the floor-swap recognizer
+        # (inst._is_construction_claude, via inst._CONSTRUCTION_CLAUDE_MARKER) and license_health /
+        # greenfield_intake (which import memory_pointer_public_safety_check._CONSTRUCTION_MARKER) — those two
+        # constants must stay byte-identical or a floor swap and a leftover-LICENSE/brownfield read could
+        # disagree about the same file. census retains its constant only as a retired-in-the-next-slice binding
+        # (no reader); it is pinned here so it can't quietly diverge before removal.
         import memory_pointer_public_safety_check as sentinel
         import census_completeness_check as census
-        import hard_check_bite_check as hcb
         self.assertEqual(inst._CONSTRUCTION_CLAUDE_MARKER, sentinel._CONSTRUCTION_MARKER)
         self.assertEqual(census._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
-        self.assertEqual(hcb._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
 
 
 class TestSeedDeployedFloor(unittest.TestCase):
@@ -1925,7 +1926,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d), contextlib.redirect_stdout(buf):
                 rc = inst.main(["verify"])
             self.assertEqual(rc, 0)
-            self.assertIn("workshop where the engine is built", buf.getvalue())
+            self.assertIn("not by hand", buf.getvalue())
 
     def test_verify_runs_after_setup_swapped_the_floor(self):
         import contextlib, io
@@ -1934,9 +1935,9 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d):
                 _finished_fixture(d)                        # full apply ran → root CLAUDE.md is the deployed floor
                 with contextlib.redirect_stdout(buf):
-                    rc = inst.main(["verify"])
+                    rc = inst.main(["verify", "--first-run"])   # the walkthrough's token lets the real run through
             self.assertEqual(rc, 0)
-            self.assertNotIn("workshop where the engine is built", buf.getvalue(),
+            self.assertNotIn("not by hand", buf.getvalue(),
                              "a real first-run verify is not blocked by the guard")
 
     def test_retire_refuses_in_the_workshop_and_deletes_nothing(self):
@@ -1948,7 +1949,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             with inst._redirect_root(d), contextlib.redirect_stdout(buf):
                 rc = inst.main(["retire"])
             self.assertEqual(rc, 0)
-            self.assertIn("workshop where the engine is built", buf.getvalue())
+            self.assertIn("not by hand", buf.getvalue())
             self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                             "a bare retire in the workshop must not self-delete the real setup tool")
 
@@ -1958,12 +1959,46 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             buf = io.StringIO()
             with inst._redirect_root(d):
                 _finished_fixture(d)
+                _make_deployed(d)                               # a real copy (origin != home) — not the workshop
                 with contextlib.redirect_stdout(buf):
-                    rc = inst.main(["retire"])
+                    rc = inst.main(["retire", "--first-run"])   # the walkthrough's token lets the real run through
             self.assertEqual(rc, 0)
-            self.assertNotIn("workshop where the engine is built", buf.getvalue())
+            self.assertNotIn("not by hand", buf.getvalue())
             self.assertFalse(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                              "a real first-run retire tidies the one-time setup tool away")
+
+    def test_retire_refuses_without_the_token_even_after_the_floor_swap(self):
+        # #323: post-swap the root is the DEPLOYED floor, so the retired construction-marker guard would have
+        # let a bare retire self-delete the setup tooling. The token guard does not — a bare hand-run refuses
+        # and deletes nothing, in a fresh copy pre-tidy exactly as in the workshop.
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)                        # deployed floor in place, NOT the construction file
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["retire"])              # bare — no --first-run token
+            self.assertEqual(rc, 0)
+            self.assertIn("not by hand", buf.getvalue())
+            self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                            "a bare retire must refuse even after the floor swap, not self-delete the tooling")
+
+    def test_retire_refuses_in_the_home_repo_even_with_the_token(self):
+        # #323 home-repo belt: retire never self-deletes in the engine's OWN home repo (git origin == recorded
+        # home), even carrying the --first-run token — the second belt beyond the token, both failing toward
+        # refusing. A tokened hand-run in the workshop must change nothing.
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                _make_deployed(d, origin="https://github.com/StarshipSuperjam/engine-template.git")  # origin == home
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["retire", "--first-run"])
+            self.assertEqual(rc, 0)
+            self.assertIn("home repository", buf.getvalue())
+            self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                            "retire must refuse in the home repo and delete nothing, even with the token")
 
     def test_retire_rederives_the_self_map_when_the_tree_carries_one(self):
         # #513: retire re-derives the wiring map beside the knowledge graph, so a deployed repo ships a map
@@ -2026,6 +2061,24 @@ def _finished_fixture(tmp, handle="octocat"):
     inst._plant_first_run_assets(tmp)
     inst.confirm([], "solo", engine_release="1.0.0", handle=handle)
     return inst._finish_apply(tmp)
+
+
+def _make_deployed(tmp, *, origin="https://github.com/adopter/their-product.git",
+                   home="StarshipSuperjam/engine-template"):
+    """Make the fixture read as a real DEPLOYED copy: a git origin that DIFFERS from the recorded
+    home_repository, so repo_identity.is_home_repo() is False and retire's home-repo belt (#323) lets the
+    legitimate first-run cleanup proceed. Pass origin == home to model the WORKSHOP, which the belt refuses."""
+    subprocess.run(["git", "-C", tmp, "init", "-q"], capture_output=True)
+    subprocess.run(["git", "-C", tmp, "remote", "add", "origin", origin], capture_output=True)
+    mpath = os.path.join(tmp, ".engine", "engine.json")
+    if os.path.isfile(mpath):
+        with open(mpath, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    else:
+        manifest = {}
+    manifest["home_repository"] = home
+    with open(mpath, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
 
 
 class TestVerify(unittest.TestCase):
@@ -2319,7 +2372,7 @@ class TestFinishCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
-                rc = inst.main(["verify"])
+                rc = inst.main(["verify", "--first-run"])
             self.assertEqual(rc, 0)
 
     def test_verify_verb_exits_one_on_a_hard_finding(self):
@@ -2327,14 +2380,15 @@ class TestFinishCli(unittest.TestCase):
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
                 inst.wiring.apply(inst._ORPHAN_WIRE)
-                rc = inst.main(["verify"])
+                rc = inst.main(["verify", "--first-run"])
             self.assertEqual(rc, 1, "a hard finding makes the verify verb exit non-zero")
 
     def test_retire_verb_completes_on_clean(self):
         with tempfile.TemporaryDirectory() as d:
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
-                rc = inst.main(["retire"])
+                _make_deployed(d)                               # a real copy (origin != home) — not the workshop
+                rc = inst.main(["retire", "--first-run"])
             self.assertEqual(rc, 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
 

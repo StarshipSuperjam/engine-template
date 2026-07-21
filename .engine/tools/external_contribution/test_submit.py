@@ -400,10 +400,11 @@ class TestEngineHomeNarrowing(unittest.TestCase):
 
     def test_malformed_home_degrades_to_the_strict_full_check_not_a_crash(self):
         # A corrupt manifest makes the real home_repository() RAISE; submit() must degrade LOCALLY to the strict
-        # full check (never relax on a home it could not confirm), not crash the contribution flow.
-        import module_coherence as _mc
+        # full check (never relax on a home it could not confirm), not crash the contribution flow. home_repository
+        # reads the manifest through repo_identity._manifest now (module_coherence re-exports the accessor).
+        import repo_identity
         from unittest import mock
-        with mock.patch.object(_mc, "load_engine_manifest", side_effect=ValueError("bad json")):
+        with mock.patch.object(repo_identity, "_manifest", side_effect=ValueError("bad json")):
             r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
                               head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                               run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,

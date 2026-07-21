@@ -10,6 +10,7 @@ from __future__ import annotations
 import glob as _glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,30 @@ LIVE_FIXTURES = os.path.join(ROOT, ".engine", "_fixtures")
 CHECK_DIR = os.path.join(ROOT, ".engine", "check")
 RULE_PATH = os.path.join(ROOT, ".engine", "check", "hard-check-bite.json")
 CLOSED_KINDS = sorted(k for k in validate.REGISTRY if k != "custom/script")
+
+# #323: _is_construction_root now reads the shared origin==home seam, so a fixture root is PLACED by its git
+# origin + recorded home (not a CLAUDE.md marker). HOME_URL -> the home repo; ADOPTER_URL -> a downstream copy.
+HOME_SLUG = "StarshipSuperjam/engine-template"
+HOME_URL = f"https://github.com/{HOME_SLUG}.git"
+ADOPTER_URL = "https://github.com/adopter/their-product.git"
+
+
+def _git(root: str, *args: str) -> None:
+    subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
+
+
+def _placed_root(origin: "str | None", home: str = HOME_SLUG) -> str:
+    """A throwaway git checkout with an `origin` remote (omitted when None) and a manifest recording `home`, so
+    `repo_identity.is_home_repo(root)` can place it. `origin=None` leaves the origin unreadable -> fails toward
+    home (the safe direction the checks and the harness share)."""
+    root = tempfile.mkdtemp()
+    _git(root, "init", "-q")
+    if origin:
+        _git(root, "remote", "add", "origin", origin)
+    os.makedirs(os.path.join(root, ".engine"), exist_ok=True)
+    with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump({"engine_release": "0.0.0", "home_repository": home}, fh)
+    return root
 
 
 def _live_hard_script_rules() -> list:
@@ -434,10 +459,9 @@ class TestFailedBiteApplicability(unittest.TestCase):
             _write(os.path.join(fdir, name), json.dumps(data))
         return fix
 
-    def _root(self, claude_md: "str | None") -> str:
-        root = tempfile.mkdtemp()
-        if claude_md is not None:
-            _write(os.path.join(root, "CLAUDE.md"), claude_md)
+    def _root(self, *, origin: "str | None") -> str:
+        root = _placed_root(origin)
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         return root
 
     def _cover(self, fix: str, root: str, extra_env: "dict | None" = None):
@@ -450,30 +474,33 @@ class TestFailedBiteApplicability(unittest.TestCase):
 
     def test_construction_scoped_yields_loud_na_outside_the_construction_repo(self):
         fix = self._fixture({"construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."}})
-        found = self._cover(fix, self._root("# my project\n\nA deployed repo's own floor.\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
         self.assertTrue(any("NOT APPLICABLE HERE" in f["message"] for f in found), found)
 
     def test_construction_scoped_is_inert_in_the_construction_repo(self):
         fix = self._fixture({"construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."}})
-        found = self._cover(fix, self._root("# x — construction governance body\n"))
+        found = self._cover(fix, self._root(origin=HOME_URL))
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_construction_scoped_wrong_property_is_rejected_hard(self):
         fix = self._fixture({"construction-scoped.json": {"property": "only-runs-here", "reason": "lazy"}})
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(any(f["severity"] == "hard" and "only admissible reason" in f["message"]
                             for f in found), found)
 
-    def test_missing_root_claude_md_reads_as_not_construction(self):
+    def test_unreadable_origin_reads_as_home_so_the_exemption_is_inert(self):
+        # #323 fail-direction: a root whose git origin can't be read is treated as HOME (is_home_repo fails
+        # toward home) — the SAME direction the checks' own gate takes, so harness and checks never disagree.
+        # The construction-scoped exemption is therefore inert here and the failed bite stands as a hard finding.
         fix = self._fixture({"construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."}})
-        found = self._cover(fix, self._root(None))
-        self.assertTrue(any("NOT APPLICABLE HERE" in f["message"] for f in found), found)
+        found = self._cover(fix, self._root(origin=None))
+        self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_requires_env_missing_locally_yields_loud_soft_note(self):
         fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
                                                "env": ["GITHUB_TOKEN"], "reason": "test."}})
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
         self.assertTrue(any("NOT WITNESSED HERE" in f["message"] and "GITHUB_TOKEN" in f["message"]
                             for f in found), found)
@@ -481,32 +508,32 @@ class TestFailedBiteApplicability(unittest.TestCase):
     def test_requires_is_ignored_in_ci(self):
         fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
                                                "env": ["GITHUB_TOKEN"], "reason": "test."}})
-        found = self._cover(fix, self._root("# my project\n"), extra_env={"GITHUB_ACTIONS": "true"})
+        found = self._cover(fix, self._root(origin=ADOPTER_URL), extra_env={"GITHUB_ACTIONS": "true"})
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_requires_env_present_falls_through_to_the_failed_bite(self):
         fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
                                                "env": ["GITHUB_TOKEN"], "reason": "test."}})
-        found = self._cover(fix, self._root("# my project\n"), extra_env={"GITHUB_TOKEN": "x"})
+        found = self._cover(fix, self._root(origin=ADOPTER_URL), extra_env={"GITHUB_TOKEN": "x"})
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_requires_malformed_env_list_is_rejected_hard(self):
         fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
                                                "env": "GITHUB_TOKEN", "reason": "not a list"}})
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(any(f["severity"] == "hard" and "must name the environment variables" in f["message"]
                             for f in found), found)
 
     def test_requires_wrong_property_is_rejected_hard(self):
         fix = self._fixture({"requires.json": {"property": "needs-the-internet",
                                                "env": ["GITHUB_TOKEN"], "reason": "lazy"}})
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(any(f["severity"] == "hard" and "only admissible reason" in f["message"]
                             for f in found), found)
 
     def test_non_object_declaration_is_rejected_hard_not_a_crash(self):
         fix = self._fixture({"construction-scoped.json": ["not", "an", "object"]})
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(any(f["severity"] == "hard" and "not a JSON object" in f["message"]
                             for f in found), found)
 
@@ -516,7 +543,7 @@ class TestFailedBiteApplicability(unittest.TestCase):
         _write(os.path.join(fdir, "expect.json"),
                json.dumps({"severity": "hard", "message_contains": "token-this-unit-never-produces"}))
         _write(os.path.join(fdir, "construction-scoped.json"), "{not valid json")
-        found = self._cover(fix, self._root("# my project\n"))
+        found = self._cover(fix, self._root(origin=ADOPTER_URL))
         self.assertTrue(any(f["severity"] == "hard" and "is unreadable" in f["message"]
                             for f in found), found)
 
@@ -526,7 +553,7 @@ class TestFailedBiteApplicability(unittest.TestCase):
         fix = self._fixture({
             "construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."},
             "requires.json": {"property": hcb._REQ_PROPERTY, "env": ["GITHUB_TOKEN"], "reason": "test."}})
-        found = self._cover(fix, self._root("# x — construction governance body\n"))
+        found = self._cover(fix, self._root(origin=HOME_URL))
         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
         self.assertTrue(any("NOT WITNESSED HERE" in f["message"] for f in found), found)
 
@@ -540,7 +567,7 @@ class TestFailedBiteApplicability(unittest.TestCase):
         env = {k: v for k, v in os.environ.items()
                if k not in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "GITHUB_ACTIONS", "CI")}
         with mock.patch.dict(os.environ, env, clear=True):
-            found = hcb._cover_script_instance(rule, fix, self._root("# my project\n"), "hard")
+            found = hcb._cover_script_instance(rule, fix, self._root(origin=ADOPTER_URL), "hard")
         self.assertTrue(any(f["severity"] == "hard" for f in found), found)
         self.assertFalse(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found), found)
 

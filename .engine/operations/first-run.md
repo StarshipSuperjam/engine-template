@@ -53,12 +53,12 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    resume from where it left off. When the steps are done, show a plain summary of what was set up and anything still left
    for the operator (for example, finishing the review gate later).
 6. **Check it all fits together — and pause if not.** With the steps done, run
-   `python3 .engine/tools/instantiator.py verify`. This confirms the installed engine is consistent. If
+   `python3 .engine/tools/instantiator.py verify --first-run`. This confirms the installed engine is consistent. If
    something doesn't line up, setup **pauses** and tells the operator, in plain words, what's wrong and the
    two ways forward — fix it and run setup again (it resumes from here, losing none of their choices), or stop
    and report it. The engine never carries on with a setup that isn't consistent. The check also states
    whether the review gate is on. On a clean check, go on to the last step.
-7. **Tidy up the one-time setup files.** Run `python3 .engine/tools/instantiator.py retire`. Once the check is
+7. **Tidy up the one-time setup files.** Run `python3 .engine/tools/instantiator.py retire --first-run`. Once the check is
    clean, this removes the files that exist only for first-time setup — the walkthrough, its notes, and the
    setup tool itself — now that they've done their job, and confirms setup is complete. Everything the project
    needs to keep running stays in place, and the operator's choices are saved. (If the check still finds a

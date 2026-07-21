@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import census_completeness_check as guard  # noqa: E402
@@ -151,6 +152,26 @@ class FailClosedTests(_Construction):
             fs = guard.check(root)  # no provisioning manifest at all
             self.assertEqual(len(fs), 1)
             self.assertEqual(fs[0]["severity"], "hard")
+
+
+class GateDelegatesToTheHomeRepoSeam(unittest.TestCase):
+    """The re-key (#323): the scope gate reads the shared origin==home seam (repo_identity.is_home_repo) for
+    THIS checkout, not a CLAUDE.md text marker — so promoting the root file to the deployed floor (which drops
+    the marker) can never silently disable this census guard. check() still scans the seeded fixture root; only
+    the scope gate is the seam."""
+
+    def test_gate_returns_the_seams_verdict_for_this_checkout(self):
+        seen = {}
+
+        def fake_home(root=None):
+            seen["root"] = root
+            return True
+
+        with mock.patch.object(guard.repo_identity, "is_home_repo", fake_home):
+            self.assertTrue(guard._is_construction_repo())
+        self.assertEqual(seen["root"], guard.validate.ROOT, "the gate must judge THIS checkout's root")
+        with mock.patch.object(guard.repo_identity, "is_home_repo", lambda root=None: False):
+            self.assertFalse(guard._is_construction_repo())
 
 
 class LiveTreeTests(unittest.TestCase):

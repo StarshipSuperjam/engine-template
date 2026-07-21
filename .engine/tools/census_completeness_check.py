@@ -18,10 +18,13 @@ that walling it would dangle that surviving reference. This check therefore only
 that neither retires nor is structurally forced to travel); whether a legitimately-travelling demo should instead
 be a standing operator feature is a judgment for the change's own review, not this check.
 
-It is CONSTRUCTION-SCOPED: it acts only while the root CLAUDE.md is the construction-governance file (superseded
-at v1), so it no-ops in any generated/deployed repo — where the demos are already retired and there is nothing to
-check. Like memory_pointer_public_safety_check.py it therefore ships-and-no-ops rather than retiring (its
-check.json travels in validators-core; retiring the script would dangle that reference — the #411 trap).
+It is HOME-SCOPED: it acts only in the engine's own home repository — the checkout whose git origin equals the
+recorded `home_repository` (via the shared `repo_identity.is_home_repo` seam) — so it no-ops in any
+generated/deployed repo, where the demos are already retired and there is nothing to check. (Historically this
+keyed off the root CLAUDE.md "construction governance" marker; the structural, non-inherited origin==home signal
+replaces that proxy, which both travels into every copy and vanishes when the floor is promoted.) Like
+memory_pointer_public_safety_check.py it therefore ships-and-no-ops rather than retiring (its check.json travels
+in validators-core; retiring the script would dangle that reference — the #411 trap).
 
 It reads the census from the committed manifest (.engine/provisioning/first-run-assets.json) — NEVER by importing
 the retiring instantiator (the #411 reference-closure lesson). Within the construction repo it FAILS CLOSED:
@@ -38,24 +41,25 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (finding.v1, ROOT, env_override_path)
+import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home seam this now gates on)
 
 _MANIFEST_REL = os.path.join(".engine", "provisioning", "first-run-assets.json")
 _TOOLS_REL = os.path.join(".engine", "tools")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
+# Retained only for the cross-tool marker-parity test (test_instantiator) until the marker itself is retired
+# alongside the deployed-floor promotion; this check's gate no longer reads it.
 _CONSTRUCTION_MARKER = "construction governance"   # the root CLAUDE.md genesis header (superseded at v1)
 
 
 def _is_construction_repo() -> bool:
-    """True iff the root CLAUDE.md is the construction-governance file. Reads the REAL root (validate.ROOT), NOT
-    overridable — a backdoor past this gate would let the check fire in a deployed repo where the demos are gone.
-    Mirrors memory_pointer_public_safety_check._is_construction_repo; the marker is bound identical to it by a
-    parity test (test_instantiator) so the two construction-scoped checks agree on what 'the construction repo'
-    is."""
-    try:
-        with open(os.path.join(validate.ROOT, "CLAUDE.md"), encoding="utf-8") as fh:
-            return _CONSTRUCTION_MARKER in fh.read().lower()
-    except Exception:  # noqa: BLE001 — no/unreadable CLAUDE.md -> treat as not-construction (no-op)
-        return False
+    """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
+    `home_repository`, the non-inherited signal a downstream copy never carries. Reads the REAL root
+    (validate.ROOT) via the shared `repo_identity.is_home_repo` seam, NOT overridable — a backdoor past this gate
+    would let the check fire in a deployed repo where the demos are gone. Mirrors
+    memory_pointer_public_safety_check._is_construction_repo so the two home-scoped checks agree on what "the
+    home repo" is (both now delegate to the one seam, which is stronger than the old identical-marker binding).
+    Kept as a named predicate because this check's tests monkeypatch it to drive the gate."""
+    return repo_identity.is_home_repo(validate.ROOT)
 
 
 def _census(root: str) -> "set | None":
@@ -161,7 +165,7 @@ def _manifest_fault_message() -> str:
 
 def check(root: str | None = None) -> list:
     """Every orphan demo as a list of `hard` findings (empty = every demo accounted for). No-ops (empty) OUTSIDE
-    the construction repo — the demos are already retired there. WITHIN the construction repo it fails CLOSED: an
+    the home repo — the demos are already retired in a deployed copy. WITHIN the home repo it fails CLOSED: an
     unreadable/malformed census yields one hard finding, never a silent pass. Separated from main() so a test can
     drive it against a seeded fixture root."""
     if not _is_construction_repo():
@@ -185,8 +189,8 @@ def check(root: str | None = None) -> list:
 def main() -> int:
     # ENGINE_CENSUS_ROOT (unset in production) lets the negative-fixture meta-check point the scan at a seeded
     # mini-tree (an orphan demo + a census manifest that omits it + no surviving non-demo importer), so this
-    # completeness guard is witnessed biting a real bad input (#286 fixture seam). The construction-scope gate
-    # still reads the REAL root, so the fixture bites only in the construction repo's CI (never in a deployed one).
+    # completeness guard is witnessed biting a real bad input (#286 fixture seam). The home-scope gate
+    # still reads the REAL root, so the fixture bites only in the home repo's CI (never in a deployed one).
     print(json.dumps(check(validate.env_override_path("ENGINE_CENSUS_ROOT"))))
     return 0
 

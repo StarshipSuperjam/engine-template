@@ -9,9 +9,12 @@ gated, never the pointer). But the PUBLIC engine-template CONSTRUCTION repo must
 PLACEHOLDER, so a maintainer's real vault coordinates can never travel to everyone who uses the template. This
 backstop catches an accidental CONFIGURED pointer committed to the construction repo.
 
-It is CONSTRUCTION-SCOPED: it acts only when the root CLAUDE.md is the construction-governance file (superseded
-at v1), so it no-ops in any generated/deployed repo — never flagging the operator's own legitimate choice. It
-reads the COMMITTED pointer via `git show HEAD:` (not the working tree), so the maintainer's local
+It is HOME-SCOPED: it acts only in the engine's own home repository — the checkout whose git origin equals the
+recorded `home_repository`, the non-inherited signal a downstream copy never carries (via the shared
+`repo_identity.is_home_repo` seam). So it no-ops in any generated/deployed repo — never flagging the operator's
+own legitimate choice. (Historically this keyed off the root CLAUDE.md "construction governance" marker, a proxy
+that both TRAVELS into every copy and disappears the moment that file becomes the deployed floor; the structural
+origin==home signal replaces it.) It reads the COMMITTED pointer via `git show HEAD:` (not the working tree), so the maintainer's local
 skip-worktree-configured pointer — which is never committed — is correctly ignored and a local floor run stays
 green.
 
@@ -29,17 +32,22 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home seam this now gates on)
 
 POINTER_REL = ".engine/memory-backup/pointer.json"
+# Retained NOT for this check's gate (which now reads origin==home) but because license_health and
+# greenfield_intake still import it as the shared construction marker; it is removed when the marker
+# itself is retired alongside the deployed-floor promotion.
 _CONSTRUCTION_MARKER = "construction governance"   # the root CLAUDE.md genesis header (superseded at v1)
 
 
 def _is_construction_repo() -> bool:
-    try:
-        with open(os.path.join(validate.ROOT, "CLAUDE.md"), encoding="utf-8") as fh:
-            return _CONSTRUCTION_MARKER in fh.read().lower()
-    except Exception:  # noqa: BLE001 — no/unreadable CLAUDE.md -> treat as not-construction (no-op)
-        return False
+    """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
+    `home_repository`, the non-inherited signal a downstream copy never carries. Delegates to the shared
+    `repo_identity.is_home_repo` seam, which fails TOWARD home under an unreadable origin — the safe direction
+    for this backstop (it RUNS rather than silently no-opping). Kept as a named predicate because both this
+    check's tests monkeypatch it to drive the gate; the name is legacy (it answers "is this the home repo?")."""
+    return repo_identity.is_home_repo(validate.ROOT)
 
 
 def _committed_pointer_text(pointer_rel: str = POINTER_REL) -> "str | None":
@@ -62,10 +70,10 @@ def is_configured_pointer(text: str) -> bool:
 
 
 def check(pointer_rel: str = POINTER_REL) -> "dict | None":
-    """The guard result: a `hard` finding when a configured pointer is committed in the construction repo, else
+    """The guard result: a `hard` finding when a configured pointer is committed in the home repo, else
     None (safe / not applicable). Separated from main() so a test can drive it directly. `pointer_rel` is the
     committed path read via `git show HEAD:` — overridable so the negative-fixture meta-check can point it at a
-    committed fixture pointer; the construction-scope gate is NOT overridable (a backdoor past it would defeat
+    committed fixture pointer; the home-scope gate is NOT overridable (a backdoor past it would defeat
     this safety check)."""
     if not _is_construction_repo():
         return None

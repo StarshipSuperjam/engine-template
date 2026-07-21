@@ -1,4 +1,4 @@
 {
   "property": "no reachable failure path outside the construction repository",
-  "reason": "This check's whole body gates on _is_construction_repo() — it audits the construction repo's committed demo census against the first-run retirement manifest, work that only exists while the root CLAUDE.md is the construction-governance body. In a deployed repo (post first-run floor swap) the gate reads False and check() returns before any failure path, so the fixture structurally cannot bite there. In the construction repository this declaration is inert and the bite stays required."
+  "reason": "This check's whole body gates on _is_construction_repo(), which now reads the shared origin==home signal (repo_identity.is_home_repo) — it audits the home repo's committed demo census against the first-run retirement manifest, work that only exists in the engine's own home. In a deployed copy (git origin differs from the recorded home_repository) the gate reads False and check() returns before any failure path, so the fixture structurally cannot bite there. In the home repository this declaration is inert and the bite stays required."
 }
