@@ -1708,6 +1708,11 @@ _FIRST_RUN_ASSET_FILES = (
     # falsification is maintainer evidence, imported by nothing — retires here; the permanent regression lives in
     # test_module_manager.TestUpgradeFloorPreflight.
     ".engine/tools/demo_599d_upgrade_floor.py",
+    # #323 Slice 1: the home-repo scope-seam falsification — the two public-safety scope guards (the vault-pointer
+    # leak guard + the demo census) now key on git origin == recorded home, not a CLAUDE.md marker. Maintainer
+    # build evidence over the real check surfaces, imported by nothing (the permanent regressions live in
+    # test_repo_identity + each guard's own delegation test); retires here so it does not travel.
+    ".engine/tools/demo_home_repo_seam.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",

@@ -1730,13 +1730,15 @@ class TestConstructionClaudeRecognizer(unittest.TestCase):
         self.assertFalse(inst._is_construction_claude(mentions))
 
     def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
-        # The floor-swap recognizer and EVERY construction-scoped check must agree on what "the construction
-        # CLAUDE.md" is, or one could swap/act on a file another still treats as the construction repo. Four
-        # copies of the marker exist (self-contained per-tool, so extraction never forces a guarded-file edit);
-        # this binds them all so they cannot silently drift — a drift would make a construction-scoped check
-        # no-op in the construction repo (fail OPEN, the worst direction). #424 U13c adds census_completeness;
-        # #512 adds the bite-harness copy (whose drift would let the checker-of-checkers excuse a broken
-        # construction-scoped check here, the same worst direction).
+        # Four copies of the "construction governance" marker constant exist (self-contained per-tool, so
+        # extraction never forces a guarded-file edit); this binds them so the marker-READERS cannot silently
+        # drift. #323 Slice 1 re-keyed the two scope CHECKS (memory_pointer / census) onto the shared
+        # origin==home seam (repo_identity.is_home_repo), so their gate no longer reads this marker — they retain
+        # the constant only as the shared source that license_health and greenfield_intake import, and for this
+        # binding, until the marker itself is retired with the deployed-floor promotion. The still-LIVE marker
+        # readers are the floor-swap recognizer (inst._is_construction_claude) and the bite-harness
+        # (hcb._is_construction_root); a drift between those would let one swap/excuse a file the other still
+        # treats as the construction repo, so they must stay byte-identical.
         import memory_pointer_public_safety_check as sentinel
         import census_completeness_check as census
         import hard_check_bite_check as hcb
