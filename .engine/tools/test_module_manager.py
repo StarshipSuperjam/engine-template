@@ -2186,11 +2186,13 @@ class TestUpgradeFloorPreflight(unittest.TestCase):
 
     def _release_tree(self, d, floor):
         tree = os.path.join(d, "rel")
-        os.makedirs(os.path.join(tree, ".engine"))
-        eng = {"engine_release": "9.9.9", "packages": {}, "identity": "solo"}
+        eng = {"engine_release": "9.9.9", "packages": {"base": "9.9.9"}, "identity": "solo"}
         if floor is not None:
             eng["min_upgradeable_from"] = floor
         module_manager._write_json(os.path.join(tree, ".engine", "engine.json"), eng)
+        module_manager._write_json(os.path.join(tree, ".engine", "modules", "base", "manifest.json"),
+                                   {"id": "base", "version": "9.9.9", "status": "required",
+                                    "provides": {}, "depends": {}})
         return tree
 
     def test_below_floor_returns_a_refusal_naming_both_versions_and_routing_to_undo(self):
@@ -2221,6 +2223,47 @@ class TestUpgradeFloorPreflight(unittest.TestCase):
             tree = self._release_tree(d, "0.3.2")
             for dep in ("0.0.0-dev", "0.0.0", "", None, "garbage", "not.a.version"):
                 self.assertIsNone(module_manager._below_floor_refusal(dep, tree), dep)
+
+    def test_non_string_version_values_do_not_crash(self):
+        # A JSON-valid but MISTYPED floor (or deployed version) — reachable via a hand-corrupted local manifest or
+        # a mis-cut remote release — must fail OPEN, never raise into a caller whose try has no except.
+        with tempfile.TemporaryDirectory() as d:
+            for floor in (5, ["0.3.2"], {"v": 1}, None):
+                self.assertIsNone(module_manager._below_floor_refusal("0.2.0", self._release_tree(d, floor)))
+            tree = self._release_tree(d, "0.3.2")
+            for dep in (5, 3.1, ["0.2.0"], {"v": 1}):
+                self.assertIsNone(module_manager._below_floor_refusal(dep, tree), dep)
+
+    def _deployed_root(self, d, version):
+        root = os.path.join(d, f"dep-{version}")
+        module_manager._write_json(os.path.join(root, ".engine", "engine.json"),
+                                   {"engine_release": version, "packages": {"base": version}, "identity": "solo",
+                                    "home_repository": "acme/engine-home"})
+        module_manager._write_json(os.path.join(root, ".engine", "modules", "base", "manifest.json"),
+                                   {"id": "base", "version": version, "status": "required",
+                                    "provides": {}, "depends": {}})
+        return root
+
+    def test_upgrade_and_preview_refuse_below_floor_before_any_overlay(self):
+        # STANDING integration coverage (plan item 4): the preflight must be WIRED into the mutating upgrade() and
+        # the read-only preview, refusing pre-overlay — not just correct as an isolated helper. A refactor that
+        # moved the check after the overlay, or dropped it from plan_upgrade, must fail here.
+        with tempfile.TemporaryDirectory() as d:
+            release = self._release_tree(d, "0.3.2")
+            deployed = self._deployed_root(d, "0.2.0")
+            with module_manager._redirect_root(deployed):
+                prev = module_manager.plan_upgrade(release_tree=release, target_ref="9.9.9", available="9.9.9")
+                self.assertTrue(prev.get("refused"))
+                self.assertEqual(prev.get("status"), "below-floor")
+                up = module_manager.upgrade(release_tree=release, opener=lambda *a, **k: None, backup=None)
+                self.assertTrue(up.get("refused"))
+                self.assertNotEqual(up.get("applied"), True)          # refused BEFORE any overlay/write
+                self.assertIn("0.3.2", up.get("reason") or "")
+                # an at/above-floor deployed engine is NOT refused by the floor
+                above = self._deployed_root(d, "0.3.2")
+            with module_manager._redirect_root(above):
+                ok = module_manager.plan_upgrade(release_tree=release, target_ref="9.9.9", available="9.9.9")
+                self.assertNotEqual(ok.get("status"), "below-floor")
 
 
 def _init_repo(root):
@@ -2360,7 +2403,18 @@ class TestRollback(unittest.TestCase):
                 fh.write("# old name, tracked in the baseline; the release renames it away\n")
             _init_repo(live)                                          # commit the baseline WITH the old file
             _stage_a_stalled_update(live)                             # the release's manifest no longer names it
-            os.remove(os.path.join(live, renamed_away))               # the reconcile's delete leg
+            # RENAME + REWRITE: the release renames it to a NEW, dissimilar successor it DOES provide. Because the
+            # content differs, git does not collapse the pair into an 'R' (which would land on the in-footprint new
+            # path and pass anyway) — it shows a bare 'D' (old) + 'A' (new): the exact shape the delete-side fix
+            # must handle. The new path is provided, so it is in the footprint; the old path is not.
+            successor = ".engine/tools/base_renamed_new.py"
+            man_path = os.path.join(live, ".engine", "modules", "base", "manifest.json")
+            man = validate.load_json(man_path)
+            man["provides"]["tool"].append(successor)
+            module_manager._write_json(man_path, man)
+            with open(os.path.join(live, successor), "w") as fh:
+                fh.write("# the rewritten successor: entirely different body, so git sees D+A, not a rename R\n")
+            os.remove(os.path.join(live, renamed_away))               # the reconcile's delete leg (the old path)
             _git(live, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
             with module_manager._redirect_root(live):
                 self.assertIn(renamed_away, module_manager._git_deleted_paths(live))       # the delete is seen

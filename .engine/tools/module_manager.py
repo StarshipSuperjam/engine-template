@@ -1879,19 +1879,19 @@ def _below_floor_refusal(deployed_release: str | None, release_tree: str) -> str
         floor = (validate.load_json(mf) or {}).get("min_upgradeable_from")
     except Exception:   # noqa: BLE001 — an unreadable target manifest never blocks; other gates handle it
         return None
-    if not floor:
+    if not isinstance(floor, str) or not floor:   # absent, or a JSON-valid-but-mistyped floor -> proceed
         return None
-    dep = (deployed_release or "").strip()
+    dep = str(deployed_release or "").strip()     # coerce: a non-string deployed version must never crash here
     m = re.match(r"^(\d+\.\d+\.\d+)", dep)
-    if not m or m.group(1) == "0.0.0":      # absent, unparseable, or the dev/construction build -> proceed
+    if not m or m.group(1) == "0.0.0":            # absent, unparseable, or the dev/construction build -> proceed
         return None
     if validate._ver_tuple(dep) >= validate._ver_tuple(floor):
         return None
     return (f"This engine (release {dep}) is older than the oldest release that can update cleanly to this one "
             f"({floor}). An automatic update from a version this old can't fully tidy up the files that were "
             f"renamed or removed since then, so it would stop without opening a pull request. The engine is "
-            f"unchanged. Ask me to undo any half-finished update and stay on {dep} for now — a clean automatic "
-            f"path from a version this old isn't built yet.")
+            f"unchanged — stay on {dep} for now; a clean automatic path from a version this old isn't built yet. "
+            f"(If a previous update stopped half-applied, ask me to undo it.)")
 
 
 def plan_upgrade(ref: str | None = None, release_tree: str | None = None,

@@ -12,7 +12,7 @@
       "minLength": 1
     },
     "min_upgradeable_from": {
-      "description": "The oldest engine release proven to have a clean one-run upgrade path to this release, as a version string (for example 0.3.2). A deployed engine older than this cannot reconcile cleanly to this release — its own already-shipped upgrade code predates the reconcile — so the update refuses cleanly (nothing applied) and routes the operator to undo and stay on their current version, rather than opening a broken pull request. The value pattern is enforced so a malformed floor cannot silently disable the guard. Optional: absent on releases cut before this floor shipped, in which case no floor check runs.",
+      "description": "The oldest engine release proven to have a clean one-run upgrade path to this release, as a version string (for example 0.3.2). A deployed engine older than this cannot update cleanly to this release — its own already-shipped update code predates the file-tidying machinery that removes what a release renamed or dropped — so the update refuses cleanly (nothing applied) and routes the operator to stay on their current version, rather than opening a broken pull request. The value pattern is enforced so a malformed floor cannot silently disable the guard. Optional: absent on releases cut before this floor shipped, in which case no floor check runs.",
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
     },

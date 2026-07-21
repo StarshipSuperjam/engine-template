@@ -112,9 +112,9 @@ same choice — so you can always tell where you stand.
 
 **Too old to update cleanly.** Before it changes anything (and in the preview), an update checks whether your engine
 is below the release's **clean-upgrade floor** — the oldest version proven to update to it in one clean pass. Below
-it the update **refuses and changes nothing**, names both versions, and says plainly to undo any half-finished
-update and stay put: an engine that old carries earlier update code that predates the file-tidying machinery, so a
-clean automatic path from it isn't built yet. An honest stop, not a failure.
+it the update **refuses and changes nothing**, names both versions, and says plainly to stay put for now (undoing
+any earlier half-applied update first): an engine that old carries earlier update code that predates the
+file-tidying machinery, so a clean automatic path from it isn't built yet. An honest stop, not a failure.
 
 **Undoing an update you've already merged.** This can't be undone locally — the engine never rewrites your main
 line. Instead its pull request is reverted (a normal reviewed change you merge — "reverting the pull request

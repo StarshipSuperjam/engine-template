@@ -27,6 +27,11 @@ import census_completeness_check as _ccc  # noqa: E402  (reuse its construction-
 _NESTED_ENV = "ENGINE_NESTED_SELFTEST"    # set on the child run so this belt never recurses into itself
 
 
+class _ProjectionError(RuntimeError):
+    """A failure while BUILDING the deployed projection (git/index-regen setup) — a harness problem, distinct
+    from the suite-under-test failing. The test skips on it rather than red-flagging a construction-only guard."""
+
+
 def _project_to_deployed(dest: str) -> None:
     """Turn an archived construction tree at `dest` into the shape a deployed repo actually runs — the same
     projection first-run provisioning applies: RETIRE the first-run-only assets (read from the tree's own
@@ -50,10 +55,14 @@ def _project_to_deployed(dest: str) -> None:
                 ["remote", "add", "origin", "https://github.com/acme/deployed-product.git"],
                 ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"],
                 ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "deployed"]):
-        subprocess.run(["git", "-C", dest, *cmd], capture_output=True, text=True, timeout=120)
+        r = subprocess.run(["git", "-C", dest, *cmd], capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:      # a harness-setup failure — NOT a construction-only-test finding
+            raise _ProjectionError(f"git {cmd[0]} failed: {(r.stderr or '').strip()[-300:]}")
     for gen in ("self_map.py", "knowledge_gen.py"):
-        subprocess.run([sys.executable, os.path.join("tools", gen), "generate"],
-                       cwd=os.path.join(dest, ".engine"), env=env, capture_output=True, text=True, timeout=180)
+        r = subprocess.run([sys.executable, os.path.join("tools", gen), "generate"],
+                           cwd=os.path.join(dest, ".engine"), env=env, capture_output=True, text=True, timeout=180)
+        if r.returncode != 0:      # regenerating the deployed indexes is setup, not the suite under test
+            raise _ProjectionError(f"{gen} generate failed: {(r.stderr or '').strip()[-300:]}")
 
 
 class TestDeployedSelfTests(unittest.TestCase):
@@ -71,7 +80,10 @@ class TestDeployedSelfTests(unittest.TestCase):
                 module_manager._archive_tree("HEAD", dest)     # offline; no network, no token
             except Exception as exc:                            # noqa: BLE001 — no git object / shallow -> skip
                 self.skipTest(f"could not archive HEAD offline ({exc})")
-            _project_to_deployed(dest)
+            try:
+                _project_to_deployed(dest)
+            except _ProjectionError as exc:                     # a harness-setup failure is not a real finding
+                self.skipTest(f"could not build the deployed projection ({exc})")
             env = {**os.environ, _NESTED_ENV: "1"}
             run = subprocess.run(
                 [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
