@@ -96,11 +96,11 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("Remote", self.text)
         self.assertIn("recurring", self.text)
 
-    def test_discloses_both_off_schedule_routines_are_unrun_at_v1(self):
-        # The off-schedule conveniences — the Claude Cloud Routine AND the Codex Automation — are written from the
-        # design and not exercised live during construction; the page must disclose that honestly for both, so a
-        # future edit that quietly drops the maturity hedge fails here.
-        self.assertIn("neither routine above has been run end-to-end", self.text)
+    def test_discloses_both_off_schedule_routines_prove_out_only_on_a_live_run(self):
+        # The off-schedule conveniences — the Claude Cloud Routine AND the Codex Automation — run for real only on
+        # the operator's own schedule and account; the engine can't exercise them for the operator. The page must
+        # disclose that honestly for both, so a future edit that quietly drops the run-it-yourself steer fails here.
+        self.assertIn("neither routine above runs end-to-end until it runs on your own", self.text)
 
     def test_foregrounds_the_read_only_sandbox_as_the_codex_write_wall(self):
         # The from-Codex convenience is safe ONLY because its Codex Automation runs sandbox_mode=read-only — that,
@@ -153,7 +153,7 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("every** project's saved memory", t)             # blast-radius, at the paste moment
         self.assertIn("own private vault", t)                          # …with the per-project escape
         self.assertIn("ask me to test the read", t)                    # ends with the engine-run test read
-        self.assertIn("hasn't been run end-to-end while building it", t)  # honest un-exercised-at-v1 disclosure
+        self.assertIn("runs for real only on your own schedule", t)       # only-a-live-run-proves-it disclosure
 
     def test_vault_read_key_rearm_is_credential_specific_not_the_oauth_token(self):
         # The corrected re-arm copy (item 4 owner): the vault key's recovery is specific to THAT key (re-make it +

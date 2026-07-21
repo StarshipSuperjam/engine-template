@@ -7,7 +7,7 @@ deterministic surface runs fully offline: no git, no gh, no network. The asserti
 behaviors: the outgoing diff is uncapped (a leak can never sort past a cap), a leaked engine path is
 operator-decidable (it PAUSES for a decision, never a bare halt) yet still traces to telemetry and never opens
 without a double opt-in, a foundation-named path is flagged by name (the safe over-flag; content-provenance
-disambiguation is a deferred cross-repo build-spec leaf), a clean contribution is only PREPARED until an
+disambiguation is not attempted — a name match, not a content read), a clean contribution is only PREPARED until an
 affirmative decision, the body follows the host's template (or the engine's fallback shape), an unreachable
 upstream degrades to a drafted submission, and the on-demand status check reports live state honestly or says
 it couldn't be read.
@@ -237,9 +237,8 @@ class TestSubmitFlow(unittest.TestCase):
     def test_foundation_name_over_flags_by_name_safe_direction(self):
         # The predicate is a NAME set. It over-flags an upstream product's OWN foundation-named
         # file (its own CLAUDE.md) — the SAFE direction (never under-flag), now made non-harmful by the
-        # operator-decidable nudge above. Content disambiguation is a deferred cross-repo build-spec leaf; see
-        # submit.py's "ONE KNOWN OVER-FLAG" docstring. This test pins the safe-over-flag behavior so a future
-        # provenance build is a deliberate, tested change rather than a silent one.
+        # operator-decidable nudge above. Content disambiguation is not attempted — the check matches by name,
+        # not content; see submit.py's "ONE KNOWN OVER-FLAG" docstring. This test pins the safe-over-flag behavior.
         r = submit.submit(**self.BASE, run=_run(["CLAUDE.md", "src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok({}), github=None, confirm=False)
         self.assertEqual(r["status"], "leak-decision-needed")   # flagged by name (safe over-flag)

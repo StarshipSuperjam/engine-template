@@ -11,7 +11,7 @@ want to offer upstream. The engine does the mechanical git a non-engineer should
 branch, comparing against the upstream, matching the project's pull-request form); **opening the pull request is
 always your call**, and at no point are you dropped into a raw git conflict — anything that needs a choice
 becomes a plain question. The tool is `tools/external_contribution/submit.py`. **Heads-up:** the final
-open-the-pull-request step has not yet been exercised against a live project — see Notes.
+open-the-pull-request step reaches the network only on a real submission — see Notes.
 
 ## Steps
 
@@ -94,6 +94,6 @@ engine couldn't resolve on its own was put to you as a plain "I need a decision 
 - **If the upstream is unreachable,** nothing is lost: the work is committed on your fork, and the engine
   drafts the submission so it can be filed once the project is reachable (or you can open it yourself with
   your own `gh`).
-- **Not yet exercised end to end.** Every part of this except the final open-the-pull-request step is tested
-  offline; the live `gh pr create` runs for the first time when you make a real submission. Treat your first
-  contribution as the shake-out of that last step.
+- **The live step runs when you submit.** Every part of this except the final open-the-pull-request step is tested
+  offline; the live `gh pr create` runs the first time you make a real submission, the way any released feature's
+  live path runs the first time it's used. Treat your first contribution as the shake-out of that last step.

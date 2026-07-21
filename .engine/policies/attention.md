@@ -89,7 +89,7 @@ someone has to get right. The dials inside that frame are not set by hand or by 
 be calibrated from how the engine actually performs (which things it surfaced, which blockers it caught or
 missed), and any change is proposed and reviewed before it takes effect. They are kept here, explicit and
 legible, so the engine's priorities can be inspected and questioned, not so they are fiddled with by feel.
-Nothing here is urgent: these are deliberate starting values, not yet proven against real use; they earn
+Nothing here is urgent: these are deliberate starting values, not calibrated against real use; they earn
 their numbers as the engine is observed in practice.
 
 ## Enforcement-tier

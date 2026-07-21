@@ -78,7 +78,7 @@ _TEMP_SUFFIX = ".ndjson"
 
 _COMPACT_WASTE_THRESHOLD = 64   # build-spec leaf (uncalibrated, recorded): the auto-trigger compacts only once
 #                                 this many foldable markers have piled up. Failure direction is "nothing lost"
-#                                 — a too-high value just defers a tidy; calibration is a post-v1 forward-owe.
+#                                 — a too-high value just defers a tidy. The value is an uncalibrated default.
 
 
 class _InjectedCrash(Exception):

@@ -22,8 +22,8 @@ plainly and points the durable fix UPSTREAM to the engine-template project — a
 upstream report itself ("never phone home"); logging it there stays the operator's call. A budget overage on
 a file THIS PROJECT owns (local state) is fixable here. Ownership is the authoritative machinery test
 (module_coherence.provides_claims, the live-filesystem manifest claims). Today every budget-governed surface
-is module-owned machinery, so the local lane is built and fixture-tested but not exercised live until a
-deployed repo's own over-budget doc fires it.
+is module-owned machinery, so the local lane is built and fixture-tested; it fires live when a
+deployed repo's own over-budget doc trips it.
 
 SAFETY / HONESTY:
 - source_id = "soft-budget:<file>" — keyed on the FILE, never the message. The live line-count in the

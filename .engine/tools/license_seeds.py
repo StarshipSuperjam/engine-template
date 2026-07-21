@@ -18,7 +18,7 @@ deliberately-inherited one are structurally never touched.
 **`HISTORICAL_SEEDS` is append-only.** Each entry is a full committed license the template has shipped at a
 release; a repo that upgraded past its generation-era seed is still recognized because every past seed stays in the
 set. A future relicense **appends** the then-current text (and `CURRENT_SEED` follows the tail). Membership is a
-build-spec leaf. At v1 the set has **one** member — the current Apache-2.0 + Commons Clause seed — and no
+build-spec leaf. The set has **one** member — the current Apache-2.0 + Commons Clause seed — and no
 pre-Apache (MIT-era) member: no project has ever been generated from the template (issue #471), and "Use this
 template" always copies the current default branch, so no MIT-seed repo can arise now or going forward. The seed↔
 shipped-`LICENSE` byte-parity is held by a construction-scoped parity test (`test_instantiator.py`, which retires
@@ -255,7 +255,7 @@ Copyright 2026 StarshipSuperjam
    limitations under the License.
 """
 
-# Append-only, newest last. See the module docstring for why v1 carries a single member.
+# Append-only, newest last. See the module docstring for why the set has a single member.
 HISTORICAL_SEEDS = (_APACHE_COMMONS_CLAUSE_SEED,)
 
 # The tail — the license a freshly-generated repo would carry, and the drift target the detector re-fires on.

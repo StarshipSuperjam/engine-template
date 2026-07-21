@@ -1052,8 +1052,8 @@ def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: 
         law the fail-open copy depends on).
       - anything else (benign / degraded) → APPEND to the telemetry-owned gitignored inbox spool and return
         **False** (a spool append is capture, NOT durable tracking — the caller must not claim tracked). It is
-        promoted later by drain_inbox; until the production drain lands (#412) a benign emit is captured but
-        not yet surfaced.
+        promoted later by drain_inbox, which the SessionStart drain runs in production; a benign emit is
+        captured at emit time and surfaced when that drain promotes it.
 
     `gh` is an injectable boundary so the demo/tests fake ONLY the network; by default the trust-critical path
     resolves the LOCAL GitHub context (boot.repo_slug/gh_token) itself — the credential resolution the producer
@@ -2331,8 +2331,8 @@ def _run_drain_cli(argv: list) -> int:
          producer this step delivers; the hook launcher drops the marker when the engine's Python is absent);
       2) sweep mtime-stale `*.draining` asides (a crashed drain's stranded batch) back through the drain;
       3) drain the findings-inbox spool → promote the benign/degraded findings a producer emitted out-of-band
-         (the boot degradation emitter that FEEDS this benign path is #398 — until it lands the spool is fed
-         only by tests/fixtures, so this leg is live infrastructure, not yet a live benign producer).
+         (boot's refused-cursor emitter (#398) is a live producer that appends benign findings to this spool
+         out-of-band; tests and fixtures also feed it).
     Runs on the LOCAL machine (the spool + marker are per-machine, gitignored), resolving the GitHub context the
     LOCAL way (boot's repo_slug/gh_token). SAFETY: drain_inbox scopes auto-resolve to the drained source-ids
     ONLY (never a ci/ambient/episodic/out-of-band issue), and the marker promote is de-duped by a fixed

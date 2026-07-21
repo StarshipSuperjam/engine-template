@@ -58,8 +58,8 @@ import hooks  # noqa: E402 — .engine/tools/hooks.py: the roll-up sweep rides i
 from memory import forget, ledger, records, score  # noqa: E402
 
 # --- Build-spec leaves (the roll-up selection floors) -----------------------------------------------------
-# A candidate is a raw EPISODIC (not a gist — v1 keeps the link single-hop raw→gist; recursive meta-gist is a
-# deferred concern), not already superseded, that scores into the COLD tier (≈16–30 days untouched — "old +
+# A candidate is a raw EPISODIC (not a gist — the link is single-hop raw→gist, not recursive
+# meta-gist), not already superseded, that scores into the COLD tier (≈16–30 days untouched — "old +
 # low-frecency", not yet ARCHIVED, which the scorer already index-excludes). The eligible pool is then pre-grouped by a
 # "related" signal for the AI to judge WITHIN each group, in a fixed PRECEDENCE so each candidate lands in exactly
 # ONE group (disjoint source_ids per pass): (1) a cross-session SHARED-TOPIC-TAG cluster (`tag:<tag>`, #235 — the

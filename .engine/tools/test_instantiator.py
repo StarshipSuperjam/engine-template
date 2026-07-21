@@ -2343,7 +2343,7 @@ class TestFinishCli(unittest.TestCase):
 
 _COLLISION_KEYS = ("collision-intro", "collision-exclusive", "collision-shared", "collision-codeowners",
                    "collision-none", "collision-unreadable")
-# A representative engine-owned path set the deferred live caller would pass (from the release tree). Tests
+# A representative engine-owned path set the live caller passes (from the release tree). Tests
 # inject this for determinism rather than leaning on the construction repo's own owned set.
 _COLLISION_ENGINE_PATHS = [".engine/engine.json", ".engine/tools/boot.py", ".github/CODEOWNERS",
                            "CLAUDE.md", ".github/workflows/engine-ci.yml"]

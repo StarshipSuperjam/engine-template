@@ -351,7 +351,7 @@ _HOME_TRAVEL_FILES = frozenset({
 # it would travel unflagged, and neither the runtime default-flag nor `test_no_owned_path_is_left_ambiguous`
 # (which recognises data by the instance-DIR prefixes below) would catch it. A new per-instance store must be
 # kept OUT of these namespaces (or its module's `provides` + the instance-dir list extended). Hardening to an
-# explicit source-file allowlist is a deferred option, not needed while the sweep holds.
+# explicit source-file allowlist would be a stronger option, but is not needed while the sweep holds.
 _HOME_TRAVEL_PREFIXES = (
     ".engine/tools/", ".engine/check/", ".engine/schemas/", ".engine/operations/",
     ".engine/policies/", ".engine/interfaces/", ".engine/docs/", ".engine/conduct/",

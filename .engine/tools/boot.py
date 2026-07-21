@@ -33,7 +33,7 @@ Boot's laws, all load-bearing here:
   - NO CHANGELOG ("recently shipped" reads merged PRs), NO compact re-render (the hook fires on the
     session-START sources startup/resume/clear, never compact — the post-compaction floor is the
     re-injected CLAUDE.md + the next scent), and the memory consolidation sweep is memory's, not
-    boot's (boot does not fire it; it lands with the memory substrate, post-core).
+    boot's (boot does not fire it; it belongs to the memory substrate, which loads post-core).
   - THE MODES STANCE CLEAR is modes' operation, invoked at boot's SessionStart MOMENT (the event also
     carries non-orientation operations — cf. memory's sweep above): the handler calls modes.clear_stance
     FIRST so every session, including a resume, boots Explore and never inherits a prior Build signal;
@@ -110,7 +110,7 @@ KNOWLEDGE_FACULTY_NOTE = (
 )
 
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
-# excluded — a full boot-pack re-render on compaction is a deferred enhancement that must never be
+# excluded — a full boot-pack re-render on compaction is deliberately not done and must never be
 # depended on; the reliable post-compaction floor is the
 # re-injected CLAUDE.md + the next per-prompt scent. These are the matcher values the hook registers on.
 SESSION_START_SOURCES = ("startup", "resume", "clear")
@@ -615,7 +615,7 @@ def render_neighborhood(nb: dict | None) -> list:
         elif total <= len(sample):                 # the whole set fits the sample -> the slugs ARE the full list
             rel_lines.append(f"  {src} {phrase}: {', '.join(sample)}")
         else:                                        # truncated -> disclose the TRUE count AND that the shown few
-            # are arbitrary examples, not a ranked top-N (which few matter most is deferred), so
+            # are arbitrary examples, not a ranked top-N (they are not ranked by which few matter most), so
             # the sample can never read as "the 4 that matter".
             rel_lines.append(f"  {src} {phrase} {total} "
                              f"(showing {len(sample)} examples, not ranked by importance: {', '.join(sample)})")
@@ -1844,7 +1844,7 @@ def render_dashboard(s: dict) -> str:
     # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
     # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
     # this never becomes a forced every-session alarm. A `note` (current) digest adds nothing — its silence is
-    # the healthy signal. The fresh-digest recency line is a deferred build-spec leaf (lands with a real digest).
+    # the healthy signal. No recency line is rendered for a current digest.
     stale = s["audit_stale"]
     if stale and stale["severity"] == "soft":
         attention.append(stale["message"])

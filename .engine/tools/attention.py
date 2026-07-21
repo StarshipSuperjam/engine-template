@@ -61,7 +61,7 @@ FOCUS_CAP = 5
 # How many neighbours of each (focus member, relationship) the orientation SUMMARY samples for display. The
 # rest are NOT dropped silently — `neighborhood_of` keeps the FULL count per relationship so the render can
 # disclose the truncation honestly ("core provides 147, showing 4"), never an arbitrary capped few passed off
-# as the whole (honest-truncation; relevance-ordering WHICH few is deferred).
+# as the whole (honest-truncation; the shown few are a sample, not relevance-ranked).
 NEIGHBORHOOD_SAMPLE_CAP = 4
 
 
@@ -279,7 +279,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                 # query-time direction over the SAME forward edges, NOT a new edge type, so it is
                 # budget-neutral: reverse candidates compete for the same fixed structural_neighbors slice, never
                 # grow it. A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool) still resolves to only
-                # its module; relevance-ordering a dense neighbourhood is deferred.
+                # its module; a dense neighbourhood is returned unranked, not relevance-ordered.
                 # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
                 # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
                 # is itself a focus member (co-changed entities are not each other's "structural neighbours").

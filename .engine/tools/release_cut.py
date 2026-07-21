@@ -22,7 +22,7 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
                * where a contract/seam/interface/wiring surface changed, an AI-authored plain-language
                  IMPACT statement, with the break/no-break behavioral demonstration marked present
                  (a correlate exists) or "no correlate — release consciously sub-bar, named" (the
-                 legible gate path; the acceptance-benchmark instrument is not built yet,
+                 legible gate path; no acceptance-benchmark instrument is available,
                  and its absence is stated, never faked).
              It writes nothing.
 
@@ -642,8 +642,8 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
                 "what": what,
                 "why": why,
                 "floor_level": level,
-                "behavioral_demo": "none — no behavioral correlate is available (the acceptance-benchmark "
-                                   "instrument is not built), so this rests on the impact statement and your "
+                "behavioral_demo": "none — no behavioral correlate is available for this signal, so this rests "
+                                   "on the impact statement and your "
                                    "confirmation; the release is consciously sub-bar on this signal, named here.",
             })
     return out
