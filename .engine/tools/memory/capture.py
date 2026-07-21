@@ -59,7 +59,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records  # noqa: E402
+from memory import ledger, records, scrub  # noqa: E402
 
 RECORD_VERSION = 1                       # the per-record ledger-version envelope (a forward-owe)
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
@@ -227,7 +227,11 @@ def _codex_message(rec: dict):
     """One recognized Codex conversation message as a plain {'role','text'} dict, or None for a
     non-conversation record (reasoning, function calls, meta — the same 'is this conversation at
     all?' filter doctrine, never a worth judgment). Accepts the rollout envelope
-    ({'type':'response_item','payload':{...}}) and a bare message record."""
+    ({'type':'response_item','payload':{...}}) and a bare message record. Only a `message` payload with
+    an explicit user/assistant role is a conversation turn: the newer multi-agent `agent_message` record
+    is deliberately NOT captured — on the real corpus its dominant `event_msg` form is a byte-identical
+    echo of the assistant `message` already captured here (capturing it would double-store every
+    assistant turn), so recognizing it adds duplication, not conversation."""
     payload = None
     if rec.get("type") == "response_item" and isinstance(rec.get("payload"), dict):
         payload = rec["payload"]
@@ -252,14 +256,31 @@ def _codex_message(rec: dict):
     return {"role": role, "text": text}
 
 
+def _codex_shape_detail(reason: str, recs: list) -> dict:
+    """A CONTENT-FREE structural fingerprint of an unrecognized Codex transcript: which predicate refused
+    it, the distinct record `type` and payload `type` names present, and the record count. It NEVER
+    includes any message text — this is a diagnostic of a CHANGED FORMAT (so the next drift is
+    actionable, not a bare 'unparseable'), never a capture of the transcript's content. Both the list
+    length AND each individual type-name are bounded, so a pathological transcript (a huge type value, or
+    thousands of distinct ones) cannot bloat the marker."""
+    def _names(values):
+        return sorted({str(v)[:64] for v in values})[:20]   # cap each name AND the list
+    rtypes = _names(r.get("type") for r in recs if isinstance(r, dict))
+    ptypes = _names(r["payload"].get("type") for r in recs
+                    if isinstance(r, dict) and isinstance(r.get("payload"), dict))
+    return {"reason": reason, "record_types": rtypes, "payload_types": ptypes,
+            "record_count": len(recs)}
+
+
 def _codex_messages(transcript_path: str):
-    """(messages, recognized): the conversation messages of a Codex transcript as plain
-    {'role','text'} dicts, and whether the transcript's format was recognized. recognized is False —
-    the caller must surface it loudly instead of capturing fragments — in EVERY zero-yield shape a
-    format change can take (the review-gate holes): a non-empty file that parses to no JSON records
-    at all (the whole format moved off JSON lines); JSON records none of which carries a known Codex
-    record type (the envelope changed); and known record types that yield NO conversation messages
-    (the message payload shape changed inside a familiar envelope). A genuinely empty file is
+    """(messages, recognized, detail): the conversation messages of a Codex transcript as plain
+    {'role','text'} dicts, whether the transcript's format was recognized, and — when it was NOT — a
+    content-free structural fingerprint (`_codex_shape_detail`) naming which check refused it, else None.
+    recognized is False — the caller must surface it loudly instead of capturing fragments — in EVERY
+    zero-yield shape a format change can take (the review-gate holes): a non-empty file that parses to no
+    JSON records at all (the whole format moved off JSON lines); JSON records none of which carries a
+    known Codex record type (the envelope changed); and known record types that yield NO conversation
+    messages (the message payload shape changed inside a familiar envelope). A genuinely empty file is
     recognized-and-empty (nothing happened yet, nothing to say)."""
     recs = _extract_records(transcript_path)
     if not recs:
@@ -267,13 +288,15 @@ def _codex_messages(transcript_path: str):
             non_empty = os.path.getsize(transcript_path) > 0
         except OSError:
             non_empty = False
-        return [], not non_empty       # bytes but no JSON records → the format changed → refuse
+        if non_empty:                  # bytes but no JSON records → the format changed → refuse, loudly
+            return [], False, _codex_shape_detail("no-json-records", recs)
+        return [], True, None          # genuinely empty → recognized-and-empty
     if not any(r.get("type") in _CODEX_KNOWN_TYPES for r in recs):
-        return [], False
+        return [], False, _codex_shape_detail("no-known-record-type", recs)
     messages = [m for m in (_codex_message(r) for r in recs) if m is not None]
-    if not messages:
-        return [], False               # familiar envelope, zero conversation → payload shape changed
-    return messages, True
+    if not messages:                   # familiar envelope, zero conversation → payload shape changed
+        return [], False, _codex_shape_detail("no-conversation-messages", recs)
+    return messages, True, None
 
 
 # --- Transcript-path safety (defense-in-depth) ------------------------------------------------
@@ -702,20 +725,24 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
 # SILENTLY on a fault. Now every capture attempt records its outcome to a gitignored marker —
 # captured / no-transcript / invalid-path / unparseable — which boot renders as one plain dashboard
 # line when the previous session's conversation could not be saved, and telemetry's inbox drain
-# promotes a persistently failing marker to one tracked finding. Best-effort: a marker write failure
-# never disturbs the capture or the turn.
+# promotes a persistently failing marker to one tracked finding. An `unparseable` (a changed transcript
+# format) also records a CONTENT-FREE structural `detail` — which recognizer check refused it and the
+# record/payload type names present, never any message text — so the next drift is diagnosable rather
+# than a bare state. Best-effort: a marker write failure never disturbs the capture or the turn.
 
 CAPTURE_STATUS_STATES = ("captured", "no-transcript", "invalid-path", "unparseable", "failed")
 _ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CAPTURE_STATUS_PATH = os.path.join(_ENGINE_DIR, "telemetry", ".cache", "memory-capture.status")
 
 
-def _write_capture_status(state: str, session_id=None) -> None:
+def _write_capture_status(state: str, session_id=None, *, detail=None) -> None:
     try:
         os.makedirs(os.path.dirname(CAPTURE_STATUS_PATH), exist_ok=True)
+        record = {"state": state, "session_id": session_id, "ts": int(time.time())}
+        if detail is not None:
+            record["detail"] = detail   # a CONTENT-FREE structural fingerprint on a failure (no text)
         with open(CAPTURE_STATUS_PATH, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({"state": state, "session_id": session_id,
-                                 "ts": int(time.time())}))
+            fh.write(json.dumps(record))
     except OSError:
         pass
 
@@ -786,9 +813,9 @@ def _capture(payload, *, cwd) -> int:
         # fall-through to the tolerant Claude parser below, which could capture fragments.
         import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
         if providers.detect(payload) == providers.CODEX:
-            messages, recognized = _codex_messages(transcript_path)
+            messages, recognized, detail = _codex_messages(transcript_path)
             if not recognized:
-                _write_capture_status("unparseable", session_id)
+                _write_capture_status("unparseable", session_id, detail=detail)
                 return 0
         else:
             messages = [r for r in _extract_records(transcript_path) if _is_message(r)]
@@ -805,6 +832,11 @@ def _capture(payload, *, cwd) -> int:
                 continue
             if _is_noise(text):
                 continue
+            # Redact secret-shaped content AFTER the empty/noise discard — large machine-output noise
+            # (command stdout: hex, base64, minified) is dropped without being scrubbed — but BEFORE
+            # chunking, so a credential straddling the >4KB chunk boundary is still caught as one unit
+            # (eADR-0038: scrubbed at capture; precision-biased, fail-soft).
+            text = scrub.scrub_text(text)
             speaker = _speaker(rec)
             # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
             # multi-chunk block (e.g. the >4 KB /compact continuation summary) is tagged — not just the first
@@ -843,8 +875,15 @@ def _demo_transcript(path: str, turns) -> None:
 
 
 def _demo_notes(query_text: str):
-    from memory import index
-    return [r.get("text", "") for r in index.query(query_text).records]
+    """Read the saved turn-notes straight back out of the cabinet (the ledger) and return those whose text
+    contains the asked-for words. Ambient turn-delta capture is durability fuel that lives in the LEDGER,
+    not the recall index (issue #332: recall surfaces the curated layer, never raw ambient capture) — so
+    the honest read-back for what capture just wrote is the ledger itself, which is exactly what this demo
+    proves ('saved and can't be lost'). Recall and ranking are a separate part of the engine, not exercised
+    here — a plain substring match stands in for 'ask for these words'."""
+    needle = query_text.lower()
+    return [r.get("text", "") for r in ledger.read(path=ledger.ledger_path()).records
+            if needle in (r.get("text") or "").lower()]
 
 
 def _demo_excerpt(texts, needle: str, width: int = 64) -> str:
@@ -939,6 +978,26 @@ def _demo() -> int:
         print("  => The step the engine runs at every turn-end really files a note (proven by reading")
         print("     it back out of the cabinet, not by trusting an 'it worked' message).")
 
+        print("\nPART 5 — a secret in your conversation is scrubbed before it is ever saved")
+        print("-" * 80)
+        fake_secret = "AKIAIOSFODNN7EXAMPLE"   # a SYNTHETIC, non-real AWS-shaped example key
+        secret_transcript = os.path.join(tmp, "secret.jsonl")
+        secret_turn = ("Deploy note: the pelican-migration access key " + fake_secret
+                       + " should never be stored — rotate it quarterly.")
+        _demo_transcript(secret_transcript, [("user", secret_turn)])
+        capture_turn_delta({"session_id": "practice-session-secret", "transcript_path": secret_transcript})
+        all_texts = [r.get("text", "") for r in ledger.read(path=ledger.ledger_path()).records]
+        leaked = any(fake_secret in t for t in all_texts)                 # the raw key must be NOWHERE
+        redacted_present = any("[redacted:aws-key]" in t for t in all_texts)
+        prose_kept = any("pelican-migration" in t and "quarterly" in t for t in all_texts)
+        redaction_ok = (not leaked) and redacted_present and prose_kept
+        print("  Filed a turn that contained a fake AWS-shaped key (not printed here — that's the point).")
+        print(f"  Is the raw secret anywhere in the saved notes?   {'YES — LEAK!' if leaked else 'no'}")
+        print(f"  ask for \"pelican-migration\"  ->  {_demo_excerpt(_demo_notes('pelican-migration'), 'pelican-migration')}")
+        print("  => The secret was replaced with [redacted:aws-key] before saving; the surrounding note")
+        print("     (\"pelican-migration … rotate it quarterly\") is kept intact. Redaction happens at")
+        print("     capture, so the secret never touches the cabinet — or any backup of it.")
+
         del os.environ["ENGINE_MEMORY_DIR"]
         del os.environ[TRANSCRIPT_DIR_ENV]
 
@@ -950,10 +1009,12 @@ def _demo() -> int:
     print("your memory while you work is another; this demo just doesn't exercise them. It proves only that")
     print("notes are saved and can't be lost — even if you just close the window.")
     print("To vary it: edit _DEMO_TURNS at the top of this file and re-run.")
-    ok = (n > 0 and filed > 0 and again == 0 and not before_handoff and bool(after_handoff))
+    ok = (n > 0 and filed > 0 and again == 0 and not before_handoff and bool(after_handoff)
+          and redaction_ok)
     if not ok:
-        print("\nDEMO UNEXPECTED: a practice turn did not file notes, a re-run was not a no-op, or the "
-              "end-of-turn ambient capture did not save a note.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: a practice turn did not file notes, a re-run was not a no-op, the "
+              "end-of-turn ambient capture did not save a note, or a secret was NOT scrubbed before "
+              "saving (leaked, no placeholder, or the surrounding note was corrupted).", file=sys.stderr)
         return 1
     return 0
 
