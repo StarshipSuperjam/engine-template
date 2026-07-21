@@ -16,6 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_coherence as mc  # noqa: E402
+import repo_identity  # noqa: E402  (home_repository + its manifest reader live here now; mc re-exports them)
 
 
 class TestSlugEq(unittest.TestCase):
@@ -49,14 +50,15 @@ class TestHomeRepositoryAccessor(unittest.TestCase):
     def test_malformed_manifest_raises_loud_not_silent_none(self):
         # A present-but-malformed manifest must RAISE loud — the fail-loud commitment overlay_disclosure and
         # release_cut rely on (a corrupt manifest must not read as "no home"). The submit flow degrades this to
-        # its strict full check LOCALLY (proven in test_submit), not by silencing the accessor.
-        with mock.patch.object(mc, "load_engine_manifest", side_effect=ValueError("bad json")):
+        # its strict full check LOCALLY (proven in test_submit), not by silencing the accessor. home_repository
+        # reads the manifest through repo_identity._manifest (mc re-exports the accessor), so patch there.
+        with mock.patch.object(repo_identity, "_manifest", side_effect=ValueError("bad json")):
             with self.assertRaises(ValueError):
                 mc.home_repository()
 
     def test_blank_or_absent_home_is_none(self):
         for manifest in ({}, {"home_repository": ""}, {"home_repository": "  "}, {"home_repository": 5}, None):
-            with mock.patch.object(mc, "load_engine_manifest", return_value=manifest):
+            with mock.patch.object(repo_identity, "_manifest", return_value=manifest):
                 self.assertIsNone(mc.home_repository())
 
 

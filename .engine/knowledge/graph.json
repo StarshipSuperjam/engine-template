@@ -8927,7 +8927,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:a6b1303c96e9c4ea714ac74183523239222b826b8019fc419a105271c0155d17",
+        "fingerprint": "sha256:579da3fc3f17c2d73567b312f3e2f6ae43afca6fbd4cf4d7b8d9f936e61812e1",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -10304,7 +10304,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:4326f228f63b07479354f3608cb80038e81086096eb5c168754b3e39328adeb2",
+        "fingerprint": "sha256:fa594c154e04a4664896dc96f9ea059797352d3ecc803aa3218f7117de19476f",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
