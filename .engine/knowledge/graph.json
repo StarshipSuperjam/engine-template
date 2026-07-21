@@ -3502,7 +3502,7 @@
       },
       "slug": "eADR-0026-external-contribution-fork-native",
       "source": {
-        "fingerprint": "sha256:b3142e047afdc2937ed0a9fef87c05d3c066b456cb5f3a550b8d4ea7c66ba253",
+        "fingerprint": "sha256:b9c523cd54c99c10203e0dccca7b3bf0132c32079c3a1dbfb9d62ee4b1c08860",
         "path": ".engine/contracts/eADR-0026-external-contribution-fork-native.md"
       },
       "status": "accepted",
@@ -3826,7 +3826,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:1f5a7633ff1bc7278c33c631f82b1cbf16e70ff3468f1c3973433b2886a35858",
+        "fingerprint": "sha256:cd447258a12b47615ed7aa78340082113c5da68adbef1402ab6eff038de23669",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4894,7 +4894,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:3bf247c8008447b50aba82808f82b821cf8187aca68b38dffb252994b4736997",
+        "fingerprint": "sha256:6be6e3c077ee6b1eb36ab4b86ec313faa2224ee10c2f36132f9377a04e02bcbc",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -5816,7 +5816,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:17ac803b69447d72f87d61cdee7e799ce97a5b3ed6b15451c8db35bca96265ba",
+        "fingerprint": "sha256:b1fb4e19ce09590361a3ffc23028ad5d92786a579e7ff55443a15dbdf0598267",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -8145,7 +8145,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:b809c43121c686124fae10b49feb2d5573da1b08bdfa824830b655f18361e797",
+        "fingerprint": "sha256:72121304ff591f6d56c3e02834bfecb9da1c236a9760ba849449dda4d2870709",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -8570,7 +8570,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:8a07cc0b101f2dfc0c3c780d639c0a7a9b351511cf1d090cc94dde18eaa1fb7f",
+        "fingerprint": "sha256:d344aa8a7a34e97047c4b789276ab49d66468397b80a57985bcad033689d6c05",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -10100,7 +10100,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:d711b8cbd28d34bd9ca0fe67cd856a71f37156aa42dfe458e715b02528050bd4",
+        "fingerprint": "sha256:4197f6a7a5c4c7017b39aedb95f29796374150f56badc52db845a75558600a6a",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10202,7 +10202,7 @@
       },
       "slug": "test_spec_referent",
       "source": {
-        "fingerprint": "sha256:c41d80686f4c3c151ea7e365add30852e196dd61f0bd32dfa0e99a554065d272",
+        "fingerprint": "sha256:dcb58527727d279602e453063af1bc6260f704bcbdc1eb1dec7094fbdbcdf29e",
         "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",
@@ -10525,7 +10525,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:b3a8d40820bb93b7f3130f4e0919eda0396f625408f28cf1fb887450a74c1cf3",
+        "fingerprint": "sha256:e84397b049ccba1598419209df20880341de115258a7a882ba42b5b3981dbe4e",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

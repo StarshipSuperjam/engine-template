@@ -290,6 +290,13 @@
       ]
     },
     {
+      "type": "gitignore",
+      "key": "mechanic-product-checkout",
+      "lines": [
+        ".engine/mechanic/"
+      ]
+    },
+    {
       "type": "codex-mcp",
       "name": "engine-knowledge-graph",
       "definition": {

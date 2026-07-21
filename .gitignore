@@ -34,3 +34,10 @@ __pycache__/
 # BEGIN engine-managed block: core-boot-presentation-ledger - do not edit inside
 .engine/boot/.cache/
 # END engine-managed block: core-boot-presentation-ledger
+# The engine-mechanic's per-machine product-checkout path (eADR-0026): a local pointer to the OWNED product
+# repo's clone on THIS machine. Never committed — the product slug travels with the engine, but the local path
+# is each maintainer's to set once, so it stays out of git (a whole-directory block, not a lone tracked-surface
+# file, so the ownership/surface census never sees it).
+# BEGIN engine-managed block: mechanic-product-checkout - do not edit inside
+.engine/mechanic/
+# END engine-managed block: mechanic-product-checkout

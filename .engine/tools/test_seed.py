@@ -1880,13 +1880,17 @@ class TestWeakeningReHome(unittest.TestCase):
 
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
-    def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None):
+    def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None,
+                   base_product_build_target=None):
         """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
         changed_files count, the BASE manifest's recorded home (`base_home`, default None = no home
-        recorded, so a home in the diff reads as a first recording), and the BASE manifest's recorded identity
+        recorded, so a home in the diff reads as a first recording), the BASE manifest's recorded identity
         tier (`base_tier`, default None = no tier recorded, so a team->solo detector has nothing to downgrade
-        FROM). `expected` defaults to len(files) (a fully-seen PR); pass a larger int to simulate a truncated /
-        over-cap view, or None for the count being unavailable."""
+        FROM), and the BASE manifest's recorded executable build target (`base_product_build_target`, default
+        None = no target recorded — so a target APPEARING in the diff reads as a first-set ARMING, which the
+        product_build_target detector flags, unlike a first-home recording). `expected` defaults to len(files)
+        (a fully-seen PR); pass a larger int to simulate a truncated / over-cap view, or None for the count
+        being unavailable."""
         import contextlib
         import io
         if expected is self._AUTO:
@@ -1896,6 +1900,7 @@ class TestWeakeningReHome(unittest.TestCase):
         orig_count = weakening_guard.changed_files_total
         orig_home = weakening_guard._read_base_home
         orig_tier = weakening_guard._read_base_tier
+        orig_target = weakening_guard._read_base_product_build_target
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -1907,6 +1912,7 @@ class TestWeakeningReHome(unittest.TestCase):
             weakening_guard.changed_files_total = lambda repo, number, token: expected
             weakening_guard._read_base_home = lambda: base_home
             weakening_guard._read_base_tier = lambda: base_tier
+            weakening_guard._read_base_product_build_target = lambda: base_product_build_target
             try:
                 with contextlib.redirect_stdout(buf):
                     rc = weakening_guard.main()
@@ -1917,6 +1923,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard.changed_files_total = orig_count
                 weakening_guard._read_base_home = orig_home
                 weakening_guard._read_base_tier = orig_tier
+                weakening_guard._read_base_product_build_target = orig_target
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -2258,6 +2265,108 @@ class TestWeakeningReHome(unittest.TestCase):
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             self._f(self._DOWNGRADE_PATCH), base_tier="team")
         self.assertEqual(out, [])
+
+    # ---- arming the executable build target is a guardrail weakening; INVERTED from home (first-set FIRES) ----
+    _ARM_PATCH = ('@@ -1,3 +1,4 @@\n'
+                  '   "identity": "solo",\n'
+                  '+  "product_build_target": "StarshipSuperjam/engine-template",\n'
+                  ' }\n')
+
+    def test_product_build_target_pure_classifier(self):
+        a = weakening_guard.product_build_target_arm
+        # FIRST-SET (base absent -> a value appears) FIRES — the inverse of home_repoint; this is the arming.
+        self.assertEqual(a(self._f(self._ARM_PATCH), None),
+                         (None, "StarshipSuperjam/engine-template", "set"))
+        # a REPOINT (base present, value changes) FIRES.
+        repoint = self._f('@@ -1,3 +1,3 @@\n'
+                          '-  "product_build_target": "acme/old",\n'
+                          '+  "product_build_target": "evil/look-alike",\n')
+        self.assertEqual(a(repoint, "acme/old"), ("acme/old", "evil/look-alike", "changed"))
+        # DELETION (present -> absent, no added target line) is BENIGN — reverts to the safe self-building default.
+        deletion = self._f('@@ -1,3 +1,2 @@\n'
+                           '   "identity": "solo",\n'
+                           '-  "product_build_target": "acme/old",\n')
+        self.assertIsNone(a(deletion, "acme/old"))
+        # a same-value formatting touch (unchanged value) is BENIGN.
+        same = self._f('@@ -1,3 +1,3 @@\n'
+                       '-  "product_build_target": "acme/old"\n'
+                       '+  "product_build_target": "acme/old",\n')
+        self.assertIsNone(a(same, "acme/old"))
+        # a version-only bump (no target line touched) does NOT flag, even with a target recorded.
+        self.assertIsNone(a(self._f('@@ -1,1 +1,1 @@\n-  "engine_release": "1"\n+  "engine_release": "2"\n'),
+                            "acme/old"))
+        # a manifest change with NO inspectable patch -> fail closed (flag), even with no base target.
+        self.assertEqual(a([{"filename": ".engine/engine.json", "status": "modified", "patch": None}], None),
+                         (None, None, "unreadable-patch"))
+        # the same arming patch on a NON-manifest file is ignored.
+        self.assertIsNone(a([{"filename": "docs/x.md", "status": "modified", "patch": self._ARM_PATCH}], None))
+        # a duplicate-key injection (JSON last value wins) is read by findall on the added line -> flagged.
+        dup = self._f('@@ -1,3 +1,4 @@\n'
+                      '   "product_build_target": "acme/old",\n'
+                      '+  "product_build_target": "evil/look-alike",\n')
+        self.assertEqual(a(dup, "acme/old"), ("acme/old", "evil/look-alike", "changed"))
+        # a value split across physical lines defeats the one-line parse -> "unclear" (fail closed).
+        split = self._f('@@ -1,3 +1,4 @@\n'
+                        '+  "product_build_target": "evil/\n'
+                        '+look-alike"\n')
+        self.assertEqual(a(split, None), (None, None, "unclear"))
+        # a CR-hidden second value (str.splitlines would fragment and drop the `+`) fails closed on the anomaly.
+        cr = self._f('@@ -1,3 +1,4 @@\n'
+                     '+  "product_build_target": "acme/ok",\r  "product_build_target": "evil/x"\n')
+        self.assertEqual(a(cr, None), (None, None, "escaped"))
+
+    def test_product_build_target_first_set_is_flagged_and_cleared_by_the_ack(self):
+        # end-to-end through main(): arming the target on a repo with none recorded blocks until the ack, then clears.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            self._f(self._ARM_PATCH))  # base_product_build_target None -> first-set
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("build target", out[0]["message"])
+        self.assertIn("StarshipSuperjam/engine-template", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            self._f(self._ARM_PATCH))
+        self.assertEqual(out, [])
+
+    def test_product_build_target_repoint_names_old_and_new(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            self._f('@@ -1,3 +1,3 @@\n'
+                    '-  "product_build_target": "acme/old",\n'
+                    '+  "product_build_target": "evil/look-alike",\n'),
+            base_product_build_target="acme/old")
+        self.assertEqual(len(out), 1)
+        self.assertIn("acme/old", out[0]["message"])
+        self.assertIn("evil/look-alike", out[0]["message"])
+
+    def test_product_build_target_deletion_is_not_flagged(self):
+        # de-arming (removing the target) reverts to the safe self-building default -> no ack demanded.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            self._f('@@ -1,3 +1,2 @@\n   "identity": "solo",\n-  "product_build_target": "acme/old",\n'),
+            base_product_build_target="acme/old")
+        self.assertEqual(out, [])
+
+    def test_product_build_target_added_manifest_first_set_fires(self):
+        # SECURITY (deliverable-gate finding): a first-set arriving on an `added` manifest (base has no manifest —
+        # e.g. a delete-then-re-add composition, which WEAKENING_STATUS would let slip) is still the arming event
+        # and MUST fire. This INVERTED detector evaluates `added`, unlike its siblings. A first-run manifest with
+        # NO target still passes.
+        a = weakening_guard.product_build_target_arm
+        added_with = [{"filename": ".engine/engine.json", "status": "added",
+                       "patch": '@@ -0,0 +1,3 @@\n+{\n+  "product_build_target": "evil/repo"\n+}\n'}]
+        self.assertEqual(a(added_with, None), (None, "evil/repo", "set"))
+        added_without = [{"filename": ".engine/engine.json", "status": "added",
+                          "patch": '@@ -0,0 +1,2 @@\n+{\n+  "engine_release": "1.0.0"\n+}\n'}]
+        self.assertIsNone(a(added_without, None))
+        # end-to-end: the added first-set blocks until the ack
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, added_with)
+        self.assertEqual(len(out), 1)
+        self.assertIn("evil/repo", out[0]["message"])
 
     def test_missing_pr_context_is_hard_fail_closed(self):
         import contextlib
