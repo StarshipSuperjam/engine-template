@@ -553,10 +553,12 @@ class TestDeclarationCensus(unittest.TestCase):
 
     @unittest.skipUnless(
         hcb._is_construction_root(ROOT),
-        "construction-repo declaration-drift canary: it binds the source's exact shipped declaration set so a new "
-        "one is a visible test edit. A deployed repo legitimately carries extra not-applicable declarations for the "
-        "construction-scoped checks (the +2 that TestS5GoLive already accounts for), so the exact-set assertion only "
-        "holds in the construction checkout where declarations are authored.")
+        "construction-repo drift canary: it pins the SOURCE's exact declaration set so a newly-authored declaration "
+        "is a visible test edit. It is scoped to the construction checkout because a deployed repo does not author "
+        "these declarations, and a deployed repo's fixture surface can differ from the source's (installed modules, "
+        "a fork-native product's own checks, accumulated state), so pinning the exact source set is not meaningful "
+        "there. A fresh deployed repo carries the same committed declarations; this guard is the honest scope, not a "
+        "claim that the set changes on deploy.")
     def test_exact_shipped_declaration_set(self):
         found = sorted(
             os.path.relpath(p, ROOT)

@@ -9029,7 +9029,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:c01559130adf13f8a724edc61599c6d0dda800165d872b8e843a8d41000e3700",
+        "fingerprint": "sha256:1b7a36ca5652a55492123b179c42f19e0e870556efbb6037cd31b8eaf7f2e335",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
