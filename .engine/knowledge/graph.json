@@ -5782,7 +5782,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:61c38b1af2e3871e3748a2390d1c288c515280cccd440b54a3b9561d3650bbbe",
+        "fingerprint": "sha256:8e2065735a4b0c42aa100f05f65b5958812a6fe0d4e4369b1e78076926c567b3",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",

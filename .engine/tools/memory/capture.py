@@ -991,7 +991,7 @@ def _demo() -> int:
         redacted_present = any("[redacted:aws-key]" in t for t in all_texts)
         prose_kept = any("pelican-migration" in t and "quarterly" in t for t in all_texts)
         redaction_ok = (not leaked) and redacted_present and prose_kept
-        print(f"  Filed a turn that contained a fake secret ({fake_secret}).")
+        print("  Filed a turn that contained a fake AWS-shaped key (not printed here — that's the point).")
         print(f"  Is the raw secret anywhere in the saved notes?   {'YES — LEAK!' if leaked else 'no'}")
         print(f"  ask for \"pelican-migration\"  ->  {_demo_excerpt(_demo_notes('pelican-migration'), 'pelican-migration')}")
         print("  => The secret was replaced with [redacted:aws-key] before saving; the surrounding note")
