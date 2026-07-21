@@ -405,6 +405,45 @@ class DispatchTests(_Seeded):
         finally:
             spec_referent._ROOT = orig
 
+    def test_env_spec_root_redirects_the_cli_read(self):
+        # eADR-0026 mechanic: ENGINE_SPEC_ROOT points the CLI's --doc read at the PRODUCT checkout, not
+        # spec_referent's own __file__ tree. Prove it resolves from the env root even when _ROOT points elsewhere.
+        import contextlib
+        import io
+        env_root = self._root({"docs/spec/index.md": "# s\n", "docs/spec/c.md": _doc("locked")})
+        docless = self._root({"docs/spec/index.md": "# other\n"})   # the DEFAULT root has no c.md
+        orig = spec_referent._ROOT
+        saved = os.environ.get("ENGINE_SPEC_ROOT")
+        spec_referent._ROOT = docless
+        os.environ["ENGINE_SPEC_ROOT"] = env_root
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = spec_referent.main(["resolve", "--doc", "docs/spec/c.md"])
+            self.assertEqual(rc, 0)
+            self.assertIn('"ok": true', buf.getvalue())   # resolved from the ENV root, not the docless default
+        finally:
+            spec_referent._ROOT = orig
+            if saved is None:
+                os.environ.pop("ENGINE_SPEC_ROOT", None)
+            else:
+                os.environ["ENGINE_SPEC_ROOT"] = saved
+
+    def test_env_spec_root_keeps_the_confined_read_wall(self):
+        # the redirect MOVES the wall, it does not disable it: a pointer escaping above <env_root>/docs/spec is
+        # still refused (self-relativized to whatever root _root() returns).
+        env_root = self._root({"docs/spec/index.md": "# s\n", "secret.md": _doc("draft")})
+        saved = os.environ.get("ENGINE_SPEC_ROOT")
+        os.environ["ENGINE_SPEC_ROOT"] = env_root
+        try:
+            r = spec_referent.resolve_doc(spec_referent._root(), "docs/spec/../secret.md", require_locked=False)
+            self.assertEqual(r["no_op_reason"], "pointer-not-under-docs-spec")
+        finally:
+            if saved is None:
+                os.environ.pop("ENGINE_SPEC_ROOT", None)
+            else:
+                os.environ["ENGINE_SPEC_ROOT"] = saved
+
     def test_review_steps_doc_renders(self):
         import contextlib
         import io

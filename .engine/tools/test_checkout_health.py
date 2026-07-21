@@ -788,5 +788,90 @@ class TestPersistedDefaultBranch(unittest.TestCase):
             self.assertEqual(checkout_health._default_branch(root), "main")
 
 
+class TestProductBuildTarget(unittest.TestCase):
+    """The engine-mechanic executable build target (eADR-0026): the fail-closed origin-match belt, the manifest
+    reader, and the two-state per-machine path resolver. The belt is the last line of defence behind the
+    guardrail-ack — it must DENY on any doubt, never quietly pass."""
+
+    def _write_manifest(self, root: str, obj: dict) -> None:
+        with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+
+    @contextlib.contextmanager
+    def _env(self, **kw):
+        saved = {k: os.environ.get(k) for k in kw}
+        try:
+            for k, v in kw.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            yield
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_belt_true_on_matching_origin_normalized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            _git(root, "remote", "add", "origin", "git@github.com:StarshipSuperjam/engine-template.git")
+            self.assertTrue(checkout_health.product_checkout_matches("StarshipSuperjam/engine-template", root))
+            # slug_eq normalizes case / .git — an SSH-vs-HTTPS-vs-case skew still matches
+            self.assertTrue(checkout_health.product_checkout_matches("starshipsuperjam/Engine-Template", root))
+
+    def test_belt_false_on_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            _git(root, "remote", "add", "origin", "https://github.com/evil/look-alike.git")
+            self.assertFalse(checkout_health.product_checkout_matches("StarshipSuperjam/engine-template", root))
+
+    def test_belt_fails_closed_on_missing_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")  # no origin remote configured
+            self.assertFalse(checkout_health.product_checkout_matches("o/r", root))      # unreadable origin
+            self.assertFalse(checkout_health.product_checkout_matches("", root))         # blank slug
+            self.assertFalse(checkout_health.product_checkout_matches(None, root))       # None slug
+            self.assertFalse(checkout_health.product_checkout_matches("o/r", ""))        # blank path
+            self.assertFalse(checkout_health.product_checkout_matches("o/r", os.path.join(tmp, "nope")))
+
+    def test_recorded_target_reads_manifest_and_absent_is_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "StarshipSuperjam/engine-template"})
+            self.assertEqual(checkout_health.recorded_product_build_target(root),
+                             "StarshipSuperjam/engine-template")
+            self._write_manifest(root, {"engine_release": "1.0.0"})   # no target -> self-building default
+            self.assertIsNone(checkout_health.recorded_product_build_target(root))
+
+    def test_resolve_path_silent_when_no_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"engine_release": "1.0.0"})
+            with self._env(ENGINE_PRODUCT_CHECKOUT="/anything"):   # even with env set, no target -> silent
+                self.assertEqual(checkout_health.resolve_product_checkout(root), (None, None))
+
+    def test_resolve_path_env_then_file_then_loud(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            # env wins first
+            with self._env(ENGINE_PRODUCT_CHECKOUT="/home/me/et"):
+                self.assertEqual(checkout_health.resolve_product_checkout(root), ("/home/me/et", None))
+            # no env -> gitignored fallback file
+            os.makedirs(os.path.join(root, ".engine", "mechanic"))
+            with open(os.path.join(root, ".engine", "mechanic", "product-checkout-path"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("/home/me/from-file\n")
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.resolve_product_checkout(root), ("/home/me/from-file", None))
+            # neither -> LOUD (the fork case: slug travelled, local path never set)
+            os.remove(os.path.join(root, ".engine", "mechanic", "product-checkout-path"))
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.resolve_product_checkout(root), (None, "path-unset"))
+
+
 if __name__ == "__main__":
     unittest.main()

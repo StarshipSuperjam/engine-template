@@ -66,6 +66,21 @@ _SPEC_DIR = os.path.join("docs", "spec")
 # <repo>/.engine/tools/spec_referent.py -> <repo>. A pure leaf: computed from __file__, no sibling import.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def _root() -> str:
+    """The repository root the CLI reads the spec tree FROM. Defaults to `_ROOT` (this engine's own tree), but
+    honors `ENGINE_SPEC_ROOT` when set — the same seam conformance_sweep uses — so the engine-mechanic can point
+    a `--doc` read at the PRODUCT checkout it builds (eADR-0026) rather than its own overlay. The env value is a
+    trusted, session-set seam (inert in production, where it is unset — the read is then byte-unchanged); a
+    relative value resolves under `_ROOT`, an absolute value is used as-is. The confined-read wall in
+    resolve_doc self-relativizes to whatever root is passed, so redirecting the root moves the wall with it —
+    a pointer that escapes above `<root>/docs/spec` stays rejected. Kept a local leaf (no `validate` import) so
+    spec_referent's self-containment is preserved."""
+    value = os.environ.get("ENGINE_SPEC_ROOT")
+    if not value:
+        return _ROOT
+    return value if os.path.isabs(value) else os.path.join(_ROOT, value)
+
 # The acceptance-criteria grammar — a knowing duplicate of product_design/spec_form.py's (a CORE tool must not
 # import the OPTIONAL package). A criterion row is `| Criterion | How verified | Who checks it |`; who is who can
 # discharge it. "locked" is the settled stage that gates the referent.
@@ -704,13 +719,13 @@ def _resolved_for_cli(argv: list) -> "dict | int":
     a usage/read error."""
     issue, doc = _parse_target(argv)
     if doc is not None:
-        return resolve(_ROOT, doc=doc)
+        return resolve(_root(), doc=doc)
     if issue is not None:
         gh = _gh_from_env()
         if gh is None:
             return 2
         try:
-            return resolve(_ROOT, issue=issue, gh=gh)
+            return resolve(_root(), issue=issue, gh=gh)
         except SpecReferentError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -744,7 +759,7 @@ def main(argv: "list | None" = None) -> int:
             print("usage: spec_referent.py acceptance-split --doc docs/spec/<doc>.md   (a local, offline read; "
                   "--issue is not supported for this verb)", file=sys.stderr)
             return 2
-        print(render_acceptance_split(resolve_doc(_ROOT, doc, require_locked=False)))
+        print(render_acceptance_split(resolve_doc(_root(), doc, require_locked=False)))
         return 0
     print("usage: spec_referent.py [resolve|review-steps|acceptance-split|demo] "
           "[--issue N | --doc docs/spec/<doc>.md]", file=sys.stderr)

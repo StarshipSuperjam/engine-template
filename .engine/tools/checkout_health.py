@@ -73,6 +73,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -451,6 +452,105 @@ def recorded_product_repository(cwd: str | None = None) -> str | None:
         return None
     product = manifest.get("product_repository")
     return product if isinstance(product, str) and product.strip() else None
+
+
+# ---- the engine-mechanic executable build target (eADR-0026): the OWNED product the mechanic delivers PRs INTO.
+# Unlike recorded_product_repository (a display label), product_build_target is EXECUTABLE — a fail-closed belt
+# gates every use, and the per-machine checkout path is local by nature (the slug travels on a fork; the path
+# does not). These readers are OFFLINE and READ-ONLY; the write path lives in the mechanic build entry (Slice 2).
+
+# The per-machine path to the product checkout — an env var first (the trusted, session-set seam), then a
+# gitignored per-machine fallback file. NEVER committed: the slug identifies the product and travels with the
+# engine, but the path names a folder on THIS computer and is each maintainer's to set once.
+_PRODUCT_CHECKOUT_ENV = "ENGINE_PRODUCT_CHECKOUT"
+_PRODUCT_CHECKOUT_FILE_REL = os.path.join(".engine", "mechanic", "product-checkout-path")
+# owner/repo parsed from a remote URL (SSH or HTTPS), the same shape boot.repo_slug parses this repo's own origin.
+_ORIGIN_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+
+
+def recorded_product_build_target(cwd: str | None = None) -> str | None:
+    """OFFLINE, READ-ONLY: the engine's recorded EXECUTABLE build target (`product_build_target` in the manifest)
+    — the OWNED repository this engine-mechanic delivers pull requests into (eADR-0026). None when absent, which
+    is the normal self-building state (the engine builds its own repo and records no executable target). A pure
+    manifest read (the recorded_product_repository idiom); it NEVER fetches, executes, or writes — the belt and
+    the mechanic build entry are the only things that ACT on the value, and only after the fail-closed check."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main, detached, missing, _current = st
+    if detached or missing:
+        return None
+    try:
+        with open(os.path.join(main, ".engine", "engine.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except Exception:  # noqa: BLE001 — no manifest / unreadable -> nothing recorded
+        return None
+    target = manifest.get("product_build_target")
+    return target if isinstance(target, str) and target.strip() else None
+
+
+def _origin_slug(checkout_path: str) -> str | None:
+    """The owner/repo slug of `checkout_path`'s `origin` remote, or None if unresolvable — parsed from the
+    remote URL the same way boot.repo_slug parses this repo's own origin (SSH or HTTPS form)."""
+    url = _run(["git", "-C", checkout_path, "remote", "get-url", "origin"])
+    if not url or not url.strip():
+        return None
+    m = _ORIGIN_SLUG_RE.search(url.strip())
+    return m.group(1) if m else None
+
+
+def product_checkout_matches(target_slug: str | None, checkout_path: str | None) -> bool:
+    """FAIL-CLOSED belt: True ONLY when `target_slug` (the committed product_build_target) equals the `origin`
+    slug of the checkout at `checkout_path`. Any doubt returns False (DENY), NEVER None.
+
+    NOTE — this function's disposition is DELIBERATELY INVERTED from the rest of this module. Every other reader
+    here is fail-soft-QUIET (an unresolvable state returns None / no signal, because a stranded LOCAL checkout
+    cannot reach the protected branch anyway, so it degrades quietly). This one authorizes a cross-repo WRITE, so
+    on ANY uncertainty — a missing/blank slug on either side, an unreadable origin, a mismatch — it must DENY by
+    returning False. Do NOT 'harmonize' it to return None for consistency with its siblings: that would flip it
+    fail-OPEN and let the mechanic write against a checkout whose origin does not match its committed target — the
+    exact harm this belt exists to stop, and the last line of defence behind the guardrail-ack."""
+    if not target_slug or not str(target_slug).strip() or not checkout_path:
+        return False
+    origin_slug = _origin_slug(checkout_path)
+    if not origin_slug:
+        return False
+    from module_coherence import slug_eq  # lazy: keep module_coherence off boot's SessionStart import surface
+    return slug_eq(target_slug, origin_slug)
+
+
+def _read_checkout_path_file(cwd: str | None = None) -> str | None:
+    """The per-machine product-checkout path from the gitignored fallback file (a bare single-line path), read
+    from the operator's main checkout. None when absent/unreadable — the env var is the primary seam and this is
+    only the convenience fallback."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main = st[0]
+    try:
+        with open(os.path.join(main, _PRODUCT_CHECKOUT_FILE_REL), encoding="utf-8") as fh:
+            path = fh.read().strip()
+        return path or None
+    except Exception:  # noqa: BLE001 — absent / unreadable per-machine file -> no path recorded
+        return None
+
+
+def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | None]:
+    """Two-state resolution of the per-machine product-checkout path. Returns `(path, state)`:
+      - `(None, None)` — SILENT: no `product_build_target` is recorded. The normal self-building deployment (and
+        the construction repo); NOT a mechanic, so there is nothing to resolve and nothing to nag about.
+      - `(path, None)` — a target IS recorded and a local path resolved (env `ENGINE_PRODUCT_CHECKOUT` first, then
+        the gitignored fallback file).
+      - `(None, "path-unset")` — LOUD state: a target is recorded but this machine's local checkout path is unset
+        (the fork case — the committed slug travelled, the local path was never set). The caller/boot renders the
+        plain-language line (this module keeps operator prose out of its return values).
+    The path is inherently per-machine, so it is never committed; the slug travels, the path is local."""
+    if not recorded_product_build_target(cwd):
+        return (None, None)                     # silent: not a mechanic
+    path = os.environ.get(_PRODUCT_CHECKOUT_ENV) or _read_checkout_path_file(cwd)
+    if path and path.strip():
+        return (path.strip(), None)
+    return (None, "path-unset")                 # loud: target recorded, local path missing
 
 
 # ---- the behind-the-main-line tail: online signal + the fast-forward corrections (#335; #342) ----

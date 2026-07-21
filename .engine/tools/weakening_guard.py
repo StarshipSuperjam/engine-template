@@ -485,6 +485,90 @@ def identity_downgrade(files: list, base_tier: str | None) -> bool:
     return False
 
 
+# The engine's EXECUTABLE build target (eADR-0026 engine-mechanic): the repo the engine may branch, commit, and
+# open a pull request against. This detector is deliberately INVERTED from home_repoint on the axis that matters.
+# home_repository is born-present (template-seeded, carried forward at first-run), so only a REPOINT ever happens
+# and a first recording is benign. `product_build_target` is ABSENT by default and is first written by the
+# mechanic itself LATER — so its first-set (absent -> present) IS the eADR-0011 re-classification (arming a
+# previously-inert engine to write against an external repo) and MUST fire the ack. A repoint fires too; a
+# DELETION (present -> absent) is benign (it reverts to the safe self-building default) and is safe to skip
+# because any later re-add is itself a flagged first-set. The manifest is deliberately NOT whole-file guarded
+# (version churn), so this value detector is the SOLE gate on a manifest-only arming PR — hence fail-closed.
+_PRODUCT_BUILD_TARGET_VALUE_RE = re.compile(r'"product_build_target"\s*:\s*"([^"]*)"')
+
+
+def _read_base_product_build_target() -> str | None:
+    """The `product_build_target` recorded in the BASE manifest (trusted base checkout, never head). None when
+    absent/unreadable — the normal self-building state, with no executable target set. UNLIKE a missing home,
+    a missing target is NOT a licence to skip: a first-set (None -> value) is precisely the arming event the
+    detector must flag."""
+    try:
+        with open(_BASE_MANIFEST, encoding="utf-8") as fh:
+            v = json.load(fh).get("product_build_target")
+        return v if isinstance(v, str) and v.strip() else None
+    except Exception:  # noqa: BLE001 — absent / unreadable base manifest -> no target recorded
+        return None
+
+
+def _touches_product_build_target_key(patch: str) -> bool:
+    """True iff the unified-diff `patch` adds or removes any line mentioning the `product_build_target` key — a
+    SUBSTRING test (mirrors _touches_home_key), so a duplicate-key injection or a reformat all register."""
+    for line in _diff_lines(patch):
+        plus = line.startswith("+") and not line.startswith("+++")
+        minus = line.startswith("-") and not line.startswith("---")
+        if (plus or minus) and '"product_build_target"' in line:
+            return True
+    return False
+
+
+def product_build_target_arm(files: list, base_target: str | None) -> tuple | None:
+    """Arming (or repointing) the executable build target is a guardrail-weakening — it authorizes the engine to
+    branch, commit, and open pull requests against an external repo, inheriting home_repository's supply-chain and
+    command surface. Returns `(base_or_None, new_or_None, reason)` to flag, else None. INVERTED from home_repoint:
+    a FIRST-SET (base absent -> a value appears) FIRES (the arming); a value change FIRES (a repoint); a DELETION
+    (the target line removed and not re-added) is BENIGN — it reverts to the safe self-building default, needing no
+    flag because any later re-add is itself a flagged first-set. FAILS CLOSED: a manifest change too large to
+    inspect, or an anomalous added line that could hide the key, both flag REGARDLESS of base (a first-set could
+    hide there — the fail-closed is intentionally broader than home's, which is safe because the manifest is tiny
+    and never legitimately produces an unreadable patch). `reason`:
+      - "set"              — a target value appears where the base had none (the arming);
+      - "changed"          — the target value differs from the base (a repoint);
+      - "unreadable-patch" — the manifest diff was too large for GitHub to return;
+      - "escaped"          — an added manifest line carries a JSON escape or embedded separator that could hide
+                             the key past the substring touch-test;
+      - "unclear"          — the key is touched with an added line but no clean single-line value could be read.
+    A version-only bump (no target line touched) does not flag; a same-value formatting touch does not flag."""
+    for f in files:
+        if f.get("filename") != ENGINE_MANIFEST_REL:
+            continue
+        if f.get("status") not in WEAKENING_STATUS:
+            continue
+        patch = f.get("patch")
+        if not patch:
+            return (base_target, None, "unreadable-patch")   # a manifest change we cannot inspect -> fail closed
+        added = [ln for ln in _diff_lines(patch) if ln.startswith("+") and not ln.startswith("+++")]
+        if any(_added_line_is_anomalous(ln) for ln in added):
+            return (base_target, None, "escaped")
+        if _touches_product_build_target_key(patch):
+            added_target = [ln for ln in added if '"product_build_target"' in ln]
+            if not added_target:
+                continue                        # the key appears only on removed lines -> deletion -> benign
+            # findall, not search — collect EVERY value on the added lines, so a duplicate-key injection
+            # (JSON's last value wins) cannot hide the effective target behind a benign first value.
+            values = [v for ln in added_target for v in _PRODUCT_BUILD_TARGET_VALUE_RE.findall(ln)]
+            if not values:
+                return (base_target, None, "unclear")   # touched + added but no clean single-line value
+            new = None
+            for v in values:
+                if v != base_target:
+                    new = v
+            if new is None:
+                continue                        # every added value equals base -> formatting churn -> benign
+            reason = "changed" if base_target else "set"
+            return (base_target, new, reason)
+    return None
+
+
 _QUOTED_RE = re.compile(r'"([^"]*)"')
 
 
@@ -646,7 +730,8 @@ def main() -> int:
     repoint = home_repoint(files, _read_base_home())
     downgrade = identity_downgrade(files, _read_base_tier())
     shrink = instance_declaration_shrink(files)
-    if not flagged and not repoint and not downgrade and not shrink:
+    arm = product_build_target_arm(files, _read_base_product_build_target())
+    if not flagged and not repoint and not downgrade and not shrink and not arm:
         return emit([])  # nothing weakens
     if ACK_LABEL in labels:
         return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here)
@@ -710,6 +795,31 @@ def main() -> int:
                     f"watches — removing an entry stops the check from flagging future edits to it.")
         parts.append(lead + " Adding to this list is fine and never stops here; only REMOVING a protection does, "
                      "because a protection you added is being taken away. Only you can confirm you mean to.\n")
+    if arm:
+        old, new, reason = arm
+        if reason == "set":
+            lead = (f"Your engine is being pointed at a build target it can ACT ON: `{new}`. Until now this engine "
+                    f"opened pull requests only against its own repository; recording this target authorizes it to "
+                    f"branch, commit, and open pull requests against `{new}`.")
+        elif reason == "changed":
+            lead = (f"Your engine's executable build target is being changed from {old} to {new} — the repository "
+                    f"the engine branches, commits, and opens pull requests against.")
+        elif reason == "escaped":
+            lead = ("A change to `.engine/engine.json` (where your engine's executable build target is recorded) "
+                    "adds an unusual character — a backslash escape or a hidden line break — where the engine's "
+                    "settings are normally plain text. That can hide a build-target change, so this check stops "
+                    "and asks you.")
+        elif reason == "unreadable-patch":
+            lead = ("A change to `.engine/engine.json` (where your engine's executable build target is recorded) "
+                    "was too large for this check to read in full, so it cannot confirm whether the target was set "
+                    "or changed — confirm this change before merging.")
+        else:  # "unclear" — the target line was touched but no clean value could be read
+            lead = ("The `product_build_target` line in `.engine/engine.json` was changed in a way this check "
+                    "couldn't cleanly read — confirm the value in this pull request's changed files before merging.")
+        parts.append(lead + " This matters because that setting decides WHICH repository your engine may open "
+                     "pull requests against and run against — the same command-and-supply-chain surface as your "
+                     "update home: a wrong or tampered value redirects where your engine writes and runs code. "
+                     "Only you can confirm this is the repository you intend the engine to build.\n")
     parts.append(f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one "
                  "deliberate action, distinct from the merge click). Until then, this check blocks the merge.")
     return emit([{"severity": tier, "location": None, "message": "\n".join(parts)}])
