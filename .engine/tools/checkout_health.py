@@ -523,14 +523,16 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
     return (None, "path-unset")                 # loud: target recorded, local path missing
 
 
-def checkout_lossless(checkout_path: str) -> "tuple[bool, list[str]] | None":
+def checkout_lossless(checkout_path: str) -> tuple[bool, list[str]] | None:
     """OFFLINE, READ-ONLY: is the checkout AT `checkout_path` SAFE for the mechanic to branch and build in
     without disturbing work — on a branch (not detached), engine files present, and lossless (clean tree, no
     stash, no off-branch commits, no paused git op)? Returns `(safe, reasons)`, or None when the checkout cannot
     be resolved (fail-soft QUIET, this module's convention). This is a REPORTER, not a gate: the mechanic build
     entry (mechanic_build.resolve_build_target) makes the fail-closed decision and treats BOTH None and
     `(False, …)` as 'do not write here', so a mechanic never branches on top of the operator's unsaved work in
-    their separate, real product checkout."""
+    their separate, real product checkout. Health is assessed for the MAIN checkout `_resolve_state` resolves
+    from `checkout_path` (the product is a normal, separate clone — its own main); were the product kept in a
+    linked worktree, that main is assessed, not the linked worktree at the path."""
     st = _resolve_state(checkout_path)
     if not st:
         return None

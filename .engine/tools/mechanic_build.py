@@ -105,19 +105,34 @@ def _github_slug(url: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+def _classify_origin(target_slug: str | None, checkout_path: str | None) -> str:
+    """The SINGLE source of the host-anchored authorization compare — both the boolean belt and the resolver read
+    it, so the security predicate is defined once and cannot drift between them. Classifies the checkout's origin
+    against the committed target, fail-closed, into exactly one of:
+      - `"unreadable"`     — blank inputs, or no readable `origin` remote at `checkout_path`;
+      - `"untrusted-host"` — an origin is present but is NOT a genuine github.com repo (a look-alike host);
+      - `"mismatch"`       — a genuine github slug that does NOT equal the committed target;
+      - `"ok"`             — a genuine github origin whose slug equals the committed target.
+    Any doubt lands on a non-`"ok"` value (DENY); it never raises."""
+    if not target_slug or not str(target_slug).strip() or not checkout_path:
+        return "unreadable"
+    url = _git_origin_url(checkout_path)
+    if not url:
+        return "unreadable"
+    slug = _github_slug(url)
+    if not slug:
+        return "untrusted-host"
+    from repo_identity import slug_eq  # lazy: keep the identity seam off any import surface this tool rides
+    return "ok" if slug_eq(target_slug, slug) else "mismatch"
+
+
 def product_checkout_matches(target_slug: str | None, checkout_path: str | None) -> bool:
     """FAIL-CLOSED belt: True ONLY when `target_slug` (the committed product_build_target) equals the `origin`
     slug of a genuine github.com checkout at `checkout_path`. Any doubt returns False (DENY), NEVER None — a
     missing/blank slug on either side, an unreadable origin, an untrusted/look-alike host, or a mismatch. This is
     the last line of defence behind the guardrail-ack; see the module docstring for why it is fail-closed and
-    host-anchored."""
-    if not target_slug or not str(target_slug).strip() or not checkout_path:
-        return False
-    slug = _github_slug(_git_origin_url(checkout_path))
-    if not slug:
-        return False
-    from repo_identity import slug_eq  # lazy: keep the identity seam off any import surface this tool rides
-    return slug_eq(target_slug, slug)
+    host-anchored. It and `resolve_build_target` share `_classify_origin`, so the compare cannot diverge."""
+    return _classify_origin(target_slug, checkout_path) == "ok"
 
 
 def resolve_build_target(cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
@@ -139,15 +154,11 @@ def resolve_build_target(cwd: str | None = None) -> tuple[str | None, str | None
     path, state = checkout_health.resolve_product_checkout(cwd)
     if state == "path-unset" or not path:
         return (None, None, "path-unset")
-    url = _git_origin_url(path)
-    if not url:
-        return (None, None, "checkout-unreadable")
-    slug = _github_slug(url)
-    if not slug:
-        return (None, None, "origin-untrusted-host")
-    from repo_identity import slug_eq
-    if not slug_eq(target, slug):
-        return (None, None, "origin-mismatch")
+    origin = _classify_origin(target, path)   # the shared, host-anchored compare (also the boolean belt)
+    if origin != "ok":
+        return (None, None, {"unreadable": "checkout-unreadable",
+                             "untrusted-host": "origin-untrusted-host",
+                             "mismatch": "origin-mismatch"}[origin])
     health = checkout_health.checkout_lossless(path)
     if health is None or not health[0]:
         return (None, None, "checkout-unhealthy")

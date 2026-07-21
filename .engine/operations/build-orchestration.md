@@ -285,26 +285,29 @@ target (eADR-0026).**
 
 **Owned product — the engine-mechanic building engine-template (a DIRECT draft pull request).** When this
 deployment records an executable `product_build_target` — a product the operator OWNS, checked out SEPARATELY
-beside the mechanic — it builds that product and opens a **plain owned draft pull request into the operator's
-own checkout**, NOT through `external-contribution-submit` (that path is for the un-owned case below). Run
-`mechanic_build.py preflight` first: it resolves the committed target and this machine's checkout path and
-REFUSES fail-closed unless the checkout is genuinely that product on a real `github.com` origin AND is clean to
-write into — printing a plain reason + remedy on refusal. On success it emits the verified
-`ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`; do every product step **as a subprocess INSIDE that
-checkout** — `cd` into the emitted path and run `uv run --directory <checkout>/.engine …` with
-`GITHUB_REPOSITORY=<emitted slug>` exported — so the checkout's OWN committed tools, its validator, and `gh` all
-resolve engine-template natively. The mechanic's own hooks act on the mechanic tree, so **the product's index
-regeneration and validation must be run EXPLICITLY as in-checkout subprocess steps**, never assumed. Branch from
-the checkout's default, implement, run the plan-review and pre-submission passes above **against the product
-diff in the checkout**, then **re-run `mechanic_build.py preflight` from inside the checkout to re-confirm the
-target immediately before the write** (closing the gap between verify and write), and
-`gh pr create --draft --repo <emitted slug>` (the verified slug is the write target, not a fresh origin read),
-later `gh pr ready`. **The merge gate on that pull request is the operator's OWN engine-template gate — the same
-human, not an independent reviewer; what keeps it honest is NON-REFLEXIVITY (the mechanic upgrades only to
-human-approved RELEASED engine-template, never its own unmerged branch), a human-review-grade rule, not a
-machine proof.** The mechanic's product, update home, and any engine-fix target are all engine-template, so an
-engine fix ALSO takes this direct path, never `submit`; a mis-route to `submit` would still open a sound pull
-request into engine-template, so the safety is by benign construction — but the rule is: **owned → direct.**
+beside the mechanic — it builds that product and opens a **plain owned draft pull request into the operator's own
+checkout**, NOT through `external-contribution-submit` (that path is for the un-owned case below):
+
+- **Preflight from the mechanic tree.** Run `mechanic_build.py preflight`. It REFUSES fail-closed — with a plain
+  reason + remedy — unless the checkout is genuinely that product on a real `github.com` origin and clean to
+  write into; on success it emits the verified `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`.
+- **Build in-place.** `cd` into the emitted path and run every product step as a subprocess INSIDE the checkout —
+  `uv run --directory <checkout>/.engine …` with `GITHUB_REPOSITORY=<emitted slug>` exported — so the checkout's
+  own tools, its validator, and `gh` resolve engine-template natively. The mechanic's own hooks act on the
+  mechanic tree, so **run the product's index regeneration and validation EXPLICITLY as in-checkout subprocess
+  steps**, never assumed. Branch from the checkout's default, implement, and run the plan-review and
+  pre-submission passes above against the product diff in the checkout.
+- **Open pinned to the verified slug.** `gh pr create --draft --repo <emitted slug>`, later `gh pr ready`.
+  Passing the belt-verified slug as `--repo` makes the write target the verified repo — not a fresh read of the
+  cwd's origin — which is what closes the gap between verify and write; a mid-session origin repoint cannot
+  redirect it.
+
+**The merge gate on that pull request is the operator's OWN engine-template gate — the same human, not an
+independent reviewer.** What keeps that honest is NON-REFLEXIVITY: the mechanic upgrades only to human-approved
+RELEASED engine-template, never its own unmerged branch — a human-review-grade rule, not a machine proof. (The
+mechanic's product, update home, and any engine-fix target are all engine-template, so an engine fix ALSO takes
+this direct path, never `submit`; a mis-route to `submit` still opens a sound pull request into engine-template —
+safe by benign construction — but the rule is **owned → direct**.)
 
 **Un-owned upstream — a fork escalating an engine fix to a project the operator does NOT own (a cross-fork pull
 request).** This is delivered through `external-contribution-submit`, not a session-owned draft — a path with no

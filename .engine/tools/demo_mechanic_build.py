@@ -6,14 +6,16 @@ Run: uv run --directory .engine -- python tools/demo_mechanic_build.py
 
 This exercises the REAL gate (`mechanic_build.resolve_build_target` and its host-anchored belt), not a
 re-implementation: it builds throwaway git checkouts with real `origin` remotes and runs the actual preflight
-against them. Read the three blocks by eye:
+against them. Read the four blocks by eye:
   [1] a checkout whose origin genuinely IS the committed product, clean to build in, is VERIFIED — the preflight
       emits the checkout path and the product slug the mechanic would build against;
   [2] a checkout whose origin is a DIFFERENT github repo is REFUSED (`origin-mismatch`) — the mechanic will not
       write into a checkout that is not the product it is configured to build;
   [3] a checkout whose origin is a LOOK-ALIKE host (`notgithub.com/…`, which merely CONTAINS "github.com") is
       REFUSED (`origin-untrusted-host`) — this is the safety that matters most, because the mechanic runs the
-      matched checkout's OWN tools in place, so a look-alike pass would be local code execution.
+      matched checkout's OWN tools in place, so a look-alike pass would be local code execution;
+  [4] the RIGHT checkout but with unsaved work in it is REFUSED (`checkout-unhealthy`) — the everyday case, so
+      the mechanic never branches on top of the operator's uncommitted work in their real product checkout.
 
 Each refusal prints the exact plain-language reason + remedy the operator would see. The demo self-checks and
 exits non-zero if the real gate does not behave as narrated (e.g. if the host anchor were removed and block [3]
@@ -104,6 +106,17 @@ def _look_alike_host_is_refused(tmp: str, m: str) -> bool:
     return ok
 
 
+def _dirty_checkout_is_refused(tmp: str, m: str) -> bool:
+    p = _product(tmp, "dirty", "git@github.com:acme/product.git")
+    with open(os.path.join(p, "work-in-progress.txt"), "w") as fh:
+        fh.write("uncommitted work the operator has not saved")   # the everyday case, not an attack
+    path, _slug, refusal = _resolve(m, p)
+    ok = path is None and refusal == "checkout-unhealthy"
+    print(f"    REFUSED ({refusal}). {mechanic_build._REFUSALS.get(refusal, '')}" if ok
+          else f"    UNEXPECTED: path={path!r} refusal={refusal!r} (a dirty checkout should be refused)")
+    return ok
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         print("=" * 78)
@@ -124,7 +137,11 @@ def main() -> int:
         print("-" * 78)
         three = _look_alike_host_is_refused(tmp, m)
 
-    ok = one and two and three
+        print("\n[4] The everyday case: the RIGHT checkout, but with unsaved work in it. Expect: REFUSED.")
+        print("-" * 78)
+        four = _dirty_checkout_is_refused(tmp, m)
+
+    ok = one and two and three and four
     print("\n" + "=" * 78)
     print("In plain words: the mechanic writes into your separate product checkout ONLY when that checkout is")
     print("genuinely the product it was told to build, on a real github.com origin, and clean — and it says why,")

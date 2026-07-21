@@ -51,7 +51,11 @@ import module_coherence  # noqa: E402  (slug_eq — the ONE normalized slug comp
 # signal — `instantiator.retire` self-deletes it as the final setup step.
 _SETUP_TOOL_REL = os.path.join(".engine", "tools", "instantiator.py")
 _MANIFEST_REL = os.path.join(".engine", "engine.json")
-_GITHUB_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE)
+# host-anchored: github.com must be the URL host, never a substring of a look-alike (notgithub.com,
+# github.com.evil.com) — consistent with mechanic_build/boot's belts (defense-in-depth; this parser only
+# decides whether to OFFER first-run setup, but a mis-parse should never treat a look-alike as the home).
+_GITHUB_SLUG_RE = re.compile(
+    r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE)
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:
