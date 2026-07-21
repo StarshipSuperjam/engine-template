@@ -33,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (ROOT/ENGINE_DIR + paths)
 import boot               # noqa: E402  (the derived repo coordinates)
+import repo_identity      # noqa: E402  (is_home_repo — the retire home-repo belt, #323)
 import module_coherence   # noqa: E402  (the present modules + their versions)
 import module_catalog     # noqa: E402  (the shared optional-module catalog reader)
 import module_manager     # noqa: E402  (remove() — the delete-unselected reuse; derive_uv_groups)
@@ -79,11 +80,15 @@ _APPLY_NOT_FIRST_RUN = ("First-time setup runs through the setup walkthrough, no
 # walkthrough (which passes the --first-run token), never a bare hand-run. Token-gated — NOT a
 # construction-marker check — so a bare run refuses in the workshop AND in a fresh copy whose setup hasn't
 # finished. (The marker the old guard read is being retired: after the floor promotion a fresh copy carries
-# the deployed floor, not the construction file, so `_root_is_construction()` would no longer catch it. And
-# retire irreversibly self-deletes the setup tooling, so an env-first origin read must never be its sole
-# guard.) {what} = "Checking setup for consistency" / "Tidying up the one-time setup files".
+# the deployed floor, not the construction file, so `_root_is_construction()` would no longer catch it.)
+# {what} = "Checking setup for consistency" / "Tidying up the one-time setup files".
 _LIFECYCLE_HAND_RUN = ("{what} runs through the setup walkthrough, not by hand — run /engine-setup, which sets "
                        "a project up or tells you it's already done. Nothing was changed.")
+# The retire home-repo belt (#323): retire irreversibly self-deletes the setup tooling, so beyond the token it
+# also refuses in the engine's OWN home repo (git origin == recorded home), where a tokened hand-run would
+# otherwise delete the engine's own instantiator/tests/demos. Read on-disk origin, failing TOWARD refusing.
+_LIFECYCLE_HOME_REPO = ("This is the engine's own home repository, so the one-time setup cleanup never runs "
+                        "here — it would delete the engine's own tooling. Nothing was changed.")
 _EMPTY_CATALOG_LINE = ("There are no optional add-ons to choose yet — the essentials are already included, "
                        "and I'll set those up when you confirm.")
 _TIER_PROMPT = (
@@ -3596,13 +3601,20 @@ def main(argv: list) -> int:
         # a broken setup; otherwise removes the one-time setup files, re-derives the saved information, and
         # confirms completion (exit 0).
         # FIRST-RUN GUARD (#297, #323): the highest-severity verb — a bare retire would irreversibly
-        # self-delete the REAL instantiator, tests, demos, and setup skill. Token-gated exactly like `apply`,
-        # so a bare hand-run refuses in the workshop (self-destruction) AND in a fresh copy pre-setup
-        # (stranding it). The token — carried only by the legitimate walkthrough — is the guard, deliberately
-        # NOT an origin==home read: an env-first origin must never be the sole thing between a bare hand-run
-        # and an irreversible delete (see _LIFECYCLE_HAND_RUN).
+        # self-delete the REAL instantiator, tests, demos, and setup skill. TWO belts, each failing TOWARD
+        # refusing, so neither is ever the sole thing permitting the delete:
+        #   1. the --first-run token — a bare hand-run refuses in the workshop AND in a fresh copy pre-setup
+        #      (the token is carried only by the legitimate walkthrough);
+        #   2. the home-repo belt — retire never runs in the engine's OWN home repo (git origin == recorded
+        #      home), so even a tokened hand-run in the workshop cannot self-delete the engine's tooling. It
+        #      reads the ON-DISK origin (never an env var) and fails TOWARD refusing when it can't place the
+        #      repo, so it only ever ADDS a guard on the delete — the legitimate first-run in a real copy
+        #      (origin != home) passes it.
         if "--first-run" not in argv:
             print(_LIFECYCLE_HAND_RUN.format(what="Tidying up the one-time setup files"))
+            return 0
+        if repo_identity.is_home_repo(validate.ROOT):
+            print(_LIFECYCLE_HOME_REPO)
             return 0
         res = retire()
         return 1 if res.get("refused") else 0

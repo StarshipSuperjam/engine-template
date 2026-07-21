@@ -1959,6 +1959,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             buf = io.StringIO()
             with inst._redirect_root(d):
                 _finished_fixture(d)
+                _make_deployed(d)                               # a real copy (origin != home) — not the workshop
                 with contextlib.redirect_stdout(buf):
                     rc = inst.main(["retire", "--first-run"])   # the walkthrough's token lets the real run through
             self.assertEqual(rc, 0)
@@ -1981,6 +1982,23 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             self.assertIn("not by hand", buf.getvalue())
             self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                             "a bare retire must refuse even after the floor swap, not self-delete the tooling")
+
+    def test_retire_refuses_in_the_home_repo_even_with_the_token(self):
+        # #323 home-repo belt: retire never self-deletes in the engine's OWN home repo (git origin == recorded
+        # home), even carrying the --first-run token — the second belt beyond the token, both failing toward
+        # refusing. A tokened hand-run in the workshop must change nothing.
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                _make_deployed(d, origin="https://github.com/StarshipSuperjam/engine-template.git")  # origin == home
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["retire", "--first-run"])
+            self.assertEqual(rc, 0)
+            self.assertIn("home repository", buf.getvalue())
+            self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                            "retire must refuse in the home repo and delete nothing, even with the token")
 
     def test_retire_rederives_the_self_map_when_the_tree_carries_one(self):
         # #513: retire re-derives the wiring map beside the knowledge graph, so a deployed repo ships a map
@@ -2043,6 +2061,24 @@ def _finished_fixture(tmp, handle="octocat"):
     inst._plant_first_run_assets(tmp)
     inst.confirm([], "solo", engine_release="1.0.0", handle=handle)
     return inst._finish_apply(tmp)
+
+
+def _make_deployed(tmp, *, origin="https://github.com/adopter/their-product.git",
+                   home="StarshipSuperjam/engine-template"):
+    """Make the fixture read as a real DEPLOYED copy: a git origin that DIFFERS from the recorded
+    home_repository, so repo_identity.is_home_repo() is False and retire's home-repo belt (#323) lets the
+    legitimate first-run cleanup proceed. Pass origin == home to model the WORKSHOP, which the belt refuses."""
+    subprocess.run(["git", "-C", tmp, "init", "-q"], capture_output=True)
+    subprocess.run(["git", "-C", tmp, "remote", "add", "origin", origin], capture_output=True)
+    mpath = os.path.join(tmp, ".engine", "engine.json")
+    if os.path.isfile(mpath):
+        with open(mpath, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    else:
+        manifest = {}
+    manifest["home_repository"] = home
+    with open(mpath, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
 
 
 class TestVerify(unittest.TestCase):
@@ -2351,6 +2387,7 @@ class TestFinishCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with inst._redirect_root(d), self._silent():
                 _finished_fixture(d)
+                _make_deployed(d)                               # a real copy (origin != home) — not the workshop
                 rc = inst.main(["retire", "--first-run"])
             self.assertEqual(rc, 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
