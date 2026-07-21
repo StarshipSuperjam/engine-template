@@ -3355,16 +3355,38 @@ def _git_status_paths(root: str) -> set:
     return paths
 
 
+def _git_deleted_paths(root: str) -> set:
+    """Repo-relative paths git reports as a DELETION of a tracked file (status 'D' in either column of
+    `git status --porcelain`). A staged or unstaged deletion of a tracked file is losslessly reversible — the
+    discard's `git checkout <branch>` restores it from HEAD, and the recovery point commits it first — so it is
+    NEVER operator work at risk. The reconcile's delete leg leaves a renamed-away OLD path here as a staged
+    deletion (a rename that also rewrote the file shows as `D`+`A`, not `R`), and it must not be mistaken for
+    the operator's own uncommitted work and refuse the undo (#599). Empty when git is unavailable."""
+    paths: set = set()
+    for line in (_git(root, "status", "--porcelain") or "").splitlines():
+        if len(line) < 4:
+            continue
+        if "D" in line[:2]:                    # 'D' in either status column — a tracked-file deletion
+            p = line[3:]
+            if " -> " in p:                    # defensive: a rename never carries 'D', but keep the new side
+                p = p.split(" -> ", 1)[1]
+            paths.add(p.strip().strip('"'))
+    return paths
+
+
 def _upgrade_footprint() -> set:
     """Every repo-relative path an upgrade's tail can WRITE — single-sourced so the discard's foreign-work
-    guard and the staged-update signal cannot drift from what an update actually touches. The overlay's own
-    membership (a module's `provides` files + module manifests + FOUNDATION_CODE) ∪ the wiring-seam target
-    files ∪ engine.json ∪ CODEOWNERS ∪ the keyed-merge floor files (CLAUDE.md/AGENTS.md) — the tail's floor
-    merge writes the last pair, which FOUNDATION_CODE deliberately carves out of the overlay set."""
-    paths = set(overlay_replace_paths())
+    guard cannot drift from what an update actually touches. Seeded from the RECONCILE DELIVER SET
+    (`engine_synced_paths`, project_retire=False): the overlay membership (a module's `provides` files +
+    module manifests + FOUNDATION_CODE) PLUS the `.engine/_fixtures/**` namespace the reconcile delivers PLUS
+    the five keyed/rendered foundation files (engine.json, CODEOWNERS, root CLAUDE.md/AGENTS.md, .gitignore) —
+    then the wiring-seam target files. Sourcing from the deliver set is what keeps a reconcile-delivered fixture
+    from reading as the operator's own work at discard time (#599: the pre-Slice-2a footprint knew only the
+    overlay copy-map, never the fixtures the reconcile now delivers). `project_retire=False` skips the
+    first-run-assets read so this never raises on the rollback path."""
+    manifests_by_id = {m.get("id"): m for _rel, m in module_coherence.discover_manifests()}
+    paths = set(engine_synced_paths(validate.ROOT, manifests_by_id, project_retire=False))
     paths.update(module_coherence.WIRING_TARGETS.values())
-    paths.update({module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS",
-                  _ROOT_CLAUDE_REL, _ROOT_AGENTS_REL})
     return paths
 
 
@@ -3439,7 +3461,10 @@ def _discard_staged_update(resync, transport) -> dict:
     root = validate.ROOT
     result: dict = {"state": "staged", "undone": False}
     # (a) GUARD — refuse if the operator has their OWN uncommitted work (anything the update didn't write).
-    foreign = sorted(_git_status_paths(root) - _upgrade_footprint())
+    # Tracked-file deletions are excluded: a staged/unstaged delete is losslessly restored by the branch
+    # switch below (and captured on the recovery point first), so a reconcile's renamed-away old path — or even
+    # the operator's own deletion — is never work at risk, and must not false-refuse the undo (#599).
+    foreign = sorted(_git_status_paths(root) - _upgrade_footprint() - _git_deleted_paths(root))
     if foreign:
         result["refused"] = True
         result["your_changes"] = foreign[:20]

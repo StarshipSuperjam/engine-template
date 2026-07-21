@@ -2291,6 +2291,40 @@ class TestRollback(unittest.TestCase):
             for target in module_coherence.WIRING_TARGETS.values():
                 self.assertIn(target, fp)
 
+    def test_footprint_covers_the_reconcile_delivered_fixtures(self):
+        # #599 Defect A: the Slice-2a reconcile delivers the `.engine/_fixtures/**` namespace (untracked adds),
+        # but the pre-Slice-2a footprint knew only the overlay copy-map — so a delivered fixture read as the
+        # operator's OWN work and `rollback` refused. Sourcing the footprint from the deliver set closes that.
+        # Falsifiable: the old `overlay_replace_paths()` footprint carried no fixtures, so this would fail on it.
+        fp = module_manager._upgrade_footprint()          # against the real construction tree (has fixtures)
+        self.assertTrue(any(p.startswith(".engine/_fixtures/") for p in fp),
+                        "the reconcile deliver set (.engine/_fixtures/**) must be inside the rollback footprint")
+
+    def test_undo_does_not_false_refuse_a_reconcile_renamed_away_tracked_file(self):
+        # #599 / arch-B1: the reconcile os.removes a renamed-away OLD path (no longer in the post-overlay
+        # manifest); a rename that also rewrote the file shows as a staged 'D', not an 'R'. A staged tracked-file
+        # deletion is losslessly reversible (the discard's branch checkout restores it, the recovery point commits
+        # it first), so the undo must NOT read it as the operator's own uncommitted work and refuse.
+        # Falsifiable: without excluding tracked deletions, the renamed-away path lands in `foreign` -> refusal.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+            renamed_away = ".engine/tools/base_renamed_away.py"        # an engine file the release renames away
+            with open(os.path.join(live, renamed_away), "w") as fh:
+                fh.write("# old name, tracked in the baseline; the release renames it away\n")
+            _init_repo(live)                                          # commit the baseline WITH the old file
+            _stage_a_stalled_update(live)                             # the release's manifest no longer names it
+            os.remove(os.path.join(live, renamed_away))               # the reconcile's delete leg
+            _git(live, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+            with module_manager._redirect_root(live):
+                self.assertIn(renamed_away, module_manager._git_deleted_paths(live))       # the delete is seen
+                self.assertNotIn(renamed_away, module_manager._upgrade_footprint())        # and it's renamed away
+                res = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)
+        self.assertTrue(res.get("undone"), res)                       # the undo proceeds, not a false refusal
+        self.assertNotEqual(res.get("refused"), True, res)
+
     def test_memory_leg_restores_with_consent_and_never_override_after_the_code_is_back(self):
         # The staged discard's step (f): once engine.json is reverted, put the pre-update memory back — with
         # the operator's confirm standing in for consent, and NEVER override (the resurrection guard stays on).
