@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:acd06479919bf64502557103617b954422a714b19dfb6cd8d2620363b1789aad",
+        "fingerprint": "sha256:2f25e3a316095ad18531f19740a47fc7f612481beda72e2444d53f1c97ab6e09",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:7399e5441b48fedea2ff27ec8ba108916afb2ddd521e1a480a23d5b6e2999d88",
+        "fingerprint": "sha256:8978d4f7b82bedeab49c6830ae9fe0a05c0ff17be950a5501bbeae9f228c2925",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -2342,7 +2342,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:648b451814ef5baa008280fb2a0a154b886dda7aee7ecd3e8c8b96e80a4718bd",
+        "fingerprint": "sha256:ee9f4cc8aaeca728478e61c047c68d46d8a3ab3bf6b10ff7a02418a2908cf86c",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -2502,7 +2502,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f04fcf565d5194040547508e5d61baa0047843e76b02e73f303498b8fb2875b9",
+        "fingerprint": "sha256:18338b9fc789c180c3934b0ac517173111a656a8249e8ec8bcde4cb1c3f69a43",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
