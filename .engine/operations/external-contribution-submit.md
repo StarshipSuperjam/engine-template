@@ -5,7 +5,7 @@ title: Contribute to a project you don't own — open a clean pull request to an
 ## Purpose
 
 How the engine sends a change to a project you **do not own** — an open-source project you've forked, or (the
-special case) engine-template itself, which the engine-mechanic contributes to from a **separate checkout** — as
+special case) engine-template itself, when a fork-native deployment escalates an engine fix up to it — as
 a pull request, carrying only the project's files and never the engine's own. Enter this when you have work you
 want to offer upstream. The engine does the mechanical git a non-engineer shouldn't have to (cutting a clean
 branch, comparing against the upstream, matching the project's pull-request form); **opening the pull request is
@@ -19,10 +19,11 @@ open-the-pull-request step reaches the network only on a real submission — see
    - *Contributing to a project you forked (the usual case):* you've forked the upstream project and the engine
      is installed in your fork (an ordinary brownfield install). You own the fork; the upstream you only
      contribute *to*.
-   - *Building engine-template itself (the engine-mechanic):* your workspace is a **separate copy** of
-     engine-template that you contribute to — the engine is not installed *into* it (that would put the engine
-     inside a repo that already is the engine). It only ever contributes up to the template; the template
-     never depends on it.
+   - *Escalating an engine fix to engine-template from a fork of it:* you forked engine-template and the engine
+     is installed in your fork; you contribute the fix up to the template you do not own, exactly like any other
+     forked project. (The engine-MECHANIC, which OWNS its engine-template product as a **separate checkout**,
+     does NOT use this runbook — it opens a **direct** pull request into its own checkout; see
+     build-orchestration.md's owned-product arm.)
 
    If neither fits — if this is a repo you own and control outright — stop here; this runbook is only for
    contributing to a project you don't own.
@@ -42,8 +43,8 @@ open-the-pull-request step reaches the network only on a real submission — see
    the upstream project happens to keep its own file with an engine-like name (its own `CLAUDE.md`, say),
    you'll see that flagged too — clearing it or telling the engine to proceed is your call. A clean
    contribution passes silently.
-   - **Contributing back to the engine's own home** (the special case above — the engine-mechanic building
-     engine-template, or a fork escalating an engine fix): here the engine's own code *is* the contribution, so
+   - **Contributing back to the engine's own home** (the special case above — a fork escalating an engine fix
+     to engine-template): here the engine's own code *is* the contribution, so
      it's allowed to travel — the check only flags what belongs to *this* copy and no one else: your saved
      memory and state, your project's own settings and identity, your private tuning, and your own decision
      records. Those never ride into the shared template, but the engine's code and its regenerated maps do.

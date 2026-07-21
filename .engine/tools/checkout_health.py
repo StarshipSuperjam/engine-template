@@ -73,7 +73,6 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import re
 import subprocess
 import sys
 
@@ -457,15 +456,16 @@ def recorded_product_repository(cwd: str | None = None) -> str | None:
 # ---- the engine-mechanic executable build target (eADR-0026): the OWNED product the mechanic delivers PRs INTO.
 # Unlike recorded_product_repository (a display label), product_build_target is EXECUTABLE — a fail-closed belt
 # gates every use, and the per-machine checkout path is local by nature (the slug travels on a fork; the path
-# does not). These readers are OFFLINE and READ-ONLY; the write path lives in the mechanic build entry (Slice 2).
+# does not). The readers here are OFFLINE and READ-ONLY (fail-soft-quiet, this module's convention); the
+# host-anchored belt and the write path are the mechanic build entry's — mechanic_build.py, a GUARDED,
+# fail-closed gate — so this module never authorizes the cross-repo write, it only reports the facts the gate
+# reads (`recorded_product_build_target`, `resolve_product_checkout`, `checkout_lossless`).
 
 # The per-machine path to the product checkout — an env var first (the trusted, session-set seam), then a
 # gitignored per-machine fallback file. NEVER committed: the slug identifies the product and travels with the
 # engine, but the path names a folder on THIS computer and is each maintainer's to set once.
 _PRODUCT_CHECKOUT_ENV = "ENGINE_PRODUCT_CHECKOUT"
 _PRODUCT_CHECKOUT_FILE_REL = os.path.join(".engine", "mechanic", "product-checkout-path")
-# owner/repo parsed from a remote URL (SSH or HTTPS), the same shape boot.repo_slug parses this repo's own origin.
-_ORIGIN_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
 
 
 def recorded_product_build_target(cwd: str | None = None) -> str | None:
@@ -487,36 +487,6 @@ def recorded_product_build_target(cwd: str | None = None) -> str | None:
         return None
     target = manifest.get("product_build_target")
     return target if isinstance(target, str) and target.strip() else None
-
-
-def _origin_slug(checkout_path: str) -> str | None:
-    """The owner/repo slug of `checkout_path`'s `origin` remote, or None if unresolvable — parsed from the
-    remote URL the same way boot.repo_slug parses this repo's own origin (SSH or HTTPS form)."""
-    url = _run(["git", "-C", checkout_path, "remote", "get-url", "origin"])
-    if not url or not url.strip():
-        return None
-    m = _ORIGIN_SLUG_RE.search(url.strip())
-    return m.group(1) if m else None
-
-
-def product_checkout_matches(target_slug: str | None, checkout_path: str | None) -> bool:
-    """FAIL-CLOSED belt: True ONLY when `target_slug` (the committed product_build_target) equals the `origin`
-    slug of the checkout at `checkout_path`. Any doubt returns False (DENY), NEVER None.
-
-    NOTE — this function's disposition is DELIBERATELY INVERTED from the rest of this module. Every other reader
-    here is fail-soft-QUIET (an unresolvable state returns None / no signal, because a stranded LOCAL checkout
-    cannot reach the protected branch anyway, so it degrades quietly). This one authorizes a cross-repo WRITE, so
-    on ANY uncertainty — a missing/blank slug on either side, an unreadable origin, a mismatch — it must DENY by
-    returning False. Do NOT 'harmonize' it to return None for consistency with its siblings: that would flip it
-    fail-OPEN and let the mechanic write against a checkout whose origin does not match its committed target — the
-    exact harm this belt exists to stop, and the last line of defence behind the guardrail-ack."""
-    if not target_slug or not str(target_slug).strip() or not checkout_path:
-        return False
-    origin_slug = _origin_slug(checkout_path)
-    if not origin_slug:
-        return False
-    from module_coherence import slug_eq  # lazy: keep module_coherence off boot's SessionStart import surface
-    return slug_eq(target_slug, origin_slug)
 
 
 def _read_checkout_path_file(cwd: str | None = None) -> str | None:
@@ -551,6 +521,28 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
     if path and path.strip():
         return (path.strip(), None)
     return (None, "path-unset")                 # loud: target recorded, local path missing
+
+
+def checkout_lossless(checkout_path: str) -> "tuple[bool, list[str]] | None":
+    """OFFLINE, READ-ONLY: is the checkout AT `checkout_path` SAFE for the mechanic to branch and build in
+    without disturbing work — on a branch (not detached), engine files present, and lossless (clean tree, no
+    stash, no off-branch commits, no paused git op)? Returns `(safe, reasons)`, or None when the checkout cannot
+    be resolved (fail-soft QUIET, this module's convention). This is a REPORTER, not a gate: the mechanic build
+    entry (mechanic_build.resolve_build_target) makes the fail-closed decision and treats BOTH None and
+    `(False, …)` as 'do not write here', so a mechanic never branches on top of the operator's unsaved work in
+    their separate, real product checkout."""
+    st = _resolve_state(checkout_path)
+    if not st:
+        return None
+    main, detached, missing, _current = st
+    reasons: list[str] = []
+    if detached:
+        reasons.append("detached")
+    if missing:
+        reasons.append("missing-files")
+    _safe, loss = _is_lossless(main)
+    reasons += loss
+    return (not reasons, reasons)
 
 
 # ---- the behind-the-main-line tail: online signal + the fast-forward corrections (#335; #342) ----

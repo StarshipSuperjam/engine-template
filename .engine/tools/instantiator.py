@@ -1718,6 +1718,7 @@ _FIRST_RUN_ASSET_FILES = (
     # build evidence over the real check surfaces, imported by nothing (the permanent regressions live in
     # test_repo_identity + each guard's own delegation test); retires here so it does not travel.
     ".engine/tools/demo_home_repo_seam.py",
+    ".engine/tools/demo_mechanic_build.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",

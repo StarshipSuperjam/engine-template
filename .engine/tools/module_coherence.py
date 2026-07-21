@@ -269,9 +269,9 @@ _READ_HOME = repo_identity._READ_HOME
 
 # ---- what may travel in a contribution back to the ENGINE'S OWN HOME (issue #556) -----------------
 #
-# When a deployment contributes back to the engine's home (the mechanic building engine-template, or a
-# fork-native deployment escalating an engine fix), the engine's own SOURCE legitimately rides upstream — it
-# IS the contribution. What must NEVER ride upstream, even to the home, is this deployment's ACCRETED STATE
+# When a deployment contributes back to the engine's home (a fork-native deployment escalating an engine fix to
+# engine-template — the OWNED engine-mechanic takes the direct-PR path, not this), the engine's own SOURCE
+# legitimately rides upstream — it IS the contribution. What must NEVER ride upstream, even to the home, is this deployment's ACCRETED STATE
 # and the operator's private tuning. The leak check narrows to that never-travels set for the home case.
 #
 # SAFE DIRECTION (default-flag). `travels_to_engine_home` returns True ONLY for content proven safe to travel

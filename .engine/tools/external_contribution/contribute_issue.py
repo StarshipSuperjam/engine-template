@@ -2,7 +2,7 @@
 """Cross-repo issue contribution — file an Issue into a target repo, following ITS own conventions.
 
 WHAT IT DOES. The issue-shaped sibling of `submit.py`. When the Engine files an Issue into a repo it contributes
-to (an open-source upstream, or the engine-mechanic building engine-template), this prepares and — on the
+to (an open-source upstream, or engine-template reached by a fork-native deployment escalating an engine fix), this prepares and — on the
 operator's explicit go-ahead — opens that Issue, carrying the TARGET repo's own issue-title convention rather
 than imposing the Engine's own. GitHub applies an issue template's `title:` prefix (e.g. `Bug: `) only on the
 web "New issue" form; every programmatic path (`gh issue create --title`, the REST `POST …/issues`) bypasses it,
@@ -12,10 +12,10 @@ READ THE TARGET REMOTELY, NOT THE RUNNING TREE (the load-bearing correctness poi
 is a REMOTE act — it needs no local checkout of X. So the target's conventions are read REMOTELY too, from the
 target repo's own committed files via `gh api repos/{target}/contents/.github/ISSUE_TEMPLATE`, NOT from the
 Engine's own working tree. This deliberately differs from `submit.py`, which reads the local tree only because
-it runs *inside* a fork checkout of its target; the engine-mechanic builds engine-template from a SEPARATE
-checkout, so a local-tree read there would read engine-mechanic's own templates and impose them on
-engine-template — the exact engine/product-wall inversion this tool exists to prevent. Reading the target
-remotely makes the tool correct regardless of where the Engine runs.
+it runs *inside* a fork checkout of its target; whenever the running tree is NOT the target itself — a fork
+carrying the Engine's own overlaid templates, or any separate-checkout topology — a local-tree read would read
+the wrong templates and impose them on the target, the exact engine/product-wall inversion this tool exists to
+prevent. Reading the target remotely makes the tool correct regardless of where the Engine runs.
 
 FOLLOW THE HOST, NEVER IMPOSE THE ENGINE'S OWN (the engine/product wall). The title prefix and the body shape
 are the TARGET repo's, read from its committed issue templates — NOT the Engine's own engine-domain body

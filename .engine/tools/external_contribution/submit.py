@@ -2,8 +2,11 @@
 """Cross-fork submission tooling — the external-contribution module's submission operation.
 
 WHAT IT DOES. When the Engine runs inside an operator's FORK of a product repo the operator does NOT own (an
-open-source upstream, or the engine-mechanic building engine-template), this prepares and opens a product-only
-contribution to that upstream as a cross-fork pull request (`upstream ← fork:feature`). It is the live caller
+open-source upstream, or engine-template reached by a fork-native deployment escalating an engine fix), this
+prepares and opens a product-only contribution to that upstream as a cross-fork pull request
+(`upstream ← fork:feature`). (The engine-MECHANIC — which OWNS its engine-template product, checked out
+separately beside it — does NOT use this path; it opens a DIRECT pull request into its owned checkout, per
+build-orchestration.md's owned-product arm and eADR-0026.) It is the live caller
 that finally exercises the dormant upstream-clean nudge against a real outgoing diff, and it follows the
 host project's pull-request conventions rather than imposing the Engine's own.
 
@@ -545,8 +548,10 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
         which requires a plain branch name in the target repo.
       - `remote` is the LOCAL remote that tracks the UPSTREAM you're contributing to (the PR target) — `upstream`
         in an ordinary fork install (where `origin` is your fork), or `origin` when the checkout's origin IS the
-        upstream (the engine-mechanic building engine-template). The outgoing diff is taken against the composed
-        ref `{remote}/{base}`.
+        upstream (a checkout whose origin is the target itself — retained for that topology). The outgoing diff
+        is taken against the composed ref `{remote}/{base}`. (Note: the engine-mechanic building its OWNED
+        engine-template no longer uses this cross-fork path — it takes the direct-PR path — so do not reintroduce
+        a mechanic caller here; the `origin` case stays for a genuine origin-is-target contribution.)
     `remote` is REQUIRED and deliberately has NO default: it is safety-load-bearing. The leak check sees only
     what `git diff {remote}/{base}...HEAD` reports, so `remote` MUST name the upstream, never the fork's own
     origin — a fork's default already carries the engine's files, so diffing against it makes them absent from
@@ -586,8 +591,9 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
 
     CONTRIBUTING TO THE ENGINE'S OWN HOME (issue #556). When the contribution TARGET is the engine's own home
     repository — `slug_eq(upstream_repo, home)`, where `home` is the manifest's `home_repository` — the engine's
-    own SOURCE legitimately rides upstream (it IS the contribution: the mechanic building engine-template, or a
-    fork-native deployment escalating an engine fix). In that case the leak check narrows to this deployment's
+    own SOURCE legitimately rides upstream (it IS the contribution: a fork-native deployment escalating an engine
+    fix to engine-template — the engine-mechanic's OWNED engine-template takes the direct-PR path instead, not
+    this relaxation). In that case the leak check narrows to this deployment's
     ACCRETED STATE and the operator's private tuning (`module_coherence.travels_to_engine_home` /
     `is_deployment_private`) — so product code and the CI-required derived indexes travel, but `engine.json`,
     the state cursor, audits, erasures, the memory-backup pointer, the operator's overrides/conduct, and the
