@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import io
+import json
 import os
 import subprocess
 import tempfile
@@ -21,24 +22,32 @@ import license_health
 import license_seeds
 
 SEED = license_seeds.CURRENT_SEED
+HOME = "StarshipSuperjam/engine-template"
+HOME_URL = f"https://github.com/{HOME}.git"
+PRODUCT_URL = "https://github.com/adopter/their-product.git"
 
 
 def _git(root: str, *args: str) -> None:
     subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
 
 
-def _repo(tmp: str, name: str, *, license_text=None, construction: bool = False, commit: bool = True) -> str:
-    """A throwaway committed git checkout: an optional root LICENSE, a construction or product CLAUDE.md."""
+def _repo(tmp: str, name: str, *, license_text=None, origin: str = PRODUCT_URL, commit: bool = True) -> str:
+    """A throwaway committed git checkout: an optional root LICENSE, a git origin, and a recorded home_repository.
+    The engine==product carve-out now keys on git origin == recorded home (repo_identity.is_home_repo), NOT a
+    CLAUDE.md marker: the default origin is a DEPLOYED repo (origin != home, so a leftover LICENSE fires); pass
+    origin=HOME_URL for the engine's own home repo (the carve-out no-ops)."""
     root = os.path.join(tmp, name)
-    os.makedirs(root, exist_ok=True)
+    os.makedirs(os.path.join(root, ".engine"), exist_ok=True)
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "t@t")
     _git(root, "config", "user.name", "t")
+    if origin:
+        _git(root, "remote", "add", "origin", origin)
+    with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump({"home_repository": HOME}, fh)
     if license_text is not None:
         with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
             fh.write(license_text)
-    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-        fh.write("# construction governance\n" if construction else "# a product project\n")
     if commit:
         _git(root, "add", "-A")
         _git(root, "commit", "-qm", "seed")
@@ -64,10 +73,10 @@ class TestDetectForeignLicense(unittest.TestCase):
         repo = _repo(self.tmp, "absent", license_text=None)
         self.assertIsNone(license_health.detect_foreign_license(cwd=repo))
 
-    def test_no_ops_in_the_engines_own_template_repo(self):
-        # The engine==product carve-out: the construction/template repo's root LICENSE is legitimately the
-        # engine's, judged against the EXAMINED checkout's committed CLAUDE.md marker.
-        repo = _repo(self.tmp, "template", license_text=SEED, construction=True)
+    def test_no_ops_in_the_engines_own_home_repo(self):
+        # The engine==product carve-out: the home repo's root LICENSE is legitimately the engine's, judged by
+        # git origin == recorded home (repo_identity.is_home_repo), not a CLAUDE.md marker.
+        repo = _repo(self.tmp, "home", license_text=SEED, origin=HOME_URL)
         self.assertIsNone(license_health.detect_foreign_license(cwd=repo))
 
     def test_verdict_tracks_committed_head_not_the_working_tree(self):

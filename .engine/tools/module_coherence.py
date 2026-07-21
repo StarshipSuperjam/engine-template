@@ -286,11 +286,12 @@ _READ_HOME = repo_identity._READ_HOME
 _CI_REQUIRED_INDEXES = frozenset({".engine/knowledge/graph.json", ".engine/self-map.md"})
 
 # Committed, identical-across-instances engine build/runtime config (not under a surface namespace) that is
-# product and travels: the tool-runtime pin/lock, the suite manifest, the repo ignore rules, the Codex root
-# pointer, and the governance floor(s).
+# product and travels: the tool-runtime pin/lock, the suite manifest, the repo ignore rules, and the governance
+# floors (the root CLAUDE.md/AGENTS.md, which since #323 ARE the fenced adopter floor — the separate
+# .deployed.md files retired with the greenfield swap).
 _HOME_TRAVEL_FILES = frozenset({
     ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json",
-    ".gitignore", "AGENTS.md", "CLAUDE.md", "CLAUDE.deployed.md",
+    ".gitignore", "AGENTS.md", "CLAUDE.md",
 })
 
 # The engine's SOURCE namespaces — surface-catalogued kinds plus the module/template/provisioning trees and

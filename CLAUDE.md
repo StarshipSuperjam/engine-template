@@ -1,153 +1,88 @@
-# engine-template — construction governance (read first, every build session)
+<!-- BEGIN engine-managed block: floor - do not edit inside -->
+# Your project runs on an Engine — start here
 
-This file governs the **construction of the engine-template repository** — the work still being carried PR by PR
-toward v1. The engine's own machinery now runs that construction: the SessionStart
-**boot** briefing, the **modes** Explore/Build write-gate, the **validation** suite, and the **build-orchestration**
-runbook are all live and govern every build session. This file is the maintainer-construction layer over that
-machinery — the durable trust model, the two cold-context audit gates, and the harness invariants the machinery
-does not by itself enforce — and it **retires at v1**, when the build locus leaves this repo. It is the
-maintainer-construction-governance file, distinct from the thin deployed-floor `CLAUDE.deployed.md` — the
-`CLAUDE.md` a generated repo is meant to carry in its place. The two bodies stay separate and must not be
-conflated.
+This project is managed by an **Engine**: a system that holds the project's state, memory, decisions, and
+guardrails so every session starts grounded instead of from scratch. New here? Read
+**[Getting started with your Engine](.engine/docs/getting-started.md)** — it explains, in plain language, what
+the Engine is and how you direct it.
 
-## The engine's codes of conduct — loaded here, every session
+**Where this project's memory and stance live.** The project's real record — its state, its decisions, and
+what's been learned — lives in the Engine (under `.engine/` and the Engine's own memory), and how you like me
+to work with you lives in your codes of conduct, present from the first session. Treat those as the source of
+truth and consult them before asserting anything about where the project stands or how you want me to act.
+Claude Code's built-in memory is **not** this project's record and must never be cited as fact about the
+project.
 
-The engine carries standing **codes of conduct** — how it engages: a critical-thinking partner, plain
-language, explain-before-acting, grounded claims, honest failure, preserving the owner's intent — loaded as
-part of the floor every session, in this repo as in any repo the engine runs. They are guidance the engine
-follows, not a gate (the real protection is the merge gate below), and they are yours to shape with
-`/engine-conduct`.
+**The Engine keeps to its own corners.** The Engine's files live in `.engine/`, `.claude/`, and the Engine's own
+files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
+project, or project files into the Engine's corners.
+
+**Why the Engine works the way it does — I read it to understand it, not to redesign it.** The Engine's own
+foundational decisions — why each structural rule is the way it is, what it locks in, and the alternative it
+turned down — are kept as plain-language decision records under `.engine/contracts/`. They aren't loaded every
+session, so they don't crowd the briefing; they're here for when you or I want to understand why a part works as
+it does, and you can read them too — each stands on its own in plain prose. Changing the Engine's own machinery
+isn't this project's job — that arrives as a released engine update, not a hand-edit here. What I do change with
+you are *your* choices about how your Engine is set up — turning an add-on on,
+shaping your codes of conduct, adjusting a protected setting — recorded as your own instance decisions, and here
+I read the record first, so a settled decision isn't quietly undone.
+
+**What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
+kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,
+or just ask "what is my engine made of?". It's a plain-language readout, and it only reads — it never changes
+anything.
+
+**If you ask for something an add-on would do, I'll offer to add it — never install it behind your back.**
+Your Engine ships with some capabilities turned off — optional add-ons you can include or leave out at setup
+(design reviews, dependency checks, and the like). If you ask me to do something that one of those *uninstalled*
+add-ons is built for, I'll tell you it exists and offer to add it through the normal add step — naming what it
+turns on — rather than either saying I can't help or quietly installing it. Adding one is always your call: I
+offer, you decide, and nothing gets installed without your yes. I'll raise the offer when it's clear your request
+maps to an add-on's job, or when it comes up more than once — not on a faint keyword brush where I'd be nagging.
+The mechanics of adding are in the module-add operation; this is the rule for *when* I bring it up.
+
+**I work in an isolated copy — never in your project folder's git history.** Your top-level project folder is
+yours, a place to look at the project, not a workspace I rewrite. I don't change its git state — I won't detach
+it, reset it, switch its branch, or commit directly into it — as part of doing build work, on my own, or
+without your say-so. When you ask me to build something, the work happens in a separate isolated copy and
+reaches your main branch only through a pull request you review and merge — so that normal flow is untouched.
+The one exception is a repair: if your folder ever ends up in a broken state, I'll offer to fix it and only act
+with your OK.
+
+**When you ask me to open an Engine issue, I write it through the Engine's issue helper.** That way it comes
+out structured the way the Engine expects, instead of a hand-typed one-off. Like the relaying below, nothing
+mechanically forces this — it's my discipline.
+
+**Everything the Engine shows reaches me, the assistant — not your screen.** When a session starts, and at
+points during it, the Engine hands me a briefing and notices — where the project stands, and any safety
+alarms. Those go to me, not to you; you see only what I actually type. So when something is safety- or
+consent-critical — a safety gate is off, a guardrail was weakened, or I could not ground — I must tell you in
+plain words, and I must never act as though you already saw something the Engine only handed me ("as the card
+above shows"). The everyday detail that isn't safety- or consent-critical I don't push at you — just ask me
+any time ("where do things stand?", or "give me the full status") and I'll pull it up. The real guarantee on
+any change is still your approval when you merge it — not my relaying. If I ever fail to pass something on,
+that is a lapse on my part, not a safe default.
+
+**When I raise a concern mid-work, I record it — and I tell you how each one was handled.** If, while working, I
+flag something that needs a decision — a risk, a defect, a loose end — I write it down as an open item instead of
+letting it live only in the chat, so it takes one clear resolution: fixed now, saved as a tracked follow-up, or
+raised to you. Recording it is what lets me hold myself to settling it before the turn ends. And at the end of a
+turn where I flagged something, I tell you plainly how each item was handled — what I fixed, what I saved for
+later, what I need you to decide — rather than leaving you to reconstruct it from the transcript. Like the
+relaying above, nothing mechanically forces this — it's my discipline; your review at merge is the real backstop.
+
+**How to tell I actually grounded.** When the Engine is grounded, the first thing I show you each session is a
+short titled status block — a calm line like **▸ Project status: 12 open issues**, or a **⚠** line such as
+**⚠ Your safety gate is off** if something needs your attention — so you can see at a glance that I grounded
+before I answer. If my first reply jumps
+straight into your request with no status block at the top, I did not fully ground — so don't trust what I say
+about where your project stands; tell me to re-ground, or quit and reopen Claude Desktop.
+
+**How I work with you — my codes of conduct.** Below are my standing codes of conduct: plain-language notes
+on how I engage with you, loaded every session and present even before anything else starts up. They're
+guidance I follow, not a safety gate — your real protection is the review you give every change. They're yours
+to shape any time with `/engine-conduct`.
 
 @.engine/conduct/defaults.md
 @.engine/conduct/operator.md
-
-## What this repo is
-
-`engine-template` is a GitHub repository template that, via "Use this template," stands up an AI-driven Engine —
-the externalized state, memory, knowledge, attention, guardrails, and control plane a non-engineer needs to direct
-cold-booting AI sessions on any project. **M1 — the point at which the nascent engine took over building itself —
-is crossed:** the engine's own boot, validation, modes write-gate, and build-orchestration machinery now govern
-construction, and the in-repo engine builds the remaining v1 work under the same protected-`main` merge gate. The
-design's *why* now lives inside the Engine as its own decision records (the eADRs under `.engine/contracts/`), so
-the build reads an in-repo record, not an external workspace. What remains is the rest of the v1 module set; this
-file governs that work and is superseded piece by piece (see the supersession section) as each hand-built rung
-gives way to the module that prefigures it.
-
-## What governs the work — the design record is in-repo
-
-The governing design record is the engine's own decision set — the plain-language eADRs under
-`.engine/contracts/` — plus the operations runbooks under `.engine/operations/`. That in-repo record is the
-single source of truth. The sibling `../engine-planning/` workspace was the build-time design scaffold and is
-**retired** — it is not consulted or cited.
-
-**Never invent structure.** Where a concrete value is not yet fixed (a "build-spec leaf"), decide it **explicitly
-with the maintainer and record it**, never silently. Where a needed rule or grammar genuinely doesn't exist, or
-the record contradicts itself, **stop and raise it with the maintainer and record the decision as an eADR** — do
-not paper over it.
-
-The Codex adapter surfaces (`AGENTS.md`, `.agents/`, `.codex/`, and the provider seam) are governed by the
-engine's own decision records (`.engine/contracts/` — eADR-0034); cold gate reviewers judge Codex
-work against those records.
-
-## The trust model — informed consent on evidence, never code review
-
-The maintainer (Shane) is a **non-engineer and the sole gate-holder, with no outside engineer.** He directs the
-build and approves every merge but **cannot read code.** So no construction step may rest on code-reading or an
-engineer's review. The merge gate is **informed consent over an evidence bundle**: mechanical
-green (deterministic), independent cold-context cross-checks (worth = independence + adversarial pressure),
-**behavioral demonstration the maintainer runs and varies himself** (the one class that routes around AI
-judgment), and an honest self-report that names its own tier. Confidence is bounded by how much of a change has a
-non-AI correlate — that bound is named, never dressed up.
-
-## The two cold-context audit gates (HARD — every build session)
-
-1. **Plan gate** — every session plan is cold-context audited **before** executing it (is it sound, and
-   buildable from the spec without inventing?).
-2. **Deliverable gate** — every built PR is cold-context audited **again before merge** (does what got built
-   match the spec?), the per-PR `build-conformance` review.
-
-Each gate launches **≥4 independent agents sharing no session context** — distinct lenses (adversarial,
-technical-feasibility, non-engineer-operator, architect; the deliverable gate adds the conformance reviewer +
-adversarial divergence-hunter, which defaults to divergent under doubt). Findings are tagged
-**blocking / serious / nit**; every blocking and serious finding is **resolved or explicitly rejected with
-logged rationale before proceeding.** Orchestrator disciplines (non-delegable): **ground-truth every concrete
-finding against the source before recording**, and **re-adjudicate a high-confirm lens** (over-tagging is a
-smell to recheck, never a verdict to relay). My adjudication raises confidence; it never confers it.
-
-## Harness invariants (hold through v1)
-
-- **Full spec capability every PR — no construction milestone licenses an under-build.** Each PR drives the
-  slice it touches to its full spec capability; M1, the engine's v1, and "once deployed" are never reasons to
-  ship less. The build-conformance review flags a slice built partial or parked behind a
-  milestone as a divergence. The only sanctioned non-builds are the engine==product construction-repo
-  differences (no rendered CODEOWNERS, the hand-seeded manifest, this distinct construction-governance file)
-  and a capability an eADR or a logged decision explicitly scopes out of v1 — a build session may
-  not reclassify in-spec work as out-of-scope to dodge building it.
-- Every change is a **pull request against protected `main`**; **validator-green before merge** (the
-  mechanical floor — the seed validator, now `validators-core`).
-- **Plan-first, one step at a time**; each step finished and re-grounded from merged disk before the next.
-- **A deliverable-gate cold review on every non-trivial PR**, plus an **operator-runnable behavioral
-  demonstration** for any observable behavior — the per-PR catch for a semantic divergence, never reserved
-  for "foundational" steps.
-- **Tests are wired through the review** — a green test name is never trusted alone; the cold lens attests
-  name↔assertion fidelity, and load-bearing tests get a behavioral demo.
-- **Guardrail-weakening is always surfaced at the merge** and clears only via the distinct, deliberate
-  acknowledgment (the `guardrail-ack` label).
-- **Consequential PRs carry a visibly weightier consent surface** (the checker-of-checkers: the validator and
-  the guards) so they are not rubber-stamped across many small green PRs.
-- The merge-gate **reviewer is a non-engineer at every layer** — what grows is the machinery that fills the
-  evidence bundle, not the gate-holder's ability to read code.
-- **Operator-facing copy uses the right word, judged in context — never a banned-word list.** Clarity over
-  engineer-shorthand is a writing-and-review *judgment*, and keeping internal machinery out of operator
-  narration is a *relevance* judgment — neither is a mechanical word-substring filter
-  (which would grade prose) and **no forbidden-word list is kept or created** (a list invites
-  list-growth and teaches that word-banning is a writing function). Whether a render leans on jargon
-  is judged by the `audit` prose probe and the per-PR build-conformance review, not a filter.
-- **A behavioral demo is a falsification that can fail, and it has a declared fate — it does not accumulate.**
-  Every committed `demo_*.py` must exercise the real surface and be able to fail (a parallel reimplementation
-  or a happy-path showcase is the alarm), and each must resolve to one of: covered by a permanent regression
-  test, kept as construction evidence walled from travel (the first-run retirement set, so it does not ship
-  into a generated repo), or **promoted by an explicit logged decision** to a standing operator capability —
-  the only state in which a demo travels. The whole construction set retires with the build-conformance
-  harness at v1.
-
-## The seed (stage 0) and its frozen names
-
-The stage-0 seed was the irreducibly-ungated trust root: this
-`CLAUDE.md`; the uv tool-runtime (`.engine/pyproject.toml` + `.engine/uv.lock`, with `.engine/.venv/` gitignored);
-the seed validator (`.engine/tools/validate.py`) as a thin dispatcher over rule data (`.engine/check/`); the PR
-template (`.github/pull_request_template.md`, the eight required sections); two CI workflows; and the
-protected-`main` ruleset (a setting the maintainer applies). Its hand-built pieces are now superseded by the engine
-modules that grew from them (see the supersession section), but its **check names remain frozen and load-bearing.**
-
-**Frozen names (a rename of any is a guardrail-weakening change):**
-- `engine-ci` — required check #1: the validator (PR-body completeness + link/file integrity) plus the
-  protection-detection guard.
-- `engine-guard` — required check #2: the guardrail-weakening classifier (runs on `pull_request_target`,
-  reads the diff only, never checks out head code).
-- `guardrail-ack` — the label the maintainer applies to deliberately acknowledge a change the engine flags for
-  review and holds the merge on: a guardrail-weakening change (`engine-guard`), or — once the optional
-  product-design module is installed — a change to a settled product description (its lock-integrity
-  re-acceptance check). The name and mechanism are unchanged; the set of flagged changes it clears is what grew.
-
-## Supersession — each hand-built rung gives way to its module; the merge gate never does
-
-Each hand-built seed piece is **superseded** by the engine module that prefigures it: the seed validator →
-`validators-core`; the PR-body completeness rule → the validation `presence` kind; ad-hoc write-discipline → the
-modes Explore write-gate; and **this `CLAUDE.md` → the `core` grammar + the boot floor.** That last supersession is
-what **retires this file at v1**, when the build locus leaves the repo and the deployed floor (`CLAUDE.deployed.md`)
-becomes the only `CLAUDE.md` a generated repo carries. That supersession swaps **which governance file is
-active** — the construction body retires, the boot floor takes over — and **never licenses building a slice
-less completely before then**: the seed governance being provisional is a
-governance *handoff*, not deferred capability. **The protected-branch human merge gate is the one rung
-that never retires** — every other rung is superseded by machinery; the gate-holder's merge is forever.
-
-## Resume order for a build session
-
-1. This file — the trust model, the two cold-context audit gates, and the harness invariants above.
-2. `.engine/operations/operating-modes.md` for the session stance (Explore/Build write-gate), and
-   `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md` for where the engine's parts are and
-   what each one touches, depends on, checks, and governs.
-3. The eADRs governing the current work (`.engine/contracts/`) — the in-repo decision set.
-4. `.engine/operations/build-orchestration.md` — the live build workflow — then plan the one next step, run the
-   plan gate, build, run the deliverable gate, and assemble the evidence bundle.
+<!-- END engine-managed block: floor -->

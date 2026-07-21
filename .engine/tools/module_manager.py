@@ -585,12 +585,11 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 
 # Root CLAUDE.md is keyed-MERGED on upgrade, not wholesale-overlaid: it carries the engine's `floor` as a
 # comment-fenced section so a brownfield adopter's own CLAUDE.md co-exists with the engine's entries rather
-# than being seized (the #234/#272 coexistence obligation). The floor is sourced
-# from the release's CLAUDE.deployed.md by `_merge_claude_floor`.
+# than being seized (the #234/#272 coexistence obligation). Since #323 the floor is sourced from the `floor`
+# fence in the release's committed root CLAUDE.md/AGENTS.md (the promoted adopter floor) by `_merge_claude_floor`
+# / `_read_release_floor`, not a whole-file `.deployed.md`.
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _ROOT_AGENTS_REL = "AGENTS.md"                     # the Codex floor — same keyed-merge/block-reverse posture
-_DEPLOYED_AGENTS_FLOOR_REL = "AGENTS.deployed.md"
-_DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 _FLOOR_FENCE = "floor"
 _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (#409) — a shared keyed
 #                                         file, so it is block-reversed like CODEOWNERS/CLAUDE.md, never
@@ -602,8 +601,9 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # whose package versions upgrade bumps in place, identity preserved); CODEOWNERS (re-rendered locally from
 # the post-overlay engine path set by upgrade step (2d) / `_refresh_codeowners`, never fetched from a
 # release — a release's block would carry the wrong owner + paths); and root CLAUDE.md (keyed-merged by
-# `_merge_claude_floor` from the release's CLAUDE.deployed.md so operator content is preserved and the
-# release's construction-governance CLAUDE.md never overlays an adopter's floor); and root `.gitignore`
+# `_merge_claude_floor`, which reads only the `floor` fence out of the release's root CLAUDE.md so operator
+# content outside the fence is preserved and the release's own file never overlays an adopter's whole floor);
+# and root `.gitignore`
 # (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2f)
 # below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
 # fences). Gitignored data and the deployment's per-instance eADR stream (`.engine/contracts/instance/`, off
@@ -1399,38 +1399,58 @@ def _refresh_codeowners(handle) -> str:
         return "degraded"
 
 
+def _read_release_floor(release_tree: str, root_rel: str) -> "list | None":
+    """The floor SOURCE for the upgrade path (#323): the `floor` fence body extracted from the release's
+    committed root file (CLAUDE.md / AGENTS.md — the promoted adopter floor). None when the release ships no
+    usable floor — its root file is absent, carries no `floor` fence, or carries a malformed one (an old
+    pre-promotion release, whose root file is the construction body with no fence, reads as None and is
+    skipped). A fence body needs no whole-file trailing-newline trim — fence_read returns the body lines
+    exactly as fenced. An empty or all-blank fence body reads as None too (no usable floor), so the upgrade
+    path skips it exactly as the arrival path (_insert_floor) does — the two never diverge on a degenerate
+    empty floor the engine would never emit."""
+    src = os.path.join(release_tree, root_rel)
+    if not os.path.isfile(src):
+        return None
+    try:
+        body = wiring.fence_read(validate.read(src), _FLOOR_FENCE, style=wiring.MD_FENCE)
+    except wiring.WiringError:
+        return None   # a malformed release fence is no usable source → skipped, never a mid-upgrade crash
+    return body if (body and any(ln.strip() for ln in body)) else None
+
+
 def _merge_agents_floor(release_tree: str) -> str:
-    """The AGENTS.md half of the floor keyed-merge — _merge_claude_floor's mechanics over the Codex
-    floor pair (local AGENTS.md, release AGENTS.deployed.md). Same return vocabulary."""
-    return _merge_floor(release_tree, _ROOT_AGENTS_REL, _DEPLOYED_AGENTS_FLOOR_REL)
+    """The AGENTS.md half of the floor keyed-merge — _merge_claude_floor's mechanics over the Codex root
+    floor (local AGENTS.md, the `floor` fence in the release's AGENTS.md). Same return vocabulary."""
+    return _merge_floor(release_tree, _ROOT_AGENTS_REL)
 
 
 def _merge_claude_floor(release_tree: str) -> str:
-    """Keyed-merge the engine's root-CLAUDE.md floor from the release's CLAUDE.deployed.md into the local
+    """Keyed-merge the engine's root-CLAUDE.md floor from the RELEASE's committed root CLAUDE.md into the local
     CLAUDE.md, replacing ONLY the engine `floor` fence and preserving any operator content outside it
-    (keyed, reversible entries; the #234/#272 coexistence obligation). The
-    floor is sourced from the release's CLAUDE.deployed.md, NEVER its CLAUDE.md (the maintainer
-    construction-governance file) — which also closes the latent bug where CLAUDE.md ∈ FOUNDATION_CODE
-    would copy the construction file over an adopter's floor on every upgrade.
+    (keyed, reversible entries; the #234/#272 coexistence obligation). The floor SOURCE is the `floor` fence
+    body extracted from the release's root CLAUDE.md — the promoted adopter floor (#323). CLAUDE.md is kept
+    OUT of FOUNDATION_CODE and keyed-merged (never wholesale-overlaid), so the release's own root file is only
+    ever read for its fenced floor block, never copied whole over an adopter's file.
 
     Returns: 'merged' (the engine block was replaced); 'created' (the floor file was ABSENT and is created
-    from the deployed floor source — the AGENTS.md-never-created case, #599 class 2); 'skipped' (the release
-    ships no floor source); 'skipped-no-section' (the local CLAUDE.md EXISTS but carries no engine `floor`
-    fence — leave it untouched, NEVER append a duplicate floor: the pre-keyed-merge raw-floor case);
-    'degraded' (a malformed local fence — leave it untouched, never a mid-upgrade crash). Structural sibling
-    of `_refresh_codeowners`, but with no handle dependency."""
-    return _merge_floor(release_tree, _ROOT_CLAUDE_REL, _DEPLOYED_FLOOR_REL)
+    from the release floor source — the AGENTS.md-never-created case, #599 class 2); 'skipped' (the release
+    ships no floor source — its root file is absent or carries no/ malformed `floor` fence, e.g. a pre-promotion
+    release); 'skipped-no-section' (the local CLAUDE.md EXISTS but carries no engine `floor` fence — leave it
+    untouched, NEVER append a duplicate floor: the pre-keyed-merge raw-floor case); 'degraded' (a malformed
+    LOCAL fence — leave it untouched, never a mid-upgrade crash). Structural sibling of `_refresh_codeowners`,
+    but with no handle dependency."""
+    return _merge_floor(release_tree, _ROOT_CLAUDE_REL)
 
 
-def _merge_floor(release_tree: str, root_rel: str, source_rel: str) -> str:
-    """The shared keyed-merge mechanics for one (local root file, release floor source) pair — see
-    _merge_claude_floor's contract."""
-    src = os.path.join(release_tree, source_rel)
-    if not os.path.isfile(src):
+def _merge_floor(release_tree: str, root_rel: str) -> str:
+    """The shared keyed-merge mechanics for one root floor file (CLAUDE.md or AGENTS.md) — see
+    _merge_claude_floor's contract. The floor SOURCE is the `floor` fence body extracted from the RELEASE's
+    committed root file (the promoted adopter floor), NOT a whole-file `.deployed.md` (retired) and NEVER the
+    local target. A release root file that is absent, carries no `floor` fence, or carries a malformed one is
+    'skipped' — no source, never a strand."""
+    floor_lines = _read_release_floor(release_tree, root_rel)
+    if floor_lines is None:
         return "skipped"
-    floor_lines = validate.read(src).split("\n")
-    if floor_lines and floor_lines[-1] == "":
-        floor_lines = floor_lines[:-1]   # drop the trailing-newline empty element; fence_apply re-terminates
     local_path = os.path.join(validate.ROOT, root_rel)
     local_exists = os.path.isfile(local_path)
     local = validate.read(local_path) if local_exists else ""
@@ -2972,16 +2992,21 @@ def _build_upgrade_release(root: str) -> str:
         fh.write("> A green mechanical check below shows this change conforms to the engine's rules; it does "
                  "not judge whether the change is correct. Your merge is the binding gate. A safety check "
                  "that could not run leaves its area unverified.\n\n## Purpose\n\n<why this change exists>\n")
-    # The release ships BOTH the floor (CLAUDE.deployed.md — what the keyed-merge reads) and the maintainer
-    # construction CLAUDE.md (which must NEVER overlay an adopter's floor — the latent-bug regression Part L
-    # checks). The floor body carries a v2 marker so the merge is observable.
-    with open(os.path.join(root, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
-        fh.write("# Your project runs on an Engine (v2)\n\nProject status block, refreshed in v2.\n")
-    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-        fh.write("# engine-template — construction governance (v2 release)\n\nbuild scaffolding\n")
-    # The AGENTS floor source, so a repo with no AGENTS.md yet has it CREATED on upgrade (#599 class 2).
-    with open(os.path.join(root, "AGENTS.deployed.md"), "w", encoding="utf-8") as fh:
-        fh.write("# Your project runs on an Engine — Codex floor (v2)\n\nCodex status block, refreshed in v2.\n")
+    # Since #323 the release's root CLAUDE.md/AGENTS.md ARE the fenced adopter floor — the source the keyed-merge
+    # reads (its `floor` fence body). The floor body carries a v2 marker so the merge is observable; the AGENTS
+    # floor is likewise fenced so a repo with no AGENTS.md yet has it CREATED on upgrade (#599 class 2).
+    for rel, body in (
+            ("CLAUDE.md", "# Your project runs on an Engine (v2)\n\nProject status block, refreshed in v2.\n"),
+            ("AGENTS.md", "# Your project runs on an Engine — Codex floor (v2)\n\nCodex status block, refreshed in v2.\n")):
+        lines = body.split("\n")
+        if lines and lines[-1] == "":
+            lines = lines[:-1]
+        with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
+            # A DECOY line OUTSIDE the floor fence: the keyed-merge reads only the fence BODY (via fence_read),
+            # so this release-only content must NEVER travel into an adopter's guide. Asserting its absence is
+            # what gives the merge test real bite (a fence_read that grabbed the whole file would leak it).
+            fh.write(wiring.fence_apply("", _FLOOR_FENCE, lines, style=wiring.MD_FENCE)
+                     + "\n<!-- release-only content outside the floor fence; must never travel -->\n")
     # The committed FIXTURE namespace the copy-only overlay missed (#599 class 3) — delivered by the reconcile.
     os.makedirs(os.path.join(eng, "_fixtures", "probe"), exist_ok=True)
     with open(os.path.join(eng, "_fixtures", "probe", "bad_input.md"), "w", encoding="utf-8") as fh:
@@ -3146,7 +3171,7 @@ def upgrade_demo() -> bool:
     with tempfile.TemporaryDirectory() as d:
         live = os.path.join(d, "live")
         os.makedirs(live)
-        release = _build_upgrade_release(os.path.join(d, "release"))   # ships a v2 floor + a construction file
+        release = _build_upgrade_release(os.path.join(d, "release"))   # ships a v2 fenced floor + a decoy outside the fence
         with _redirect_root(live):
             _build_upgrade_fixture(live)
             claude_path = os.path.join(live, "CLAUDE.md")
@@ -3166,7 +3191,7 @@ def upgrade_demo() -> bool:
                 "the operator's content below the block survived": bottom in after,
                 "the new engine floor replaced the block": "Project status block, refreshed in v2." in after,
                 "the old engine floor is gone": "Old engine floor (v1)" not in after,
-                "the construction file did NOT overlay CLAUDE.md": "construction governance" not in after,
+                "only the fence BODY merged, not the release file's other content": "must never travel" not in after,
             }
             for label, good in cl_checks.items():
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")

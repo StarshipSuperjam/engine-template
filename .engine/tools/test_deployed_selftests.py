@@ -33,11 +33,12 @@ class _ProjectionError(RuntimeError):
 
 
 def _project_to_deployed(dest: str) -> None:
-    """Turn an archived construction tree at `dest` into the shape a deployed repo actually runs — the same
+    """Turn an archived home-repo tree at `dest` into the shape a deployed repo actually runs — the same
     projection first-run provisioning applies: RETIRE the first-run-only assets (read from the tree's own
-    self-describing manifest), SWAP the deployed CLAUDE.md/AGENTS.md floors in (so the construction marker is
-    gone), git-init with an origin remote (so deployed-state reads — the memory-backup pointer — resolve), and
-    REGENERATE the deployed-state indexes (self-map + knowledge graph) that now describe the reduced surface."""
+    self-describing manifest), git-init with a DEPLOYED origin remote (origin != recorded home, so the re-keyed
+    home-repo checks read this as a copy and deployed-state reads resolve), and REGENERATE the deployed-state
+    indexes (self-map + knowledge graph) that now describe the reduced surface. Since #323 the committed root
+    CLAUDE.md/AGENTS.md ARE the adopter floor a copy inherits, so there is no separate floor to swap in."""
     manifest = validate.load_json(os.path.join(dest, ".engine", "provisioning", "first-run-assets.json"))
     for rel in list(manifest.get("files", [])) + list(manifest.get("directories", [])):
         p = os.path.join(dest, rel)
@@ -45,11 +46,6 @@ def _project_to_deployed(dest: str) -> None:
             os.remove(p)
         elif os.path.isdir(p):
             shutil.rmtree(p)
-    for base in ("CLAUDE", "AGENTS"):
-        deployed_floor = os.path.join(dest, f"{base}.deployed.md")
-        if os.path.isfile(deployed_floor):
-            shutil.copy2(deployed_floor, os.path.join(dest, f"{base}.md"))
-            os.remove(deployed_floor)
     env = {**os.environ, _NESTED_ENV: "1"}
     for cmd in (["init", "-b", "main"],
                 ["remote", "add", "origin", "https://github.com/acme/deployed-product.git"],

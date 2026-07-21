@@ -3,7 +3,7 @@
 
 The operator checkout — the top-level project folder the operator opens — is meant to sit on
 its branch with the engine files present; build runs in per-session worktrees, never in it (the
-never-strand-main floor, realized in CLAUDE.deployed.md). When it is **stranded** anyway — a detached
+never-strand-main floor, realized in the root CLAUDE.md floor). When it is **stranded** anyway — a detached
 `HEAD`, or missing engine files — this module (a) DETECTS it offline+read-only so [boot](boot.py) can surface
 it, and (b) on the operator's consent, REPAIRS it. Provisioning owns this mechanism; boot
 invokes the detector in its SessionStart pack and OFFERS the fix; the assistant runs the fix only when the

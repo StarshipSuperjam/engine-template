@@ -145,6 +145,32 @@ def detect_first_run_pending(cwd: str | None = None) -> dict | None:
         return None
 
 
+def detect_home_workshop(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY. Returns {"present": True, "main": <path>, "home": <slug>, "own": <slug>} when the
+    examined main checkout IS the engine's own home — its git origin equals the recorded home_repository. The
+    STRICT-POSITIVE complement of detect_first_run_pending's downstream-copy test: it fires ONLY when BOTH the
+    origin and the recorded home resolve AND match — unlike `repo_identity.is_home_repo`, which fails TOWARD
+    home for its safety-check callers. That direction is deliberate here: an unreadable-origin deployed repo
+    must NOT get the home framing, because the home overlay points a session at `engine-development.md`, which
+    is retired from a generated copy and does not exist there. None on any non-home or unresolvable case; never
+    crashes boot. Mutually exclusive with detect_first_run_pending (a placed checkout is home XOR a downstream
+    copy)."""
+    try:
+        main = _main_checkout(cwd)
+        if main is None:
+            return None
+        home = _recorded_home(main)
+        own = _origin_slug(main)
+        # Strict positive: both must resolve AND name the same repo. `not is_downstream_copy` ALONE is too weak
+        # (it is also False when origin/home are unreadable); requiring `own and home` present closes that gap,
+        # so an unreadable origin reads as "not confirmably home" and the overlay stays quiet.
+        if not (own and home and not module_coherence.is_downstream_copy(own, home)):
+            return None
+        return {"present": True, "main": main, "home": home, "own": own}
+    except Exception:  # noqa: BLE001 — any unexpected failure degrades this one signal, never the pack
+        return None
+
+
 def forked_from_home(repo: str | None, token: str | None, home: str | None, transport=None) -> bool | None:
     """ONLINE, best-effort, READ-ONLY: is `repo` a FORK of the engine's own home `home`? True (suppress the
     offer — a fork of the engine home is a contributor's fork, not an adopter to nag), False (not a fork of
@@ -183,7 +209,10 @@ def _git(root: str, *args: str) -> None:
 def _fixture(tmp: str, name: str, *, origin: str, home: str,
              tool_present: bool = True, floor_swapped: bool = False) -> str:
     """A throwaway committed git checkout with a set origin remote, an installed manifest recording `home`,
-    optionally the one-time setup tool, and either the construction or the deployed-floor root CLAUDE.md."""
+    optionally the one-time setup tool, and a placeholder root CLAUDE.md. The CLAUDE.md content is incidental —
+    detect_first_run_pending keys on the origin vs recorded home and the setup tool's presence, never the file's
+    text — so `floor_swapped` only varies a cosmetic label (a fresh copy inherits the committed floor either way
+    since #323; there is no distinct construction file)."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".engine", "tools"), exist_ok=True)
     _git(root, "init", "-q")
@@ -197,7 +226,7 @@ def _fixture(tmp: str, name: str, *, origin: str, home: str,
             fh.write("# the one-time setup tool (placeholder for the fixture)\n")
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
         fh.write("# Your project runs on an Engine\n" if floor_swapped
-                 else "# construction governance\n")
+                 else "# a fresh copy of the engine template\n")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "seed")
     return root

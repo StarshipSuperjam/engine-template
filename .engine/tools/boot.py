@@ -45,7 +45,7 @@ The boot pack is the AI's BRIEFING, not a message to the operator: it reaches th
 operator's screen (`additionalContext` is model-only), so the operator meets it only through
 the AI relaying it (the operator-presentation relay). `assemble_pack` builds the briefing — an
 AI-facing preamble, the present-marker line the AI is told to render FIRST (a short titled `Project status`
-block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in CLAUDE.deployed.md), the
+block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in the root CLAUDE.md floor fence), the
 INFORM-marked must-push items (governance alarms + a grounding-failure tell) the AI relays in plain words,
 then the full operator-toned dashboard for grounding. The present-marker line + must-push partition are a
 fixed RELAY over signals the substrates already detected — boot computes no new state. `render_dashboard` is
@@ -89,9 +89,10 @@ import standing_situation  # noqa: E402  ("where we are" derived live from GitHu
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
-# The card title a healthy boot always renders — byte-identical to the present-marker the floor names
-# in CLAUDE.deployed.md. The byte-identity is locked by test_boot.py; renaming it
-# here without the floor (or vice-versa) breaks the double-fault check, so the two move together.
+# The card title a healthy boot always renders — byte-identical to the present-marker the floor names in the
+# root CLAUDE.md floor fence (the committed adopter floor since #323). The byte-identity is locked by
+# test_boot.py; renaming it here without the floor (or vice-versa) breaks the double-fault check, so the two
+# move together.
 PRESENT_MARKER = "Project status"
 
 # The standing, AI-facing advertisement of the knowledge faculty (#92). A cold session — one with no work
@@ -1164,6 +1165,15 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
     try:
+        # The home-workshop signal (#323): the examined main checkout IS the engine's own home (git origin ==
+        # recorded home). OFFLINE, READ-ONLY. Strict-positive (fires only on a confirmed origin==home match),
+        # the complement of the first-run copy signal above — the two are mutually exclusive. Assemble_pack
+        # renders it as an AI-facing grounding line pointing the session at the engine-development runbook;
+        # a deployed copy never sees it (origin != home, and the runbook is retired from a copy anyway).
+        home_workshop = first_run_health.detect_home_workshop()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        home_workshop = None
+    try:
         # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
@@ -1328,6 +1338,10 @@ def gather_signals(session_id: str | None = None) -> dict:
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
         "first_run": first_run,
+        # the home-workshop signal (#323): this checkout IS the engine's own home (origin == recorded home), or
+        # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
+        # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
+        "home_workshop": home_workshop,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
@@ -2258,6 +2272,28 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
     out.append(modes.describe_explore_scope())
     out.append("")
+
+    # The home-workshop grounding (#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
+    # own home repo (origin == recorded home); a deployed project never sees it. It carries the operative
+    # development discipline inline — not merely a pointer — so a home session grounds on it even before opening
+    # the runbook, and it names the engine-development runbook for the full record. Self-labelled AI-facing so it
+    # never enters the operator relay (the machinery-out-of-operator-narration rule): the operator sees the AI's
+    # behaviour (plan gate, PR, deliverable gate), not this instruction. The runbook path appears only inside
+    # this larger sentence, never as a bare string literal — the file is a retired first-run asset, and a
+    # standalone constant equal to its exact path would trip the first-run reference-closure check. Naming that
+    # retired path here is safe ONLY because home_workshop is STRICT-POSITIVE (first_run_health.detect_home_
+    # workshop fires solely on a confirmed origin==home, unlike is_home_repo's fail-toward-home): a deployed copy
+    # — where engine-development.md does not exist — never reaches this branch. A future change that loosened
+    # detect_home_workshop toward fail-toward-home would also un-gate this reference; keep it strict-positive.
+    if s.get("home_workshop"):
+        out.append(
+            "GROUNDING (for you, not the operator — a deployed project never sees this): you are in the engine's "
+            "OWN HOME repo, where the Engine itself is developed (a project that runs on the Engine receives it "
+            "as updates; here its machinery IS the work). Develop through the reviewed gate — every change is a "
+            "pull request against protected `main`, cold-context audited before you build it (the plan gate) and "
+            "again before merge (the deliverable gate), reaching main only through the maintainer's merge. The "
+            "full runbook is `.engine/operations/engine-development.md`; read it to ground before building.")
+        out.append("")
 
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
     # knowledge-faculty advertisement (#92), the surface-catalog recognition slice (D-309 / #495), the
