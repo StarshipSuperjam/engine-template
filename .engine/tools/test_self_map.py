@@ -26,6 +26,7 @@ import validate          # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 import self_map          # noqa: E402
 import self_map_check    # noqa: E402
+import census_completeness_check as _ccc   # noqa: E402  (reuse its construction-repo marker read, not a new copy)
 
 # The closed seam vocabulary, read live from the schema so the wires render cannot silently diverge.
 MODULE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "module.v1.json"))
@@ -476,6 +477,11 @@ class TestRetiredAssetFilter(unittest.TestCase):
                               "skill": [".claude/skills/example-retired-skill/SKILL.md",
                                         ".claude/skills/example-kept-skill/SKILL.md"]}}
 
+    @unittest.skipUnless(
+        _ccc._is_construction_repo(),
+        "construction-only invariant: nothing is retired here yet, so _retired_absent() is empty. In a deployed "
+        "repo the first-run retire step has legitimately removed those assets, so this would fail — the deployed "
+        "shape is covered by test_deployed_shape_filters_the_real_retired_entries below.")
     def test_construction_repo_filters_nothing(self):
         # In this repo every census entry exists on disk, so the filter sets are empty and the map renders
         # every provides entry as before.
