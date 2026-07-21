@@ -120,6 +120,12 @@ class FrozenSetWellFormednessTests(unittest.TestCase):
         qids = [q["qid"] for q in self.questions]
         self.assertEqual(len(qids), len(set(qids)))
 
+    def test_superseded_has_several_scenarios(self):
+        # #387 asks for "several" superseded cases; guard against the class collapsing to one scenario.
+        scenarios = {tuple(q.get("expected_sessions", ())) for q in self.questions
+                     if q["content_type"] == "superseded"}
+        self.assertGreaterEqual(len(scenarios), 3, "the superseded class should carry several distinct scenarios")
+
     def test_raw_only_sessions_carry_no_curated_record(self):
         # The invariant the raw-only class depends on: if the answer is raw-only, the answer's session must
         # hold NO episodic/gist — else the old path reaches the session via the curated record and the
@@ -196,6 +202,14 @@ class LeakGuardTests(unittest.TestCase):
 class DemoTests(unittest.TestCase):
     def test_demo_passes(self):
         self.assertEqual(rb._demo(), 0)
+
+    def test_demo_can_fail(self):
+        # Prove the demo is a real falsification, not a happy-path showcase: with a rubber-stamp scorer (every
+        # question "hits"), the demo's raw-only-miss and wrong-label-miss checks must flip and the demo exits
+        # non-zero.
+        import unittest.mock as mock
+        with mock.patch.object(rb, "score_question", lambda *a, **k: True):
+            self.assertEqual(rb._demo(), 1)
 
 
 if __name__ == "__main__":

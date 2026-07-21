@@ -23,4 +23,6 @@
 {"id": "r21ep", "session_id": "s21", "age_seconds": 6600, "role": "observation", "tags": ["episodic"], "text": "the onboarding email sequence has four steps over ten days"}
 {"id": "r22ep", "session_id": "s22", "age_seconds": 6900, "role": "observation", "tags": ["episodic"], "text": "the report generator paginates results at fifty rows per page"}
 {"id": "r23ep", "session_id": "s23", "age_seconds": 7200, "role": "decision", "tags": ["episodic"], "text": "the feature flag service polls for changes on a thirty second interval"}
+{"id": "r24ep", "session_id": "s24", "age_seconds": 5000, "role": "decision", "tags": ["episodic"], "text": "the api rate limit was set to one hundred requests per minute"}
+{"id": "r25ep", "session_id": "s25", "age_seconds": 5200, "role": "decision", "tags": ["episodic"], "text": "deploys run manually on friday afternoons after the standup"}
 {"id": "rXgs", "session_id": "tag:retries", "age_seconds": 300, "kind": "gist", "tags": ["gist"], "source_ids": ["r02ep", "r08ep"], "text": "gist several sessions set limits on retries and backoff between attempts"}

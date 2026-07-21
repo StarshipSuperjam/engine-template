@@ -1,6 +1,6 @@
 {
-  "corpus_sha256": "ca389e8a0ae4aa2051f3266adfa5fc7aa3ead40d47b734e21bf03e5024d95982",
-  "questions_sha256": "2243abe86d003c1cef72fcf7788a16ccef247a44478dc2b2bc4939050599083d",
+  "corpus_sha256": "045f3f89e5b632f7f606917b1fa89168a9afc446ee4c4bf35ae792b8002b491d",
+  "questions_sha256": "77434e06e53866f8792c1004d3344d33ec9d19cb3374ae88ec04b2a3012e1162",
   "bar": {
     "recall_at_k": 5,
     "top5_threshold": 0.9,
@@ -8,13 +8,13 @@
     "nothing_relevant_rule": "success = pure top-k emptiness (no salience threshold)",
     "new_vs_old_rule": "the SAME mechanical session/record membership scorer is applied to each path's emitted top-k; human usefulness is a SEPARATE overlay, never folded into this number",
     "discrimination": "the old-path baseline MUST be meaningfully sub-0.90 on the paraphrased / raw-only / zero-lexical-overlap classes, or the instrument cannot justify the deletion it gates",
-    "slice6_precondition": "before the irreversible curation-removal, the maintainer must have run the private --real-local external-validity check (a real-world correlate; nothing committed)"
+    "slice6_precondition": "before the irreversible curation-removal, the maintainer must have run the private --real-local probe on real questions and judged real-memory recall FOR HIMSELF — an UNSCORED, human-judged real-world correlate (there is no ground-truth label for the real ledger); nothing is committed. Wiring this precondition to the deletion gate is a REQUIREMENT on the removal slice, not enforced by this slice."
   },
   "old_path_baseline": {
     "overall_known": {
-      "hits": 23,
-      "n": 47,
-      "recall_at_k": 0.489
+      "hits": 25,
+      "n": 51,
+      "recall_at_k": 0.49
     },
     "nothing_relevant": {
       "correct": 6,
@@ -22,12 +22,12 @@
     },
     "by_vocab": {
       "original": [
-        23,
-        27
+        25,
+        29
       ],
       "paraphrased": [
         0,
-        20
+        22
       ]
     },
     "by_content_type": {
@@ -40,8 +40,8 @@
         4
       ],
       "superseded": [
-        1,
-        2
+        3,
+        6
       ],
       "nothing-relevant": [
         6,
@@ -54,7 +54,7 @@
     },
     "hard_classes": {
       "hits": 0,
-      "n": 24,
+      "n": 26,
       "recall_at_k": 0.0
     }
   },

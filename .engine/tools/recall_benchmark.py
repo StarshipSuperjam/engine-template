@@ -12,8 +12,9 @@ Shape (settled with the maintainer + the thorough plan gate):
   cloth — nothing from any real conversation touches this PUBLIC repo. That buys strong INTERNAL validity
   (planted, transparent ground truth a cold reviewer and the maintainer can read end to end) at the cost of
   weaker EXTERNAL validity (invented conversations are tidier than real ones). The `--real-local` mode
-  (below) is the private, uncommitted external-validity correlate; a real run of it is a NON-DEFERRABLE
-  precondition on the eventual curation-removal.
+  (below) is the private, uncommitted, UNSCORED external-validity correlate — you ask real questions and
+  judge the old path's real-memory results yourself; a real run of it is a NON-DEFERRABLE precondition on the
+  eventual curation-removal.
 
 - **A frozen PURE scorer, an injected producer.** The grading logic (`score_question`) is a pure function of
   a producer's ranked output — it never changes across slices. The RETRIEVAL PRODUCER is injected: the
@@ -49,7 +50,7 @@ path already passes could not justify the deletion it gates.
 Run:
   uv run --directory .engine --frozen -- python tools/recall_benchmark.py run     # synthetic baseline
   uv run --directory .engine --frozen -- python tools/recall_benchmark.py demo    # falsifiable self-check
-  uv run --directory .engine --frozen -- python tools/recall_benchmark.py run --real-local   # private, read-only
+  uv run --directory .engine --frozen -- python tools/recall_benchmark.py run --real-local --ask "…"  # private probe
 """
 
 import argparse
@@ -88,7 +89,10 @@ BAR = {
     "discrimination": "the old-path baseline MUST be meaningfully sub-0.90 on the paraphrased / raw-only / "
                       "zero-lexical-overlap classes, or the instrument cannot justify the deletion it gates",
     "slice6_precondition": "before the irreversible curation-removal, the maintainer must have run the private "
-                           "--real-local external-validity check (a real-world correlate; nothing committed)",
+                           "--real-local probe on real questions and judged real-memory recall FOR HIMSELF — an "
+                           "UNSCORED, human-judged real-world correlate (there is no ground-truth label for the "
+                           "real ledger); nothing is committed. Wiring this precondition to the deletion gate is "
+                           "a REQUIREMENT on the removal slice, not enforced by this slice.",
 }
 
 CONTENT_TYPES = ("plain", "exact-wording", "superseded", "nothing-relevant", "lesson-recall")
@@ -147,7 +151,7 @@ def synthetic_producer(ledger_file, index_file):
 
 def real_local_producer():
     """Old-path producer over the maintainer's REAL local ledger — read-only (`index.search` never writes),
-    for the private `--real-local` external-validity check. Its output is printed, never committed."""
+    for the private `--real-local` external-validity probe. Its output is printed, never committed."""
     def _run(question_text):
         return index.search(question_text, force_scan=True).records
     return _run
@@ -187,7 +191,9 @@ def load_questions(path=QUESTIONS_PATH):
 def materialize(corpus, cabinet_dir, now):
     """Stamp every record `ts = now - age_seconds` and write a throwaway ledger + rebuilt index in
     `cabinet_dir`. Relative stamping keeps every record recent, so none drifts across the archival boundary
-    between runs. Returns (ledger_path, index_path)."""
+    between runs. The index is rebuilt so the cabinet is a complete stand-in store, but the canonical scoring
+    path uses `force_scan=True` (machine-independent), so the FTS5 index is not the path the baseline depends
+    on. Returns (ledger_path, index_path)."""
     lpath = os.path.join(cabinet_dir, "ledger.ndjson")
     ipath = os.path.join(cabinet_dir, "index.sqlite3")
     _assert_not_live_store(lpath, ipath)
@@ -281,15 +287,22 @@ def verify_seal():
         problems.append("corpus.ndjson changed since the seal — the frozen set was edited without a re-seal")
     if _sha256_file(QUESTIONS_PATH) != seal.get("questions_sha256"):
         problems.append("questions.json changed since the seal — the frozen set was edited without a re-seal")
+    if seal.get("bar") != BAR:
+        problems.append("the pinned pass bar in code no longer matches the sealed bar — it was moved without a "
+                        "re-seal (the baseline reproduction check separately guards the recorded baseline)")
     return seal, problems
 
 
 # --- Runners -------------------------------------------------------------------------------------------
 
-def run_synthetic(now=None):
+def run_synthetic():
     """Materialize the committed synthetic corpus, run the old-path producer, score, and summarize. Returns
-    (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing)."""
-    now = int(time.time()) if now is None else now
+    (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing).
+
+    Timestamps are stamped relative to the real current time (see `materialize`) — deliberately NOT injectable,
+    because `index.search` reads real wall-clock internally, so a past `now` here would archive every record out
+    of recall and the sanity gate would (loudly) report a broken cabinet."""
+    now = int(time.time())
     corpus = load_corpus()
     questions = load_questions()
     with tempfile.TemporaryDirectory(prefix="recall-benchmark-") as cabinet:
@@ -303,9 +316,8 @@ def run_synthetic(now=None):
     return summarize(rows), rows
 
 
-def _print_report(summary, rows, *, real_local=False):
-    where = "your REAL local memory (private; not committed)" if real_local else "the synthetic corpus"
-    print("Memory recall benchmark (G2) — old retrieval path, scored against %s\n" % where)
+def _print_report(summary, rows):
+    print("Memory recall benchmark (G2) — old retrieval path, scored against the synthetic corpus\n")
     ok = summary["overall_known"]
     print("  Overall (known-answer questions): %d/%d correct source in top-%d  (recall@%d = %s)"
           % (ok["hits"], ok["n"], K, K, ok["recall_at_k"]))
@@ -322,21 +334,14 @@ def _print_report(summary, rows, *, real_local=False):
     hard = summary["hard_classes"]
     print("\n  Hard classes (paraphrased / raw-only): %d/%d  (recall@%d = %s)"
           % (hard["hits"], hard["n"], K, hard["recall_at_k"]))
-    if not real_local:
-        shows = discrimination_gap_shows(summary)
-        print("  Discrimination gap visible (old path fails the hard classes): %s" % ("YES" if shows else "NO"))
+    shows = discrimination_gap_shows(summary)
+    print("  Discrimination gap visible (old path fails the hard classes): %s" % ("YES" if shows else "NO"))
+    print("\n  (This old-path baseline is a FLOOR: every paraphrase is worded to zero lexical overlap, so the "
+          "old lexical search misses them by construction. Beating it mechanically is therefore easy — the real "
+          "bar is the absolute >=90% top-5 AND the human-judged usefulness pass at the curation-removal gate.)")
 
 
-def cmd_run(real_local=False):
-    if real_local:
-        corpus = load_corpus()
-        questions = load_questions()
-        rows = evaluate(corpus, questions, real_local_producer())
-        summary = summarize(rows)
-        _print_report(summary, rows, real_local=True)
-        print("\n  (This private, read-only check touched only your local memory and wrote nothing. Running it "
-              "is the real-world correlate required before the eventual curation-removal.)")
-        return 0
+def cmd_run():
     seal, problems = verify_seal()
     summary, rows = run_synthetic()
     _print_report(summary, rows)
@@ -364,6 +369,37 @@ def cmd_reseal():
     if not discrimination_gap_shows(summary):
         print("  ! WARNING: the discrimination gap does NOT show — the old path passes the hard classes; the "
               "instrument would not justify the deletion it gates. Harden the paraphrase / raw-only classes.")
+    return 0
+
+
+def cmd_real_local(asks):
+    """The private, read-only, HUMAN-JUDGED external-validity probe. There is NO ground-truth label for the
+    real ledger, so this is deliberately UNSCORED: for each real question you pass, it prints the records the
+    OLD retrieval path surfaces from YOUR real local memory, for YOU to judge whether the right memory came
+    back. It reads only (`index.search` never writes) and commits nothing. A real run of this — you satisfying
+    yourself that recall works on your own messy questions — is the real-world correlate reserved for the
+    eventual curation-removal gate (the synthetic baseline measures the mechanics; this measures reality)."""
+    if not asks:
+        print("Pass one or more REAL questions to probe your own memory (unscored — you judge the results):\n"
+              "  ... recall_benchmark.py run --real-local --ask \"when did we decide to keep the erasure wall\"\n"
+              "  ... --ask \"what did we learn about the secret scrubber\"")
+        return 0
+    producer = real_local_producer()
+    print("Probing the OLD retrieval path against your REAL local memory (read-only; nothing written).\n")
+    for question in asks:
+        ranked = producer(question)
+        print("Q: %s" % question)
+        if not ranked:
+            print("   (the old path surfaced nothing)\n")
+            continue
+        for rec in ranked[:K]:
+            kind = rec.get("role") or rec.get("kind") or "?"
+            text = " ".join((rec.get("text") or "").split())
+            snippet = text[:160] + ("…" if len(text) > 160 else "")
+            print("   • [%s] %s" % (kind, snippet))
+        print("")
+    print("Judge for yourself whether the right memory came back. This unscored, private read is the real-world "
+          "correlate reserved for the curation-removal gate — nothing here was scored or committed.")
     return 0
 
 
@@ -444,7 +480,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd")
     run = sub.add_parser("run", help="score the old retrieval path against the synthetic set")
     run.add_argument("--real-local", action="store_true",
-                     help="run against your REAL local memory instead (read-only; prints only; commits nothing)")
+                     help="instead, probe your REAL local memory (read-only, UNSCORED, prints only, commits "
+                          "nothing) — pass real questions with --ask")
+    run.add_argument("--ask", action="append", default=[], metavar="QUESTION",
+                     help="a real question for --real-local (repeatable)")
     sub.add_parser("demo", help="falsifiable self-check of the scorer")
     sub.add_parser("reseal", help="author-time: recompute the baseline and (re)write seal.json")
     args = parser.parse_args(argv)
@@ -453,7 +492,7 @@ def main(argv=None):
     if args.cmd == "reseal":
         return cmd_reseal()
     if args.cmd == "run":
-        return cmd_run(real_local=args.real_local)
+        return cmd_real_local(args.ask) if args.real_local else cmd_run()
     parser.print_help()
     return 0
 
