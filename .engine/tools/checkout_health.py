@@ -61,10 +61,11 @@ CLI:  python tools/checkout_health.py            # classify THIS repo's main che
       python tools/checkout_health.py unstrand --apply   # repair THIS repo's checkout (only if stranded)
       python tools/checkout_health.py offmain    # report whether the checkout is parked off its default branch
       python tools/checkout_health.py returnmain # dry-run: what pointing it back WOULD do (no mutation)
-      python tools/checkout_health.py returnmain --apply # point THIS repo's checkout back at its default branch
+      python tools/checkout_health.py returnmain --apply --target <OID> # apply the exact target previously shown
       python tools/checkout_health.py behind     # report whether the checkout is behind origin (online)
+      python tools/checkout_health.py snapshot   # machine-readable fresh snapshot for a consented correction
       python tools/checkout_health.py catchup    # dry-run: what bringing it current WOULD do (no mutation)
-      python tools/checkout_health.py catchup --apply    # bring THIS repo's checkout current (only if behind)
+      python tools/checkout_health.py catchup --apply --target <OID> # apply the exact target previously shown
       python tools/checkout_health.py demo       # detection + repair walkthroughs on throwaway fixtures
 """
 from __future__ import annotations
@@ -74,6 +75,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 # The engine files whose absence marks a checkout stranded (the two binary states).
 _ENGINE_FILES = (os.path.join(".claude", "settings.json"), ".engine")
@@ -113,15 +115,52 @@ def _ok(cmd: list, cwd: str | None = None) -> bool:
         return False
 
 
-def _refresh_origin(main: str) -> bool:
-    """Refresh `origin` once within boot's tight network budget. Unlike `_run`, success with quiet/empty stdout
-    remains distinguishable from failure. This updates only git's remote-tracking metadata and object store —
-    never HEAD, the current branch, the index, or the working tree."""
+def _succeeds(cmd: list, cwd: str | None = None) -> bool:
+    """Run a read-only predicate command whose truth is expressed by its exit status."""
     try:
-        return subprocess.run(["git", "-C", main, "fetch", "--quiet", "origin"], capture_output=True,
-                              text=True, timeout=_FETCH_TIMEOUT, check=False).returncode == 0
-    except Exception:  # noqa: BLE001 — timeout/offline/missing git -> an honest unavailable snapshot
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                              check=False, cwd=cwd).returncode == 0
+    except Exception:  # noqa: BLE001
         return False
+
+
+def _refresh_origin(main: str) -> tuple[str, str] | None:
+    """Read origin's authoritative HEAD symref, then fetch that exact branch. Returns (default, advertised_oid)
+    only when the fetched remote-tracking ref matches the advertisement. A normal fetch does NOT refresh the
+    cached `origin/HEAD` symref, so trusting it here would quietly follow an old default after a remote rename.
+    This updates only remote-tracking metadata and objects — never local HEAD, branches, index, or working tree."""
+    try:
+        started = time.monotonic()
+        advertised = subprocess.run(["git", "-C", main, "ls-remote", "--symref", "origin", "HEAD"],
+                                    capture_output=True, text=True, timeout=_FETCH_TIMEOUT, check=False)
+        if advertised.returncode != 0:
+            return None
+        lines = advertised.stdout.splitlines()
+        symref = next((line.split() for line in lines if line.startswith("ref: refs/heads/")), None)
+        oid_line = next((line.split() for line in lines
+                         if not line.startswith("ref:") and line.endswith("\tHEAD")), None)
+        if not symref or len(symref) < 3 or not oid_line:
+            return None
+        default = symref[1].split("refs/heads/", 1)[1]
+        advertised_oid = oid_line[0]
+        remaining = _FETCH_TIMEOUT - (time.monotonic() - started)
+        if remaining <= 0:
+            return None
+        fetched = subprocess.run(["git", "-C", main, "fetch", "--quiet", "origin",
+                                  f"+refs/heads/{default}:refs/remotes/origin/{default}"],
+                                 capture_output=True, text=True, timeout=remaining, check=False)
+        if fetched.returncode != 0:
+            return None
+        actual = (_run(["git", "-C", main, "rev-parse", "--verify",
+                        f"refs/remotes/origin/{default}"]) or "").strip()
+        if actual != advertised_oid:
+            return None                       # remote moved during the two-part refresh; ask again
+        if not _ok(["git", "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD",
+                    f"refs/remotes/origin/{default}"]):
+            return None
+        return default, advertised_oid
+    except Exception:  # noqa: BLE001 — timeout/offline/missing git -> an honest unavailable snapshot
+        return None
 
 
 def _main_checkout(cwd: str | None = None) -> tuple[str, bool] | None:
@@ -624,24 +663,27 @@ def _checkout_snapshot(cwd: str | None = None, *, do_fetch: bool = True) -> dict
     main, detached, missing_files, current = st
     if detached or missing_files:
         return _unavailable(main, "broken-strand")  # the strand detector owns the repair
+    if not do_fetch:
+        return _unavailable(main, "refresh-skipped")
 
     origin_before = (_run(["git", "-C", main, "remote", "get-url", "origin"]) or "").strip()
     if not origin_before:
         return _unavailable(main, "origin-unresolved")
-    if do_fetch:
-        if not _refresh_origin(main):
-            return _unavailable(main, "refresh-failed")
-        origin_after = (_run(["git", "-C", main, "remote", "get-url", "origin"]) or "").strip()
-        if origin_after != origin_before:
-            return _unavailable(main, "origin-changed")
+    remote_head = _refresh_origin(main)
+    if not remote_head:
+        return _unavailable(main, "refresh-failed")
+    origin_after = (_run(["git", "-C", main, "remote", "get-url", "origin"]) or "").strip()
+    if origin_after != origin_before:
+        return _unavailable(main, "origin-changed")
 
-    default = _remote_default_branch(main)
-    if not default:
+    default, advertised_oid = remote_head
+    if _remote_default_branch(main) != default:
         return _unavailable(main, "default-unresolved")
     upstream = f"refs/remotes/origin/{default}"
     target_oid = (_run(["git", "-C", main, "rev-parse", "--verify", upstream]) or "").strip()
     head_oid = (_run(["git", "-C", main, "rev-parse", "--verify", "HEAD"]) or "").strip()
-    if not target_oid or not head_oid:
+    default_oid = (_run(["git", "-C", main, "rev-parse", "--verify", f"refs/heads/{default}"]) or "").strip()
+    if not target_oid or target_oid != advertised_oid or not head_oid or not default_oid:
         return _unavailable(main, "upstream-unresolved")
 
     behind_raw = _run(["git", "-C", main, "rev-list", "--count", f"{head_oid}..{target_oid}"])
@@ -655,8 +697,8 @@ def _checkout_snapshot(cwd: str | None = None, *, do_fetch: bool = True) -> dict
 
     base = {"main": main, "branch": default, "current": current, "on_default": current == default,
             "origin": origin_before, "upstream": upstream, "head_oid": head_oid,
-            "target_oid": target_oid, "behind_commits": behind_commits,
-            "missing_merges": missing_merges, "fresh": bool(do_fetch)}
+            "default_oid": default_oid, "target_oid": target_oid, "behind_commits": behind_commits,
+            "missing_merges": missing_merges, "fresh": True}
     if behind_commits == 0:
         return {**base, "state": "current", "presentation": "current"}
 
@@ -687,6 +729,8 @@ def _snapshot_unchanged(snapshot: dict) -> bool:
         "branch": _remote_default_branch(main),
         "current": (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip(),
         "head_oid": (_run(["git", "-C", main, "rev-parse", "--verify", "HEAD"]) or "").strip(),
+        "default_oid": (_run(["git", "-C", main, "rev-parse", "--verify",
+                               f"refs/heads/{snapshot['branch']}"]) or "").strip(),
         "target_oid": (_run(["git", "-C", main, "rev-parse", "--verify", snapshot["upstream"]]) or "").strip(),
     }
     return all(reads[key] == snapshot[key] for key in reads)
@@ -715,9 +759,9 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     main, default, missing = behind["main"], behind["branch"], behind["behind_commits"]
     if not apply:
         return {**behind, "status": "behind", "applied": False}
-    if not behind.get("fresh"):
-        return {**behind, "status": "blocked", "reason": "freshness-required", "applied": False}
-    if expected_target is not None and behind["target_oid"] != expected_target:
+    if expected_target is None:
+        return {**behind, "status": "blocked", "reason": "consent-target-required", "applied": False}
+    if behind["target_oid"] != expected_target:
         return {**behind, "status": "blocked", "reason": "target-changed", "applied": False}
     if not _snapshot_unchanged(behind):
         return {**behind, "status": "blocked", "reason": "checkout-changed", "applied": False}
@@ -734,16 +778,18 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     return {"status": "blocked", "main": main, "branch": default, "applied": False}
 
 
-def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True) -> dict:
+def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
+                      expected_target: str | None = None) -> dict:
     """Point an operator checkout PARKED ON A NON-DEFAULT BRANCH back at its default branch (and bring it
     current), on the operator's consent — the correction for the off-main state (#342). LOSSLESS: returning to a
     NAMED branch never orphans commits (the side branch ref keeps them — no rescue needed, unlike unstrand's
     detached arm), and the switch runs ONLY when the lossless gate is clean (no uncommitted edits, no stash, no
     paused git operation); otherwise it BLOCKS with no mutation, nothing lost. The `git checkout <default>` is
     defensive — never `-f` — so a refusal blocks rather than forces. Having returned, it fast-forwards to the
-    exact target OID from the freshly-read snapshot with the same `--ff-only` proof catch_up uses (best-effort —
-    being safely back on the freshly-returned default is already the win). Dry-run (apply=False) reports without
-    mutating. Every mutation targets `git -C <main>` — never the session's own worktree.
+    exact target OID from the freshly-read snapshot with the same `--ff-only` proof catch_up uses. The local
+    default/target relationship is checked before the switch, so divergence refuses without moving the checkout.
+    Dry-run (apply=False) reports without mutating. Every mutation targets `git -C <main>` — never the session's
+    own worktree.
     status ∈ healthy | off-main | unavailable | blocked | fixed."""
     off = detect_off_main(cwd)
     if not off:
@@ -757,8 +803,10 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
                 "reason": "checkout-changed", "applied": False}
     if not apply:
         return {**off, "status": "off-main", "applied": False}
-    if not snapshot.get("fresh"):
-        return {**snapshot, "status": "blocked", "reason": "freshness-required", "applied": False}
+    if expected_target is None:
+        return {**snapshot, "status": "blocked", "reason": "consent-target-required", "applied": False}
+    if snapshot["target_oid"] != expected_target:
+        return {**snapshot, "status": "blocked", "reason": "target-changed", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
         # dirty tree / stash / paused op: returning would risk work -> block, no mutation
@@ -767,13 +815,18 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     if not _snapshot_unchanged(snapshot):
         return {"status": "blocked", "main": main, "branch": default, "from": current,
                 "reason": "checkout-changed", "applied": False}
+    local_default = snapshot["default_oid"]
+    target = snapshot["target_oid"]
+    local_is_ancestor = _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", local_default, target])
+    target_is_ancestor = _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", target, local_default])
+    if not local_is_ancestor and not target_is_ancestor:
+        return {"status": "blocked", "main": main, "branch": default, "from": current,
+                "reason": "diverged", "applied": False}
     if not _ok(["git", "-C", main, "checkout", default]):   # defensive; never -f; a refusal blocks, never forces
         return {"status": "blocked", "main": main, "branch": default, "from": current, "applied": False}
-    # safely back on the default; bring it current with the lossless --ff-only (best-effort, never forced).
-    # --ff-only succeeds when it advances OR when already up to date, and fails (no mutation) only when the
-    # LOCAL default has itself diverged from origin/<default> — so its result is exactly "is the default now
-    # current?". The return already succeeded losslessly; we report the catch-up honestly rather than assume it.
-    brought_current = _ok(["git", "-C", main, "merge", "--ff-only", snapshot["target_oid"]])
+    # Safely back on the default after the ancestry preflight; advance to the exact pinned target, never a mutable
+    # branch name. If the local default already contains the target, no merge is needed.
+    brought_current = target_is_ancestor or _ok(["git", "-C", main, "merge", "--ff-only", target])
     return {"status": "fixed", "main": main, "branch": default, "from": current,
             "brought_current": brought_current, "target_oid": snapshot["target_oid"], "applied": True}
 
@@ -902,7 +955,7 @@ def _demo() -> int:
         print("   doesn't have yet. Every missing commit is reported; merge velocity only chooses whether")
         print("   the operator sees a calm notice or a firm warning:")
         print(f"      {behind}")
-        result = catch_up(cwd=work, apply=True, do_fetch=True)
+        result = catch_up(cwd=work, apply=True, do_fetch=True, expected_target=behind["target_oid"])
         caught_up = detect_behind_origin(cwd=work, do_fetch=True) is None
         print(f"   After bringing it up to date (a safe fast-forward): up to date now? {caught_up} "
               f"(brought in {result.get('brought_in')} commits)")
@@ -916,7 +969,9 @@ def _demo() -> int:
         print("   off-main signal is OFFLINE and fires straight away (no network, no waiting to fall behind):")
         print(f"      {off}")
         feature_sha = (_run(["git", "-C", work, "rev-parse", "my-feature"]) or "").strip()
-        result = return_to_default(cwd=work, apply=True, do_fetch=True)
+        pinned = detect_behind_origin(cwd=work, do_fetch=True)
+        result = return_to_default(cwd=work, apply=True, do_fetch=True,
+                                   expected_target=pinned["target_oid"])
         back_on_main = detect_off_main(cwd=work) is None
         feature_kept = (_run(["git", "-C", work, "rev-parse", "my-feature"]) or "").strip() == feature_sha
         feature_note = _run(["git", "-C", work, "show", "my-feature:my-feature-note.txt"])
@@ -979,30 +1034,41 @@ def _plain_unstrand(apply: bool) -> int:
     return 0
 
 
-def _plain_catch_up(apply: bool) -> int:
+def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
     """The operator-runnable behind-origin CLI over THIS repo's real checkout, in plain words (no git verbs)."""
-    r = catch_up(apply=apply)
+    r = catch_up(apply=apply, expected_target=expected_target)
     if r["status"] == "healthy":
         print("Your project folder is up to date — nothing to bring in.")
     elif r["status"] == "unavailable":
         print("I couldn't freshly check the shared project, so I won't call this folder up to date or change "
               "anything. Check the connection and ask again.")
     elif r["status"] == "fixed":
-        print("Brought your project folder up to date — it now has the recent merged work it was missing.")
+        print("Brought your project folder up to date — it now has the recent shared work it was missing.")
+    elif r["status"] == "blocked" and r.get("reason") in {
+            "consent-target-required", "target-changed", "checkout-changed"}:
+        print("The project changed since it was checked, so I left your folder untouched. Check it again and "
+              "confirm the newly reported target before applying the update.")
+    elif r["status"] == "blocked" and r.get("reason") == "diverged":
+        print("Your main line and the shared project have both moved, so I left everything untouched. This "
+              "needs a deliberate reconciliation rather than an automatic catch-up.")
     elif r["status"] == "blocked":
         print("Your project folder is behind, but you have unsaved changes that clash with the incoming work, "
               "so I left everything untouched — nothing is lost. Save or set those changes aside and ask again.")
     elif not apply:
-        print("Your project folder has fallen behind — it's missing recent merged work. I can bring it up to "
-              "date safely; re-run with --apply to do it.")
+        if r.get("presentation") == "warning":
+            print("Your project folder has fallen behind recent shared work. I can bring it up to date safely "
+                  "using the exact target checked here; confirm that target before applying it.")
+        else:
+            print("Your project folder has newer shared work available. I can bring it up to date safely using "
+                  "the exact target checked here; confirm that target before applying it.")
     else:
         print("I couldn't bring your project folder up to date safely, so I left it untouched — nothing is lost.")
     return 0
 
 
-def _plain_return_to_default(apply: bool) -> int:
+def _plain_return_to_default(apply: bool, expected_target: str | None = None) -> int:
     """The operator-runnable return-to-default CLI over THIS repo's real checkout, in plain words (no git verbs)."""
-    r = return_to_default(apply=apply)
+    r = return_to_default(apply=apply, expected_target=expected_target)
     if r["status"] == "healthy":
         print("Your project folder is on your main branch already — nothing to move.")
     elif r["status"] == "unavailable":
@@ -1015,6 +1081,13 @@ def _plain_return_to_default(apply: bool) -> int:
         print("Pointed your project folder back at your main branch — your other work is untouched, still saved "
               "on its own branch. I left your main branch exactly as it was (it has some local changes of its "
               "own that aren't on the shared copy yet), so it may not be fully up to date.")
+    elif r["status"] == "blocked" and r.get("reason") in {
+            "consent-target-required", "target-changed", "checkout-changed"}:
+        print("The project changed since it was checked, so I left your folder exactly where it is. Check it "
+              "again and confirm the newly reported target before applying the update.")
+    elif r["status"] == "blocked" and r.get("reason") == "diverged":
+        print("Your main line and the shared project have both moved, so I left your folder on its current side "
+              "line. This needs a deliberate reconciliation; nothing moved and nothing was lost.")
     elif r["status"] == "blocked":
         print("Your project folder is parked on another branch, but it has unsaved changes (or a git operation "
               "paused mid-way), so I left everything exactly where it is — nothing moved, nothing lost. Save or "
@@ -1053,9 +1126,22 @@ def _plain_behind() -> int:
               "was changed; check the connection and ask again.")
         return 0
     verb = "catchup" if behind.get("on_default") else "returnmain"
-    print("Your project folder has newer shared work available. Run "
-          f"`{verb}` to see how I'd bring it current safely — nothing you already have will be lost.")
+    if behind.get("presentation") == "warning":
+        lead = "Your project folder has fallen behind recent shared work."
+    else:
+        lead = "Your project folder has newer shared work available."
+    print(f"{lead} Run `{verb}` to see how I'd bring it current safely — nothing you already have will be lost.")
     return 0
+
+
+def _target_arg(argv: list) -> str | None:
+    """Read the assistant-supplied consent target without exposing it in operator prose."""
+    for i, arg in enumerate(argv):
+        if arg.startswith("--target="):
+            return arg.split("=", 1)[1] or None
+        if arg == "--target" and i + 1 < len(argv):
+            return argv[i + 1]
+    return None
 
 
 def main(argv: list) -> int:
@@ -1064,13 +1150,16 @@ def main(argv: list) -> int:
     if argv and argv[0] == "unstrand":
         return _plain_unstrand(apply="--apply" in argv)
     if argv and argv[0] == "catchup":
-        return _plain_catch_up(apply="--apply" in argv)
+        return _plain_catch_up(apply="--apply" in argv, expected_target=_target_arg(argv))
     if argv and argv[0] == "returnmain":
-        return _plain_return_to_default(apply="--apply" in argv)
+        return _plain_return_to_default(apply="--apply" in argv, expected_target=_target_arg(argv))
     if argv and argv[0] == "offmain":
         return _plain_offmain()
     if argv and argv[0] == "behind":
         return _plain_behind()
+    if argv and argv[0] == "snapshot":
+        print(json.dumps(_checkout_snapshot(), sort_keys=True))
+        return 0
     result = detect_strand()
     print(result if result else "healthy — no strand detected")
     return 0

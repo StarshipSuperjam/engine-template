@@ -112,6 +112,9 @@ and never forces. What differs is *what* each protects and *how* it declines:
   unavailable and never calls a cached view current. On consent, catch-up revalidates the pinned repository,
   branch, HEAD, and exact target, then advances only along a safe fast-forward; any movement, divergence, or
   clashing unsaved work returns `blocked` and changes nothing.
+  After the operator says "bring it up to date," the assistant runs the machine-readable `snapshot` command,
+  takes its exact `target_oid`, and supplies that value to `catchup --apply --target <OID>` (or the return arm
+  below). Apply refuses without that consent-time target and also refuses if a newly refreshed target differs.
 - **A folder parked off its main line — return (`checkout_health.return_to_default`, #342).** The behind
   signal is two-stage: **Stage 1 (off-main)** surfaces gently — caught offline, every session, on day one — that
   the folder points at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer
@@ -120,11 +123,10 @@ and never forces. What differs is *what* each protects and *how* it declines:
   on the default branch, `return_to_default` when parked off it. Returning to a *named* side line never orphans its
   commits (the side line keeps them — no rescue needed, unlike the detached un-stranding arm); it switches only
   when nothing is uncommitted, stashed, or mid-operation, then uses the same freshly pinned and revalidated target.
-  The honest result is
-  pointed back and brought current, pointed back but the main line couldn't be brought current (the local copy had
-  diverged), already on the main line, or blocked-with-unsaved-work — being back on the main line is already the
-  win. Spotting an off-main park is a newer check — a folder healthy before it existed isn't freshly broken, and
-  the assistant says so the first time it surfaces.
+  The honest result is pointed back and brought current, already on the main line, or blocked without mutation
+  because the consent target changed, local/shared main lines diverged, or work is unsaved/paused. Spotting an
+  off-main park is a newer check — a folder healthy before it existed isn't freshly broken, and the assistant
+  says so the first time it surfaces.
 - **A stranded pull request — reconcile (`pr_reconcile.reconcile`, #136).** A pull request that can't be merged:
   the reconcile acts only when the clash is confined to the engine's two internal index files — the knowledge
   graph and the self-map, the one clash that is *spurious* (both sides regenerate from one source tree) —

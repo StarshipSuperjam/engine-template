@@ -1423,12 +1423,12 @@ class TestBehindOriginSurfacing(unittest.TestCase):
 
     def test_below_velocity_drift_is_a_calm_count_free_notice(self):
         dash = boot.render_dashboard(_signals(behind_origin=self._NOTICE)).lower()
-        self.assertIn("newer merged work available", dash)
+        self.assertIn("newer shared work available", dash)
         self.assertNotIn("fallen behind", dash)
         self.assertNotIn("1", dash)
         marker = boot.present_marker_line(_signals(behind_origin=self._NOTICE))
         self.assertTrue(marker.startswith(f"▸ {boot.PRESENT_MARKER}:"))
-        self.assertIn("newer merged work", marker.lower())
+        self.assertIn("newer shared work", marker.lower())
 
     def test_unavailable_is_explicit_and_never_claims_current(self):
         dash = boot.render_dashboard(_signals(behind_origin=self._UNAVAILABLE)).lower()
@@ -1480,7 +1480,9 @@ class TestBehindOriginSurfacing(unittest.TestCase):
             for p in patchers:
                 p.stop()
         self.assertEqual(relayed["behind_origin"], self._BEHIND)   # relayed verbatim
-        self.assertIsNone(failed["behind_origin"])                 # a detector/network failure degrades to None
+        self.assertEqual(failed["behind_origin"]["state"], "unavailable")
+        self.assertEqual(failed["behind_origin"]["reason"], "detector-failed")
+        self.assertNotIn("all clear", boot.present_marker_line(failed).lower())
 
 
 class TestOffMainSurfacing(unittest.TestCase):
@@ -1493,6 +1495,8 @@ class TestOffMainSurfacing(unittest.TestCase):
     _BEHIND_SIDE = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
                     "on_default": False, "behind_commits": 7, "missing_merges": 4,
                     "presentation": "warning", "latest": "2026-06-28", "advisory": "carries-work"}
+    _NOTICE_SIDE = {**_BEHIND_SIDE, "behind_commits": 1, "missing_merges": 0,
+                    "presentation": "notice"}
 
     def test_render_surfaces_a_gentle_off_main_line_only_when_off_main(self):
         dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN))
@@ -1526,6 +1530,16 @@ class TestOffMainSurfacing(unittest.TestCase):
         self.assertIn("2026-06-28", dash)                           # the felt date
         self.assertNotIn("nothing's at risk", dash.lower())         # the gentle line is gone
         self.assertIn("bring it up to date", dash.lower())          # still one consent phrase
+
+    def test_calm_side_line_drift_is_visible_without_becoming_a_warning(self):
+        dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN,
+                                              behind_origin=self._NOTICE_SIDE)).lower()
+        self.assertIn("side line", dash)
+        self.assertIn("newer shared work", dash)
+        self.assertNotIn("fallen behind", dash)
+        marker = boot.present_marker_line(_signals(off_main=self._OFF_MAIN,
+                                                   behind_origin=self._NOTICE_SIDE)).lower()
+        self.assertIn("side line with newer shared work", marker)
 
     def test_side_line_behind_two_tone_keeps_unfinished_work_when_it_may_carry_some(self):
         # carries-work advisory -> the keep-your-work-safe tone (errs gentle)
@@ -2324,6 +2338,35 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         terse = boot.render_dashboard(s).lower()
         self.assertIn("unchanged since last session", terse)
         self.assertIn("bring it up to date", terse)         # the offer is kept in the terse line
+
+    def test_on_default_drift_collapses_only_when_the_exact_target_repeats(self):
+        behind = {"state": "behind", "main": "/p", "branch": "main", "current": "main",
+                  "on_default": True, "target_oid": "a" * 40, "behind_commits": 1,
+                  "missing_merges": 0, "presentation": "notice", "latest": "2026-07-20",
+                  "advisory": "merged"}
+        first = _signals(behind_origin=dict(behind))
+        boot._relay_lines(first)
+        self.assertFalse(first["behind_origin"]["collapsed"])
+        repeat = _signals(behind_origin=dict(behind))
+        boot._relay_lines(repeat)
+        self.assertTrue(repeat["behind_origin"]["collapsed"])
+        self.assertIn("unchanged since last session", boot.render_dashboard(repeat).lower())
+        moved = _signals(behind_origin={**behind, "target_oid": "b" * 40, "behind_commits": 2})
+        boot._relay_lines(moved)
+        self.assertFalse(moved["behind_origin"]["collapsed"])
+        self.assertIn("newer shared work available", boot.render_dashboard(moved).lower())
+
+    def test_side_line_calm_drift_does_not_hide_behind_an_unchanged_park(self):
+        notice = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
+                  "on_default": False, "target_oid": "c" * 40, "behind_commits": 1,
+                  "missing_merges": 0, "presentation": "notice", "latest": "2026-07-20",
+                  "advisory": "carries-work"}
+        boot._relay_lines(_signals(off_main=dict(self._OM)))
+        live = _signals(off_main=dict(self._OM), behind_origin=notice)
+        boot._relay_lines(live)
+        dash = boot.render_dashboard(live).lower()
+        self.assertIn("newer shared work", dash)
+        self.assertNotIn("unchanged since last session", dash)
 
     def test_off_main_renders_full_when_no_collapse_flag_is_set(self):
         # the pure status-verb path never runs _relay_lines -> the off-main line renders FULL (fail-toward-full)

@@ -142,6 +142,40 @@ class TestDemo(unittest.TestCase):
             self.assertEqual(checkout_health.main(["demo"]), 0)
 
 
+class TestCheckoutCLI(unittest.TestCase):
+    def _output(self, argv, *, detected=None, correction=None):
+        out = io.StringIO()
+        with mock.patch.object(checkout_health, "detect_behind_origin", return_value=detected), \
+             mock.patch.object(checkout_health, "catch_up", return_value=correction) as catch, \
+             contextlib.redirect_stdout(out):
+            checkout_health.main(argv)
+        return out.getvalue().lower(), catch
+
+    def test_behind_distinguishes_calm_notice_warning_and_unavailable(self):
+        base = {"state": "behind", "on_default": True}
+        calm, _ = self._output(["behind"], detected={**base, "presentation": "notice"})
+        firm, _ = self._output(["behind"], detected={**base, "presentation": "warning"})
+        unavailable, _ = self._output(["behind"], detected={"state": "unavailable"})
+        self.assertIn("newer shared work available", calm)
+        self.assertIn("fallen behind", firm)
+        self.assertIn("won't call this folder up to date", unavailable)
+
+    def test_catchup_reports_changed_diverged_and_clashing_causes_honestly(self):
+        changed, _ = self._output(["catchup", "--apply"],
+                                  correction={"status": "blocked", "reason": "target-changed"})
+        diverged, _ = self._output(["catchup", "--apply"],
+                                   correction={"status": "blocked", "reason": "diverged"})
+        clash, _ = self._output(["catchup", "--apply"], correction={"status": "blocked"})
+        self.assertIn("changed since it was checked", changed)
+        self.assertIn("deliberate reconciliation", diverged)
+        self.assertIn("unsaved changes", clash)
+
+    def test_apply_cli_passes_the_exact_target(self):
+        _, catch = self._output(["catchup", "--apply", "--target", "abc123"],
+                                correction={"status": "fixed"})
+        catch.assert_called_once_with(apply=True, expected_target="abc123")
+
+
 def _commit(root: str, msg: str) -> None:
     _git(root, "add", "-A")
     _git(root, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", msg)
@@ -149,6 +183,23 @@ def _commit(root: str, msg: str) -> None:
 
 def _head(root: str) -> str:
     return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+
+
+def _consent_target(root: str) -> str:
+    snapshot = checkout_health._checkout_snapshot(root, do_fetch=True)
+    if snapshot.get("state") == "unavailable":
+        raise AssertionError(f"fixture snapshot unexpectedly unavailable: {snapshot}")
+    return snapshot["target_oid"]
+
+
+def _consented_catch_up(root: str, **kwargs) -> dict:
+    return checkout_health.catch_up(cwd=root, apply=True, do_fetch=True,
+                                    expected_target=_consent_target(root), **kwargs)
+
+
+def _consented_return(root: str, **kwargs) -> dict:
+    return checkout_health.return_to_default(cwd=root, apply=True, do_fetch=True,
+                                             expected_target=_consent_target(root), **kwargs)
 
 
 def _gcommit(root: str, date: str, *args: str) -> None:
@@ -284,6 +335,22 @@ class TestBehindOrigin(unittest.TestCase):
             self.assertEqual(r["state"], "unavailable")
             self.assertEqual(r["reason"], "default-unresolved")
 
+    def test_remote_default_change_never_uses_stale_origin_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            _git(work, "branch", "trunk", "main")
+            _git(origin, "checkout", "-q", "-b", "trunk", "main")
+            with open(os.path.join(origin, "trunk.txt"), "w") as fh:
+                fh.write("new default\n")
+            _commit(origin, "advance new default")
+            _git(origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+            self.assertEqual(checkout_health._remote_default_branch(work), "main")  # cached before refresh
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["branch"], "trunk")
+            self.assertEqual(r["behind_commits"], 1)
+            self.assertEqual(checkout_health._remote_default_branch(work), "trunk")
+
     def test_none_when_level(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])   # origin never advanced -> current
@@ -326,10 +393,28 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=[])
             self.assertEqual(checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)["status"], "healthy")
 
+    def test_apply_requires_the_consent_time_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "consent-target-required")
+            self.assertEqual(_head(work), before)
+
+    def test_skipped_refresh_is_unavailable_never_healthy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            detected = checkout_health.detect_behind_origin(cwd=work, do_fetch=False)
+            self.assertEqual(detected["state"], "unavailable")
+            self.assertEqual(detected["reason"], "refresh-skipped")
+            result = checkout_health.catch_up(cwd=work, apply=True, do_fetch=False)
+            self.assertEqual(result["status"], "unavailable")
+
     def test_clean_fast_forward_brings_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "fixed")
             self.assertEqual(r["brought_in"], 8)
             self.assertEqual(r["after"], r["target_oid"])
@@ -340,7 +425,7 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
             before = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
             self.assertEqual(before["presentation"], "notice")
-            self.assertEqual(checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)["status"], "fixed")
+            self.assertEqual(_consented_catch_up(work)["status"], "fixed")
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
 
     def test_refresh_failure_never_mutates_from_a_stale_ref(self):
@@ -365,8 +450,9 @@ class TestCatchUp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
             before = _head(work)
+            target = _consent_target(work)
             with mock.patch.object(checkout_health, "_snapshot_unchanged", return_value=False):
-                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True, expected_target=target)
             self.assertEqual(r["status"], "blocked")
             self.assertEqual(r["reason"], "checkout-changed")
             self.assertEqual(_head(work), before)
@@ -396,6 +482,19 @@ class TestCatchUp(unittest.TestCase):
                 _commit(origin, "move remote target")
                 _git(work, "fetch", "-q", "origin")
                 self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("origin identity"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                replacement = os.path.join(tmp, "replacement")
+                _git(replacement, "init", "-q", "-b", "main")
+                _git(work, "remote", "set-url", "origin", replacement)
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("remote default"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                _git(work, "update-ref", "refs/remotes/origin/other", snapshot["target_oid"])
+                _git(work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/other")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
 
     def test_dry_run_mutates_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -411,7 +510,7 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
             with open(os.path.join(work, "shared.txt"), "w") as fh:   # origin's PRs do NOT touch shared.txt
                 fh.write("my local edit\n")
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "fixed")
             with open(os.path.join(work, "shared.txt")) as fh:
                 self.assertEqual(fh.read(), "my local edit\n")        # kept across the ff
@@ -425,7 +524,7 @@ class TestCatchUp(unittest.TestCase):
             with open(os.path.join(work, "shared.txt"), "w") as fh:
                 fh.write("MY UNSAVED EDIT\n")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "blocked")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # no mutation
@@ -442,7 +541,7 @@ class TestCatchUp(unittest.TestCase):
                 fh.write("local\n")
             _commit(work, "divergent local work")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "blocked")                  # diverged -> --ff-only aborts -> blocked
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # HEAD never moved (no ff, no force-merge)
@@ -456,7 +555,7 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             _git(work, "checkout", "-q", "-b", "my-feature")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "off-main")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # the side branch was never advanced
@@ -763,7 +862,7 @@ class TestReturnToDefault(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = _clone_on_branch(tmp, "my-feature")           # 'feature-work.txt' committed on my-feature
             feature_sha = _rev(work, "my-feature")
-            r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
+            r = _consented_return(work)
             self.assertEqual(r["status"], "fixed")
             self.assertEqual(_branch(work), "main")              # back on the default branch
             self.assertIsNone(checkout_health.detect_off_main(cwd=work))
@@ -784,7 +883,7 @@ class TestReturnToDefault(unittest.TestCase):
             work = _clone_on_branch(tmp, "my-feature")
             with open(os.path.join(work, "feature-work.txt"), "w") as fh:
                 fh.write("UNSAVED EDIT")                          # an uncommitted change
-            r = checkout_health.return_to_default(cwd=work, apply=True)
+            r = _consented_return(work)
             self.assertEqual(r["status"], "blocked")
             self.assertFalse(r["applied"])
             self.assertEqual(_branch(work), "my-feature")        # never left the side branch
@@ -796,20 +895,38 @@ class TestReturnToDefault(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=[])
             self.assertEqual(checkout_health.return_to_default(cwd=work, apply=True)["status"], "healthy")
 
-    def test_does_not_overclaim_when_the_default_cannot_be_brought_current(self):
-        # the local default itself diverged from origin/main: the RETURN succeeds losslessly (back on main),
-        # but the post-return fast-forward cannot run, so the result must report brought_current=False rather
-        # than falsely claim "up to date" (honest self-report — the trust model).
+    def test_diverged_default_refuses_before_switching_branches(self):
+        # The local default and shared default both moved. Refuse BEFORE checkout: the operator consented to a
+        # lossless catch-up, not a partial branch switch that discovers divergence afterward.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04"])   # origin advanced on main
             with open(os.path.join(work, "local-main.txt"), "w") as fh:
                 fh.write("local main work")
             _commit(work, "divergent local commit on main")     # local main now diverges from origin/main
             _git(work, "checkout", "-q", "-b", "my-feature")     # park off-main at that diverged tip
+            r = _consented_return(work)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "diverged")
+            self.assertEqual(_branch(work), "my-feature")         # no mutation before the refusal
+
+    def test_return_requires_the_consent_time_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
             r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
-            self.assertEqual(r["status"], "fixed")               # the return itself succeeded, lossless
-            self.assertEqual(_branch(work), "main")              # back on the default branch
-            self.assertFalse(r["brought_current"])               # honest: NOT brought up to date (diverged)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "consent-target-required")
+            self.assertEqual(_branch(work), "my-feature")
+
+    def test_return_refuses_concurrent_change_before_switching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
+            target = _consent_target(work)
+            with mock.patch.object(checkout_health, "_snapshot_unchanged", return_value=False):
+                r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                      expected_target=target)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "checkout-changed")
+            self.assertEqual(_branch(work), "my-feature")
 
 
 class TestOpInProgress(unittest.TestCase):
