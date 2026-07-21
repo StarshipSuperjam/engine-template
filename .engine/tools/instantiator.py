@@ -1755,6 +1755,15 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
+    # The engine's own development governance — the trust model, the two cold-context audit gates, the
+    # development invariants, and the frozen check names that govern building the Engine ITSELF. It applies only
+    # in the engine's home repo (boot surfaces it when git origin == the recorded home); a deployed project never
+    # develops the Engine (it receives released updates), so the doc retires at first-run and never travels. It is
+    # `.engine/`-owned (no _SANCTIONED_NON_ENGINE_RETIRE_PATHS entry needed) and referenced by nothing that
+    # survives into a copy — boot names it in prose, never as an import or an exact-path literal, and no traveling
+    # floor @-includes it — so retiring it dangles no reference (the first-run reference-closure invariant).
+    # Mirrored in first-run-assets.json (parity-tested).
+    ".engine/operations/engine-development.md",
     # The engine's marketing banner — go-to-market content referenced only by the template's marketing landing
     # README, carried into every generated repo by "Use this template". Retired at first-run alongside the README
     # reseed (the product starter references no banner), so a generated repo carries no engine marketing residue
