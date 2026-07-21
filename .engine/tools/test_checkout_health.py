@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import checkout_health
 
@@ -195,10 +196,9 @@ def _origin_and_work(tmp: str, *, merge_dates: list, touch_shared_on_last: bool 
 
 
 class TestBehindOrigin(unittest.TestCase):
-    """The ONLINE behind-the-main-line tail (#335; widened branch-agnostic for #342): fires whenever the
-    checkout — on its default branch OR parked on a side branch — is missing MORE merged work than the
-    project's own pace makes normal. The ancestry/clean-ff question lives in the CORRECTION, not here; this
-    signal never mutates."""
+    """The ONLINE checkout snapshot reports ANY missing upstream commit on the default or a side branch.
+    Merge velocity changes calm/firm presentation only. The ancestry/clean-ff question lives in the correction;
+    this signal never mutates and never calls a stale cached view current."""
 
     def test_fires_when_missing_exceeds_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -207,20 +207,25 @@ class TestBehindOrigin(unittest.TestCase):
             r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
             self.assertIsNotNone(r)
             self.assertEqual(r["state"], "behind")
-            self.assertEqual(r["missing"], 4)
+            self.assertEqual(r["behind_commits"], 8)       # four work commits plus four merge commits
+            self.assertEqual(r["missing_merges"], 4)
+            self.assertEqual(r["presentation"], "warning")
             self.assertEqual(r["branch"], "main")
             self.assertEqual(r["latest"], "2026-06-05")     # newest missing merge's date, for the felt line
             self.assertTrue(r["on_default"])                # on main -> the on-default arm (catch_up)
             self.assertEqual(r["advisory"], "merged")       # the checkout carries no own work -> fully absorbed
 
-    def test_quiet_when_below_velocity_bar(self):
+    def test_calm_notice_when_below_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # 4 merges ALL the same day -> span 1 -> threshold 4; missing 4 NOT > 4 -> quiet (normal drift)
+            # 4 merges ALL the same day -> threshold 4; drift remains visible but calm.
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 4)
-            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["presentation"], "notice")
+            self.assertEqual(r["behind_commits"], 8)
 
     def test_fires_branch_agnostic_on_a_side_branch_missing_merged_work(self):
-        # the #342 incident shape: parked on a side branch AND missing merged work past the bar -> FIRES (the
+        # the #342 incident shape: parked on a side branch AND missing merged work past the bar -> firm warning (the
         # old on-default-only gate is gone). on_default is False -> the correction is return_to_default, not ff.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
@@ -228,18 +233,20 @@ class TestBehindOrigin(unittest.TestCase):
             r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
             self.assertIsNotNone(r)
             self.assertEqual(r["state"], "behind")
-            self.assertEqual(r["missing"], 3)
+            self.assertEqual(r["missing_merges"], 3)
+            self.assertEqual(r["presentation"], "warning")
             self.assertEqual(r["branch"], "main")           # the default it is behind
             self.assertEqual(r["current"], "my-feature")    # where it is parked
             self.assertFalse(r["on_default"])
 
-    def test_quiet_on_a_feature_branch_below_the_bar(self):
-        # a feature branch merely behind by normal-pace drift stays QUIET on this (firm) signal — the gentle
-        # day-one nudge is the separate off-main signal, not this one (the two-stage model, feasibility-N1).
+    def test_feature_branch_below_the_bar_is_still_visible_but_calm(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 3)   # span 1 -> threshold 3; missing 3 !> 3
             _git(work, "checkout", "-q", "-b", "my-feature")
-            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["presentation"], "notice")
+            self.assertFalse(r["on_default"])
 
     def test_none_when_detached(self):
         # a detached HEAD is the strand detector's territory, not this tail
@@ -247,6 +254,35 @@ class TestBehindOrigin(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             _git(work, "checkout", "-q", "--detach", "HEAD")
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+
+    def test_single_direct_upstream_commit_is_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            with open(os.path.join(origin, "direct.txt"), "w") as fh:
+                fh.write("direct\n")
+            _commit(origin, "direct main commit")
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["behind_commits"], 1)
+            self.assertEqual(r["missing_merges"], 0)
+            self.assertEqual(r["presentation"], "notice")
+
+    def test_refresh_failure_is_explicitly_unavailable_even_with_a_stale_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            with mock.patch.object(checkout_health, "_refresh_origin", return_value=False):
+                r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "unavailable")
+            self.assertEqual(r["reason"], "refresh-failed")
+            self.assertFalse(r["fresh"])
+
+    def test_unconfirmed_remote_default_is_explicitly_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            with mock.patch.object(checkout_health, "_remote_default_branch", return_value=None):
+                r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "unavailable")
+            self.assertEqual(r["reason"], "default-unresolved")
 
     def test_none_when_level(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -295,8 +331,71 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
             r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
             self.assertEqual(r["status"], "fixed")
-            self.assertEqual(r["brought_in"], 4)
+            self.assertEqual(r["brought_in"], 8)
+            self.assertEqual(r["after"], r["target_oid"])
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))   # current now
+
+    def test_below_velocity_drift_can_be_brought_current(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(before["presentation"], "notice")
+            self.assertEqual(checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)["status"], "fixed")
+            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+
+    def test_refresh_failure_never_mutates_from_a_stale_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            with mock.patch.object(checkout_health, "_refresh_origin", return_value=False):
+                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "unavailable")
+            self.assertEqual(_head(work), before)
+
+    def test_apply_refuses_when_consent_target_does_not_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True, expected_target="0" * 40)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "target-changed")
+            self.assertEqual(_head(work), before)
+
+    def test_apply_refuses_when_snapshot_revalidation_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            with mock.patch.object(checkout_health, "_snapshot_unchanged", return_value=False):
+                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "checkout-changed")
+            self.assertEqual(_head(work), before)
+
+    def test_snapshot_revalidation_detects_branch_head_and_target_changes(self):
+        def snapshot_for(tmp):
+            work, origin = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            return work, origin, checkout_health._checkout_snapshot(work, do_fetch=True)
+
+        with self.subTest("branch"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                _git(work, "checkout", "-q", "-b", "moved")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("head"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                with open(os.path.join(work, "local.txt"), "w") as fh:
+                    fh.write("moved\n")
+                _commit(work, "move head")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("target"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, origin, snapshot = snapshot_for(tmp)
+                with open(os.path.join(origin, "later.txt"), "w") as fh:
+                    fh.write("later\n")
+                _commit(origin, "move remote target")
+                _git(work, "fetch", "-q", "origin")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
 
     def test_dry_run_mutates_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

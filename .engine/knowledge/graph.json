@@ -4029,7 +4029,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:b22b897b9900fd9aa5f4b984f92ea0a3f817af33b88ed536107487f96c9dc467",
+        "fingerprint": "sha256:079a94f6ebff5d5dc023819f07998c17c8ee683beb6f8548cf890255476ab6ae",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5719,7 +5719,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:34d0feaf7997498d52c4dc31083d7a1629db02f893e6aa9b6c73649071c5fd93",
+        "fingerprint": "sha256:01af1f59182263ae0cd4bb5ee4b2d0ffad39fdd74e27640bdef30945914a63e9",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5838,7 +5838,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:2cbddb15190d318951ca51952219e6f639e0bc87d61ee31dba0ab8b572110d9a",
+        "fingerprint": "sha256:24bbe0691e57abb8a4892f94d29287d9d721c7cb35dbb47ef627487bfbc2b9bd",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -8541,7 +8541,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:211c480d2dc536538f976cd0908996588a4d80dcad21b2aba3a046cb42ca8f51",
+        "fingerprint": "sha256:5295a216af1af7f19340660d85be2ea10b33b64b365d0e2b3526ee727f4a49b9",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8660,7 +8660,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:2ce1c64d6bdf60dc7f724ef9103c00c7d7f79b0bffb6249e33ac8111c95da940",
+        "fingerprint": "sha256:6884d6cc60308f192673d724adb4b1c3d28f2b96e1ee4b9b592dc08632f8a646",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",

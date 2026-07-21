@@ -1400,7 +1400,10 @@ class TestBehindOriginSurfacing(unittest.TestCase):
     # behind on the DEFAULT branch (#335): on_default True -> the original consequence copy. The branch-agnostic
     # side-line case (on_default False) is exercised in TestOffMainSurfacing below.
     _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "current": "main", "on_default": True,
-               "missing": 9, "latest": "2026-06-27", "advisory": "merged"}
+               "behind_commits": 9, "missing_merges": 5, "presentation": "warning",
+               "latest": "2026-06-27", "advisory": "merged"}
+    _NOTICE = {**_BEHIND, "behind_commits": 1, "missing_merges": 0, "presentation": "notice"}
+    _UNAVAILABLE = {"state": "unavailable", "main": "/p", "reason": "refresh-failed", "fresh": False}
 
     def test_render_surfaces_the_behind_line_only_when_behind(self):
         dash = boot.render_dashboard(_signals(behind_origin=self._BEHIND))
@@ -1417,6 +1420,24 @@ class TestBehindOriginSurfacing(unittest.TestCase):
         self.assertNotIn("9", line)                              # the missing-count never appears
         for verb in ("fast-forward", "ff-only", "fetch", "rebase", "ancestor", "origin/"):
             self.assertNotIn(verb, line.lower(), f"git verb leaked to the operator surface: {verb}")
+
+    def test_below_velocity_drift_is_a_calm_count_free_notice(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._NOTICE)).lower()
+        self.assertIn("newer merged work available", dash)
+        self.assertNotIn("fallen behind", dash)
+        self.assertNotIn("1", dash)
+        marker = boot.present_marker_line(_signals(behind_origin=self._NOTICE))
+        self.assertTrue(marker.startswith(f"▸ {boot.PRESENT_MARKER}:"))
+        self.assertIn("newer merged work", marker.lower())
+
+    def test_unavailable_is_explicit_and_never_claims_current(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._UNAVAILABLE)).lower()
+        self.assertIn("couldn't check", dash)
+        self.assertIn("won't call", dash)
+        self.assertNotIn("all clear", dash)
+        marker = boot.present_marker_line(_signals(behind_origin=self._UNAVAILABLE)).lower()
+        self.assertIn("couldn't check", marker)
+        self.assertNotIn("all clear", marker)
 
     def test_behind_pins_below_the_governance_alarm_and_the_strand(self):
         pack = boot.render_dashboard(_signals(gate="off", reason="x",
@@ -1470,7 +1491,8 @@ class TestOffMainSurfacing(unittest.TestCase):
     _OFF_MAIN = {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}
     # behind on a SIDE line of work (on_default False): the branch-agnostic Stage-2 escalation
     _BEHIND_SIDE = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
-                    "on_default": False, "missing": 7, "latest": "2026-06-28", "advisory": "carries-work"}
+                    "on_default": False, "behind_commits": 7, "missing_merges": 4,
+                    "presentation": "warning", "latest": "2026-06-28", "advisory": "carries-work"}
 
     def test_render_surfaces_a_gentle_off_main_line_only_when_off_main(self):
         dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN))
@@ -2321,7 +2343,8 @@ class TestAntiHabituationCollapse(unittest.TestCase):
 
     def test_off_main_escalating_to_behind_relays_the_firm_line_with_its_lineage(self):
         side_behind = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
-                       "on_default": False, "missing": 5, "latest": "2026-06-28", "advisory": "carries-work"}
+                       "on_default": False, "behind_commits": 5, "missing_merges": 3,
+                       "presentation": "warning", "latest": "2026-06-28", "advisory": "carries-work"}
         boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 1: gentle park (seed)
         boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 2: still gentle (collapse)
         s = _signals(off_main=dict(self._OM), behind_origin=side_behind)
