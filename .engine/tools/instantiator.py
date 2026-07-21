@@ -1711,6 +1711,17 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_restore_migration_routing.py",
     ".engine/tools/demo_operator_backlog.py",
     ".engine/tools/demo_control_plane_labels.py",
+    # The G2 memory-recall benchmark (#387): the labeled instrument + scorer that measures retrieval quality and
+    # gates the overhaul's irreversible curation-removal. It is maintainer-layer construction tooling — a
+    # generated repo ships an EMPTY ledger, so there is nothing to benchmark — and retires at first run (#387:
+    # "not a standing deployed check"). It lives at top-level tools/ (core-owned, like the other memory-touching
+    # construction demos), NOT in the tools/memory/ runtime package. test_recall_benchmark.py imports the
+    # retiring harness, so it retires in the SAME pass (else it survives and aborts a generated repo's first
+    # `unittest discover` at collection — the reference-closure invariant, as with the security-seed pair above).
+    # The synthetic corpus + labels live in the fixtures directory retired via _FIRST_RUN_ASSET_DIRS below. All
+    # mirrored in first-run-assets.json (parity-tested). Not a demo_*.py, so census-completeness does not list it.
+    ".engine/tools/recall_benchmark.py",
+    ".engine/tools/test_recall_benchmark.py",
     # #424 U13b — a KEEP disposition recorded on the census for memory_pointer_public_safety_check.py: it is
     # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
     # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring
@@ -1740,7 +1751,11 @@ _FIRST_RUN_ASSET_FILES = (
     "assets/engine_banner.jpg",
 )
 _FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
-                         os.path.join(".agents", "skills", "engine-setup"))
+                         os.path.join(".agents", "skills", "engine-setup"),
+                         # The G2 recall benchmark's synthetic corpus + labeled question set + seal (construction-
+                         # only; retires with recall_benchmark.py above). All under `.engine/`, so it is
+                         # engine-owned and needs no _SANCTIONED_NON_ENGINE_RETIRE_PATHS entry.
+                         os.path.join(".engine", "_fixtures", "recall-benchmark"))
 
 # Every retirement target must be engine-owned. The `.engine/` subtree is wholly the engine's, even on a
 # brownfield "add the engine to an existing project" arrival; `.claude/` and `.agents/` are NOT — there they
