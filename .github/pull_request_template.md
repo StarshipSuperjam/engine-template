@@ -90,7 +90,7 @@
 
 *Impact: <what these most determine>*
 
-## Claude involvement
+## AI involvement
 
 **<one-line summary: design decisions vs mechanical edits>**
 

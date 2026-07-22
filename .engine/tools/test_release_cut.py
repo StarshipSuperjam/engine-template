@@ -475,7 +475,7 @@ class RenderPRBody(unittest.TestCase):
             applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
         body = rc.render_pr_body(proposal, applied)
         required = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
-                    "Review", "Files of interest", "Claude involvement"]
+                    "Review", "Files of interest", "AI involvement"]
         findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
         self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
@@ -504,7 +504,7 @@ class RenderPRBody(unittest.TestCase):
         applied = {"applied": True, "engine": "0.1.0", "from_engine": "0.0.0-dev", "targets": {"core": "0.1.0"}}
         body = rc.render_pr_body(proposal, applied)
         sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
-                    "Review", "Files of interest", "Claude involvement"]
+                    "Review", "Files of interest", "AI involvement"]
         for i, name in enumerate(sections):
             seg = body.split(f"## {name}", 1)[1]
             if i + 1 < len(sections):
