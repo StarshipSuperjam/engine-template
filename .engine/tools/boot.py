@@ -1516,7 +1516,7 @@ def render_dashboard(s: dict) -> str:
             pinned.append(
                 "📦 **Your project folder has newer shared work available** — nothing is broken, but the shared "
                 "project has moved on since this folder was last brought current. Say **bring it up to date** when "
-                "you want me to bring it current safely; if anything changed underneath us, I'll stop and ask again.")
+                "you want me to bring it current safely; I'll recheck and won't claim success if anything moved.")
     elif behind_notice and off_main:
         if behind.get("collapsed"):
             pinned.append("📦 **Your folder is still on a side line with newer shared work waiting** "
@@ -1525,7 +1525,7 @@ def render_dashboard(s: dict) -> str:
             pinned.append(
                 "📦 **Your project folder is on a side line and newer shared work is available** — nothing is "
                 "broken or lost. Say **bring it up to date** when you want me to return it to the main project "
-                "and bring it current safely; if anything changed underneath us, I'll stop and ask again.")
+                "and bring it current safely; I'll recheck and won't claim success if anything moved.")
     elif off_main:
         # Stage-1 (gentle, OFFLINE): merely parked on a side line, not yet behind — a gentle INVITATION, not a
         # defect report (the top-level checkout on a side line is anomalous because sessions work in separate

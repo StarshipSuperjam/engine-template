@@ -110,8 +110,9 @@ and never forces. What differs is *what* each protects and *how* it declines:
   drift gets a calm, count-free notice; missing merges beyond the project-relative velocity bar get the existing
   firm warning. If refresh, remote identity, or the remote default cannot be confirmed, boot says the check is
   unavailable and never calls a cached view current. On consent, catch-up revalidates the pinned repository,
-  branch, HEAD, and exact target, then advances only along a safe fast-forward; any movement, divergence, or
-  clashing unsaved work returns `blocked` and changes nothing.
+  branch, HEAD, and exact target, then advances only along a safe fast-forward. Movement visible at revalidation,
+  divergence, or clashing work blocks before mutation; a final postcondition check prevents a racing external
+  Git operation from ever being reported as a successful repair.
   After the operator says "bring it up to date," the assistant runs the machine-readable `snapshot` command,
   takes its exact `target_oid`, and supplies that value to `catchup --apply --target <OID>` (or the return arm
   below). Apply refuses without that consent-time target and also refuses if a newly refreshed target differs.

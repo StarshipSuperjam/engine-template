@@ -186,6 +186,19 @@ class TestCheckoutCLI(unittest.TestCase):
         self.assertIn("inspect the repository address", output)
         self.assertNotIn("check the connection", output)
 
+    def test_machine_snapshot_omits_origin_credentials_and_local_paths(self):
+        raw = {"state": "behind", "origin": "https://user:secret@example.invalid/private.git",
+               "main": "/private/project", "target_oid": "abc123", "presentation": "notice", "fresh": True}
+        out = io.StringIO()
+        with mock.patch.object(checkout_health, "checkout_snapshot", return_value=raw), \
+             contextlib.redirect_stdout(out):
+            checkout_health.main(["snapshot"])
+        rendered = out.getvalue()
+        self.assertIn("abc123", rendered)
+        self.assertNotIn("secret", rendered)
+        self.assertNotIn("/private/project", rendered)
+        self.assertNotIn("origin", rendered)
+
 
 def _commit(root: str, msg: str) -> None:
     _git(root, "add", "-A")

@@ -26,7 +26,8 @@ Design — the operator-checkout strand:
     firm warning. A tightly bounded refresh is mandatory before claiming current or offering a write. If the
     remote/default/history cannot be freshly established, the result is explicitly `unavailable` — stale refs
     never produce a false all-clear. The snapshot pins remote identity, branch, HEAD, and target OIDs; a consented
-    correction revalidates all of them and merges the exact assessed target, refusing on any change. Whether a
+    correction revalidates all of them, merges the exact assessed target, and verifies the postcondition so a
+    racing external Git operation is never misreported as success. Whether a
     side branch's work is absorbed is an advisory tone only (`git cherry`, err-gentle), never a safety gate.
   - **The strand fix is lossless-or-it-does-not-run.** Safe iff `git -C <main> rev-list HEAD --not --branches`
     empty AND `stash list` empty (repo-global — a sibling worktree's stash fails it SAFE) AND `status
@@ -729,7 +730,8 @@ def checkout_snapshot(cwd: str | None = None, *, do_fetch: bool = True) -> dict:
 
 def _snapshot_unchanged(snapshot: dict) -> bool:
     """Apply-time consent check: repository, default, current branch, HEAD, and target must still be exactly
-    the snapshot that authorized the action. Any concurrent movement refuses; no mutable ref is merged."""
+    the snapshot that authorized the action. Any movement visible at this last preflight refuses; no mutable ref
+    is merged, and the caller separately verifies the postcondition after Git returns."""
     main = snapshot["main"]
     reads = {
         "origin": (_run(["git", "-C", main, "remote", "get-url", "origin"]) or "").strip(),
@@ -778,15 +780,20 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     # --ff-only is git's OWN refuse-if-not-a-fast-forward guard (the single sanctioned non-additive verb): it
     # advances on a strict ancestor and aborts otherwise, so a diverged branch or a clashing local edit can
     # never be force-merged or clobbered.
-    if _ok(["git", "-C", main, "merge", "--ff-only", behind["target_oid"]]):
-        after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
-        if after == behind["target_oid"]:
-            return {"status": "fixed", "main": main, "branch": default, "brought_in": missing,
-                    "before": behind["head_oid"], "after": after, "target_oid": behind["target_oid"],
-                    "applied": True}
-    # Git refused after ancestry was proven: a local edit clashes with incoming files, or the checkout changed
-    # in the tiny post-revalidation window. Nothing changed, nothing lost.
-    return {"status": "blocked", "main": main, "branch": default, "applied": False}
+    merged = _ok(["git", "-C", main, "merge", "--ff-only", behind["target_oid"]])
+    after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+    after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    if merged and after == behind["target_oid"] and after_branch == default:
+        return {"status": "fixed", "main": main, "branch": default, "brought_in": missing,
+                "before": behind["head_oid"], "after": after, "target_oid": behind["target_oid"],
+                "applied": True}
+    # A local edit may have made Git refuse before mutation. If an external Git process races the tiny
+    # revalidation-to-merge window, never call the result fixed: report whether HEAD moved so the operator knows
+    # a manual inspection is required instead of receiving a false success.
+    changed = after != behind["head_oid"] or after_branch != default
+    return {"status": "blocked", "main": main, "branch": default,
+            "reason": "postcondition-failed" if changed else "clash",
+            "before": behind["head_oid"], "after": after, "applied": changed}
 
 
 def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
@@ -1067,6 +1074,9 @@ def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
         print("Your main line and the shared project have both moved, so I left everything untouched. This "
               "needs a deliberate reconciliation rather than an automatic catch-up.")
+    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
+        print("Another project operation raced the final update check, so I stopped without claiming success. "
+              "Inspect the folder's current line and history before doing anything else.")
     elif r["status"] == "blocked":
         print("Your project folder is behind, but you have unsaved changes that clash with the incoming work, "
               "so I left everything untouched — nothing is lost. Save or set those changes aside and ask again.")
@@ -1198,7 +1208,12 @@ def main(argv: list) -> int:
     if argv and argv[0] == "behind":
         return _plain_behind()
     if argv and argv[0] == "snapshot":
-        print(json.dumps(_checkout_snapshot(), sort_keys=True))
+        snapshot = checkout_snapshot()
+        public = {key: snapshot.get(key) for key in (
+            "state", "reason", "branch", "current", "on_default", "target_oid",
+            "behind_commits", "missing_merges", "presentation", "latest", "fresh")
+                  if key in snapshot}
+        print(json.dumps(public, sort_keys=True))
         return 0
     result = detect_strand()
     print(result if result else "healthy — no strand detected")
