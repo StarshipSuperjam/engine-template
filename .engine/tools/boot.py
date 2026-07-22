@@ -1552,10 +1552,10 @@ def render_dashboard(s: dict) -> str:
 
     if behind_unavailable:
         reason = behind.get("reason")
-        if reason == "refresh-failed":
+        if reason in {"refresh-failed", "refresh-timeout", "remote-head-unreadable"}:
             remedy = ("Check the connection or repository access, then ask again and I'll check from a fresh "
                       "view.")
-        elif reason in {"origin-changed", "checkout-changed"}:
+        elif reason in {"origin-changed", "checkout-changed", "remote-moved"}:
             remedy = ("The project changed during the check; ask me to inspect its sharing address and current "
                       "folder state before trying again.")
         else:

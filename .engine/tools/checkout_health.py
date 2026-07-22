@@ -124,9 +124,9 @@ def _succeeds(cmd: list, cwd: str | None = None) -> bool:
         return False
 
 
-def _refresh_origin(main: str) -> tuple[str, str] | None:
-    """Read origin's authoritative HEAD symref, then fetch that exact branch. Returns (default, advertised_oid)
-    only when the fetched remote-tracking ref matches the advertisement. A normal fetch does NOT refresh the
+def _refresh_origin(main: str) -> dict:
+    """Read origin's authoritative HEAD symref, then fetch that exact branch. Returns a structured success or
+    failure reason, and succeeds only when the fetched remote-tracking ref matches the advertisement. A normal fetch does NOT refresh the
     cached `origin/HEAD` symref, so trusting it here would quietly follow an old default after a remote rename.
     This updates only remote-tracking metadata and objects — never local HEAD, branches, index, or working tree."""
     try:
@@ -134,33 +134,33 @@ def _refresh_origin(main: str) -> tuple[str, str] | None:
         advertised = subprocess.run(["git", "-C", main, "ls-remote", "--symref", "origin", "HEAD"],
                                     capture_output=True, text=True, timeout=_FETCH_TIMEOUT, check=False)
         if advertised.returncode != 0:
-            return None
+            return {"ok": False, "reason": "remote-head-unreadable"}
         lines = advertised.stdout.splitlines()
         symref = next((line.split() for line in lines if line.startswith("ref: refs/heads/")), None)
         oid_line = next((line.split() for line in lines
                          if not line.startswith("ref:") and line.endswith("\tHEAD")), None)
         if not symref or len(symref) < 3 or not oid_line:
-            return None
+            return {"ok": False, "reason": "remote-head-unresolved"}
         default = symref[1].split("refs/heads/", 1)[1]
         advertised_oid = oid_line[0]
         remaining = _FETCH_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
-            return None
+            return {"ok": False, "reason": "refresh-timeout"}
         fetched = subprocess.run(["git", "-C", main, "fetch", "--quiet", "origin",
                                   f"+refs/heads/{default}:refs/remotes/origin/{default}"],
                                  capture_output=True, text=True, timeout=remaining, check=False)
         if fetched.returncode != 0:
-            return None
+            return {"ok": False, "reason": "refresh-failed"}
         actual = (_run(["git", "-C", main, "rev-parse", "--verify",
                         f"refs/remotes/origin/{default}"]) or "").strip()
         if actual != advertised_oid:
-            return None                       # remote moved during the two-part refresh; ask again
+            return {"ok": False, "reason": "remote-moved"}
         if not _ok(["git", "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD",
                     f"refs/remotes/origin/{default}"]):
-            return None
-        return default, advertised_oid
+            return {"ok": False, "reason": "default-cache-write-failed"}
+        return {"ok": True, "default": default, "target_oid": advertised_oid}
     except Exception:  # noqa: BLE001 — timeout/offline/missing git -> an honest unavailable snapshot
-        return None
+        return {"ok": False, "reason": "refresh-failed"}
 
 
 def _main_checkout(cwd: str | None = None) -> tuple[str, bool] | None:
@@ -217,8 +217,8 @@ def _resolve_state(cwd: str | None = None) -> tuple[str, bool, bool, str] | None
     behind) — so a single detection pass needs only one `git worktree list`. Returns
     (main, detached, missing_files, current) or None when the main checkout cannot be resolved (fail-soft
     quiet). `current` is the checked-out branch name ('' when detached). The DEFAULT branch is deliberately NOT
-    resolved here: off-main needs the CONFIDENT default (persisted / origin-HEAD only) while behind tolerates
-    the heuristic fallback, so each caller resolves its own (see `_confident_default_branch` / `_default_branch`)."""
+    resolved here: offline off-main detection uses its confident local sources, while online drift/correction
+    requires the authoritative remote HEAD from the fresh snapshot."""
     resolved = _main_checkout(cwd)
     if not resolved:
         return None
@@ -670,13 +670,13 @@ def _checkout_snapshot(cwd: str | None = None, *, do_fetch: bool = True) -> dict
     if not origin_before:
         return _unavailable(main, "origin-unresolved")
     remote_head = _refresh_origin(main)
-    if not remote_head:
-        return _unavailable(main, "refresh-failed")
+    if not remote_head or not remote_head.get("ok"):
+        return _unavailable(main, (remote_head or {}).get("reason", "refresh-failed"))
     origin_after = (_run(["git", "-C", main, "remote", "get-url", "origin"]) or "").strip()
     if origin_after != origin_before:
         return _unavailable(main, "origin-changed")
 
-    default, advertised_oid = remote_head
+    default, advertised_oid = remote_head["default"], remote_head["target_oid"]
     if _remote_default_branch(main) != default:
         return _unavailable(main, "default-unresolved")
     upstream = f"refs/remotes/origin/{default}"
@@ -810,9 +810,6 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     off = {"state": "off-main", "main": snapshot["main"], "branch": snapshot["current"],
            "main_branch": snapshot["branch"]}
     main, default, current = off["main"], snapshot["branch"], off["branch"]
-    if current != snapshot["current"]:
-        return {"status": "blocked", "main": main, "branch": default, "from": current,
-                "reason": "checkout-changed", "applied": False}
     if not apply:
         return {**snapshot, **off, "status": "off-main", "applied": False}
     if expected_target is None:
@@ -839,6 +836,12 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     # Safely back on the default after the ancestry preflight; advance to the exact pinned target, never a mutable
     # branch name. If the local default already contains the target, no merge is needed.
     brought_current = target_is_ancestor or _ok(["git", "-C", main, "merge", "--ff-only", target])
+    post_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    post_contains_target = _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", target, "HEAD"])
+    if not brought_current or post_branch != default or not post_contains_target:
+        restored = _ok(["git", "-C", main, "checkout", current])
+        return {"status": "blocked", "main": main, "branch": default, "from": current,
+                "reason": "postcondition-failed", "restored": restored, "applied": not restored}
     return {"status": "fixed", "main": main, "branch": default, "from": current,
             "brought_current": brought_current, "target_oid": snapshot["target_oid"], "applied": True}
 
@@ -1103,6 +1106,13 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
         print("Your main line and the shared project have both moved, so I left your folder on its current side "
               "line. This needs a deliberate reconciliation; nothing moved and nothing was lost.")
+    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
+        if r.get("restored"):
+            print("The final update check failed, so I put your folder back on its original side line. Nothing "
+                  "was lost; inspect the repository state before trying again.")
+        else:
+            print("The final update check failed and I couldn't restore the original side line automatically. "
+                  "I stopped immediately; inspect the folder state before doing anything else.")
     elif r["status"] == "blocked":
         print("Your project folder is parked on another branch, but it has unsaved changes (or a git operation "
               "paused mid-way), so I left everything exactly where it is — nothing moved, nothing lost. Save or "
@@ -1134,10 +1144,10 @@ def _plain_offmain() -> int:
 def _print_unavailable(r: dict) -> None:
     """Cause-aware CLI remedy: retry remote access failures; inspect persistent local/configuration failures."""
     reason = r.get("reason")
-    if reason == "refresh-failed":
+    if reason in {"refresh-failed", "refresh-timeout", "remote-head-unreadable"}:
         print("I couldn't freshly reach the shared project, so I changed nothing and won't call this folder up "
               "to date. Check the connection or repository access, then try again.")
-    elif reason in {"origin-changed", "checkout-changed"}:
+    elif reason in {"origin-changed", "checkout-changed", "remote-moved"}:
         print("The project changed while I was checking it, so I changed nothing. Inspect the project sharing "
               "address and current folder state, then run the check again.")
     else:

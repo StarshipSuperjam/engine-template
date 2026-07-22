@@ -338,6 +338,15 @@ class TestBehindOrigin(unittest.TestCase):
             self.assertEqual(r["reason"], "refresh-failed")
             self.assertFalse(r["fresh"])
 
+    def test_remote_head_parse_failure_keeps_a_structured_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            malformed = subprocess.CompletedProcess(args=[], returncode=0, stdout="not-a-symref\n", stderr="")
+            with mock.patch.object(checkout_health.subprocess, "run", return_value=malformed):
+                refreshed = checkout_health._refresh_origin(work)
+            self.assertFalse(refreshed["ok"])
+            self.assertEqual(refreshed["reason"], "remote-head-unresolved")
+
     def test_unconfirmed_remote_default_is_explicitly_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])
@@ -963,6 +972,27 @@ class TestReturnToDefault(unittest.TestCase):
                                                        expected_target=snapshot["target_oid"])
             self.assertEqual(result["status"], "fixed")
             self.assertEqual(_branch(work), "trunk")
+
+    def test_failed_postcondition_restores_the_original_side_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            _git(work, "checkout", "-q", "-b", "my-feature")
+            target = _consent_target(work)
+            real_ok = checkout_health._ok
+
+            def fail_merge(cmd, cwd=None):
+                if "merge" in cmd and "--ff-only" in cmd:
+                    return False
+                return real_ok(cmd, cwd=cwd)
+
+            with mock.patch.object(checkout_health, "_ok", side_effect=fail_merge):
+                result = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                           expected_target=target)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["reason"], "postcondition-failed")
+            self.assertTrue(result["restored"])
+            self.assertFalse(result["applied"])
+            self.assertEqual(_branch(work), "my-feature")
 
 
 class TestOpInProgress(unittest.TestCase):
