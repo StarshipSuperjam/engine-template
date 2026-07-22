@@ -1098,26 +1098,26 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
     try:
-        # The behind-origin tail (#335), RELAYED from checkout_health's own detection (boot computes no new
-        # state). This is the engine's one ONLINE boot signal that fetches: a best-effort, tightly bounded
-        # `git fetch` then a clean-fast-forward check. Online-only by nature (a behind checkout cannot be seen
-        # offline), so it degrades SILENTLY to None on no-network / no-remote / a non-default branch — never a
-        # false "behind". boot OFFERS bringing it current; the assistant runs checkout_health.catch_up only on
-        # the operator's consent (the strand model). Lossless by construction (`merge --ff-only`).
-        behind_origin = checkout_health.detect_behind_origin()
-    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
-        behind_origin = None
-    try:
-        # The off-main Stage-1 signal (#342), RELAYED from checkout_health's own detection (boot computes
-        # no new state). The OFFLINE companion to the behind tail: the operator's top-level checkout PARKED on a
-        # non-default branch, caught every boot on day one (the cheap-to-fix window, before it falls behind). The
-        # gentlest folder-health signal — a gentle invitation, collapse-eligible (anti-habituation). Fires only
-        # when the default branch is KNOWN with confidence, so a pre-persistence checkout raises no false nag;
-        # degrades QUIETLY to None otherwise (an on-default / unknown-default checkout is the normal state). The
-        # behind-the-main-line escalation is the separate ONLINE behind_origin tail above.
-        off_main = checkout_health.detect_off_main()
-    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
-        off_main = None
+        # ONE authoritative remote-default snapshot feeds both drift and off-main routing. Keeping these as two
+        # independent detectors let a persisted old default disagree with a freshly renamed remote default.
+        checkout_snapshot = checkout_health.checkout_snapshot()
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this signal, never the pack
+        checkout_snapshot = {"state": "unavailable", "main": None,
+                             "reason": "detector-failed", "fresh": False}
+    if checkout_snapshot.get("state") == "unavailable":
+        behind_origin = (None if checkout_snapshot.get("reason") == "broken-strand" else checkout_snapshot)
+        try:
+            # Offline Stage-1 remains useful only as a fallback when the remote snapshot is unavailable. It never
+            # overrides a fresh remote-backed default.
+            off_main = checkout_health.detect_off_main()
+        except Exception:  # noqa: BLE001 — low-stakes offline fallback degrades quietly
+            off_main = None
+    else:
+        behind_origin = None if checkout_snapshot.get("state") == "current" else checkout_snapshot
+        off_main = (None if checkout_snapshot.get("on_default") else
+                    {"state": "off-main", "main": checkout_snapshot.get("main"),
+                     "branch": checkout_snapshot.get("current"),
+                     "main_branch": checkout_snapshot.get("branch")})
     try:
         # The absent-update-home signal (#367), RELAYED from checkout_health's own OFFLINE
         # detection (boot computes no new state). A repo generated before the home coordinate shipped has an
@@ -1317,9 +1317,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": shipped,
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
-        # the behind-origin tail (#335; branch-agnostic for #342): the checkout — on its default branch OR
-        # parked on a side branch — is missing merged work past the velocity bar, or None (also None offline —
-        # the signal is online-only). The Stage-2 firm escalation of the off-main signal below.
+        # the checkout snapshot (#335; branch-agnostic for #342): any missing upstream commit (calm or firm),
+        # an explicit unavailable state, or None only when freshly current. The firm presentation is the
+        # Stage-2 escalation of the off-main signal below.
         "behind_origin": behind_origin,
         # the off-main Stage-1 signal (#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
@@ -1459,23 +1459,33 @@ def render_dashboard(s: dict) -> str:
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
 
-    # The widened "fifth" folder-health surfacing (#342): off-main Stage-1 + behind-the-main-line Stage-2,
+    # The widened "fifth" folder-health surfacing (#342): off-main Stage-1 + behind-the-main-line drift,
     # pinned read-only at the strand tier (below the governance alarms — an off-main/behind checkout cannot reach
     # protected `main`). COUNT-FREE ("never a count"), NO git verbs, ONE consent handle
     # ("bring it up to date") across both stages. boot OFFERS only; the assistant runs the correction on consent
     # (catch_up on the default, return_to_default off it) — both lossless by construction. Precedence: the FIRM
-    # Stage-2 (missing merged work) supersedes the GENTLE Stage-1 (merely parked) when both are live.
+    # Firm missing-work drift supersedes the GENTLE Stage-1 (merely parked) when both are live. A calm notice on
+    # a side branch leaves Stage-1's already-visible invitation in charge, avoiding duplicate offers.
     behind = s.get("behind_origin")
     off_main = s.get("off_main")
-    if behind and behind.get("on_default"):
+    behind_live = bool(behind and behind.get("state") == "behind")
+    behind_warning = bool(behind_live and behind.get("presentation", "warning") == "warning")
+    behind_notice = bool(behind_live and behind.get("presentation") == "notice")
+    behind_unavailable = bool(behind and behind.get("state") == "unavailable")
+    when = (f"most recently on {behind.get('latest')}" if behind_live and behind.get("latest") else "recently")
+    if behind_warning and behind.get("on_default"):
         # Stage-2 on the DEFAULT branch (#335): behind your own merged main line — the original consequence copy.
-        pinned.append(
-            "📦 **Your project folder has fallen behind your recent work** — merged updates have landed since "
-            f"you last caught up (most recently on {behind['latest']}), and your folder doesn't "
-            "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
-            "it up to date** and I'll bring your folder current safely; or, if you have unsaved work in the "
-            "way, I'll tell you and leave everything untouched. Either way, nothing you already have will be lost.")
-    elif behind:
+        if behind.get("collapsed"):
+            pinned.append("📦 **Newer shared work is still waiting for this project folder** _(unchanged since "
+                          "last session)_ — say **bring it up to date** when you're ready.")
+        else:
+            pinned.append(
+                "📦 **Your project folder has fallen behind your recent work** — shared updates have landed since "
+                f"you last caught up ({when}), and your folder doesn't "
+                "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
+                "it up to date** and I'll bring your folder current safely; or, if you have unsaved work in the "
+                "way, I'll tell you and leave everything untouched. Either way, nothing you already have will be lost.")
+    elif behind_warning:
         # Stage-2 on a SIDE line of work: the firm escalation. Two tones from the advisory (errs gentle): if the
         # side line may carry unfinished work, promise to keep it; if it's only an older view, say nothing's lost.
         # When it escalated from a gentle off-main park already shown, name that lineage.
@@ -1488,10 +1498,34 @@ def render_dashboard(s: dict) -> str:
         else:
             tone = ("There may be unfinished work saved on that side line that isn't in your main project yet, "
                     "so I'll keep it exactly where it is — nothing deleted.")
-        pinned.append(
-            f"{lead} — your main project moved on most recently on {behind['latest']}. {tone} When you're ready, "
-            "say **bring it up to date** and I'll point your folder back at your main project and bring it "
-            "current; if anything's in the way I'll tell you and change nothing.")
+        if behind.get("collapsed"):
+            pinned.append("📦 **Your folder is still on a side line with newer shared work waiting** "
+                          "_(unchanged since last session)_ — say **bring it up to date** when you're ready.")
+        else:
+            pinned.append(
+                f"{lead} — your main project moved on {when}. {tone} When you're ready, "
+                "say **bring it up to date** and I'll point your folder back at your main project and bring it "
+                "current; if anything's in the way I'll tell you and change nothing.")
+    elif behind_notice and behind.get("on_default"):
+        # Ordinary drift is still visible, so it cannot quietly grow for dozens of commits again, but remains a
+        # calm offer rather than the firm above-velocity warning. Count-free and consent-only, like Stage-2.
+        if behind.get("collapsed"):
+            pinned.append("📦 **Newer shared work is still waiting for this project folder** _(unchanged since "
+                          "last session)_ — say **bring it up to date** when you're ready.")
+        else:
+            pinned.append(
+                "📦 **Your project folder has newer shared work available** — nothing is broken, but the shared "
+                "project has moved on since this folder was last brought current. Say **bring it up to date** when "
+                "you want me to bring it current safely; I'll recheck and won't claim success if anything moved.")
+    elif behind_notice and off_main:
+        if behind.get("collapsed"):
+            pinned.append("📦 **Your folder is still on a side line with newer shared work waiting** "
+                          "_(unchanged since last session)_ — say **bring it up to date** when you're ready.")
+        else:
+            pinned.append(
+                "📦 **Your project folder is on a side line and newer shared work is available** — nothing is "
+                "broken or lost. Say **bring it up to date** when you want me to return it to the main project "
+                "and bring it current safely; I'll recheck and won't claim success if anything moved.")
     elif off_main:
         # Stage-1 (gentle, OFFLINE): merely parked on a side line, not yet behind — a gentle INVITATION, not a
         # defect report (the top-level checkout on a side line is anomalous because sessions work in separate
@@ -1515,6 +1549,21 @@ def render_dashboard(s: dict) -> str:
                          "couldn't, so you may be seeing a long-standing state for the first time, not something "
                          "that just broke.)")
             pinned.append(line)
+
+    if behind_unavailable:
+        reason = behind.get("reason")
+        if reason in {"refresh-failed", "refresh-timeout", "remote-head-unreadable"}:
+            remedy = ("Check the connection or repository access, then ask again and I'll check from a fresh "
+                      "view.")
+        elif reason in {"origin-changed", "checkout-changed", "remote-moved"}:
+            remedy = ("The project changed during the check; ask me to inspect its sharing address and current "
+                      "folder state before trying again.")
+        else:
+            remedy = ("Ask me to inspect the repository address, remote default, and local history before "
+                      "trying again.")
+        pinned.append(
+            "📦 **I couldn't check whether your project folder has the newest shared work** — the shared-project "
+            f"setup wasn't freshly verifiable, so I won't call this folder up to date and I changed nothing. {remedy}")
 
     # The absent-update-home OFFER (#367), surfaced read-only at the strand/offer tier — the engine's
     # manifest records no home to fetch updates from (a repo generated before that coordinate shipped), so the
@@ -1914,18 +1963,31 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
     if s["strand"]:   # ranked after the governance alarms; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
-    if s.get("behind_origin") and s["behind_origin"].get("on_default"):
+    behind = s.get("behind_origin")
+    behind_live = bool(behind and behind.get("state") == "behind")
+    behind_warning = bool(behind_live and behind.get("presentation", "warning") == "warning")
+    behind_notice = bool(behind_live and behind.get("presentation") == "notice")
+    if behind_warning and behind.get("on_default"):
         # Stage-2 on the DEFAULT branch (#335): the folder IS on its main line, only behind — the headline must
         # not say it's "off" the main line (that would contradict the dashboard's "fallen behind" line).
         return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind your recent work — say 'bring it "
                 "up to date' and I'll bring it current")
-    if s.get("behind_origin") or s.get("off_main"):   # off the main line (parked on a side line, maybe behind too)
+    if behind_notice and s.get("off_main"):
+        return (f"▸ {PRESENT_MARKER}: your project folder is on a side line with newer shared work — say "
+                "'bring it up to date' when you'd like me to sort it out safely")
+    if behind_warning or s.get("off_main"):   # off the main line (parked on a side line, maybe behind too)
         # ONE tone-neutral headline for the off-main stages; the two tones and the felt consequence live in the
         # dashboard's pinned line, not the marker. Accurate here — the checkout is genuinely off it.
         return (f"⚠ {PRESENT_MARKER}: your project folder isn't on your main line of work — say 'bring it up "
                 "to date' and I'll sort it out safely")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
+    if behind_notice and behind.get("on_default"):
+        return (f"▸ {PRESENT_MARKER}: your project folder has newer shared work — say 'bring it up to date' "
+                "when you'd like me to bring it current")
+    if behind and behind.get("state") == "unavailable":
+        return (f"▸ {PRESENT_MARKER}: I couldn't check whether your project folder has the newest shared work — "
+                "I changed nothing")
     if s.get("staged_update"):   # a recovery OFFER (not a ⚠ alarm): an update was started but not finished
         return (f"▸ {PRESENT_MARKER}: an engine update looks half-finished — type /engine-upgrade and I'll help "
                 "you finish it or undo it")
@@ -2036,7 +2098,21 @@ def _off_main_value(s: dict):
     om = s.get("off_main")
     if not om:
         return None
-    return [om.get("branch"), bool(s.get("behind_origin"))]
+    behind = s.get("behind_origin")
+    firm = bool(behind and behind.get("state") == "behind"
+                and behind.get("presentation", "warning") == "warning")
+    return [om.get("branch"), firm]
+
+
+def _behind_value(s: dict):
+    """Stable checkout-drift identity for calm/firm repeat collapse. The target OID makes any newly landed
+    shared work a changed condition (full relay), while an exact repeat collapses. Synthetic/legacy signals
+    fall back to the descriptive fields rather than collapsing unrelated unknown targets together."""
+    behind = s.get("behind_origin")
+    if not behind or behind.get("state") != "behind":
+        return None
+    target = behind.get("target_oid") or [behind.get("behind_commits"), behind.get("latest")]
+    return [behind.get("current"), target, behind.get("presentation", "warning")]
 
 
 def _set_aside_value(s: dict):
@@ -2092,6 +2168,9 @@ def _relay_lines(s: dict) -> list:
     off_main_value = _off_main_value(s)
     if off_main_value is not None:
         eligible.append({"key": "off_main", "value": off_main_value})
+    behind_value = _behind_value(s)
+    if behind_value is not None:
+        eligible.append({"key": "checkout_drift", "value": behind_value})
     # The reversible-forgetting readout rides this SAME decide() call (#413), exactly like off_main: it is not a
     # pushed governance alarm (it has no relay line here — it renders only in the dashboard), but its collapse
     # must use the same ledger pass. A second decide() would clobber the keys this one writes.
@@ -2141,6 +2220,10 @@ def _relay_lines(s: dict) -> list:
                          "collapsed": r.get("outcome") == "collapse",
                          "worsened": ok and prior is not None and _worse("off_main", prior, off_main_value),
                          "first_sighting": ok and prior is None and r.get("outcome") == "full"}
+    if behind_value is not None:
+        r = results.get("checkout_drift", {"outcome": "full", "prior": None})
+        s["behind_origin"] = {**s["behind_origin"],
+                              "collapsed": r.get("outcome") == "collapse"}
     # Stamp the set-aside collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY, so the
     # status verb (which never calls _relay_lines) leaves these absent and renders the readout FULL. `newly` is
     # how many ids are set aside that were not last session (a plain diff of the two id lists), gated on `ok`

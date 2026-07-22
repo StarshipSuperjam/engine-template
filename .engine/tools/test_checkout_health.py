@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import checkout_health
 
@@ -141,6 +142,64 @@ class TestDemo(unittest.TestCase):
             self.assertEqual(checkout_health.main(["demo"]), 0)
 
 
+class TestCheckoutCLI(unittest.TestCase):
+    def _output(self, argv, *, detected=None, correction=None):
+        out = io.StringIO()
+        with mock.patch.object(checkout_health, "detect_behind_origin", return_value=detected), \
+             mock.patch.object(checkout_health, "catch_up", return_value=correction) as catch, \
+             contextlib.redirect_stdout(out):
+            checkout_health.main(argv)
+        return out.getvalue().lower(), catch
+
+    def test_behind_distinguishes_calm_notice_warning_and_unavailable(self):
+        base = {"state": "behind", "on_default": True}
+        calm, _ = self._output(["behind"], detected={**base, "presentation": "notice"})
+        firm, _ = self._output(["behind"], detected={**base, "presentation": "warning"})
+        unavailable, _ = self._output(["behind"], detected={"state": "unavailable"})
+        self.assertIn("newer shared work available", calm)
+        self.assertIn("fallen behind", firm)
+        self.assertIn("won't call this folder up to date", unavailable)
+
+    def test_catchup_reports_changed_diverged_and_clashing_causes_honestly(self):
+        changed, _ = self._output(["catchup", "--apply"],
+                                  correction={"status": "blocked", "reason": "target-changed"})
+        diverged, _ = self._output(["catchup", "--apply"],
+                                   correction={"status": "blocked", "reason": "diverged"})
+        clash, _ = self._output(["catchup", "--apply"], correction={"status": "blocked"})
+        self.assertIn("changed since it was checked", changed)
+        self.assertIn("deliberate reconciliation", diverged)
+        self.assertIn("unsaved changes", clash)
+
+    def test_apply_cli_passes_the_exact_target(self):
+        _, catch = self._output(["catchup", "--apply", "--target", "abc123"],
+                                correction={"status": "fixed"})
+        catch.assert_called_once_with(apply=True, expected_target="abc123")
+
+    def test_dry_run_prints_the_complete_pinned_apply_command(self):
+        output, _ = self._output(["catchup"], correction={"status": "behind", "presentation": "notice",
+                                                               "target_oid": "abc123"})
+        self.assertIn("catchup --apply --target abc123", output)
+
+    def test_unavailable_configuration_fault_does_not_say_only_retry(self):
+        output, _ = self._output(["catchup"], correction={"status": "unavailable",
+                                                                "reason": "default-unresolved"})
+        self.assertIn("inspect the repository address", output)
+        self.assertNotIn("check the connection", output)
+
+    def test_machine_snapshot_omits_origin_credentials_and_local_paths(self):
+        raw = {"state": "behind", "origin": "https://user:secret@example.invalid/private.git",
+               "main": "/private/project", "target_oid": "abc123", "presentation": "notice", "fresh": True}
+        out = io.StringIO()
+        with mock.patch.object(checkout_health, "checkout_snapshot", return_value=raw), \
+             contextlib.redirect_stdout(out):
+            checkout_health.main(["snapshot"])
+        rendered = out.getvalue()
+        self.assertIn("abc123", rendered)
+        self.assertNotIn("secret", rendered)
+        self.assertNotIn("/private/project", rendered)
+        self.assertNotIn("origin", rendered)
+
+
 def _commit(root: str, msg: str) -> None:
     _git(root, "add", "-A")
     _git(root, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", msg)
@@ -148,6 +207,23 @@ def _commit(root: str, msg: str) -> None:
 
 def _head(root: str) -> str:
     return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+
+
+def _consent_target(root: str) -> str:
+    snapshot = checkout_health._checkout_snapshot(root, do_fetch=True)
+    if snapshot.get("state") == "unavailable":
+        raise AssertionError(f"fixture snapshot unexpectedly unavailable: {snapshot}")
+    return snapshot["target_oid"]
+
+
+def _consented_catch_up(root: str, **kwargs) -> dict:
+    return checkout_health.catch_up(cwd=root, apply=True, do_fetch=True,
+                                    expected_target=_consent_target(root), **kwargs)
+
+
+def _consented_return(root: str, **kwargs) -> dict:
+    return checkout_health.return_to_default(cwd=root, apply=True, do_fetch=True,
+                                             expected_target=_consent_target(root), **kwargs)
 
 
 def _gcommit(root: str, date: str, *args: str) -> None:
@@ -195,10 +271,9 @@ def _origin_and_work(tmp: str, *, merge_dates: list, touch_shared_on_last: bool 
 
 
 class TestBehindOrigin(unittest.TestCase):
-    """The ONLINE behind-the-main-line tail (#335; widened branch-agnostic for #342): fires whenever the
-    checkout — on its default branch OR parked on a side branch — is missing MORE merged work than the
-    project's own pace makes normal. The ancestry/clean-ff question lives in the CORRECTION, not here; this
-    signal never mutates."""
+    """The ONLINE checkout snapshot reports ANY missing upstream commit on the default or a side branch.
+    Merge velocity changes calm/firm presentation only. The ancestry/clean-ff question lives in the correction;
+    this signal never mutates and never calls a stale cached view current."""
 
     def test_fires_when_missing_exceeds_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -207,20 +282,25 @@ class TestBehindOrigin(unittest.TestCase):
             r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
             self.assertIsNotNone(r)
             self.assertEqual(r["state"], "behind")
-            self.assertEqual(r["missing"], 4)
+            self.assertEqual(r["behind_commits"], 8)       # four work commits plus four merge commits
+            self.assertEqual(r["missing_merges"], 4)
+            self.assertEqual(r["presentation"], "warning")
             self.assertEqual(r["branch"], "main")
             self.assertEqual(r["latest"], "2026-06-05")     # newest missing merge's date, for the felt line
             self.assertTrue(r["on_default"])                # on main -> the on-default arm (catch_up)
             self.assertEqual(r["advisory"], "merged")       # the checkout carries no own work -> fully absorbed
 
-    def test_quiet_when_below_velocity_bar(self):
+    def test_calm_notice_when_below_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # 4 merges ALL the same day -> span 1 -> threshold 4; missing 4 NOT > 4 -> quiet (normal drift)
+            # 4 merges ALL the same day -> threshold 4; drift remains visible but calm.
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 4)
-            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["presentation"], "notice")
+            self.assertEqual(r["behind_commits"], 8)
 
     def test_fires_branch_agnostic_on_a_side_branch_missing_merged_work(self):
-        # the #342 incident shape: parked on a side branch AND missing merged work past the bar -> FIRES (the
+        # the #342 incident shape: parked on a side branch AND missing merged work past the bar -> firm warning (the
         # old on-default-only gate is gone). on_default is False -> the correction is return_to_default, not ff.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
@@ -228,18 +308,20 @@ class TestBehindOrigin(unittest.TestCase):
             r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
             self.assertIsNotNone(r)
             self.assertEqual(r["state"], "behind")
-            self.assertEqual(r["missing"], 3)
+            self.assertEqual(r["missing_merges"], 3)
+            self.assertEqual(r["presentation"], "warning")
             self.assertEqual(r["branch"], "main")           # the default it is behind
             self.assertEqual(r["current"], "my-feature")    # where it is parked
             self.assertFalse(r["on_default"])
 
-    def test_quiet_on_a_feature_branch_below_the_bar(self):
-        # a feature branch merely behind by normal-pace drift stays QUIET on this (firm) signal — the gentle
-        # day-one nudge is the separate off-main signal, not this one (the two-stage model, feasibility-N1).
+    def test_feature_branch_below_the_bar_is_still_visible_but_calm(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 3)   # span 1 -> threshold 3; missing 3 !> 3
             _git(work, "checkout", "-q", "-b", "my-feature")
-            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["presentation"], "notice")
+            self.assertFalse(r["on_default"])
 
     def test_none_when_detached(self):
         # a detached HEAD is the strand detector's territory, not this tail
@@ -247,6 +329,60 @@ class TestBehindOrigin(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             _git(work, "checkout", "-q", "--detach", "HEAD")
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+
+    def test_single_direct_upstream_commit_is_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            with open(os.path.join(origin, "direct.txt"), "w") as fh:
+                fh.write("direct\n")
+            _commit(origin, "direct main commit")
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["behind_commits"], 1)
+            self.assertEqual(r["missing_merges"], 0)
+            self.assertEqual(r["presentation"], "notice")
+
+    def test_refresh_failure_is_explicitly_unavailable_even_with_a_stale_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            with mock.patch.object(checkout_health, "_refresh_origin", return_value=False):
+                r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "unavailable")
+            self.assertEqual(r["reason"], "refresh-failed")
+            self.assertFalse(r["fresh"])
+
+    def test_remote_head_parse_failure_keeps_a_structured_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            malformed = subprocess.CompletedProcess(args=[], returncode=0, stdout="not-a-symref\n", stderr="")
+            with mock.patch.object(checkout_health.subprocess, "run", return_value=malformed):
+                refreshed = checkout_health._refresh_origin(work)
+            self.assertFalse(refreshed["ok"])
+            self.assertEqual(refreshed["reason"], "remote-head-unresolved")
+
+    def test_unconfirmed_remote_default_is_explicitly_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            with mock.patch.object(checkout_health, "_remote_default_branch", return_value=None):
+                r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "unavailable")
+            self.assertEqual(r["reason"], "default-unresolved")
+
+    def test_remote_default_change_never_uses_stale_origin_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            _git(work, "branch", "trunk", "main")
+            _git(origin, "checkout", "-q", "-b", "trunk", "main")
+            with open(os.path.join(origin, "trunk.txt"), "w") as fh:
+                fh.write("new default\n")
+            _commit(origin, "advance new default")
+            _git(origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+            self.assertEqual(checkout_health._remote_default_branch(work), "main")  # cached before refresh
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["branch"], "trunk")
+            self.assertEqual(r["behind_commits"], 1)
+            self.assertEqual(checkout_health._remote_default_branch(work), "trunk")
 
     def test_none_when_level(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,21 +418,116 @@ class TestBehindOrigin(unittest.TestCase):
 
 
 class TestCatchUp(unittest.TestCase):
-    """The fast-forward correction: LOSSLESS by construction (`git merge --ff-only`). Brings a clean behind
-    checkout current, keeps unrelated uncommitted edits, REFUSES (no mutation, no loss) a clash or divergence."""
+    """The named-ref fast-forward correction brings a clean checkout current and REFUSES (no mutation, no loss)
+    local work or divergence. Naming the ref prevents a concurrent checkout from advancing the wrong branch."""
 
     def test_up_to_date_is_a_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])
             self.assertEqual(checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)["status"], "healthy")
 
+    def test_apply_requires_the_consent_time_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "consent-target-required")
+            self.assertEqual(_head(work), before)
+
+    def test_skipped_refresh_is_unavailable_never_healthy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            detected = checkout_health.detect_behind_origin(cwd=work, do_fetch=False)
+            self.assertEqual(detected["state"], "unavailable")
+            self.assertEqual(detected["reason"], "refresh-skipped")
+            result = checkout_health.catch_up(cwd=work, apply=True, do_fetch=False)
+            self.assertEqual(result["status"], "unavailable")
+
     def test_clean_fast_forward_brings_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "fixed")
-            self.assertEqual(r["brought_in"], 4)
+            self.assertEqual(r["brought_in"], 8)
+            self.assertEqual(r["after"], r["target_oid"])
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))   # current now
+
+    def test_below_velocity_drift_can_be_brought_current(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertEqual(before["presentation"], "notice")
+            self.assertEqual(_consented_catch_up(work)["status"], "fixed")
+            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+
+    def test_refresh_failure_never_mutates_from_a_stale_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            with mock.patch.object(checkout_health, "_refresh_origin", return_value=False):
+                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "unavailable")
+            self.assertEqual(_head(work), before)
+
+    def test_apply_refuses_when_consent_target_does_not_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True, expected_target="0" * 40)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "target-changed")
+            self.assertEqual(_head(work), before)
+
+    def test_apply_refuses_when_snapshot_revalidation_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            before = _head(work)
+            target = _consent_target(work)
+            with mock.patch.object(checkout_health, "_snapshot_unchanged", return_value=False):
+                r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True, expected_target=target)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "checkout-changed")
+            self.assertEqual(_head(work), before)
+
+    def test_snapshot_revalidation_detects_branch_head_and_target_changes(self):
+        def snapshot_for(tmp):
+            work, origin = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            return work, origin, checkout_health._checkout_snapshot(work, do_fetch=True)
+
+        with self.subTest("branch"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                _git(work, "checkout", "-q", "-b", "moved")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("head"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                with open(os.path.join(work, "local.txt"), "w") as fh:
+                    fh.write("moved\n")
+                _commit(work, "move head")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("target"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, origin, snapshot = snapshot_for(tmp)
+                with open(os.path.join(origin, "later.txt"), "w") as fh:
+                    fh.write("later\n")
+                _commit(origin, "move remote target")
+                _git(work, "fetch", "-q", "origin")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("origin identity"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                replacement = os.path.join(tmp, "replacement")
+                _git(replacement, "init", "-q", "-b", "main")
+                _git(work, "remote", "set-url", "origin", replacement)
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
+        with self.subTest("remote default"):
+            with tempfile.TemporaryDirectory() as tmp:
+                work, _, snapshot = snapshot_for(tmp)
+                _git(work, "update-ref", "refs/remotes/origin/other", snapshot["target_oid"])
+                _git(work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/other")
+                self.assertFalse(checkout_health._snapshot_unchanged(snapshot))
 
     def test_dry_run_mutates_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -307,16 +538,17 @@ class TestCatchUp(unittest.TestCase):
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)
 
-    def test_unrelated_uncommitted_edit_survives_the_fast_forward(self):
+    def test_unrelated_uncommitted_edit_blocks_and_survives(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
             with open(os.path.join(work, "shared.txt"), "w") as fh:   # origin's PRs do NOT touch shared.txt
                 fh.write("my local edit\n")
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
-            self.assertEqual(r["status"], "fixed")
+            r = _consented_catch_up(work)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "local-work")
             with open(os.path.join(work, "shared.txt")) as fh:
-                self.assertEqual(fh.read(), "my local edit\n")        # kept across the ff
-            self.assertTrue(os.path.exists(os.path.join(work, "f4.txt")))   # incoming merged work present
+                self.assertEqual(fh.read(), "my local edit\n")
+            self.assertFalse(os.path.exists(os.path.join(work, "f4.txt")))  # no partial incoming work
 
     def test_clashing_uncommitted_edit_blocks_with_no_loss(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -326,12 +558,49 @@ class TestCatchUp(unittest.TestCase):
             with open(os.path.join(work, "shared.txt"), "w") as fh:
                 fh.write("MY UNSAVED EDIT\n")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "blocked")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # no mutation
             with open(os.path.join(work, "shared.txt")) as fh:
                 self.assertEqual(fh.read(), "MY UNSAVED EDIT\n")       # the unsaved edit intact -> nothing lost
+
+    def test_late_tracked_edit_is_refused_at_materialization_and_ref_is_rolled_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"], touch_shared_on_last=True)
+            target = _consent_target(work)
+            before = _head(work)
+            real_advance = checkout_health._advance_named_default
+
+            def advance_then_edit(main, branch, old, new):
+                advanced = real_advance(main, branch, old, new)
+                with open(os.path.join(main, "shared.txt"), "w") as fh:
+                    fh.write("LATE EDIT\n")
+                return advanced
+
+            with mock.patch.object(checkout_health, "_advance_named_default", side_effect=advance_then_edit):
+                result = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True,
+                                                  expected_target=target)
+            self.assertEqual(result["status"], "blocked")
+            self.assertFalse(result["applied"])
+            self.assertEqual(_head(work), before)
+            with open(os.path.join(work, "shared.txt")) as fh:
+                self.assertEqual(fh.read(), "LATE EDIT\n")
+
+    def test_unreadable_status_is_not_treated_as_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            real_run = checkout_health._run
+
+            def fail_status(cmd, cwd=None, timeout=30):
+                if "status" in cmd and "--porcelain" in cmd:
+                    return None
+                return real_run(cmd, cwd=cwd, timeout=timeout)
+
+            with mock.patch.object(checkout_health, "_run", side_effect=fail_status):
+                safe, reasons = checkout_health._is_lossless(work)
+            self.assertFalse(safe)
+            self.assertIn("status-unreadable", reasons)
 
     def test_diverged_is_refused_never_force_merged(self):
         # the behavioural guard that REPLACES the --ff-only source-scan: a diverged checkout is never advanced
@@ -343,8 +612,9 @@ class TestCatchUp(unittest.TestCase):
                 fh.write("local\n")
             _commit(work, "divergent local work")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "blocked")                  # diverged -> --ff-only aborts -> blocked
+            self.assertEqual(r["reason"], "diverged")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # HEAD never moved (no ff, no force-merge)
             merges = checkout_health._run(["git", "-C", work, "rev-list", "--merges", "--count", "HEAD"])
@@ -357,7 +627,7 @@ class TestCatchUp(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             _git(work, "checkout", "-q", "-b", "my-feature")
             before = _head(work)
-            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            r = _consented_catch_up(work)
             self.assertEqual(r["status"], "off-main")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # the side branch was never advanced
@@ -664,7 +934,7 @@ class TestReturnToDefault(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = _clone_on_branch(tmp, "my-feature")           # 'feature-work.txt' committed on my-feature
             feature_sha = _rev(work, "my-feature")
-            r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
+            r = _consented_return(work)
             self.assertEqual(r["status"], "fixed")
             self.assertEqual(_branch(work), "main")              # back on the default branch
             self.assertIsNone(checkout_health.detect_off_main(cwd=work))
@@ -685,7 +955,7 @@ class TestReturnToDefault(unittest.TestCase):
             work = _clone_on_branch(tmp, "my-feature")
             with open(os.path.join(work, "feature-work.txt"), "w") as fh:
                 fh.write("UNSAVED EDIT")                          # an uncommitted change
-            r = checkout_health.return_to_default(cwd=work, apply=True)
+            r = _consented_return(work)
             self.assertEqual(r["status"], "blocked")
             self.assertFalse(r["applied"])
             self.assertEqual(_branch(work), "my-feature")        # never left the side branch
@@ -697,20 +967,83 @@ class TestReturnToDefault(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=[])
             self.assertEqual(checkout_health.return_to_default(cwd=work, apply=True)["status"], "healthy")
 
-    def test_does_not_overclaim_when_the_default_cannot_be_brought_current(self):
-        # the local default itself diverged from origin/main: the RETURN succeeds losslessly (back on main),
-        # but the post-return fast-forward cannot run, so the result must report brought_current=False rather
-        # than falsely claim "up to date" (honest self-report — the trust model).
+    def test_diverged_default_refuses_before_switching_branches(self):
+        # The local default and shared default both moved. Refuse BEFORE checkout: the operator consented to a
+        # lossless catch-up, not a partial branch switch that discovers divergence afterward.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04"])   # origin advanced on main
             with open(os.path.join(work, "local-main.txt"), "w") as fh:
                 fh.write("local main work")
             _commit(work, "divergent local commit on main")     # local main now diverges from origin/main
             _git(work, "checkout", "-q", "-b", "my-feature")     # park off-main at that diverged tip
+            r = _consented_return(work)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "diverged")
+            self.assertEqual(_branch(work), "my-feature")         # no mutation before the refusal
+
+    def test_return_requires_the_consent_time_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
             r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
-            self.assertEqual(r["status"], "fixed")               # the return itself succeeded, lossless
-            self.assertEqual(_branch(work), "main")              # back on the default branch
-            self.assertFalse(r["brought_current"])               # honest: NOT brought up to date (diverged)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "consent-target-required")
+            self.assertEqual(_branch(work), "my-feature")
+
+    def test_return_refuses_concurrent_change_before_switching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
+            target = _consent_target(work)
+            with mock.patch.object(checkout_health, "_snapshot_unchanged", return_value=False):
+                r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                      expected_target=target)
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "checkout-changed")
+            self.assertEqual(_branch(work), "my-feature")
+
+    def test_fresh_remote_default_overrides_stale_persisted_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            with open(os.path.join(origin, ".engine", "engine.json"), "w") as fh:
+                json.dump({"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"},
+                           "identity": "solo", "default_branch": "main"}, fh)
+            _commit(origin, "persist old default")
+            _git(work, "fetch", "-q", "origin", "main")
+            _git(work, "merge", "--ff-only", "origin/main")
+            _git(work, "branch", "trunk", "main")
+            _git(origin, "checkout", "-q", "-b", "trunk", "main")
+            with open(os.path.join(origin, "trunk.txt"), "w") as fh:
+                fh.write("new default\n")
+            _commit(origin, "advance new default")
+            _git(origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+            self.assertIsNone(checkout_health.detect_off_main(cwd=work))  # stale persisted main says healthy
+            snapshot = checkout_health.checkout_snapshot(cwd=work, do_fetch=True)
+            self.assertEqual(snapshot["branch"], "trunk")
+            self.assertFalse(snapshot["on_default"])
+            result = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                       expected_target=snapshot["target_oid"])
+            self.assertEqual(result["status"], "fixed")
+            self.assertEqual(_branch(work), "trunk")
+
+    def test_failed_postcondition_restores_the_original_side_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            _git(work, "checkout", "-q", "-b", "my-feature")
+            target = _consent_target(work)
+            real_succeeds = checkout_health._succeeds
+
+            def fail_postcondition(cmd, cwd=None):
+                if "merge-base" in cmd and cmd[-1] == "HEAD":
+                    return False
+                return real_succeeds(cmd, cwd=cwd)
+
+            with mock.patch.object(checkout_health, "_succeeds", side_effect=fail_postcondition):
+                result = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                           expected_target=target)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["reason"], "postcondition-failed")
+            self.assertTrue(result["restored"])
+            self.assertFalse(result["applied"])
+            self.assertEqual(_branch(work), "my-feature")
 
 
 class TestOpInProgress(unittest.TestCase):

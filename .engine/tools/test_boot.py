@@ -1400,7 +1400,10 @@ class TestBehindOriginSurfacing(unittest.TestCase):
     # behind on the DEFAULT branch (#335): on_default True -> the original consequence copy. The branch-agnostic
     # side-line case (on_default False) is exercised in TestOffMainSurfacing below.
     _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "current": "main", "on_default": True,
-               "missing": 9, "latest": "2026-06-27", "advisory": "merged"}
+               "behind_commits": 9, "missing_merges": 5, "presentation": "warning",
+               "latest": "2026-06-27", "advisory": "merged"}
+    _NOTICE = {**_BEHIND, "behind_commits": 1, "missing_merges": 0, "presentation": "notice"}
+    _UNAVAILABLE = {"state": "unavailable", "main": "/p", "reason": "refresh-failed", "fresh": False}
 
     def test_render_surfaces_the_behind_line_only_when_behind(self):
         dash = boot.render_dashboard(_signals(behind_origin=self._BEHIND))
@@ -1417,6 +1420,30 @@ class TestBehindOriginSurfacing(unittest.TestCase):
         self.assertNotIn("9", line)                              # the missing-count never appears
         for verb in ("fast-forward", "ff-only", "fetch", "rebase", "ancestor", "origin/"):
             self.assertNotIn(verb, line.lower(), f"git verb leaked to the operator surface: {verb}")
+
+    def test_below_velocity_drift_is_a_calm_count_free_notice(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._NOTICE)).lower()
+        self.assertIn("newer shared work available", dash)
+        self.assertNotIn("fallen behind", dash)
+        self.assertNotIn("1", dash)
+        marker = boot.present_marker_line(_signals(behind_origin=self._NOTICE))
+        self.assertTrue(marker.startswith(f"▸ {boot.PRESENT_MARKER}:"))
+        self.assertIn("newer shared work", marker.lower())
+
+    def test_unavailable_is_explicit_and_never_claims_current(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._UNAVAILABLE)).lower()
+        self.assertIn("couldn't check", dash)
+        self.assertIn("won't call", dash)
+        self.assertNotIn("all clear", dash)
+        marker = boot.present_marker_line(_signals(behind_origin=self._UNAVAILABLE)).lower()
+        self.assertIn("couldn't check", marker)
+        self.assertNotIn("all clear", marker)
+
+    def test_persistent_unavailable_state_offers_inspection_not_only_retry(self):
+        unavailable = {**self._UNAVAILABLE, "reason": "default-unresolved"}
+        dash = boot.render_dashboard(_signals(behind_origin=unavailable)).lower()
+        self.assertIn("inspect the repository address", dash)
+        self.assertNotIn("check the connection", dash)
 
     def test_behind_pins_below_the_governance_alarm_and_the_strand(self):
         pack = boot.render_dashboard(_signals(gate="off", reason="x",
@@ -1451,15 +1478,18 @@ class TestBehindOriginSurfacing(unittest.TestCase):
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
         try:
-            with mock.patch.object(boot.checkout_health, "detect_behind_origin", return_value=self._BEHIND):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=self._BEHIND):
                 relayed = boot.gather_signals()
-            with mock.patch.object(boot.checkout_health, "detect_behind_origin", side_effect=Exception("boom")):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", side_effect=Exception("boom")), \
+                 mock.patch.object(boot.checkout_health, "detect_off_main", return_value=None):
                 failed = boot.gather_signals()
         finally:
             for p in patchers:
                 p.stop()
         self.assertEqual(relayed["behind_origin"], self._BEHIND)   # relayed verbatim
-        self.assertIsNone(failed["behind_origin"])                 # a detector/network failure degrades to None
+        self.assertEqual(failed["behind_origin"]["state"], "unavailable")
+        self.assertEqual(failed["behind_origin"]["reason"], "detector-failed")
+        self.assertNotIn("all clear", boot.present_marker_line(failed).lower())
 
 
 class TestOffMainSurfacing(unittest.TestCase):
@@ -1470,7 +1500,10 @@ class TestOffMainSurfacing(unittest.TestCase):
     _OFF_MAIN = {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}
     # behind on a SIDE line of work (on_default False): the branch-agnostic Stage-2 escalation
     _BEHIND_SIDE = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
-                    "on_default": False, "missing": 7, "latest": "2026-06-28", "advisory": "carries-work"}
+                    "on_default": False, "behind_commits": 7, "missing_merges": 4,
+                    "presentation": "warning", "latest": "2026-06-28", "advisory": "carries-work"}
+    _NOTICE_SIDE = {**_BEHIND_SIDE, "behind_commits": 1, "missing_merges": 0,
+                    "presentation": "notice"}
 
     def test_render_surfaces_a_gentle_off_main_line_only_when_off_main(self):
         dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN))
@@ -1505,6 +1538,16 @@ class TestOffMainSurfacing(unittest.TestCase):
         self.assertNotIn("nothing's at risk", dash.lower())         # the gentle line is gone
         self.assertIn("bring it up to date", dash.lower())          # still one consent phrase
 
+    def test_calm_side_line_drift_is_visible_without_becoming_a_warning(self):
+        dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN,
+                                              behind_origin=self._NOTICE_SIDE)).lower()
+        self.assertIn("side line", dash)
+        self.assertIn("newer shared work", dash)
+        self.assertNotIn("fallen behind", dash)
+        marker = boot.present_marker_line(_signals(off_main=self._OFF_MAIN,
+                                                   behind_origin=self._NOTICE_SIDE)).lower()
+        self.assertIn("side line with newer shared work", marker)
+
     def test_side_line_behind_two_tone_keeps_unfinished_work_when_it_may_carry_some(self):
         # carries-work advisory -> the keep-your-work-safe tone (errs gentle)
         carries = boot.render_dashboard(_signals(behind_origin=self._BEHIND_SIDE)).lower()
@@ -1534,10 +1577,13 @@ class TestOffMainSurfacing(unittest.TestCase):
 
     def test_gather_signals_relays_the_off_main_detector_and_degrades_quietly(self):
         patchers = _offline()
+        fresh_off = {"state": "current", "main": "/p", "branch": "main", "current": "feature-x",
+                     "on_default": False, "fresh": True}
         try:
-            with mock.patch.object(boot.checkout_health, "detect_off_main", return_value=self._OFF_MAIN):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=fresh_off):
                 relayed = boot.gather_signals()
-            with mock.patch.object(boot.checkout_health, "detect_off_main", side_effect=Exception("boom")):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", side_effect=Exception("boom")), \
+                 mock.patch.object(boot.checkout_health, "detect_off_main", side_effect=Exception("boom")):
                 failed = boot.gather_signals()
         finally:
             for p in patchers:
@@ -2303,6 +2349,35 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         self.assertIn("unchanged since last session", terse)
         self.assertIn("bring it up to date", terse)         # the offer is kept in the terse line
 
+    def test_on_default_drift_collapses_only_when_the_exact_target_repeats(self):
+        behind = {"state": "behind", "main": "/p", "branch": "main", "current": "main",
+                  "on_default": True, "target_oid": "a" * 40, "behind_commits": 1,
+                  "missing_merges": 0, "presentation": "notice", "latest": "2026-07-20",
+                  "advisory": "merged"}
+        first = _signals(behind_origin=dict(behind))
+        boot._relay_lines(first)
+        self.assertFalse(first["behind_origin"]["collapsed"])
+        repeat = _signals(behind_origin=dict(behind))
+        boot._relay_lines(repeat)
+        self.assertTrue(repeat["behind_origin"]["collapsed"])
+        self.assertIn("unchanged since last session", boot.render_dashboard(repeat).lower())
+        moved = _signals(behind_origin={**behind, "target_oid": "b" * 40, "behind_commits": 2})
+        boot._relay_lines(moved)
+        self.assertFalse(moved["behind_origin"]["collapsed"])
+        self.assertIn("newer shared work available", boot.render_dashboard(moved).lower())
+
+    def test_side_line_calm_drift_does_not_hide_behind_an_unchanged_park(self):
+        notice = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
+                  "on_default": False, "target_oid": "c" * 40, "behind_commits": 1,
+                  "missing_merges": 0, "presentation": "notice", "latest": "2026-07-20",
+                  "advisory": "carries-work"}
+        boot._relay_lines(_signals(off_main=dict(self._OM)))
+        live = _signals(off_main=dict(self._OM), behind_origin=notice)
+        boot._relay_lines(live)
+        dash = boot.render_dashboard(live).lower()
+        self.assertIn("newer shared work", dash)
+        self.assertNotIn("unchanged since last session", dash)
+
     def test_off_main_renders_full_when_no_collapse_flag_is_set(self):
         # the pure status-verb path never runs _relay_lines -> the off-main line renders FULL (fail-toward-full)
         dash = boot.render_dashboard(_signals(off_main=dict(self._OM))).lower()
@@ -2321,7 +2396,8 @@ class TestAntiHabituationCollapse(unittest.TestCase):
 
     def test_off_main_escalating_to_behind_relays_the_firm_line_with_its_lineage(self):
         side_behind = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
-                       "on_default": False, "missing": 5, "latest": "2026-06-28", "advisory": "carries-work"}
+                       "on_default": False, "behind_commits": 5, "missing_merges": 3,
+                       "presentation": "warning", "latest": "2026-06-28", "advisory": "carries-work"}
         boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 1: gentle park (seed)
         boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 2: still gentle (collapse)
         s = _signals(off_main=dict(self._OM), behind_origin=side_behind)
