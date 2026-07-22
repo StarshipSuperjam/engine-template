@@ -1781,7 +1781,7 @@
       },
       "slug": "pr-body-completeness",
       "source": {
-        "fingerprint": "sha256:fbf9f75c8b3b3cb6b4f9b97aa76b7f68243212a9c9387779b68e25f8150292aa",
+        "fingerprint": "sha256:3da5af8d99b416fae480208d80ba000d0e2ba62bf71800f3cea7cc86be20397e",
         "path": ".engine/check/pr-body-completeness.json"
       },
       "status": "active",
