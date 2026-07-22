@@ -1551,10 +1551,19 @@ def render_dashboard(s: dict) -> str:
             pinned.append(line)
 
     if behind_unavailable:
+        reason = behind.get("reason")
+        if reason == "refresh-failed":
+            remedy = ("Check the connection or repository access, then ask again and I'll check from a fresh "
+                      "view.")
+        elif reason in {"origin-changed", "checkout-changed"}:
+            remedy = ("The project changed during the check; ask me to inspect its sharing address and current "
+                      "folder state before trying again.")
+        else:
+            remedy = ("Ask me to inspect the repository address, remote default, and local history before "
+                      "trying again.")
         pinned.append(
-            "📦 **I couldn't check whether your project folder has the newest shared work** — the remote copy "
-            "wasn't freshly readable, so I won't call this folder up to date and I changed nothing. Ask again "
-            "when the connection is available and I'll check from a fresh view.")
+            "📦 **I couldn't check whether your project folder has the newest shared work** — the shared-project "
+            f"setup wasn't freshly verifiable, so I won't call this folder up to date and I changed nothing. {remedy}")
 
     # The absent-update-home OFFER (#367), surfaced read-only at the strand/offer tier — the engine's
     # manifest records no home to fetch updates from (a repo generated before that coordinate shipped), so the

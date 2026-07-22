@@ -1439,6 +1439,12 @@ class TestBehindOriginSurfacing(unittest.TestCase):
         self.assertIn("couldn't check", marker)
         self.assertNotIn("all clear", marker)
 
+    def test_persistent_unavailable_state_offers_inspection_not_only_retry(self):
+        unavailable = {**self._UNAVAILABLE, "reason": "default-unresolved"}
+        dash = boot.render_dashboard(_signals(behind_origin=unavailable)).lower()
+        self.assertIn("inspect the repository address", dash)
+        self.assertNotIn("check the connection", dash)
+
     def test_behind_pins_below_the_governance_alarm_and_the_strand(self):
         pack = boot.render_dashboard(_signals(gate="off", reason="x",
                                               strand={"states": ["detached"], "main": "/p"},

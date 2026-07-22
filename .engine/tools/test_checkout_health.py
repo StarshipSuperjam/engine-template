@@ -175,6 +175,17 @@ class TestCheckoutCLI(unittest.TestCase):
                                 correction={"status": "fixed"})
         catch.assert_called_once_with(apply=True, expected_target="abc123")
 
+    def test_dry_run_prints_the_complete_pinned_apply_command(self):
+        output, _ = self._output(["catchup"], correction={"status": "behind", "presentation": "notice",
+                                                               "target_oid": "abc123"})
+        self.assertIn("catchup --apply --target abc123", output)
+
+    def test_unavailable_configuration_fault_does_not_say_only_retry(self):
+        output, _ = self._output(["catchup"], correction={"status": "unavailable",
+                                                                "reason": "default-unresolved"})
+        self.assertIn("inspect the repository address", output)
+        self.assertNotIn("check the connection", output)
+
 
 def _commit(root: str, msg: str) -> None:
     _git(root, "add", "-A")

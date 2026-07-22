@@ -814,7 +814,7 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
         return {"status": "blocked", "main": main, "branch": default, "from": current,
                 "reason": "checkout-changed", "applied": False}
     if not apply:
-        return {**off, "status": "off-main", "applied": False}
+        return {**snapshot, **off, "status": "off-main", "applied": False}
     if expected_target is None:
         return {**snapshot, "status": "blocked", "reason": "consent-target-required", "applied": False}
     if snapshot["target_oid"] != expected_target:
@@ -1052,12 +1052,13 @@ def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
     if r["status"] == "healthy":
         print("Your project folder is up to date — nothing to bring in.")
     elif r["status"] == "unavailable":
-        print("I couldn't freshly check the shared project, so I won't call this folder up to date or change "
-              "anything. Check the connection and ask again.")
+        _print_unavailable(r)
     elif r["status"] == "fixed":
         print("Brought your project folder up to date — it now has the recent shared work it was missing.")
-    elif r["status"] == "blocked" and r.get("reason") in {
-            "consent-target-required", "target-changed", "checkout-changed"}:
+    elif r["status"] == "blocked" and r.get("reason") == "consent-target-required":
+        print("The exact confirmation target is missing, so I left your folder untouched. Run the dry check "
+              "first, then use the complete apply command it prints.")
+    elif r["status"] == "blocked" and r.get("reason") in {"target-changed", "checkout-changed"}:
         print("The project changed since it was checked, so I left your folder untouched. Check it again and "
               "confirm the newly reported target before applying the update.")
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
@@ -1069,10 +1070,11 @@ def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
     elif not apply:
         if r.get("presentation") == "warning":
             print("Your project folder has fallen behind recent shared work. I can bring it up to date safely "
-                  "using the exact target checked here; confirm that target before applying it.")
+                  "using the exact target checked here.")
         else:
             print("Your project folder has newer shared work available. I can bring it up to date safely using "
-                  "the exact target checked here; confirm that target before applying it.")
+                  "the exact target checked here.")
+        print(f"To apply exactly this checked version, run `catchup --apply --target {r['target_oid']}`.")
     else:
         print("I couldn't bring your project folder up to date safely, so I left it untouched — nothing is lost.")
     return 0
@@ -1084,8 +1086,7 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
     if r["status"] == "healthy":
         print("Your project folder is on your main branch already — nothing to move.")
     elif r["status"] == "unavailable":
-        print("I couldn't freshly confirm the shared project's main line, so I left your folder exactly where "
-              "it is. Check the connection and ask again.")
+        _print_unavailable(r)
     elif r["status"] == "fixed" and r.get("brought_current"):
         print("Pointed your project folder back at your main branch and brought it up to date. Your other work "
               "is untouched — it's still saved on its own branch, exactly where it was.")
@@ -1093,8 +1094,10 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
         print("Pointed your project folder back at your main branch — your other work is untouched, still saved "
               "on its own branch. I left your main branch exactly as it was (it has some local changes of its "
               "own that aren't on the shared copy yet), so it may not be fully up to date.")
-    elif r["status"] == "blocked" and r.get("reason") in {
-            "consent-target-required", "target-changed", "checkout-changed"}:
+    elif r["status"] == "blocked" and r.get("reason") == "consent-target-required":
+        print("The exact confirmation target is missing, so I left your folder exactly where it is. Run the "
+              "dry check first, then use the complete apply command it prints.")
+    elif r["status"] == "blocked" and r.get("reason") in {"target-changed", "checkout-changed"}:
         print("The project changed since it was checked, so I left your folder exactly where it is. Check it "
               "again and confirm the newly reported target before applying the update.")
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
@@ -1108,7 +1111,8 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
         parked = r.get("branch")
         where = f"the branch '{parked}'" if parked else "another branch"
         print(f"Your project folder is parked on {where} instead of your main one. I can point it back safely — "
-              f"your work there stays saved on that branch. Re-run with --apply to do it.")
+              f"your work there stays saved on that branch.")
+        print(f"To apply exactly this checked version, run `returnmain --apply --target {r['target_oid']}`.")
     else:
         print("I couldn't safely point your project folder back at your main branch, so I left it untouched — "
               "nothing is lost.")
@@ -1125,6 +1129,20 @@ def _plain_offmain() -> int:
               f"('{off['main_branch']}'). Run `returnmain` to see how I'd point it back — your work on "
               f"'{off['branch']}' stays saved on that branch.")
     return 0
+
+
+def _print_unavailable(r: dict) -> None:
+    """Cause-aware CLI remedy: retry remote access failures; inspect persistent local/configuration failures."""
+    reason = r.get("reason")
+    if reason == "refresh-failed":
+        print("I couldn't freshly reach the shared project, so I changed nothing and won't call this folder up "
+              "to date. Check the connection or repository access, then try again.")
+    elif reason in {"origin-changed", "checkout-changed"}:
+        print("The project changed while I was checking it, so I changed nothing. Inspect the project sharing "
+              "address and current folder state, then run the check again.")
+    else:
+        print("I couldn't verify this folder's shared-project setup, so I changed nothing and won't call it up "
+              "to date. Inspect the repository address, remote default, and local history before trying again.")
 
 
 def _plain_behind() -> int:
