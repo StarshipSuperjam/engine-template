@@ -92,7 +92,7 @@
 
 ## AI involvement
 
-**<one-line summary: design decisions vs mechanical edits>**
+**<one-line summary: AI runtime(s), their roles, and design decisions vs mechanical edits>**
 
 - <the specifics, with references to the decision/contract surface>
 
