@@ -1257,7 +1257,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         "these are the only files this pull request changes.")
 
     out += pr_section(
-        "Claude involvement",
+        "AI involvement",
         "The engine's release workflow prepared this; the version choice and the decision to publish are yours.",
         [("- It computed the version, recorded it into product-version.json, and opened this for your review."
           if product else

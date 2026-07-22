@@ -161,7 +161,7 @@ def main() -> int:
         # 6. PREAMBLE NEGATIVE CONTROL — a body with all eight sections filled but the preamble DROPPED
         #    still trips the gate, so Step 4's preamble check is not vacuous (the #491 preamble-drop class).
         _sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
-                     "Files of interest", "Claude involvement"]
+                     "Files of interest", "AI involvement"]
         preambleless = "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n*Impact: real consequence*"
                                  for s in _sections)
         with open(os.path.join(engine, "no_preamble_body.md"), "w") as fh:

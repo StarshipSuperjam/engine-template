@@ -40,7 +40,7 @@ def _check_quiet(rule_id, ctx):
 
 
 SECTIONS = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
-            "Files of interest", "Claude involvement"]
+            "Files of interest", "AI involvement"]
 COMPLETENESS_RULE = {"id": "engine/check/pr-body-completeness",
                      "target": {"context": "pull-request-body"},
                      "kind": "presence", "tier": "hard",
@@ -1003,7 +1003,7 @@ class TestPRContractNoDrift(unittest.TestCase):
     """The control-plane 8-section PR-body contract must not silently drift.
 
     The locked contract names eight required sections, in order — Purpose, Scope,
-    Out of scope, Risk, Validation, Review, Files of interest, Claude involvement —
+    Out of scope, Risk, Validation, Review, Files of interest, AI involvement —
     transcribed once above as SECTIONS (a human transcription of the control-plane
     spec; there is no in-repo machine source to derive it from, so the transcription
     itself has no mechanical correlate and is read by a human against the spec). The

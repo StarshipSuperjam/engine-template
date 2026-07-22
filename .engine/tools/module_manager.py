@@ -1345,7 +1345,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "under Scope."],
         "the changed files are the engine's own records and files plus its marked blocks in shared files.")
     out += release_cut.pr_section(
-        "Claude involvement",
+        "AI involvement",
         "Who did what.",
         ["- I assembled this update mechanically — fetching the new version, applying it, and running the "
          "engine's consistency check.",

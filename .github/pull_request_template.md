@@ -90,9 +90,9 @@
 
 *Impact: <what these most determine>*
 
-## Claude involvement
+## AI involvement
 
-**<one-line summary: design decisions vs mechanical edits>**
+**<one-line summary: AI tool(s) used (for example Claude Code or Codex), what each did, and which choices vs edits were AI-driven — or "No AI was used">**
 
 - <the specifics, with references to the decision/contract surface>
 
