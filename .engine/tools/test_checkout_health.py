@@ -543,6 +543,7 @@ class TestCatchUp(unittest.TestCase):
             before = _head(work)
             r = _consented_catch_up(work)
             self.assertEqual(r["status"], "blocked")                  # diverged -> --ff-only aborts -> blocked
+            self.assertEqual(r["reason"], "diverged")
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)                     # HEAD never moved (no ff, no force-merge)
             merges = checkout_health._run(["git", "-C", work, "rev-list", "--merges", "--count", "HEAD"])

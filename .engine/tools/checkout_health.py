@@ -765,6 +765,9 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
         return {**behind, "status": "blocked", "reason": "target-changed", "applied": False}
     if not _snapshot_unchanged(behind):
         return {**behind, "status": "blocked", "reason": "checkout-changed", "applied": False}
+    if not _succeeds(["git", "-C", main, "merge-base", "--is-ancestor",
+                      behind["head_oid"], behind["target_oid"]]):
+        return {**behind, "status": "blocked", "reason": "diverged", "applied": False}
     # --ff-only is git's OWN refuse-if-not-a-fast-forward guard (the single sanctioned non-additive verb): it
     # advances on a strict ancestor and aborts otherwise, so a diverged branch or a clashing local edit can
     # never be force-merged or clobbered.
@@ -774,7 +777,8 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
             return {"status": "fixed", "main": main, "branch": default, "brought_in": missing,
                     "before": behind["head_oid"], "after": after, "target_oid": behind["target_oid"],
                     "applied": True}
-    # git refused: diverged history, or local edits clash with incoming files. Nothing changed, nothing lost.
+    # Git refused after ancestry was proven: a local edit clashes with incoming files, or the checkout changed
+    # in the tiny post-revalidation window. Nothing changed, nothing lost.
     return {"status": "blocked", "main": main, "branch": default, "applied": False}
 
 
