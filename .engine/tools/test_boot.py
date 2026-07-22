@@ -1472,9 +1472,10 @@ class TestBehindOriginSurfacing(unittest.TestCase):
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
         try:
-            with mock.patch.object(boot.checkout_health, "detect_behind_origin", return_value=self._BEHIND):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=self._BEHIND):
                 relayed = boot.gather_signals()
-            with mock.patch.object(boot.checkout_health, "detect_behind_origin", side_effect=Exception("boom")):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", side_effect=Exception("boom")), \
+                 mock.patch.object(boot.checkout_health, "detect_off_main", return_value=None):
                 failed = boot.gather_signals()
         finally:
             for p in patchers:
@@ -1570,10 +1571,13 @@ class TestOffMainSurfacing(unittest.TestCase):
 
     def test_gather_signals_relays_the_off_main_detector_and_degrades_quietly(self):
         patchers = _offline()
+        fresh_off = {"state": "current", "main": "/p", "branch": "main", "current": "feature-x",
+                     "on_default": False, "fresh": True}
         try:
-            with mock.patch.object(boot.checkout_health, "detect_off_main", return_value=self._OFF_MAIN):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=fresh_off):
                 relayed = boot.gather_signals()
-            with mock.patch.object(boot.checkout_health, "detect_off_main", side_effect=Exception("boom")):
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", side_effect=Exception("boom")), \
+                 mock.patch.object(boot.checkout_health, "detect_off_main", side_effect=Exception("boom")):
                 failed = boot.gather_signals()
         finally:
             for p in patchers:

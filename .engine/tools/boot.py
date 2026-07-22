@@ -1098,24 +1098,26 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
     try:
-        # The behind-origin snapshot (#335), RELAYED from checkout_health's own detection (boot computes no new
-        # state). One tightly-bounded refresh yields ANY missing-commit drift plus a detector-owned calm/firm
-        # presentation level. Refresh failure is an explicit unavailable state — never a stale cached answer or
-        # false "current". boot only OFFERS; the assistant runs the pinned, revalidated correction on consent.
-        behind_origin = checkout_health.detect_behind_origin()
-    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
-        behind_origin = {"state": "unavailable", "main": None, "reason": "detector-failed", "fresh": False}
-    try:
-        # The off-main Stage-1 signal (#342), RELAYED from checkout_health's own detection (boot computes
-        # no new state). The OFFLINE companion to the behind tail: the operator's top-level checkout PARKED on a
-        # non-default branch, caught every boot on day one (the cheap-to-fix window, before it falls behind). The
-        # gentlest folder-health signal — a gentle invitation, collapse-eligible (anti-habituation). Fires only
-        # when the default branch is KNOWN with confidence, so a pre-persistence checkout raises no false nag;
-        # degrades QUIETLY to None otherwise (an on-default / unknown-default checkout is the normal state). The
-        # behind-the-main-line escalation is the separate ONLINE behind_origin tail above.
-        off_main = checkout_health.detect_off_main()
-    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
-        off_main = None
+        # ONE authoritative remote-default snapshot feeds both drift and off-main routing. Keeping these as two
+        # independent detectors let a persisted old default disagree with a freshly renamed remote default.
+        checkout_snapshot = checkout_health.checkout_snapshot()
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this signal, never the pack
+        checkout_snapshot = {"state": "unavailable", "main": None,
+                             "reason": "detector-failed", "fresh": False}
+    if checkout_snapshot.get("state") == "unavailable":
+        behind_origin = (None if checkout_snapshot.get("reason") == "broken-strand" else checkout_snapshot)
+        try:
+            # Offline Stage-1 remains useful only as a fallback when the remote snapshot is unavailable. It never
+            # overrides a fresh remote-backed default.
+            off_main = checkout_health.detect_off_main()
+        except Exception:  # noqa: BLE001 — low-stakes offline fallback degrades quietly
+            off_main = None
+    else:
+        behind_origin = None if checkout_snapshot.get("state") == "current" else checkout_snapshot
+        off_main = (None if checkout_snapshot.get("on_default") else
+                    {"state": "off-main", "main": checkout_snapshot.get("main"),
+                     "branch": checkout_snapshot.get("current"),
+                     "main_branch": checkout_snapshot.get("branch")})
     try:
         # The absent-update-home signal (#367), RELAYED from checkout_health's own OFFLINE
         # detection (boot computes no new state). A repo generated before the home coordinate shipped has an

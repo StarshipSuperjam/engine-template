@@ -714,10 +714,17 @@ def detect_behind_origin(cwd: str | None = None, *, do_fetch: bool = True) -> di
     upstream commit, an explicit `unavailable` snapshot when freshness cannot be established, and None only
     when the freshly-read checkout is current. Boot relays the snapshot unchanged; `presentation` decides calm
     notice versus firm warning without changing the underlying behind fact."""
-    snapshot = _checkout_snapshot(cwd, do_fetch=do_fetch)
+    snapshot = checkout_snapshot(cwd, do_fetch=do_fetch)
     if snapshot.get("reason") == "broken-strand":
         return None                         # the strand detector owns this louder, actionable state
     return None if snapshot.get("state") == "current" else snapshot
+
+
+def checkout_snapshot(cwd: str | None = None, *, do_fetch: bool = True) -> dict:
+    """Public one-read checkout-health snapshot for boot and consent routing. Unlike the behind-only adapter,
+    this preserves a freshly-current snapshot because `on_default` is still needed to derive off-main state
+    from the same authoritative remote default."""
+    return _checkout_snapshot(cwd, do_fetch=do_fetch)
 
 
 def _snapshot_unchanged(snapshot: dict) -> bool:
@@ -795,12 +802,13 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     Dry-run (apply=False) reports without mutating. Every mutation targets `git -C <main>` — never the session's
     own worktree.
     status ∈ healthy | off-main | unavailable | blocked | fixed."""
-    off = detect_off_main(cwd)
-    if not off:
-        return {"status": "healthy", "applied": False}     # on the default branch (or can't tell) -> nothing
-    snapshot = _checkout_snapshot(cwd, do_fetch=do_fetch)
+    snapshot = checkout_snapshot(cwd, do_fetch=do_fetch)
     if snapshot["state"] == "unavailable":
         return {**snapshot, "status": "unavailable", "applied": False}
+    if snapshot.get("on_default"):
+        return {**snapshot, "status": "healthy", "applied": False}
+    off = {"state": "off-main", "main": snapshot["main"], "branch": snapshot["current"],
+           "main_branch": snapshot["branch"]}
     main, default, current = off["main"], snapshot["branch"], off["branch"]
     if current != snapshot["current"]:
         return {"status": "blocked", "main": main, "branch": default, "from": current,

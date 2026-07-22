@@ -929,6 +929,30 @@ class TestReturnToDefault(unittest.TestCase):
             self.assertEqual(r["reason"], "checkout-changed")
             self.assertEqual(_branch(work), "my-feature")
 
+    def test_fresh_remote_default_overrides_stale_persisted_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_work(tmp, merge_dates=[])
+            with open(os.path.join(origin, ".engine", "engine.json"), "w") as fh:
+                json.dump({"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"},
+                           "identity": "solo", "default_branch": "main"}, fh)
+            _commit(origin, "persist old default")
+            _git(work, "fetch", "-q", "origin", "main")
+            _git(work, "merge", "--ff-only", "origin/main")
+            _git(work, "branch", "trunk", "main")
+            _git(origin, "checkout", "-q", "-b", "trunk", "main")
+            with open(os.path.join(origin, "trunk.txt"), "w") as fh:
+                fh.write("new default\n")
+            _commit(origin, "advance new default")
+            _git(origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+            self.assertIsNone(checkout_health.detect_off_main(cwd=work))  # stale persisted main says healthy
+            snapshot = checkout_health.checkout_snapshot(cwd=work, do_fetch=True)
+            self.assertEqual(snapshot["branch"], "trunk")
+            self.assertFalse(snapshot["on_default"])
+            result = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
+                                                       expected_target=snapshot["target_oid"])
+            self.assertEqual(result["status"], "fixed")
+            self.assertEqual(_branch(work), "trunk")
+
 
 class TestOpInProgress(unittest.TestCase):
     """The lossless gate's load-bearing probe (#342): a paused git operation must block the fix
