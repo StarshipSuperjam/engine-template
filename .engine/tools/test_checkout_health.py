@@ -565,6 +565,43 @@ class TestCatchUp(unittest.TestCase):
             with open(os.path.join(work, "shared.txt")) as fh:
                 self.assertEqual(fh.read(), "MY UNSAVED EDIT\n")       # the unsaved edit intact -> nothing lost
 
+    def test_late_tracked_edit_is_refused_at_materialization_and_ref_is_rolled_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"], touch_shared_on_last=True)
+            target = _consent_target(work)
+            before = _head(work)
+            real_advance = checkout_health._advance_named_default
+
+            def advance_then_edit(main, branch, old, new):
+                advanced = real_advance(main, branch, old, new)
+                with open(os.path.join(main, "shared.txt"), "w") as fh:
+                    fh.write("LATE EDIT\n")
+                return advanced
+
+            with mock.patch.object(checkout_health, "_advance_named_default", side_effect=advance_then_edit):
+                result = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True,
+                                                  expected_target=target)
+            self.assertEqual(result["status"], "blocked")
+            self.assertFalse(result["applied"])
+            self.assertEqual(_head(work), before)
+            with open(os.path.join(work, "shared.txt")) as fh:
+                self.assertEqual(fh.read(), "LATE EDIT\n")
+
+    def test_unreadable_status_is_not_treated_as_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            real_run = checkout_health._run
+
+            def fail_status(cmd, cwd=None, timeout=30):
+                if "status" in cmd and "--porcelain" in cmd:
+                    return None
+                return real_run(cmd, cwd=cwd, timeout=timeout)
+
+            with mock.patch.object(checkout_health, "_run", side_effect=fail_status):
+                safe, reasons = checkout_health._is_lossless(work)
+            self.assertFalse(safe)
+            self.assertIn("status-unreadable", reasons)
+
     def test_diverged_is_refused_never_force_merged(self):
         # the behavioural guard that REPLACES the --ff-only source-scan: a diverged checkout is never advanced
         # or force-merged. The widened detector now SURFACES it (it IS missing merged work), so the protection

@@ -280,7 +280,10 @@ def _is_lossless(main: str) -> tuple[bool, list[str]]:
         reasons.append("off-branch-commits")   # committed work reachable from no branch (detached work)
     if (_run(["git", "-C", main, "stash", "list"]) or "").strip():
         reasons.append("stash")
-    if (_run(["git", "-C", main, "status", "--porcelain"]) or "").strip():
+    status = _run(["git", "-C", main, "status", "--porcelain"])
+    if status is None:
+        reasons.append("status-unreadable")
+    elif status.strip():
         reasons.append("uncommitted")
     if _op_in_progress(main):
         reasons.append("op-in-progress")       # a paused merge/rebase/cherry-pick/revert — never move HEAD
@@ -750,10 +753,10 @@ def _advance_named_default(main: str, branch: str, before: str, target: str) -> 
     return _ok(["git", "-C", main, "update-ref", f"refs/heads/{branch}", target, before])
 
 
-def _materialize_target(main: str, target: str) -> bool:
-    """Synchronize index/worktree to an exact commit after the named ref transaction. Callers require a clean
-    lossless gate first, so this cannot overwrite operator work."""
-    return _ok(["git", "-C", main, "restore", "--source", target, "--staged", "--worktree", "."])
+def _materialize_target(main: str, before: str, target: str) -> bool:
+    """Two-tree, index-locked worktree update. Git refuses at mutation time if tracked work changed after the
+    clean preflight; unlike unconditional restore, it cannot erase a late editor write."""
+    return _ok(["git", "-C", main, "read-tree", "-u", "-m", before, target])
 
 
 def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
@@ -793,7 +796,11 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     advanced = _advance_named_default(main, default, behind["head_oid"], behind["target_oid"])
     still_default = ((_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
                      == default)
-    materialized = advanced and still_default and _materialize_target(main, behind["target_oid"])
+    materialized = (advanced and still_default and
+                    _materialize_target(main, behind["head_oid"], behind["target_oid"]))
+    if advanced and not materialized:
+        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}",
+             behind["head_oid"], behind["target_oid"]])
     after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
     after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
     if materialized and after == behind["target_oid"] and after_branch == default:
