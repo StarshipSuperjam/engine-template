@@ -418,8 +418,8 @@ class TestBehindOrigin(unittest.TestCase):
 
 
 class TestCatchUp(unittest.TestCase):
-    """The fast-forward correction: LOSSLESS by construction (`git merge --ff-only`). Brings a clean behind
-    checkout current, keeps unrelated uncommitted edits, REFUSES (no mutation, no loss) a clash or divergence."""
+    """The named-ref fast-forward correction brings a clean checkout current and REFUSES (no mutation, no loss)
+    local work or divergence. Naming the ref prevents a concurrent checkout from advancing the wrong branch."""
 
     def test_up_to_date_is_a_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -538,16 +538,17 @@ class TestCatchUp(unittest.TestCase):
             self.assertFalse(r["applied"])
             self.assertEqual(_head(work), before)
 
-    def test_unrelated_uncommitted_edit_survives_the_fast_forward(self):
+    def test_unrelated_uncommitted_edit_blocks_and_survives(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"])
             with open(os.path.join(work, "shared.txt"), "w") as fh:   # origin's PRs do NOT touch shared.txt
                 fh.write("my local edit\n")
             r = _consented_catch_up(work)
-            self.assertEqual(r["status"], "fixed")
+            self.assertEqual(r["status"], "blocked")
+            self.assertEqual(r["reason"], "local-work")
             with open(os.path.join(work, "shared.txt")) as fh:
-                self.assertEqual(fh.read(), "my local edit\n")        # kept across the ff
-            self.assertTrue(os.path.exists(os.path.join(work, "f4.txt")))   # incoming merged work present
+                self.assertEqual(fh.read(), "my local edit\n")
+            self.assertFalse(os.path.exists(os.path.join(work, "f4.txt")))  # no partial incoming work
 
     def test_clashing_uncommitted_edit_blocks_with_no_loss(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -991,14 +992,14 @@ class TestReturnToDefault(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
             _git(work, "checkout", "-q", "-b", "my-feature")
             target = _consent_target(work)
-            real_ok = checkout_health._ok
+            real_succeeds = checkout_health._succeeds
 
-            def fail_merge(cmd, cwd=None):
-                if "merge" in cmd and "--ff-only" in cmd:
+            def fail_postcondition(cmd, cwd=None):
+                if "merge-base" in cmd and cmd[-1] == "HEAD":
                     return False
-                return real_ok(cmd, cwd=cwd)
+                return real_succeeds(cmd, cwd=cwd)
 
-            with mock.patch.object(checkout_health, "_ok", side_effect=fail_merge):
+            with mock.patch.object(checkout_health, "_succeeds", side_effect=fail_postcondition):
                 result = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True,
                                                            expected_target=target)
             self.assertEqual(result["status"], "blocked")

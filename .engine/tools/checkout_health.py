@@ -39,15 +39,14 @@ Design — the operator-checkout strand:
     `stash drop` / `push` / any force flag. When it cannot safely tell which branch to re-attach to (or a git
     operation is paused), it **REFUSES** (no mutation) rather than guess.
   - **The corrections are `catch_up` (on the default) and `return_to_default` (off it).** `catch_up` —
-    `git merge --ff-only <pinned-target-oid>` — is the on-default arm: `--ff-only` is git's own
-    refuse-if-not-a-fast-forward guard, advancing the branch only along a strict-ancestor linear path and
-    ABORTING (no mutation, no loss — keeping any uncommitted edits) if local work would be overwritten, so it is
-    lossless **by construction**, needs no rescue branch and no branch switch, and a diverged branch is refused,
-    never forced. `return_to_default` — the off-main arm — points a checkout parked on a side branch back at its
+    an exact-old-OID update of the NAMED default followed by exact-target materialization — is the on-default
+    arm. Naming the ref prevents a concurrent checkout from advancing the wrong branch; the exact old OID makes
+    ref movement fail atomically. It requires the lossless gate clean and refuses divergence. `return_to_default`
+    — the off-main arm — points a checkout parked on a side branch back at its
     default and fast-forwards: returning to a NAMED branch never orphans commits (the side branch ref keeps
     them, so no rescue), it runs only when the lossless gate is clean (else BLOCKS, no mutation), and its
-    `checkout <default>` is defensive (never `-f`). `--ff-only` is the SINGLE sanctioned non-additive git verb;
-    every destructive token stays forbidden (test_checkout_health source-scans for them, and behavioral tests
+    `checkout <default>` is defensive (never `-f`). Every destructive token stays forbidden (the tests
+    source-scan for them, and behavioral tests
     pin that `catch_up` refuses divergence and `return_to_default` blocks on a paused operation).
   - **Fail-soft, never falsely current:** local strand detection remains quiet on unreadable state because a
     stranded checkout cannot reach the protected branch. Online checkout freshness is different: refresh or
@@ -745,13 +744,24 @@ def _snapshot_unchanged(snapshot: dict) -> bool:
     return all(reads[key] == snapshot[key] for key in reads)
 
 
+def _advance_named_default(main: str, branch: str, before: str, target: str) -> bool:
+    """Atomically advance the NAMED default ref from its exact assessed OID. Unlike `git merge`, this can never
+    resolve a concurrently switched HEAD and fast-forward the wrong branch."""
+    return _ok(["git", "-C", main, "update-ref", f"refs/heads/{branch}", target, before])
+
+
+def _materialize_target(main: str, target: str) -> bool:
+    """Synchronize index/worktree to an exact commit after the named ref transaction. Callers require a clean
+    lossless gate first, so this cannot overwrite operator work."""
+    return _ok(["git", "-C", main, "restore", "--source", target, "--staged", "--worktree", "."])
+
+
 def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
              expected_target: str | None = None) -> dict:
     """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. LOSSLESS by
-    construction: `git merge --ff-only` advances the branch only along a strict-ancestor linear path and ABORTS
-    (no mutation, no loss — uncommitted edits to untouched files are kept) if local work would be overwritten,
-    so there is no rescue branch AND NO BRANCH SWITCH (unlike unstrand's detached arm), and a diverged branch is
-    refused — never forced. When the checkout is PARKED ON A SIDE BRANCH, returning it to the default is
+    construction: it requires the clean lossless gate, proves strict ancestry, and atomically advances the NAMED
+    default from its exact assessed OID before materializing the exact target. A concurrent checkout cannot
+    advance the wrong branch; divergence refuses. When the checkout is PARKED ON A SIDE BRANCH, returning it is
     `return_to_default`'s job — catch_up never fast-forwards a side branch, so it declines ('off-main'). Dry-run
     (apply=False) reports without mutating. Every mutation targets `git -C <main>` — never the session's own
     worktree. status ∈ healthy | behind | off-main | unavailable | fixed | blocked."""
@@ -777,19 +787,21 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     if not _succeeds(["git", "-C", main, "merge-base", "--is-ancestor",
                       behind["head_oid"], behind["target_oid"]]):
         return {**behind, "status": "blocked", "reason": "diverged", "applied": False}
-    # --ff-only is git's OWN refuse-if-not-a-fast-forward guard (the single sanctioned non-additive verb): it
-    # advances on a strict ancestor and aborts otherwise, so a diverged branch or a clashing local edit can
-    # never be force-merged or clobbered.
-    merged = _ok(["git", "-C", main, "merge", "--ff-only", behind["target_oid"]])
+    lossless, reasons = _is_lossless(main)
+    if not lossless:
+        return {**behind, "status": "blocked", "reason": "local-work", "reasons": reasons, "applied": False}
+    advanced = _advance_named_default(main, default, behind["head_oid"], behind["target_oid"])
+    still_default = ((_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+                     == default)
+    materialized = advanced and still_default and _materialize_target(main, behind["target_oid"])
     after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
     after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
-    if merged and after == behind["target_oid"] and after_branch == default:
+    if materialized and after == behind["target_oid"] and after_branch == default:
         return {"status": "fixed", "main": main, "branch": default, "brought_in": missing,
                 "before": behind["head_oid"], "after": after, "target_oid": behind["target_oid"],
                 "applied": True}
-    # A local edit may have made Git refuse before mutation. If an external Git process races the tiny
-    # revalidation-to-merge window, never call the result fixed: report whether HEAD moved so the operator knows
-    # a manual inspection is required instead of receiving a false success.
+    # If materialization fails or an external process races the tiny named-ref-to-materialization window, never
+    # call the result fixed: report whether HEAD moved so the operator knows inspection is required.
     changed = after != behind["head_oid"] or after_branch != default
     return {"status": "blocked", "main": main, "branch": default,
             "reason": "postcondition-failed" if changed else "clash",
@@ -838,17 +850,26 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     if not local_is_ancestor and not target_is_ancestor:
         return {"status": "blocked", "main": main, "branch": default, "from": current,
                 "reason": "diverged", "applied": False}
+    advanced_default = local_is_ancestor and local_default != target
+    if advanced_default:
+        if not _advance_named_default(main, default, local_default, target):
+            return {"status": "blocked", "main": main, "branch": default, "from": current,
+                    "reason": "checkout-changed", "applied": False}
     if not _ok(["git", "-C", main, "checkout", default]):   # defensive; never -f; a refusal blocks, never forces
-        return {"status": "blocked", "main": main, "branch": default, "from": current, "applied": False}
-    # Safely back on the default after the ancestry preflight; advance to the exact pinned target, never a mutable
-    # branch name. If the local default already contains the target, no merge is needed.
-    brought_current = target_is_ancestor or _ok(["git", "-C", main, "merge", "--ff-only", target])
+        rolled_back = (not advanced_default or
+                       _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}", local_default, target]))
+        return {"status": "blocked", "main": main, "branch": default, "from": current,
+                "reason": "checkout-failed", "applied": not rolled_back}
+    brought_current = _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", target, "HEAD"])
     post_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
     post_contains_target = _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", target, "HEAD"])
     if not brought_current or post_branch != default or not post_contains_target:
+        ref_restored = (not advanced_default or
+                        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}", local_default, target]))
         restored = _ok(["git", "-C", main, "checkout", current])
         return {"status": "blocked", "main": main, "branch": default, "from": current,
-                "reason": "postcondition-failed", "restored": restored, "applied": not restored}
+                "reason": "postcondition-failed", "restored": restored and ref_restored,
+                "applied": not (restored and ref_restored)}
     return {"status": "fixed", "main": main, "branch": default, "from": current,
             "brought_current": brought_current, "target_oid": snapshot["target_oid"], "applied": True}
 

@@ -5838,7 +5838,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:885c16fc8dba304ced01039779f3bc0d41fbc5ea3b9954bca8b54dc66402be9c",
+        "fingerprint": "sha256:0ca9bbee909d0b7dbbe2b8291b66941ab8910cdbe4b2c2ee0e0ac08a0b81d2f0",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -8660,7 +8660,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:e394ba2b244fa78dffc703429ffd1aaa1e89f2074e9eef675c11b64e76fa60cc",
+        "fingerprint": "sha256:41e7db6306b9ae7d79913a918a059b5fb30ca27f1c428e8280528add789ff7f6",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
