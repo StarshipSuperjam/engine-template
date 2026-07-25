@@ -53,9 +53,10 @@ DEFAULT_MAX_TURNS = 40      # default cap on one window, so a huge session canno
 MAX_TURNS_CEILING = 200     # the real ceiling: a caller may raise the cap, but not to "the whole store". A
                             # caller-supplied cap with no upper bound is not containment — and the one move
                             # available when a window misses is to raise it, so the pressure is toward dumps.
-MAX_TEXT_BYTES = 200_000    # the OTHER dimension. Capping turns alone does not bound a response: chunking is
-                            # lossless and unbounded, so ONE pasted document can be thousands of chunks and
-                            # megabytes in a single turn. Bound the text too, or the flood guard guards nothing.
+MAX_TEXT_CHARS = 200_000    # the OTHER dimension, in CHARACTERS (not bytes — a name that promised bytes would
+                            # understate a window of non-Latin text severalfold). Capping turns alone bounds
+                            # nothing: chunking is lossless and unbounded, so ONE pasted document can be
+                            # thousands of chunks and megabytes inside a single turn.
 
 _TURN_DELTA_KIND = records.AMBIENT_CAPTURE_KIND
 
@@ -70,6 +71,17 @@ COMPLETENESS_NOTE = ("Reconstructed from the stored conversation. Long messages 
 # of defect as splicing two messages together: wording presented as complete when it is not.
 SHORTENED_NOTE = ("This window hit its size limit, so at least one message is cut short here — ask for a "
                   "narrower window (an anchor, or fewer turns) to see any of it in full.")
+
+# Distinct from SHORTENED_NOTE on purpose: "a message is cut short" and "whole turns are missing" are
+# different facts, and reporting the second as the first would understate what the reader left out.
+DROPPED_NOTE = ("Whole turns after this point were left out to stay within that limit — the conversation "
+                "continues beyond what is shown.")
+
+# A re-captured message can appear with its wording repeated (see `_join_chunks`): capture stores a session
+# again from the start when its cursor is lost, and a repeat is indistinguishable from a genuinely repeated
+# chunk. Said here rather than guessed at, so a doubled passage is read as a storage artefact.
+REPEAT_CAVEAT = ("If a passage appears twice in a row, the session was most likely captured twice — that is a "
+                 "storage artefact, not something said twice.")
 
 
 # ---- the leak guard ------------------------------------------------------------------------------------
@@ -136,35 +148,50 @@ def _join_chunks(turns: list) -> list:
     reported, never used as a completeness proof (an erased middle piece is indistinguishable from a shorter
     message)."""
     joined: list = []
-    last_chunk: list = []          # the previous record's raw text, per joined turn (never returned)
-    budget = MAX_TEXT_BYTES
-    dropped = False
     for record in turns:
         seq = _seq_of(record)
         speaker = record.get("speaker") if isinstance(record.get("speaker"), str) else "unknown"
-        raw = record.get("text") if isinstance(record.get("text"), str) else ""
+        text = record.get("text") if isinstance(record.get("text"), str) else ""
+        previous = joined[-1] if joined else None
+        # Merge ONLY a genuine continuation chunk: the same message means the SAME PRESENT ordinal and the
+        # same speaker. A record with no usable ordinal never merges — its identity is unknown, and guessing
+        # splices unrelated messages into an utterance nobody said.
+        #
+        # No duplicate-detection here, deliberately. Capture re-reads a session from the start when its cursor
+        # is lost, which can store a message twice; but a re-captured chunk is byte-identical to a GENUINE
+        # repeated chunk (the chunker cuts on line boundaries, so repetitive pasted content — a log, a table —
+        # produces identical adjacent chunks as a matter of course). The two are indistinguishable at this
+        # layer, so refusing to merge a repeat would split real messages apart, which is the worse error and
+        # the more common one. A re-captured message can therefore appear with its wording repeated; the
+        # completeness note says so rather than the reader guessing.
+        if (previous is not None and seq is not None and previous["seq"] == seq
+                and previous["speaker"] == speaker):
+            previous["text"] += text
+            previous["chunks"] += 1
+            continue
+        joined.append({"seq": seq, "speaker": speaker, "text": text, "chunks": 1})
+    return joined
+
+
+def _fit_budget(turns: list):
+    """Trim a SELECTED window to the text budget, reporting honestly what that cost. Returns
+    (turns, shortened, dropped) — `shortened` when a message was cut mid-way, `dropped` when whole turns did
+    not fit at all. Applied to the selection (never while joining), so the caller's `total` still counts the
+    whole conversation and a capped window can be told from a complete one."""
+    out: list = []
+    budget = MAX_TEXT_CHARS
+    shortened = dropped = False
+    for turn in turns:
         if budget <= 0:
             dropped = True
             break
-        text = raw[:budget]
+        text = turn["text"]
+        if len(text) > budget:
+            turn = dict(turn, text=text[:budget])
+            shortened = True
         budget -= len(text)
-        dropped = dropped or len(text) < len(raw)
-        previous = joined[-1] if joined else None
-        # Merge ONLY a genuine continuation chunk: the same message means the SAME present ordinal and the
-        # same speaker. A record with no usable ordinal never merges (its identity is unknown, and guessing
-        # fabricates an utterance), and a record repeating the PREVIOUS RECORD's text exactly is a re-capture
-        # of that message — capture re-reads a session from the start when its cursor is missing or corrupt —
-        # not a second chunk. Compared against the previous CHUNK, never the accumulated text, so a genuine
-        # chunk that merely ends the same way as what came before is still joined.
-        if (previous is not None and seq is not None and previous["seq"] == seq
-                and previous["speaker"] == speaker and text and last_chunk[-1] != raw):
-            previous["text"] += text
-            previous["chunks"] += 1
-            last_chunk[-1] = raw
-            continue
-        joined.append({"seq": seq, "speaker": speaker, "text": text, "chunks": 1})
-        last_chunk.append(raw)
-    return joined, dropped
+        out.append(turn)
+    return out, shortened, dropped
 
 
 def resolve_sessions(session_id: str, *, path: "str | None" = None) -> list:
@@ -218,22 +245,30 @@ def window(session_id: str, *, anchor_seq: "int | None" = None, radius: int = DE
     the completeness caveat when turns come back, and why it is empty when they do not."""
     sessions = resolve_sessions(session_id, path=path)
     turns: list = []
-    shortened = False
     for real in sessions:
-        joined, dropped = _join_chunks(session_turns(real, path=path))
-        shortened = shortened or dropped
-        for turn in joined:
+        for turn in _join_chunks(session_turns(real, path=path)):
             turn["session_id"] = real
             turns.append(turn)
-    total = len(turns)
+    total = len(turns)                      # the WHOLE conversation, counted before any capping
     cap = min(max(0, max_turns), MAX_TURNS_CEILING)
     if anchor_seq is not None and turns:
-        centre = next((i for i, t in enumerate(turns) if t["seq"] >= anchor_seq), total - 1)
+        # `_seq_of` yields None for a record with no usable ordinal, so compare only real ones — a bare
+        # `t["seq"] >= anchor_seq` raises on the very legacy records this reader exists to tolerate.
+        centre = next((i for i, t in enumerate(turns) if t["seq"] is not None and t["seq"] >= anchor_seq),
+                      max(0, total - 1))
         half = min(max(0, radius), cap // 2 if cap else 0)
         lo = max(0, centre - half)
         selected = turns[lo:lo + (half * 2 + 1)][:cap]
     else:
         selected = turns[:cap]
+    selected, shortened, dropped = _fit_budget(selected)
+    note = COMPLETENESS_NOTE
+    if any(t["chunks"] > 1 for t in selected):
+        note += " " + REPEAT_CAVEAT          # only where a rejoined message could carry a capture repeat
+    if shortened:
+        note += " " + SHORTENED_NOTE
+    if dropped:
+        note += " " + DROPPED_NOTE
     return {
         "session_id": session_id,
         "sessions": sessions,
@@ -241,8 +276,7 @@ def window(session_id: str, *, anchor_seq: "int | None" = None, radius: int = DE
         "total": total,
         "returned": len(selected),
         "truncated": len(selected) < total,
-        "note": ((COMPLETENESS_NOTE + (" " + SHORTENED_NOTE if shortened else ""))
-                 if selected else _empty_note(session_id, sessions)),
+        "note": note if selected else _empty_note(session_id, sessions),
     }
 
 

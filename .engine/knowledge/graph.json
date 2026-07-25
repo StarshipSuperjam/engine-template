@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:f430089ef59392427d3868d33c110b9bf6cdddd0bd16790960fd8dcc5993e988",
+        "fingerprint": "sha256:ef68788d65f813e322819653f541176d287d26b480866c894f01fd6fab6dd819",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -9990,7 +9990,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:a5899bc8dcff6770aa0d94a69a72df7c72beed12d8bcc0abead7fbec8be69c61",
+        "fingerprint": "sha256:7e1be446047fb793858fe0eb7a8feb3c9d6be35a1ec596039b53bf492334a730",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",

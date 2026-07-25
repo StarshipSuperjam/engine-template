@@ -148,12 +148,28 @@ class LegacyToleranceTests(_CabinetBase):
         self.assertEqual(len(turns), 2)
         self.assertEqual(turns[0]["text"], "genuinely first", "an unusable ordinal must not jump the queue")
 
-    def test_a_re_captured_duplicate_is_not_doubled_into_one_turn(self):
-        # Capture re-reads a session from the start when its cursor is missing or corrupt — benign for the
-        # summariser, but here the duplicates land adjacent and used to concatenate into doubled wording.
-        self._write(_rec("s1", 0, "user", "Move the export."), _rec("s1", 0, "user", "Move the export."))
-        turns = recall.window("s1", path=self.cabinet)["turns"]
-        self.assertNotIn("Move the export.Move the export.", " ".join(t["text"] for t in turns))
+    def test_whole_turns_dropped_for_size_are_counted_and_disclosed(self):
+        # The contract says `total` is the whole conversation and `truncated` means more exists than was
+        # returned. Counting only what survived the size budget reported half a conversation as complete —
+        # the same defect class as splicing: partial content presented as whole.
+        self._write(*[_rec("s1", i, "user", "x" * 4000) for i in range(100)])
+        result = recall.window("s1", max_turns=200, path=self.cabinet)
+        self.assertEqual(result["total"], 100, "total must count the whole conversation, not the survivors")
+        self.assertLess(result["returned"], 100)
+        self.assertTrue(result["truncated"])
+        self.assertIn("Whole turns", result["note"], "dropped turns must be disclosed as such")
+
+    def test_the_size_bound_is_not_multiplied_by_resolving_several_sessions(self):
+        # The budget is applied once to the selection, not per session — otherwise a cluster key resolving to
+        # several sessions returns several times the stated bound.
+        for sid in ("sa", "sb", "sc"):
+            self._write(*[_rec(sid, i, "user", "y" * 4000) for i in range(60)])
+        self._write({"v": 1, "kind": "gist", records.RECORD_ID_KEY: "g", "session_id": "tag:many",
+                     "text": "folded", records.SOURCE_IDS_KEY: ["ea", "eb", "ec"]},
+                    *[{"v": 1, "kind": "episodic", records.RECORD_ID_KEY: rid, "session_id": sid, "text": "e"}
+                      for rid, sid in (("ea", "sa"), ("eb", "sb"), ("ec", "sc"))])
+        result = recall.window("tag:many", max_turns=200, path=self.cabinet)
+        self.assertLessEqual(sum(len(t["text"]) for t in result["turns"]), recall.MAX_TEXT_CHARS)
 
     def test_genuine_chunks_still_rejoin_after_the_guards(self):
         # The guards must not break the real case they sit beside.
@@ -161,13 +177,28 @@ class LegacyToleranceTests(_CabinetBase):
         turns = recall.window("s1", path=self.cabinet)["turns"]
         self.assertEqual([t["text"] for t in turns], ["part-one part-two"])
 
-    def test_a_chunk_that_merely_ends_like_the_last_one_still_rejoins(self):
-        # The duplicate guard must compare the PREVIOUS CHUNK, not the accumulated text: comparing against
-        # everything so far would refuse a genuine continuation whose text happens to be a suffix of it, and
-        # silently split one message into two.
-        self._write(_rec("s1", 0, "user", "hello world"), _rec("s1", 0, "user", "world"))
+    def test_identical_adjacent_chunks_of_one_message_still_rejoin(self):
+        # Repetitive pasted content (a log, a table) chunks into byte-identical adjacent pieces as a matter of
+        # course, because the chunker cuts on line boundaries. An earlier duplicate-detection guard refused to
+        # merge a repeat and so split ONE pasted message into six turns — the transcript then showed the
+        # operator saying the same thing six times. Real chunks must rejoin whatever their content.
+        from memory import capture
+        chunks = capture.chunk_text("ERROR: connection refused\n" * 1000)
+        self.assertGreater(sum(1 for a, b in zip(chunks, chunks[1:]) if a == b), 0,
+                           "fixture must actually produce identical adjacent chunks")
+        self._write(*[_rec("s1", 0, "user", c) for c in chunks])
         turns = recall.window("s1", path=self.cabinet)["turns"]
-        self.assertEqual([t["text"] for t in turns], ["hello worldworld"])
+        self.assertEqual(len(turns), 1, "one pasted message must come back as one turn")
+
+    def test_a_rejoined_message_carries_the_capture_repeat_caveat(self):
+        # A re-captured message is indistinguishable from a genuinely repeated chunk, so the reader does not
+        # guess — it says so, and only where a rejoined message could carry the artefact.
+        self._write(_rec("s1", 0, "user", "part-one "), _rec("s1", 0, "user", "part-two"))
+        self.assertIn("captured twice", recall.window("s1", path=self.cabinet)["note"])
+        self._tmp.cleanup()
+        self.setUp()
+        self._write(_rec("s1", 0, "user", "a single unsplit message"))
+        self.assertNotIn("captured twice", recall.window("s1", path=self.cabinet)["note"])
 
     def test_a_shortened_window_says_it_was_shortened(self):
         # A turn cut off by the size budget must not read as the whole message — that is the fabrication
@@ -185,7 +216,7 @@ class LegacyToleranceTests(_CabinetBase):
         # be thousands of chunks and megabytes inside a SINGLE turn.
         self._write(*[_rec("s1", 0, "user", "x" * 4000) for _ in range(200)])
         result = recall.window("s1", path=self.cabinet)
-        self.assertLessEqual(sum(len(t["text"]) for t in result["turns"]), recall.MAX_TEXT_BYTES)
+        self.assertLessEqual(sum(len(t["text"]) for t in result["turns"]), recall.MAX_TEXT_CHARS)
 
 
 class WindowingTests(_CabinetBase):
@@ -217,6 +248,14 @@ class WindowingTests(_CabinetBase):
         self._many(10)
         turns = recall.window("s1", anchor_seq=9999, radius=3, path=self.cabinet)["turns"]
         self.assertTrue(turns, "an anchor beyond the last turn should still return the tail, not nothing")
+
+    def test_an_anchor_over_legacy_records_does_not_crash(self):
+        # The reader's own law is that reading a legacy record never crashes. Once an absent ordinal became
+        # None, comparing it to an anchor raised — on exactly the records the tolerance exists for.
+        self._write({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "s1", "speaker": "user",
+                     "text": "a legacy turn with no ordinal"})
+        result = recall.window("s1", anchor_seq=5, path=self.cabinet)   # must not raise
+        self.assertEqual(result["returned"], 1)
 
     def test_max_turns_caps_a_long_session_and_says_so(self):
         self._many(60)
