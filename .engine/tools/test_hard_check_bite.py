@@ -602,5 +602,69 @@ class TestDeclarationCensus(unittest.TestCase):
         ])
 
 
+class TestLiveDeclarationsAreHonored(unittest.TestCase):
+    """The COMMITTED construction-scoped declarations, driven through the real applicability path.
+
+    This is the ONLY fast-suite enforcement of the two byte contracts a declaration rests on: the filename
+    `_failed_bite_applicability` opens, and the exact `property` string it demands. Neither is otherwise
+    exercised where the engine is developed — `_cover_script_instance` returns at its successful-bite branch
+    BEFORE consulting a declaration, and both home-scoped checks DO bite in the engine's own home repo, so the
+    committed files are never opened there. Every other test in this module builds a SYNTHETIC declaration out
+    of `hcb._CS_PROPERTY`, which stays self-consistent for any value of it. Without this class, a desync between
+    the constant and the shipped files reads green in the engine's home and lands as a hard red in every
+    deployed repo — the only place the contract actually runs.
+
+    Reads no environment: the construction-scoped branch consults none, so this is deterministic offline.
+    """
+
+    def _dirs(self) -> list:
+        """The committed fixture dirs carrying the declaration — DERIVED, never pinned. A deployed repo's
+        fixture surface can differ from the source's, and this must stay honest there rather than assert a
+        source-tree set (the same scoping `TestDeclarationCensus` documents)."""
+        return sorted(os.path.dirname(p)
+                      for p in _glob.glob(os.path.join(LIVE_FIXTURES, "*", "construction-scoped.json")))
+
+    def _root(self, *, origin: str) -> str:
+        root = _placed_root(origin)
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        return root
+
+    @staticmethod
+    def _na(found) -> bool:
+        return bool(found) and any("NOT APPLICABLE HERE" in f["message"] for f in found)
+
+    def test_every_shipped_declaration_carries_the_exact_property(self):
+        dirs = self._dirs()
+        self.assertTrue(dirs, "no committed construction-scoped declaration found to check")
+        for fdir in dirs:
+            with self.subTest(fixture=os.path.basename(fdir)):
+                data = validate.load_json(os.path.join(fdir, "construction-scoped.json"))
+                self.assertEqual(
+                    data.get("property"), hcb._CS_PROPERTY,
+                    "a shipped declaration's property must byte-match the constant the check compares it "
+                    "against; a desync is invisible here and a hard red in every deployed repo")
+
+    def test_each_is_honored_as_a_loud_soft_note_in_a_deployed_repo(self):
+        for fdir in self._dirs():
+            stem = os.path.basename(fdir)
+            with self.subTest(fixture=stem):
+                found = hcb._failed_bite_applicability(
+                    f"engine/check/{stem}", fdir, self._root(origin=ADOPTER_URL), "hard")
+                self.assertIsNotNone(found, f"{stem}: the shipped declaration was not honored at all")
+                self.assertTrue(all(f["severity"] == "soft" for f in found), found)
+                self.assertTrue(self._na(found), found)
+
+    def test_each_is_inert_in_the_engines_own_home_repo(self):
+        # The carve-out may never excuse a check whose failure path IS reachable: in the engine's own home the
+        # declaration is inert and the failed bite stands. Asserted as "no N/A note" rather than a strict None
+        # so a fixture dir that also carries a requires.json stays correctly judged.
+        for fdir in self._dirs():
+            stem = os.path.basename(fdir)
+            with self.subTest(fixture=stem):
+                found = hcb._failed_bite_applicability(
+                    f"engine/check/{stem}", fdir, self._root(origin=HOME_URL), "hard")
+                self.assertFalse(self._na(found), found)
+
+
 if __name__ == "__main__":
     unittest.main()
