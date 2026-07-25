@@ -40,13 +40,33 @@ def _policy_disallows_implicit(policy_path: str) -> bool:
     return isinstance(policy, dict) and policy.get("allow_implicit_invocation") is False
 
 
+def _source_is_operator_typed(name: str) -> bool:
+    """True iff the Claude source for `name` declares `invocation: operator-typed` — the only value that
+    withholds implicit invocation. An omitted invocation means model-auto (the platform default). A missing or
+    unreadable source falls back to True, so the check keeps demanding the protection rather than waiving it on
+    doubt (fail toward the finding)."""
+    src = os.path.join(validate.ROOT, ".claude", "skills", name, "SKILL.md")
+    if not os.path.isfile(src):
+        return True
+    try:
+        return (validate.frontmatter(src) or {}).get("invocation") == "operator-typed"
+    except Exception:  # noqa: BLE001 — unreadable source reads as protected-required (fail toward the finding)
+        return True
+
+
 def findings(tier: str, skills_dir: str | None = None) -> list:
+    """The self-election safety property: a command the OPERATOR types must never be one the assistant can
+    start on its own. The bar is the Claude source's own `invocation`, not a blanket rule — a deliberately
+    model-reachable command (recall, for instance) is allowed to be reachable on Codex too, and pinning every
+    skill to operator-only would silently disable such a capability on one of the two runtimes."""
     base = skills_dir or os.path.join(validate.ROOT, ".agents", "skills")
     out = []
     for skill_md in sorted(glob.glob(os.path.join(base, "engine-*", "SKILL.md"))):
         skill_dir = os.path.dirname(skill_md)
         name = os.path.basename(skill_dir)
         policy_path = os.path.join(skill_dir, "agents", "openai.yaml")
+        if not _source_is_operator_typed(name):
+            continue                       # deliberately model-reachable — its twin may be reachable as well
         if not _policy_disallows_implicit(policy_path):
             out.append(validate.finding(
                 tier,
