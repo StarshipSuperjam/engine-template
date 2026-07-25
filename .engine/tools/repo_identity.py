@@ -11,8 +11,10 @@ inherited manifest records, while the home repo has `origin == home`.
 Kept deliberately DEPENDENCY-LIGHT (stdlib + `validate` only) so the lean HARD CI safety checks
 (`memory_pointer_public_safety_check`, `census_completeness_check`, `hard_check_bite_check`) can gate on it
 WITHOUT dragging the modes/close/hooks lifecycle machinery that lives in `module_coherence` into a
-`pull_request_target`-adjacent path. `module_coherence` re-exports the slug primitives from here, so this is
-their single home and no parallel copy can drift.
+`pull_request_target`-adjacent path. `module_coherence` re-exports the slug primitives from here rather than
+keeping its own, so the two can never drift apart. Other modules — `first_run_health`, `boot`, `instantiator`,
+`weakening_guard` — still carry their own origin/home readers with their own fail-directions; this is the
+single home for the primitives it defines, not yet the only reader of that state in the tree.
 
 Two contracts callers rely on:
   - `is_home_repo(root)` reads the EXAMINED checkout's ON-DISK git origin (`git -C <root> remote get-url

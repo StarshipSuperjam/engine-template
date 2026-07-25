@@ -3166,8 +3166,8 @@ def upgrade_demo() -> bool:
                 ok = ok and good
 
     print("\nPart L — the update KEYED-MERGES the root CLAUDE.md floor: it replaces ONLY the engine's marked "
-          "block and keeps the operator's own content byte-for-byte, and the release's construction file "
-          "never overlays the floor (the #234/#272 coexistence obligation + the latent-bug fix):")
+          "block and keeps the operator's own content byte-for-byte, and content the release ships OUTSIDE "
+          "its fence never overlays the floor (the #234/#272 coexistence obligation + the latent-bug fix):")
     with tempfile.TemporaryDirectory() as d:
         live = os.path.join(d, "live")
         os.makedirs(live)

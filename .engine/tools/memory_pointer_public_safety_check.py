@@ -19,10 +19,12 @@ skip-worktree-configured pointer — which is never committed — is correctly i
 green.
 
 It reads local committed state only — no network, no token. It emits finding.v1 JSON on stdout (the
-custom/script machine channel) and returns 0: an empty array when safe (placeholder, or not the construction
-repo, or the committed state can't be determined), one `hard` finding when a CONFIGURED pointer is committed in
-the construction repo. Best-effort: an unreadable HEAD / CLAUDE.md degrades to a pass — a backstop never
-false-fails a build over a condition it can't read.
+custom/script machine channel) and returns 0: an empty array when safe (placeholder, or not the engine's own
+home repository, or the committed state can't be determined), one `hard` finding when a CONFIGURED pointer is
+committed in the engine's own home. Best-effort: an unreadable committed pointer degrades to a pass — a
+backstop never false-fails a build over a condition it can't read. The GATE degrades the other way, toward
+running: an unreadable origin or manifest fails TOWARD home, so the guard would rather check unnecessarily
+than skip in silence.
 """
 from __future__ import annotations
 import json

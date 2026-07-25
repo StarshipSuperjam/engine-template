@@ -1234,7 +1234,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         foreign_license = None
     try:
         # The un-finished-first-run signal (#353), RELAYED from first_run_health's OFFLINE, READ-ONLY detection
-        # (boot computes no new state): the operator's main checkout is still a construction-state copy of the
+        # (boot computes no new state): the operator's main checkout is still an un-set-up copy of the
         # template whose one-time setup hasn't finished, so it silently reports itself "already set up." boot
         # OFFERS to walk /engine-setup; the assistant runs setup on the operator's consent — never a boot-time
         # transform. No-op in the workshop (origin == home) and in a finished project (setup tool retired);
@@ -1276,7 +1276,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
         # is installed (never offers a command that isn't there) and no `docs/spec/` description exists (self-
-        # resolves the moment the intake runs); no-op in the engine's own construction repo. Degrades QUIETLY.
+        # resolves the moment the intake runs); no-op in the engine's own home repository. Degrades QUIETLY.
         greenfield = greenfield_intake.detect_greenfield()
     except Exception:  # noqa: BLE001 — a detector failure degrades this one signal, never the pack
         greenfield = None
@@ -1431,7 +1431,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         # engine's own template seed (with a best-effort `pr_open` dedupe flag), or None (healthy / the engine's
         # own template repo / unresolvable). Rendered below the governance alarms; retire/collapse decided hook-side.
         "foreign_license": foreign_license,
-        # the un-finished-first-run signal (#353): the main checkout is still a construction-state template copy
+        # the un-finished-first-run signal (#353): the main checkout is still an un-set-up template copy
         # whose one-time setup hasn't finished (origin != recorded home, setup tool still present), with the
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.

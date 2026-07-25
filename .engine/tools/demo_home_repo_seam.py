@@ -8,7 +8,7 @@ Run: uv run --directory .engine -- python tools/demo_home_repo_seam.py
 
 Why this matters: two HARD checks only act in the engine's OWN home repository — the memory-backup pointer leak
 guard (it must never let a maintainer's private vault coordinates ship to everyone who uses the template) and
-the demo-census guard (it keeps construction-only demos from shipping as clutter). If they keyed off a CLAUDE.md
+the demo-census guard (it keeps the engine's own build-evidence demos from shipping as clutter). If they keyed off a CLAUDE.md
 marker, then promoting that file to the plain deployed floor — which drops the marker — would silently switch
 BOTH guards off in the very repo they protect. This demo proves they don't: it builds throwaway git repos and
 runs the REAL check logic under a redirected root, so nothing touches your project.
@@ -62,7 +62,7 @@ def _fixture(d: str, *, origin: str, claude: str) -> str:
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
         fh.write(claude)
     with open(os.path.join(tools, "demo_orphan_stand_in.py"), "w", encoding="utf-8") as fh:
-        fh.write('"""a construction-only demo that neither retires nor is reached — orphan drift."""\n')
+        fh.write('"""a home-only demo that neither retires nor is reached — orphan drift."""\n')
     with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
         json.dump({"description": "fixture", "files": [], "directories": []}, fh)  # omits the orphan
     return root

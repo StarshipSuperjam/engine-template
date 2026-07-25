@@ -91,7 +91,7 @@ anything at risk first, or refuses/blocks rather than guess, and the assistant r
 and never forces. What differs is *what* each protects and *how* it declines:
 
 - **A fresh copy still needing setup — walk `/engine-setup` (`instantiator`, #353).** The operator's main
-  checkout is still a construction-state copy of the template whose one-time setup hasn't finished — its origin
+  checkout is a copy of the template whose one-time setup hasn't finished — its origin
   differs from the recorded update home and the one-time setup tool is still present — so it would otherwise
   silently report itself "already set up." Provisioning's `first_run_health` detects it OFFLINE and boot pins
   the onboarding offer at the **top** of the dashboard (the root action that frames every other signal; it also
@@ -181,7 +181,8 @@ and never forces. What differs is *what* each protects and *how* it declines:
   the greenfield state and boot **offers** the intake at first engagement so a non-engineer discovers it — a pure
   offer, never an action (the operator starts the intake themselves). It fires only when the intake is actually
   installed (never offering a command that isn't there) and self-resolves the moment the intake runs and writes
-  `docs/spec/index.md`; it no-ops in the engine's own construction repo. On the operator's "I'd rather work without a
+  `docs/spec/index.md`; it stays silent in the engine's own home repository, where the thing being built IS the
+  engine and a separate product description would be out of place. On the operator's "I'd rather work without a
   written description" the assistant runs `boot_alarm_ledger.retire` (class `greenfield_intake`) so the offer stops
   surfacing — run it as `python tools/boot_alarm_ledger.py retire-greenfield` (an Explore-permitted tool call),
 which DERIVES the fingerprint from the live detector so the marker can never silently mismatch and keep the

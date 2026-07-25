@@ -314,8 +314,9 @@ from Codex; that's set up separately. See
 
 ## Status
 
-The Engine is **approaching its first release (v1)** and under active construction toward it. It is still
-pre-1.0 until that release is cut — expect rapid change until then.
+The Engine does what its first version set out to do, and it is in daily use on real work — it builds itself.
+Growth from here is additive: new capability arrives as new modules and new checks, not as a rewrite of what is
+already here. There is no separate milestone release to wait for before adopting it.
 
 ## Contributing
 

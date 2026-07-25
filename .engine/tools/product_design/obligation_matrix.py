@@ -25,9 +25,8 @@ folding it in would re-key and re-nag every finding below the edit (the plan-gat
 ONE TIER HERE, on purpose. The design names two rigor tiers — criterion-granular over a `docs/spec/` criteria table,
 and a weaker heading-span tier over prose design docs with no criteria table. This shipped, TRAVELLING generator
 implements the criterion-granular tier ONLY, over the product's OWN in-repo `docs/spec/` (the engine/product wall: it never
-reads the engine's design workspace). The span tier's only corpus is the engine's self-build prose — a MAINTAINER
-construction instrument that reads the (out-of-repo) planning workspace and retires at v1, never this product
-module — and a `locked` `docs/spec/` document always carries a well-formed criteria table (product-spec-form
+reads the engine's design workspace). The span tier has no corpus in a product repo at all — and a `locked`
+`docs/spec/` document always carries a well-formed criteria table (product-spec-form
 makes a `locked`-without-criteria document a hard finding), so a span-tier row is unreachable in a conformant
 product repo. Building it here would be dead code the divergence-hunter would rightly flag.
 
@@ -36,7 +35,7 @@ in memory and byte-compares. A present, non-empty matrix that drifted → a HARD
 (regenerate + commit). But NOTHING is ever hard merely for the absence of a settled spec: when nothing is locked
 the derived matrix is empty, and an in-sync empty matrix is a SOFT disclosed no-op — a staged/MVP product is a
 first-class operator choice and is never pressured toward a spec. The matrix travels with the optional
-product-design module and is self-removing with it; in the engine's own construction repo (no `docs/spec/`) it is
+product-design module and is self-removing with it; in the engine's own home repository (no `docs/spec/`) it is
 the empty disclosed no-op, exercised only by fixtures.
 
 REGENERATION AT THE COMMIT BOUNDARY. The `hook` verb is the `PreToolUse` entry the module wires (beside

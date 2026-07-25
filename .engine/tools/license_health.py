@@ -16,9 +16,10 @@ The open-removal-PR DEDUPE is a SEPARATE, best-effort, ONLINE step (`removal_pr_
 never sits on the offline detector's critical path (the `checkout_health` offline/online seam).
 
 Fix-never-here: the removal lands as a reviewed pull request the operator merges (build-orchestration's trivial
-fast path), never a boot-time delete. No-op in the engine's OWN template/construction repo, where the
-root LICENSE is legitimately the engine's, not a leftover — judged against the EXAMINED checkout's committed
-`HEAD:CLAUDE.md` (not this process's repo), so the guard tracks the repo whose LICENSE is being judged.
+fast path), never a boot-time delete. No-op in the engine's OWN home repository, where the root LICENSE is
+legitimately the engine's, not a leftover — judged by whether the EXAMINED checkout's git origin equals the
+update home its manifest records (not this process's repo), so the guard tracks the repo whose LICENSE is
+being judged.
 """
 from __future__ import annotations
 
@@ -89,7 +90,7 @@ def detect_foreign_license(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY. Returns {"present": True, "main": <path>, "fingerprint": <seed id>} when the main
     checkout's committed root LICENSE positively matches one of the engine's OWN historically-shipped template
     seeds; else None — healthy (the product's own license, or no LICENSE), unresolvable, or the engine's own
-    template/construction repo. All non-fire paths are fail-soft quiet (never a crash into boot's SessionStart).
+    home repository. All non-fire paths are fail-soft quiet (never a crash into boot's SessionStart).
     The `fingerprint` is the matched-seed id: stable session-to-session for the same license (so the ledger
     collapse works), changing if the license becomes a DIFFERENT recognizable seed (so a retired finding
     re-surfaces on a new leak)."""
