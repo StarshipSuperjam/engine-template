@@ -182,8 +182,9 @@ class TestRender(unittest.TestCase):
 class TestCLI(unittest.TestCase):
     def test_main_prints_the_real_listing(self):
         # On the real repo this very command (/engine-help), /engine-start, and /engine-status are all listed
-        # — every engine verb is operator-typed (v1 ships zero model-auto skills), so this is an end-to-end
-        # check that the real installed skills render in the operator menu. (The model-auto filter branch is
+        # — an end-to-end check that the real installed skills render in the operator menu. Nearly every engine
+        # verb is operator-typed; the exception is the model-reachable recall command, which the operator can
+        # also type, so it belongs in this listing too. (The filter branch that HIDES a model-only skill is
         # covered separately by the _MODEL_AUTO fixtures in test_lists_engine_operator_invocable_sorted.)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

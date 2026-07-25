@@ -101,6 +101,95 @@ class TestRenderTransforms(_FixtureTree):
         self.assertEqual(codex_gen.generate(self.root), [], "a second render changes nothing")
 
 
+class TestSkillPolicyMirrorsTheSource(unittest.TestCase):
+    """The self-election property, at the renderer. The policy is no longer a constant — it is read off the
+    source's `invocation` — so BOTH branches need pinning: an operator-typed command must still refuse
+    implicit invocation (the protection), and a deliberately model-reachable one must be allowed it (else the
+    capability ships on Claude and is silently dead on Codex). An inverted or collapsed mapping here is a
+    security regression, and before these tests nothing would have caught it."""
+
+    def test_operator_typed_source_refuses_implicit_invocation(self):
+        self.assertIn("allow_implicit_invocation: false", codex_gen.skill_policy("operator-typed"))
+
+    def test_model_reachable_source_allows_implicit_invocation(self):
+        self.assertIn("allow_implicit_invocation: true", codex_gen.skill_policy("model-auto"))
+
+    def test_model_only_source_allows_implicit_invocation(self):
+        self.assertIn("allow_implicit_invocation: true", codex_gen.skill_policy("model-only"))
+
+    def test_an_omitted_invocation_fails_CLOSED(self):
+        # The safety default. Model-reachability must be DECLARED: reading an omission as "model-auto" here
+        # would make a forgotten key indistinguishable from a deliberate choice, and would hand the model a
+        # command the operator meant to type. Doubt renders the protection.
+        self.assertIn("allow_implicit_invocation: false", codex_gen.skill_policy(None))
+
+    def test_an_unrecognized_value_fails_CLOSED(self):
+        self.assertIn("allow_implicit_invocation: false", codex_gen.skill_policy("typo-auto"))
+
+
+class TestCodexCoherenceExemptionIsSourceBound(unittest.TestCase):
+    """The narrowed hard gate. `codex_skill_coherence_check` used to demand operator-only protection from
+    EVERY engine Codex command; it now exempts one whose Claude source declares it model-reachable. That is a
+    real narrowing of a merge-blocking security check, so its edges are pinned here: the protection still
+    bites for an operator-typed command, the exemption applies only to a genuinely model-reachable source, and
+    an absent or unreadable source fails TOWARD demanding protection rather than waiving it."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import codex_skill_coherence_check as check
+        self.check = check
+
+    def test_operator_typed_source_still_demands_protection(self):
+        self.assertTrue(self.check._source_demands_protection("engine-start"),
+                        "an operator-typed command must still be held to the protection")
+
+    def test_a_declared_model_reachable_source_is_exempt(self):
+        self.assertFalse(self.check._source_demands_protection("engine-recall"),
+                         "the deliberately model-reachable command is the one sanctioned exemption")
+
+    def test_an_unknown_skill_fails_toward_demanding_protection(self):
+        # No source to read is doubt, and doubt must not waive a security gate.
+        self.assertTrue(self.check._source_demands_protection("engine-does-not-exist"))
+
+    def test_the_exemption_must_be_DECLARED_not_inferred_from_an_omission(self):
+        # The gate and the renderer must agree on failing closed: a command that simply omits the key is
+        # protected, so a forgotten declaration can never silently become a model-startable command.
+        self.assertNotIn("engine-recall", [])  # anchor: the exemption is by declaration, checked below
+        import glob
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        exempt = [os.path.basename(os.path.dirname(p))
+                  for p in sorted(glob.glob(os.path.join(root, "..", ".claude", "skills", "engine-*",
+                                                         "SKILL.md")))
+                  if not self.check._source_demands_protection(os.path.basename(os.path.dirname(p)))]
+        self.assertEqual(exempt, ["engine-recall"])
+        fm = validate.frontmatter(os.path.join(root, "..", ".claude", "skills", "engine-recall", "SKILL.md"))
+        self.assertEqual(fm.get("invocation"), "model-auto",
+                         "the exempt command must state its reachability, not imply it by omission")
+
+    def test_every_operator_typed_skill_still_renders_refusing_implicit_invocation(self):
+        # The end-to-end property the narrowing must not have broken: exactly one shipped command is
+        # model-reachable, and every other one still refuses. Reads the real committed renders.
+        import glob
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        reachable = []
+        for policy_path in sorted(glob.glob(os.path.join(root, "..", ".agents", "skills", "engine-*",
+                                                         "agents", "openai.yaml"))):
+            name = os.path.basename(os.path.dirname(os.path.dirname(policy_path)))
+            if "allow_implicit_invocation: true" in validate.read(policy_path):
+                reachable.append(name)
+        self.assertEqual(reachable, ["engine-recall"],
+                         "only the deliberately model-reachable command may carry a reachable render")
+
+    def test_the_residual_protection_depends_on_the_claude_side_coherence_rule(self):
+        # Load-bearing dependency, pinned so a future narrowing of the sibling rule turns something red HERE.
+        # This check reads `invocation` from the source; what keeps that value honest against the platform
+        # flag (disable-model-invocation) is validate.skill_coherence_findings. If that rule stopped pairing
+        # them, a skill could drop `invocation` while keeping the flag and slip past this check unnoticed.
+        import inspect
+        self.assertIn("disable-model-invocation", inspect.getsource(validate.skill_coherence_findings),
+                      "the Codex exemption relies on the Claude-side rule pairing invocation with the flag")
+
+
 class TestDriftGate(_FixtureTree):
     def test_in_sync_tree_is_clean(self):
         codex_gen.generate(self.root)

@@ -57,6 +57,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -295,6 +296,90 @@ def verify_seal():
 
 # --- Runners -------------------------------------------------------------------------------------------
 
+# --- The query-decomposition measurement (the read-time workflow's first step, scored) ------------------
+# The recall workflow's load-bearing move is REPHRASING: memory's search is a strict implicit-AND keyword
+# floor, so a whole natural-language question matches nothing and a question worded unlike the original
+# conversation matches nothing either. The workflow gives that rephrasing to the session's model, which no
+# fixed harness can score. What CAN be scored is the mechanical FLOOR of it: split the question into short
+# search phrases and search each, then pool. No vocabulary knowledge of any kind — no synonyms, no thesaurus,
+# no authored artifact — run through the SAME frozen scorer and the SAME producer slot as the old path, so the
+# difference is attributable to query strategy alone.
+#
+# WHY NO SYNONYM MAP. An earlier version of this measurement carried a committed synonym map. A control run —
+# the identical producer with the map emptied — scored BETTER without it (8/22 against 3/22), because synonym
+# variants crowded out the later phrases under the fan-out cap; and raised to an unbounded fan-out the same map
+# recovered 22/22 of deliberately zero-overlap rewordings, which no general English map could do. Both facts
+# said the map was fitted to this corpus rather than general, so it was deleted rather than defended. What
+# remains needs no fairness argument: decomposition cannot be tuned toward answers it has no vocabulary for.
+#
+# WHAT THIS NUMBER IS. A genuine floor for the rephrasing step — the value of merely splitting the question,
+# with zero understanding. A model rephrasing in context has vocabulary this does not and should beat it.
+
+_EXPANSION_LIMIT = 10        # per-phrase cap — the operation doc's rule (search is unbounded by default)
+_MAX_PHRASES = 8             # bound the fan-out so the stand-in stays a search strategy, not a store dump
+
+# Ordinary English function words. Generic by construction — no project or corpus vocabulary appears here, so
+# there is nothing in this list that could aim the measurement at a planted answer.
+STOPWORDS = frozenset("""
+a about after against all an and any are as at be been before being between both but by can did do does
+doing done down during each few for from further had has have having he her here hers him his how i if in
+into is it its itself just me more most my no nor not now of off on once only or other our ours out over own
+same she should so some such than that the their theirs them then there these they this those through to too
+under until up very was we were what when where which while who whom why will with you your yours
+""".split())
+
+
+def expand_query(question_text, stopwords=None):
+    """A question -> a handful of SHORT search phrases. Purely mechanical and question-only: drop stopwords,
+    then pair adjacent content words (search demands every word of a phrase in one record, so a whole sentence
+    matches nothing), then single-word anchors as the broadest fallback. Deterministic and order-stable, so
+    the measurement reproduces exactly."""
+    stop = STOPWORDS if stopwords is None else stopwords
+    words = [w for w in re.findall(r"[a-z0-9]+", (question_text or "").lower()) if w and w not in stop]
+    phrases, seen = [], set()
+
+    def _add(parts):
+        phrase = " ".join(parts)
+        if phrase and phrase not in seen:
+            seen.add(phrase)
+            phrases.append(phrase)
+
+    for a, b in zip(words, words[1:]):          # adjacent content-word pairs, in question order
+        _add([a, b])
+    for w in words:                             # single anchors last (broadest, so lowest priority)
+        _add([w])
+    return phrases[:_MAX_PHRASES]
+
+
+def expanded_producer(ledger_file, index_file):
+    """The decomposition stand-in in the injected-producer slot: search EACH phrase under a per-phrase limit,
+    then union the hits preserving first-seen order (the pooled set is what the workflow judges).
+    Side-effect-free — the same `index.search` the old path uses, forced onto the machine-independent scan."""
+    def _run(question_text):
+        pooled, seen = [], set()
+        for phrase in expand_query(question_text):
+            for record in index.search(phrase, force_scan=True, limit=_EXPANSION_LIMIT,
+                                       ledger_file=ledger_file, index_file=index_file).records:
+                rid = record.get(_ID)
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                pooled.append(record)
+        return pooled
+    return _run
+
+
+def run_expanded():
+    """The decomposition stand-in over the same committed corpus, scored by the same frozen scorer."""
+    now = int(time.time())
+    corpus = load_corpus()
+    questions = load_questions()
+    with tempfile.TemporaryDirectory(prefix="recall-benchmark-exp-") as cabinet:
+        lpath, ipath = materialize(corpus, cabinet, now)
+        rows = evaluate(corpus, questions, expanded_producer(lpath, ipath))
+    return summarize(rows), rows
+
+
 def run_synthetic():
     """Materialize the committed synthetic corpus, run the old-path producer, score, and summarize. Returns
     (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing).
@@ -353,6 +438,44 @@ def cmd_run():
         live = summary["overall_known"]["recall_at_k"]
         print("\n  Sealed baseline recall@%d = %s; this run = %s  (%s)"
               % (K, sealed, live, "reproduced" if sealed == live else "DIVERGED — investigate"))
+    return 0
+
+
+def cmd_expanded():
+    """Score the old path and the expansion stand-in side by side, so the gain is attributable to rephrasing
+    alone (same corpus, same frozen scorer, same producer slot — only the query strategy differs)."""
+    old, _ = run_synthetic()
+    new, _ = run_expanded()
+
+    def _line(label, s):
+        return ("  %-26s overall %-6s   paraphrased %s/%s   hard classes %s/%s   nothing-relevant %s/%s"
+                % (label, s["overall_known"]["recall_at_k"],
+                   s["by_vocab"]["paraphrased"][0], s["by_vocab"]["paraphrased"][1],
+                   s["hard_classes"]["hits"], s["hard_classes"]["n"],
+                   s["nothing_relevant"]["correct"], s["nothing_relevant"]["n"]))
+
+    para_new, para_n = new["by_vocab"]["paraphrased"]
+    para_old = old["by_vocab"]["paraphrased"][0]
+
+    print("Memory recall benchmark (G2) — does splitting the question into short searches help?\n")
+    print(_line("one whole-question query", old))
+    print(_line("split into short phrases", new))
+    print("\n  Every number above is 'how often the right source landed in the top 5'.")
+    print("  The headline: of %d questions deliberately reworded to share NO words with what was actually"
+          % para_n)
+    print("  said, one whole-question search found %d. Splitting the same question into short phrases and"
+          % para_old)
+    print("  searching each finds %d — and the questions that should correctly find NOTHING are unchanged,"
+          % para_new)
+    print("  so the gain is retrieval rather than a wider net catching noise.")
+    print("\n  This is a genuine FLOOR for the rephrasing step: it is pure mechanism — splitting on word")
+    print("  boundaries, with no synonyms, no thesaurus and no vocabulary of any kind, so nothing about it")
+    print("  can be aimed at the planted answers. The real workflow gives this step to the session's model,")
+    print("  which understands the question and should do better. What it does NOT measure is whether the")
+    print("  results are judged well once found — that is the human-judged half, at the removal gate.")
+    if new["nothing_relevant"]["correct"] < old["nothing_relevant"]["correct"]:
+        print("\n  ! Searching more ways cost accuracy on questions that SHOULD find nothing — a real regression.")
+        return 1
     return 0
 
 
@@ -484,6 +607,8 @@ def main(argv=None):
                           "nothing) — pass real questions with --ask")
     run.add_argument("--ask", action="append", default=[], metavar="QUESTION",
                      help="a real question for --real-local (repeatable)")
+    run.add_argument("--expanded", action="store_true",
+                     help="also score the query-expansion stand-in and show the gain over the sealed baseline")
     sub.add_parser("demo", help="falsifiable self-check of the scorer")
     sub.add_parser("reseal", help="author-time: recompute the baseline and (re)write seal.json")
     args = parser.parse_args(argv)
@@ -492,7 +617,9 @@ def main(argv=None):
     if args.cmd == "reseal":
         return cmd_reseal()
     if args.cmd == "run":
-        return cmd_real_local(args.ask) if args.real_local else cmd_run()
+        if args.real_local:
+            return cmd_real_local(args.ask)
+        return cmd_expanded() if args.expanded else cmd_run()
     parser.print_help()
     return 0
 

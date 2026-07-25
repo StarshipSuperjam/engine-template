@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Codex-skill invocation guard — the custom/script entry for engine/check/codex-skill-coherence.
 
-The Codex twin of the skill self-election guard: every ENGINE Codex skill (an engine-prefixed
-directory under `.agents/skills/`) is operator-typed, and on Codex the operator-only property is not
+The Codex twin of the skill self-election guard. Most ENGINE Codex skills (engine-prefixed directories
+under `.agents/skills/`) are operator-typed, and on Codex the operator-only property is not
 a frontmatter flag but the companion policy file — `agents/openai.yaml` carrying
 `policy.allow_implicit_invocation: false` (the model must never start the command on its own; the
-operator's explicit $-invocation still works). This check goes red when an engine Codex skill ships
+operator's explicit $-invocation still works). The bar is each skill's OWN Claude source: a command
+deliberately declared model-reachable (recall) is allowed a reachable twin, since pinning every skill
+to operator-only would ship such a capability on one runtime and silently disable it on the other.
+This check goes red when an engine Codex skill ships
 without that companion, or with the policy absent or not false — so the self-election protection
 cannot be dropped on one runtime while the other stays green (eADR-0034). Operator-authored,
 un-prefixed product skills in the same directory are not engine-governed.
@@ -40,13 +43,47 @@ def _policy_disallows_implicit(policy_path: str) -> bool:
     return isinstance(policy, dict) and policy.get("allow_implicit_invocation") is False
 
 
+def _claude_skills_root(skills_dir: "str | None") -> str:
+    """The Claude sources matching the rendered tree being checked. When `findings` is pointed at a fixture
+    tree, the sources must come from BESIDE it — a hard gate whose verdict depends on the real repo's files
+    while checking a fixture is reading state it was never handed, and its bite would then rest on the
+    accident that no real skill shares the fixture's name."""
+    if not skills_dir:
+        return os.path.join(validate.ROOT, ".claude", "skills")
+    sibling = os.path.join(os.path.dirname(os.path.abspath(skills_dir)), "claude-skills")
+    return sibling if os.path.isdir(sibling) else os.path.join(validate.ROOT, ".claude", "skills")
+
+
+def _source_demands_protection(name: str, skills_root: "str | None" = None) -> bool:
+    """True unless the Claude source for `name` EXPLICITLY declares itself model-reachable. Everything else —
+    an operator-typed declaration, an omitted invocation, an unrecognized value, a missing or unreadable
+    source — demands the protection. The exemption must be declared rather than inferred from an omission, so
+    that a forgotten key can never quietly hand the model a command the operator meant to type; every form of
+    doubt fails toward the finding."""
+    root = skills_root or os.path.join(validate.ROOT, ".claude", "skills")
+    src = os.path.join(root, name, "SKILL.md")
+    if not os.path.isfile(src):
+        return True
+    try:
+        return (validate.frontmatter(src) or {}).get("invocation") not in ("model-auto", "model-only")
+    except Exception:  # noqa: BLE001 — unreadable source reads as protected-required (fail toward the finding)
+        return True
+
+
 def findings(tier: str, skills_dir: str | None = None) -> list:
+    """The self-election safety property: a command the OPERATOR types must never be one the assistant can
+    start on its own. The bar is the Claude source's own `invocation`, not a blanket rule — a deliberately
+    model-reachable command (recall, for instance) is allowed to be reachable on Codex too, and pinning every
+    skill to operator-only would silently disable such a capability on one of the two runtimes."""
     base = skills_dir or os.path.join(validate.ROOT, ".agents", "skills")
+    sources = _claude_skills_root(skills_dir)
     out = []
     for skill_md in sorted(glob.glob(os.path.join(base, "engine-*", "SKILL.md"))):
         skill_dir = os.path.dirname(skill_md)
         name = os.path.basename(skill_dir)
         policy_path = os.path.join(skill_dir, "agents", "openai.yaml")
+        if not _source_demands_protection(name, sources):
+            continue                       # deliberately model-reachable — its twin may be reachable as well
         if not _policy_disallows_implicit(policy_path):
             out.append(validate.finding(
                 tier,

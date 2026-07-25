@@ -65,9 +65,32 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ToolWiringTests(_ServerBase):
-    async def test_tools_list_is_exactly_search(self):
+    async def test_tools_list_is_exactly_the_declared_operations(self):
+        # The server answers search.json's operation set and nothing else — an undeclared tool would be a
+        # private detail a richer swap-in could silently drop, breaking any caller that relied on it.
         names = {t.name for t in await srv.server.list_tools()}
-        self.assertEqual(names, {"search"})
+        self.assertEqual(names, {"search", "recall-window"})
+
+    async def test_recall_window_reads_a_sessions_conversation_back(self):
+        # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so
+        # this is the only way the exact wording comes back.
+        for seq, (speaker, text) in enumerate([("user", "shall we cache the roster"),
+                                               ("assistant", "yes, with a short expiry")]):
+            ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                           "session_id": "s-live", "ts": self.now, "seq": seq, "speaker": speaker,
+                           "text": text, "tags": ["transcript", "stop"]})
+        out = self._result_json(await srv.server.call_tool("recall-window", {"session_id": "s-live"}))
+        self.assertEqual([t["text"] for t in out["turns"]],
+                         ["shall we cache the roster", "yes, with a short expiry"])
+
+    async def test_recall_window_writes_nothing(self):
+        # Reading a conversation must not reinforce or otherwise mutate the store.
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                       "session_id": "s-live", "ts": self.now, "seq": 0, "speaker": "user",
+                       "text": "a stored turn", "tags": ["transcript", "stop"]})
+        before = _marker_count()
+        await srv.server.call_tool("recall-window", {"session_id": "s-live"})
+        self.assertEqual(_marker_count(), before, "reading a window must append no reinforcement marker")
 
     async def test_search_returns_ranked_results_matching_the_library(self):
         self.add("export format export schedule decided", role="decision")
@@ -90,13 +113,17 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # (issue #332): the recall answer itself discloses that the raw verbatim behind the curated
-        # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
+        # (issue #332): the recall answer itself discloses that these are summaries and that the verbatim
+        # conversation behind them is kept. Now that a reader for it exists, the note must NAME that reader —
+        # a disclosure that the wording is "recoverable" without saying how leaves the reader stuck.
+        # Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
         self.assertTrue(data["results"])
         self.assertIn("recall_completeness", data)
-        self.assertIn("recoverable", data["recall_completeness"].lower())
+        note = data["recall_completeness"].lower()
+        self.assertIn("summaries", note)
+        self.assertIn("recall-window", note, "the note must name the reader that gets the exact wording")
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose

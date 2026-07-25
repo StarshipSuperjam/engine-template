@@ -212,5 +212,92 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(rb._demo(), 1)
 
 
+class QueryDecompositionTests(unittest.TestCase):
+    """The measurement of the workflow's load-bearing step. The stand-in must be a GENERAL query strategy —
+    mechanical, question-only, reproducible — and its gain must be real recall rather than the noise of
+    returning more records.
+
+    HISTORY WORTH KEEPING: this measurement once carried a committed synonym map. A control (the same producer
+    with the map emptied) scored BETTER without it, and raised to an unbounded fan-out the map recovered 22/22
+    deliberately zero-overlap rewordings — both signs it was fitted to this corpus, not general. It was deleted
+    rather than defended, which is why no fairness argument is needed here: decomposition has no vocabulary to
+    aim."""
+
+    def _expand(self, q):
+        return rb.expand_query(q)
+
+    def test_phrases_are_short_enough_to_match_under_implicit_and(self):
+        # Search demands EVERY word of a phrase in one record, so a whole sentence matches nothing. (Two words
+        # is what the rule emits; the assertion is on the property that matters, not on the constant.)
+        for phrase in self._expand("how long before stored gadget entries are purged"):
+            self.assertLessEqual(len(phrase.split()), 2)
+
+    def test_a_whole_question_would_not_survive_its_own_rule(self):
+        # The reason the rule exists, pinned: the unsplit question is far longer than anything it emits.
+        q = "how long before stored gadget entries are purged"
+        self.assertGreater(len(q.split()), max(len(p.split()) for p in self._expand(q)))
+
+    def test_stopwords_are_dropped(self):
+        joined = " ".join(self._expand("what is the ceiling on repeat attempts"))
+        for filler in ("what", "is", "the", "on"):
+            self.assertNotIn(f" {filler} ", f" {joined} ")
+
+    def test_content_words_survive_as_anchors(self):
+        self.assertIn("ceiling", self._expand("what is the ceiling on repeat attempts"))
+
+    def test_expansion_is_deterministic(self):
+        q = "which authentication method do employees use to sign in now"
+        self.assertEqual(self._expand(q), self._expand(q))
+
+    def test_expansion_is_a_pure_function_of_the_question(self):
+        # The fairness property that makes the number meaningful: it cannot consult the corpus or the labels,
+        # so it cannot be tuned to the planted answers. It sees the question and a generic stopword list.
+        import inspect
+        src = inspect.getsource(rb.expand_query)
+        for forbidden in ("load_corpus", "CORPUS_PATH", "load_questions", "expected_", "synonym"):
+            self.assertNotIn(forbidden, src, "decomposition must never read the corpus or the labels")
+
+    def test_no_authored_vocabulary_artifact_exists(self):
+        # The deleted map must stay deleted: a committed word-list is exactly the artifact that could be
+        # fitted to the answers, and its absence is what makes the number need no fairness argument.
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(rb.CORPUS_PATH), "expansions.json")))
+        self.assertFalse(hasattr(rb, "load_expansions"))
+
+    def test_the_stopword_list_carries_no_project_vocabulary(self):
+        # A stopword list is the one word-list left; it must stay ordinary English function words, since a
+        # project term hidden in it would silently steer every query.
+        for term in ("memory", "engine", "export", "ledger", "recall", "session", "rate", "flag"):
+            self.assertNotIn(term, rb.STOPWORDS)
+
+    def test_decomposition_beats_the_old_path_on_paraphrased_questions(self):
+        old, _ = rb.run_synthetic()
+        new, _ = rb.run_expanded()
+        self.assertGreater(new["by_vocab"]["paraphrased"][0], old["by_vocab"]["paraphrased"][0],
+                           "splitting the question must recover reworded questions one query missed")
+
+    def test_the_gain_is_large_enough_to_mean_something(self):
+        # A one- or two-question difference on n=22 is not distinguishable from chance; the reported result
+        # has to clear that bar or it should not be reported as a gain at all.
+        new, _ = rb.run_expanded()
+        self.assertGreaterEqual(new["by_vocab"]["paraphrased"][0], 5)
+
+    def test_decomposition_does_not_buy_recall_with_false_positives(self):
+        # Searching several ways returns more records; the questions that SHOULD find nothing are the control.
+        old, _ = rb.run_synthetic()
+        new, _ = rb.run_expanded()
+        self.assertGreaterEqual(new["nothing_relevant"]["correct"], old["nothing_relevant"]["correct"])
+
+    def test_expanded_run_reproduces(self):
+        a, _ = rb.run_expanded()
+        b, _ = rb.run_expanded()
+        self.assertEqual(a, b)
+
+    def test_the_sealed_baseline_is_untouched_by_this_measurement(self):
+        seal, problems = rb.verify_seal()
+        self.assertEqual(problems, [])
+        self.assertEqual(rb.run_synthetic()[0]["overall_known"]["recall_at_k"],
+                         seal["old_path_baseline"]["overall_known"]["recall_at_k"])
+
+
 if __name__ == "__main__":
     unittest.main()

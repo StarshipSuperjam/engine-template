@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """The engine-memory MCP server: the conforming fallback for memory recall (search.json).
 
-A thin MCP transport over the ranked recall library (`memory.index.search`): the single declared operation
-`search`, delegating to the library that ranks (lexical relevance, reinforced by usage) and filters (role/tag).
+A thin MCP transport over the recall library: the two declared operations of `search.json` — `search`, which
+ranks (lexical relevance, reinforced by usage) and filters (role/tag) via `memory.index.search`; and
+`recall-window`, which reads one past session's actual conversation back through `memory.recall.window`
+(a fetch, never a second ranking — the ranked contract stays single). `recall-window` is the read side of the
+transcript-first substrate: raw turns are excluded from every ranked path, so without it the exact wording the
+substrate calls canonical could be stored but never read back.
 On every hit it fires the live reinforcement that records the access (`forget.record_access`), so recall is
 self-reinforcing — the move reserved for "the search server" (records.py / forget.py). Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
@@ -32,7 +36,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, index, ledger, records  # noqa: E402
+from memory import forget, index, ledger, recall, records  # noqa: E402
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
@@ -72,8 +76,9 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
 # assistant relays it to the operator (the operator-communication law) and can offer the verbatim. The wording is
 # a build-spec leaf.
 _RECALL_COMPLETENESS_NOTE = (
-    "These are curated summaries. The original word-for-word notes behind them are still kept and recoverable — "
-    "offer to pull the exact wording if the operator wants it."
+    "These are curated summaries. The original word-for-word conversation behind them is kept and readable with "
+    "`recall-window` — read it before relying on wording, and tell the operator when an answer rests on the "
+    "summary rather than on what was actually said."
 )
 
 
@@ -85,7 +90,8 @@ _RECALL_COMPLETENESS_NOTE = (
         "weaker one). Optional `roles` narrows to record kinds (decision, rationale/pushback, lesson, dead-end, "
         "preference, intent, observation); optional `tags` narrows to records carrying any given tag (entity refs "
         "like 'eADR-0007' or free topic tags — compose the link to knowledge yourself by tag-filtering an entity "
-        "id); optional `limit` caps results. Returns narrative recall only, never structural fact (knowledge's "
+        "id); optional `limit` caps results — SET IT (10 is a sensible default), because omitting it returns "
+        "every match and floods your context on a large store. Returns narrative recall only, never structural fact (knowledge's "
         "job). Each result carries the substrate's own fields (role, narrative, tags, provenance, score). Using a "
         "memory reinforces it, so what you rely on stays easy to recall."
     ),
@@ -97,6 +103,27 @@ def search(query: str, roles: list[str] | None = None,
     if out:
         result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
     return result
+
+
+@server.tool(
+    name="recall-window",
+    description=(
+        "Read back the actual conversation of one past session — the exact user and assistant turns, in the "
+        "order they happened. This is the companion to `search`: search names a relevant session, then read "
+        "that session here rather than relying on a summary of it. `session_id` is the session to read (take "
+        "it from a search result's `session_id` — a cluster key like 'tag:…' works too, it is resolved for "
+        "you). Optional `anchor_seq` centres the window on one message, with `radius` turns either side; a "
+        "ranked result carries no position, so anchor on a FOLLOW-UP read once a first window has shown which "
+        "ordinals exist. `max_turns` caps the result (clamped to this server's own ceiling). "
+        "Fetches, never ranks — ordering is the conversation's own. Reads only; it changes nothing. Long "
+        "messages were stored in pieces and are rejoined here, and machine-inserted text (continuation "
+        "summaries, notifications) is left out so it is never mistaken for what the operator said."
+    ),
+)
+def recall_window(session_id: str, anchor_seq: int | None = None,
+                  radius: int = recall.DEFAULT_RADIUS,
+                  max_turns: int = recall.DEFAULT_MAX_TURNS) -> dict:
+    return recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

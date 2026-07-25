@@ -606,7 +606,7 @@
       },
       "slug": "codex-skill-coherence",
       "source": {
-        "fingerprint": "sha256:0a6024905a16a23622f82ab4801305820a23b96fb85adbe2dcb134c63f3c7e38",
+        "fingerprint": "sha256:0be8621ded8d2b5ffa579c589407693f7482d795c497da4125bf47bd6394324e",
         "path": ".engine/check/codex-skill-coherence.json"
       },
       "status": "active",
@@ -634,6 +634,7 @@
           "codex-skill:engine-design",
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
+          "codex-skill:engine-recall",
           "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
@@ -672,6 +673,7 @@
           "codex-skill:engine-design",
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
+          "codex-skill:engine-recall",
           "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
@@ -1545,6 +1547,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
           "operation:onboarding-read",
@@ -1595,6 +1598,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
           "operation:onboarding-read",
@@ -2145,6 +2149,7 @@
           "skill:engine-design",
           "skill:engine-help",
           "skill:engine-parts",
+          "skill:engine-recall",
           "skill:engine-routine",
           "skill:engine-setup",
           "skill:engine-start",
@@ -2183,6 +2188,7 @@
           "skill:engine-design",
           "skill:engine-help",
           "skill:engine-parts",
+          "skill:engine-recall",
           "skill:engine-routine",
           "skill:engine-setup",
           "skill:engine-start",
@@ -2726,6 +2732,46 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-parts/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-recall",
+      "name": ".agents/skills/engine-recall/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-recall",
+      "source": {
+        "fingerprint": "sha256:a6726ccda4152e20b1b0d255b5da7d6767a10b5efbbfeb6bf7447022acd266f2",
+        "path": ".agents/skills/engine-recall/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-recall.policy",
+      "name": ".agents/skills/engine-recall/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-recall.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-recall/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3783,6 +3829,7 @@
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
       "operations": [
+        "recall-window",
         "search"
       ],
       "owner": "core",
@@ -3796,7 +3843,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:f8469b913768e724ef7c4703fd73198498b1cd5769d104aea9e8d4b54a4adb12",
+        "fingerprint": "sha256:be70abd4f40991c18776c3f37101517c177cac43e3fa148657d733c54931ef2f",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -3828,7 +3875,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:79aac76ae5cb955b9b7bcfb997cfb4b2d0410b8e34d1863234e205853493c10b",
+        "fingerprint": "sha256:a2425be5c7a42849de935ca4a45caed57eac9dfef90709398e68319dbcdc89b3",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4311,6 +4358,26 @@
       "source": {
         "fingerprint": "sha256:cb2eda222d974abc538e4bde28b1ba985996e5598d4656c97395f9f8e0d01d5b",
         "path": ".engine/operations/knowledge-impact-check.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:memory-recall",
+      "name": ".engine/operations/memory-recall.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory-recall",
+      "source": {
+        "fingerprint": "sha256:9c9978e4173bf2ecbd9567e86d3fe8e737359ed646e04c08a15dccd11940160a",
+        "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
       "type": "operation"
@@ -5373,6 +5440,28 @@
       "type": "skill"
     },
     {
+      "id": "skill:engine-recall",
+      "invocation": "model-auto",
+      "name": ".claude/skills/engine-recall/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-recall",
+      "source": {
+        "fingerprint": "sha256:6a16959c3603004886d31044447d98bff9f9d168c83659b5537617092a4d945d",
+        "path": ".claude/skills/engine-recall/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-recall",
+      "type": "skill"
+    },
+    {
       "id": "skill:engine-routine",
       "invocation": "operator-typed",
       "name": ".claude/skills/engine-routine/SKILL.md",
@@ -5685,7 +5774,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:89059468aa606f8c46759ed547bb479ed23d6fef8432190209ef7a596ffbfdbc",
+        "fingerprint": "sha256:daaca3a4ec1d5a3d80cd5ee2360c37a1a0928e26d829d7ad3ffdf722287827d3",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -5923,7 +6012,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:db85152e85fcbf22abf7b96c0709557e834c7a256fbba9a65ee3507461808a2f",
+        "fingerprint": "sha256:01106e2b544d0550330444f8c335f3e51fd6ee07afe3d2410270b9770209bd06",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -5940,7 +6029,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:70358d82aa526de55b251302d4a55c250f6a68fd68b515ed69603ef20f8058e2",
+        "fingerprint": "sha256:a9ef2f51a307ee8a3e31fb60d02c3f2c78b5cd9ffe787c55fa2e07a897b12102",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -6977,7 +7066,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:2c012606bfbbde6638e9f86e393b744c7399f288179ff2cd564fce2f741b560a",
+        "fingerprint": "sha256:00eb03c7ec1dcb02d76c9433bc6b82af516d9ccbe0f20517d8dcdb122abb7682",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -7470,7 +7559,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:7daece68ec0179304aabd69d9f7e7a753bed1bb95b84fc83a81ec51d87e77132",
+        "fingerprint": "sha256:dd70b48dc52ea59ce672bb1dad531049ce959820910478f96b3df71340ddf7ca",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7885,6 +7974,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:recall",
+      "name": ".engine/tools/memory/recall.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "recall",
+      "source": {
+        "fingerprint": "sha256:ef68788d65f813e322819653f541176d287d26b480866c894f01fd6fab6dd819",
+        "path": ".engine/tools/memory/recall.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:recall_benchmark",
       "name": ".engine/tools/recall_benchmark.py",
       "owner": "core",
@@ -7895,7 +8001,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:4bfe883bebc23ee3f85be1038dfb128b47e7aa4af7e419b9b3da61c0fce1116f",
+        "fingerprint": "sha256:d46ba3ff3838ef2e85b7f4e4e85bed73dda4eacaea712935ee0ad7afd8b31c4a",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -7912,7 +8018,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:820c61d6922d96a07bc476a3599e4d0fc581915d6d7bc9e8b28362b9739120c9",
+        "fingerprint": "sha256:cfaaadf64bbdcefa5a2ff718c439fa5f291a6df93cf36236d459a284b103da8c",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8728,7 +8834,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:db1d2ce1a72fbc687265f5ca2b677cd44d0fe59af58b53910240b2c8c494f9f1",
+        "fingerprint": "sha256:39b0ddf7c3edf9c104c60a8190067968b1943d700441d09186a39422ca99a647",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -8983,7 +9089,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:9ed7766492386580c0a81177e2a6257ecacd18fa97098f3eb4b0a993d347085f",
+        "fingerprint": "sha256:be6adef0831b21e6edfdc4a00c27ced92fa864005c1ea3f2efb4e2b0d2354275",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -9255,7 +9361,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:4875639f75ef36a002562437b5251a2ae981e1ade5a8cb09a39e8e577632ddeb",
+        "fingerprint": "sha256:b2b69c41c882e7bf6265072311d72e14064301046faf4555dbb13ef07ace91cf",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -9510,7 +9616,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:57c0943b8c7844312123d7479b16d8d0a53d83b0215909c0f3890e1bb78daf89",
+        "fingerprint": "sha256:ab8d245c8648addd3018ba3eb022b3e22196095a458bd2d05861f0a56422c851",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -9874,6 +9980,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_recall",
+      "name": ".engine/tools/memory/test_recall.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_recall",
+      "source": {
+        "fingerprint": "sha256:7e1be446047fb793858fe0eb7a8feb3c9d6be35a1ec596039b53bf492334a730",
+        "path": ".engine/tools/memory/test_recall.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_recall_benchmark",
       "name": ".engine/tools/test_recall_benchmark.py",
       "owner": "core",
@@ -9884,7 +10007,7 @@
       },
       "slug": "test_recall_benchmark",
       "source": {
-        "fingerprint": "sha256:6acc7f8e8a8e91daf338970404d7f4fc8850c0427b5bf809bcf9dd2c342ac5b0",
+        "fingerprint": "sha256:5535b5f3eed2ae67d59cd696e6f425de0262e847a440d451955aa923bebe5c37",
         "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
