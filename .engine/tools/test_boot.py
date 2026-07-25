@@ -223,6 +223,9 @@ class TestMechanicOrientation(unittest.TestCase):
 
     _RESOLVED = {"product": "o/r", "checkout": "/home/me/product", "state": "resolved"}
     _UNSET = {"product": "o/r", "checkout": None, "state": "path-unset"}
+    # The overlay's OWN opening sentence — the discriminator for presence/absence. A bare "engine-mechanic"
+    # substring is NOT safe: the pack also carries recalled decision notes that may mention the mechanic.
+    _OVERLAY_MARK = "this is an engine-mechanic — its product is"
 
     # -- operator dashboard (render_dashboard, pure over a synthetic signals dict) --
 
@@ -285,19 +288,21 @@ class TestMechanicOrientation(unittest.TestCase):
         self.assertNotIn("build-orchestration.md` (build in place", pack)   # no in-place build until it resolves
 
     def test_no_ai_overlay_for_a_self_building_deployment(self):
-        pack = self._pack(mechanic=None)
-        self.assertNotIn("engine-MECHANIC", pack)
+        self.assertNotIn(self._OVERLAY_MARK, self._pack(mechanic=None).lower())
 
     def test_mechanic_and_home_overlays_never_co_render(self):
         # By data a mechanic's origin differs from its recorded home, so the two detectors are mutually exclusive;
         # pin it so a future manifest change can't silently produce two conflicting grounding paragraphs.
+        # Matched on the overlay's OWN opening sentence, not a bare "engine-mechanic" substring: the pack also
+        # carries recalled decision notes, whose text can legitimately mention the mechanic and would make a
+        # loose absence assertion fail on unrelated memory content.
         mech_pack = self._pack(mechanic=self._RESOLVED, home_workshop=None).lower()
-        self.assertIn("engine-mechanic", mech_pack)
-        self.assertNotIn("engine's own home repo", mech_pack)
+        self.assertIn(self._OVERLAY_MARK, mech_pack)
+        self.assertNotIn("you are in the engine's own home repo", mech_pack)
         home = {"present": True, "main": "/x", "home": "o/r", "own": "o/r"}
         home_pack = self._pack(mechanic=None, home_workshop=home).lower()
-        self.assertIn("engine's own home repo", home_pack)
-        self.assertNotIn("engine-mechanic", home_pack)
+        self.assertIn("you are in the engine's own home repo", home_pack)
+        self.assertNotIn(self._OVERLAY_MARK, home_pack)
 
 
 class TestOpenProblemsProvenance(unittest.TestCase):
