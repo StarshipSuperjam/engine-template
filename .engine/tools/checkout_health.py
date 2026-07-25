@@ -559,11 +559,17 @@ def _read_checkout_path_file(cwd: str | None = None) -> str | None:
 
 def _product_checkout_path(cwd: str | None = None) -> str | None:
     """The per-machine product-checkout path with NO manifest read: env `ENGINE_PRODUCT_CHECKOUT` first (the
-    trusted session-set seam), then the gitignored fallback file. Stripped, or None when neither is set. The
-    single place the two path seams are combined, shared by the callers that have already established this is a
-    mechanic — so the manifest is read once by the caller, not again here."""
+    trusted session-set seam), then the gitignored fallback file. Stripped and `~`-expanded, or None when neither
+    is set. The single place the two path seams are combined, shared by the callers that have already established
+    this is a mechanic — so the manifest is read once by the caller, not again here.
+
+    `~` is expanded because a home-relative path is the most natural thing an operator writes for a folder on
+    their own machine, and every consumer hands the value to `git -C`, which does NOT expand it (a shell would):
+    left raw, `~/code/product` fails as "cannot change to '~/code/product'" for a folder that plainly exists."""
     path = os.environ.get(_PRODUCT_CHECKOUT_ENV) or _read_checkout_path_file(cwd)
-    return path.strip() if path and path.strip() else None
+    if not (path and path.strip()):
+        return None
+    return os.path.expanduser(path.strip())
 
 
 def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | None]:
@@ -575,7 +581,14 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
       - `(None, "path-unset")` — LOUD state: a target is recorded but this machine's local checkout path is unset
         (the fork case — the committed slug travelled, the local path was never set). The caller/boot renders the
         plain-language line (this module keeps operator prose out of its return values).
-    The path is inherently per-machine, so it is never committed; the slug travels, the path is local."""
+    The path is inherently per-machine, so it is never committed; the slug travels, the path is local.
+
+    Deliberately does NOT judge whether anything is AT the path — it returns a recorded path as resolved even if
+    the folder is absent. That is not an oversight and must not be "harmonized" with `mechanic_orientation`'s
+    `path-unreachable`: this reader feeds the BUILD entry, whose fail-closed belt then judges the checkout far
+    more strictly (right origin, trusted host, clean tree) and refuses with a precise reason. Pre-judging here
+    would only turn one of those precise refusals into a vaguer one. `mechanic_orientation` classifies existence
+    because it feeds a session-start CARD, which must never affirm a readiness nobody checked."""
     if not recorded_product_build_target(cwd):
         return (None, None)                     # silent: not a mechanic
     path = _product_checkout_path(cwd)
@@ -587,16 +600,26 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
 def mechanic_orientation(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: the one value boot relays to orient a mechanic session — or None when this is NOT a
     mechanic (no `product_build_target` recorded), the normal self-building deployment. When it IS a mechanic:
-    `{"product": <owned slug>, "checkout": <local path | None>, "state": "resolved" | "path-unset"}`. The manifest
-    is read ONCE here (via `recorded_product_build_target`); the per-machine path reuses `_product_checkout_path`,
-    the same seam `resolve_product_checkout` uses. Boot consumes this single dict on both its surfaces (the
-    operator dashboard and the assistant grounding) so the derived state is sourced in one place, never recomputed
-    or spread across renderers. Fail-soft is the caller's job (boot degrades the one signal to None on error)."""
+    `{"product": <owned slug>, "checkout": <local path | None>, "state": ...}` with state one of
+
+      - `"path-unset"`      — no local path recorded at all (the fork case: the slug travelled, the path did not);
+      - `"path-unreachable"` — a path IS recorded but nothing is there (a typo, or a clone since moved/deleted);
+      - `"resolved"`        — a path is recorded and a directory is there.
+
+    The unreachable state exists so boot never makes an affirmative readiness claim it has not checked: a bare
+    "a value is set" would report a typo'd path as ready to build in, and — because the setup offer is keyed off
+    the unset state — would then go silent forever, leaving a mid-build refusal as the only signal. The check is a
+    single `isdir`: whether the path is genuinely the right product, on a trusted origin, and safe to write in is
+    NOT decided here — that is the fail-closed belt in `mechanic_build`, and this reader must never be mistaken
+    for it. Fail-soft is the caller's job (boot degrades the one signal to None on error)."""
     target = recorded_product_build_target(cwd)
     if not target:
         return None
     path = _product_checkout_path(cwd)
-    return {"product": target, "checkout": path, "state": "resolved" if path else "path-unset"}
+    if not path:
+        return {"product": target, "checkout": None, "state": "path-unset"}
+    return {"product": target, "checkout": path,
+            "state": "resolved" if os.path.isdir(path) else "path-unreachable"}
 
 
 def checkout_lossless(checkout_path: str) -> tuple[bool, list[str]] | None:

@@ -291,11 +291,19 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
 - **First-time setup (once per machine — the fork inherits everything else).** The committed `product_build_target`
   slug travels with the engine, so a co-maintainer who forks the mechanic already carries "I build this product";
   the ONE per-machine thing to set is where their local clone of it lives. If there is no clone yet, **clone the
-  owned product as a separate folder BESIDE the mechanic** — a sibling checkout with its own `origin`, never a
-  subdirectory of the mechanic (which is itself the Engine). Then point the mechanic at it: set
-  `ENGINE_PRODUCT_CHECKOUT` to that clone's path, or write the path into `.engine/mechanic/product-checkout-path`
-  (gitignored, never committed — the path is per-machine). Boot surfaces this as a setup offer whenever the target
-  is recorded but the local path is unset.
+  owned product as its own folder NEXT TO the engine's folder, never inside it** — the engine's folder IS the
+  Engine, so the product is its sibling, each with its own `origin`:
+
+  ```
+  ~/code/my-engine-mechanic/     <- the Engine (this folder)
+  ~/code/engine-template/        <- the product it builds (a separate clone)
+  ```
+
+  Then record the path: write it into **`.engine/mechanic/product-checkout-path`** — one line, gitignored, so it
+  is durable AND stays on this machine. (`ENGINE_PRODUCT_CHECKOUT` also works and takes precedence, but an
+  environment variable set inside a session does not survive it, so it suits a one-off override, not setup.) A
+  `~`-relative path is fine — the reader expands it. Boot surfaces a setup offer whenever the target is recorded
+  but the path is missing or points at nothing.
 - **Preflight from the mechanic tree.** Run `mechanic_build.py preflight`. It REFUSES fail-closed — with a plain
   reason + remedy — unless the checkout is genuinely that product on a real `github.com` origin and clean to
   write into; on success it emits the verified `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`.

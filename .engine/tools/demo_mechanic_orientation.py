@@ -80,15 +80,42 @@ def _not_a_mechanic_says_nothing() -> bool:
 
 
 def _resolved_names_product_without_leaking_the_path() -> bool:
-    card = _card(mechanic={"product": _PRODUCT, "checkout": _CHECKOUT, "state": "resolved"})
+    mech = {"product": _PRODUCT, "checkout": _CHECKOUT, "state": "resolved"}
+    card = _card(mechanic=mech)
     names_product = _PRODUCT in card
     leaks_path = _CHECKOUT in card
-    ok = names_product and not leaks_path
+    # BOTH halves of the privacy property: the path must be absent from the operator's card AND present in the
+    # assistant's own grounding (without it the mechanic could not build anywhere). Testing only the first half
+    # would still pass if the grounding silently stopped carrying it.
+    grounding = boot.render_mechanic_grounding(mech, first_run_pending=False)
+    carries_path = _CHECKOUT in grounding
+    ok = names_product and not leaks_path and carries_path
     if ok:
         _show(card, ("What this engine builds", "local checkout of it is set"))
-        print(f"    (and the machine-local path {_CHECKOUT} is NOT on the operator's card)")
+        print(f"    (the machine-local path {_CHECKOUT} is NOT on the operator's card ...")
+        print("     ... and IS in the assistant's own grounding, which the operator never sees)")
     else:
-        print(f"    UNEXPECTED: names_product={names_product} leaks_path={leaks_path}")
+        print(f"    UNEXPECTED: names_product={names_product} leaks_path={leaks_path} "
+              f"grounding_carries_path={carries_path}")
+    return ok
+
+
+def _an_unreachable_path_keeps_asking() -> bool:
+    # Under the operator's OWN home, so the card can be checked for the home-contracted form (`~/…`) rather than
+    # the raw `/Users/<account>/…` — recognisable enough to correct, without the identifying part.
+    typo = os.path.join(os.path.expanduser("~"), "code", "engine-template-typo")
+    card = _card(mechanic={"product": _PRODUCT, "checkout": typo, "state": "path-unreachable"})
+    low = card.lower()
+    shortened = "~/code/engine-template-typo"
+    ok = ("isn't there" in low
+          and shortened in card              # shown, so a typo is fixable ...
+          and typo not in card               # ... but never with the home directory spelled out
+          and "local checkout of it is set" not in low)
+    if ok:
+        _show(card, ("isn't there",))
+        print(f"    (shown as {shortened} — not {typo})")
+    else:
+        print(f"    UNEXPECTED: a missing folder did not keep asking as narrated:\n{card}")
     return ok
 
 
@@ -96,10 +123,12 @@ def _path_unset_offers_the_full_first_time_setup() -> bool:
     card = _card(mechanic={"product": _PRODUCT, "checkout": None, "state": "path-unset"})
     low = card.lower()
     ok = ("separate checkout of its own" in low
-          and "tell me the path to your local clone" in low
-          and "beside this one" in low)        # teaches sibling-not-subdirectory, the load-bearing topology
+          and "point me at my product checkout" in low        # a spoken handle, like its neighbouring offers
+          and "clone my product for me" in low                # the no-clone-yet case is actionable too
+          and "beside it, never inside it" in low             # the load-bearing sibling-not-subdirectory rule
+          and "product-checkout-path" in low)                 # the DURABLE seam, not a session-only env var
     if ok:
-        _show(card, ("separate checkout of its own",))
+        _show(card, ("doesn't know where that checkout is yet",))
     else:
         print(f"    UNEXPECTED: the setup offer did not read as narrated:\n{card}")
     return ok
@@ -107,11 +136,20 @@ def _path_unset_offers_the_full_first_time_setup() -> bool:
 
 def _first_run_setup_comes_first() -> bool:
     first_run = {"present": True, "main": "/proj", "home": _PRODUCT, "own": "someone/their-fork"}
-    card = _card(mechanic={"product": _PRODUCT, "checkout": None, "state": "path-unset"}, first_run=first_run)
+    mech = {"product": _PRODUCT, "checkout": None, "state": "path-unset"}
+    card = _card(mechanic=mech, first_run=first_run)
     low = card.lower()
-    ok = "set up my project" in low and "separate checkout of its own" not in low
-    print("    (first-time engine setup is the only ask; the mechanic offer waits its turn)" if ok
-          else f"    UNEXPECTED: two onboarding asks at once:\n{card}")
+    one_ask = "set up my project" in low and "separate checkout of its own" not in low
+    # ... and the assistant is told plainly that the offer was withheld, rather than that the operator saw one.
+    grounding = boot.render_mechanic_grounding(mech, first_run_pending=True)
+    honest = "is not being shown the mechanic setup offer" in grounding.lower()
+    ok = one_ask and honest
+    if ok:
+        _show(card, ("first-time setup hasn't finished",))
+        print("    (the mechanic offer waits its turn — and the assistant is told it was withheld,")
+        print("     so it can't act as though you had already been asked)")
+    else:
+        print(f"    UNEXPECTED: one_ask={one_ask} grounding_is_honest={honest}")
     return ok
 
 
@@ -132,16 +170,23 @@ def main() -> int:
     print("-" * 78)
     three = _path_unset_offers_the_full_first_time_setup()
 
-    print("\n[4] The same, but first-time engine setup is also unfinished. Expect: ONE onboarding ask, not two.")
+    print("\n[4] A mechanic pointed at a folder that ISN'T THERE (a typo). Expect: it keeps asking, and shows")
+    print("    you the value it has, so you can correct it — never 'all set'.")
     print("-" * 78)
-    four = _first_run_setup_comes_first()
+    four = _an_unreachable_path_keeps_asking()
 
-    ok = one and two and three and four
+    print("\n[5] Path not set AND first-time engine setup unfinished. Expect: ONE onboarding ask, not two.")
+    print("-" * 78)
+    five = _first_run_setup_comes_first()
+
+    ok = one and two and three and four and five
     print("\n" + "=" * 78)
     print("In plain words: an engine that builds a separate product says so at the start of a session, and if it")
-    print("doesn't yet know where your copy of that product lives, it asks you once, in plain language, and tells")
-    print("you how to get one. The path to your copy stays on your machine — it is never shown on the card you")
-    print("might paste to someone, and it never travels with the project when a colleague forks it.")
+    print("doesn't yet know where your copy of that product lives — or the folder it has isn't there — it asks")
+    print("you, in plain language, and tells you how to get one. When everything is fine the card shows no folder")
+    print("path at all; the one time it does is when the folder is missing and you need to see it to fix it, and")
+    print("even then it is shortened to `~/...` so your account name isn't on a card you might paste to someone.")
+    print("The path never travels with the project when a colleague forks it — they set only their own.")
     print("DEMO OK" if ok else "DEMO FAILED -- boot did not orient as narrated (a behaviour may have regressed)")
     print("=" * 78)
     return 0 if ok else 1

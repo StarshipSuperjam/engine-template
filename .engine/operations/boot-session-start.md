@@ -101,6 +101,19 @@ and never forces. What differs is *what* each protects and *how* it declines:
   interrupted partway; boot never runs setup itself. A best-effort ONLINE parentage read
   (`first_run_health.forked_from_home`) suppresses the offer for a contributor's fork of the engine home (not an
   adopter); offline the offer still shows — read-only and low-harm.
+- **An engine-mechanic with no usable product checkout — setup (`checkout_health.mechanic_orientation`,
+  eADR-0026).** This engine records an executable `product_build_target`, so it builds a SEPARATE owned checkout,
+  but this machine's path to that checkout is missing or points at nothing. The reader classifies it OFFLINE
+  (`path-unset` / `path-unreachable`); boot pins the setup offer and **suppresses it while first-run setup is
+  pending**, so onboarding asks once, not twice. Like the fresh-copy offer above and unlike the repairs below,
+  the fix is not a write boot makes: on the operator's "point me at my product checkout" the assistant records
+  the folder in the gitignored `.engine/mechanic/product-checkout-path` (durable and per-machine — an
+  environment variable would not outlive the session), and on "clone my product for me" it clones the recorded
+  product as a SIBLING folder beside the engine's own, never inside it. Both act only on that consent; boot
+  itself writes nothing and clones nothing. The unreachable case echoes the recorded folder home-contracted
+  (`~/…`) so a typo can be corrected without putting the account name on a card the operator may paste; the
+  healthy case shows no path at all. The path is never verified here — the fail-closed preflight in
+  `mechanic_build` decides whether the checkout is really that product and safe to write in.
 - **A stranded checkout — un-stranding (`checkout_health.unstrand`).** The deployed-floor never-strand-main
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.

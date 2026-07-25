@@ -1192,24 +1192,51 @@ class TestProductBuildTarget(unittest.TestCase):
             self._write_manifest(root, {"engine_release": "1.0.0"})
             with self._env(ENGINE_PRODUCT_CHECKOUT="/anything"):
                 self.assertIsNone(checkout_health.mechanic_orientation(root))
-            # a mechanic with the path set via env -> resolved, carrying product + checkout
+            # a mechanic pointed at a REAL directory -> resolved, carrying product + checkout
             self._write_manifest(root, {"product_build_target": "o/r"})
-            with self._env(ENGINE_PRODUCT_CHECKOUT="/home/me/et"):
+            real = os.path.join(tmp, "product-clone")
+            os.makedirs(real)
+            with self._env(ENGINE_PRODUCT_CHECKOUT=real):
                 self.assertEqual(checkout_health.mechanic_orientation(root),
-                                 {"product": "o/r", "checkout": "/home/me/et", "state": "resolved"})
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
             # the gitignored fallback file resolves it too (no env)
             os.makedirs(os.path.join(root, ".engine", "mechanic"))
             with open(os.path.join(root, ".engine", "mechanic", "product-checkout-path"), "w",
                       encoding="utf-8") as fh:
-                fh.write("/home/me/from-file\n")
+                fh.write(real + "\n")
             with self._env(ENGINE_PRODUCT_CHECKOUT=None):
                 self.assertEqual(checkout_health.mechanic_orientation(root),
-                                 {"product": "o/r", "checkout": "/home/me/from-file", "state": "resolved"})
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
             # a mechanic whose local path is unset -> path-unset, checkout None (the fork case)
             os.remove(os.path.join(root, ".engine", "mechanic", "product-checkout-path"))
             with self._env(ENGINE_PRODUCT_CHECKOUT=None):
                 self.assertEqual(checkout_health.mechanic_orientation(root),
                                  {"product": "o/r", "checkout": None, "state": "path-unset"})
+
+    def test_mechanic_orientation_separates_a_recorded_path_from_a_real_one(self):
+        # A typo'd / moved / deleted folder must NOT read as ready to build in: it is its own state, so boot can
+        # keep offering (and echo the bad value) instead of affirming a readiness it never checked.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            missing = os.path.join(tmp, "not-cloned-here")
+            with self._env(ENGINE_PRODUCT_CHECKOUT=missing):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": missing, "state": "path-unreachable"})
+
+    def test_mechanic_orientation_expands_a_home_relative_path(self):
+        # `~/clone` is the most natural thing an operator writes, and `git -C` does not expand it — so the reader
+        # must, or a correct path is reported unreachable and then refused at build time.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            with mock.patch.dict(os.environ, {"HOME": tmp}):
+                os.makedirs(os.path.join(tmp, "clone"))
+                with self._env(ENGINE_PRODUCT_CHECKOUT="~/clone"):
+                    got = checkout_health.mechanic_orientation(root)
+            self.assertEqual(got["state"], "resolved")
+            self.assertEqual(got["checkout"], os.path.join(tmp, "clone"))
+            self.assertNotIn("~", got["checkout"])
 
 
 if __name__ == "__main__":
