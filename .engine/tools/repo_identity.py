@@ -131,8 +131,8 @@ def is_downstream_copy(own_slug: "str | None", home_slug=_READ_HOME) -> bool:
         None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet. A MALFORMED
         manifest read here degrades to False (never crash a read-only caller), unlike the fail-LOUD
         `home_repository()` the update path relies on — which is why `is_downstream_copy_strict` passes the
-        home in explicitly rather than omitting it. Do NOT widen this `try` to cover the whole body: the
-        narrow scope is what lets that caller keep its raise."""
+        home in explicitly rather than omitting it (an argument is evaluated in ITS frame, so the raise never
+        reaches this `except` at all)."""
     if home_slug is _READ_HOME:
         try:
             home_slug = home_repository()
@@ -166,7 +166,9 @@ def is_downstream_copy_strict(root: "str | None" = None) -> bool:
     detector, whose worst case is checking unnecessarily. It is the WRONG direction for a caller whose quiet
     verdict is itself a reassurance to the operator: `overlay_disclosure.is_deployed` stays silent when this is
     False, and silence there reads as "nothing will be overwritten". A corrupt manifest must not be able to
-    produce that. Passing the home in as an ARGUMENT is what preserves the raise — `is_downstream_copy` guards
-    only its sentinel branch — so do not collapse this to `not is_home_repo(root)`, and do not widen that
-    `try`. Both changes are silent: the tests beside this one are what catch them."""
+    produce that. The load-bearing detail is the EXPLICIT home ARGUMENT: it is evaluated in this frame, so the
+    raise happens before `is_downstream_copy` is entered and its fail-soft `except` never sees it. Collapsing
+    this to `not is_home_repo(root)`, or dropping the explicit argument, silently restores the swallow —
+    `TestIsDownstreamCopyStrict` pins both. (Widening `is_downstream_copy`'s own `try` does NOT affect this
+    caller, for the same argument-evaluation reason; no test claims otherwise.)"""
     return is_downstream_copy(origin_slug(root), home_repository(root))

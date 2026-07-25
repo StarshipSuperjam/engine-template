@@ -658,12 +658,18 @@ class TestLiveDeclarationsAreHonored(unittest.TestCase):
     def test_each_is_inert_in_the_engines_own_home_repo(self):
         # The carve-out may never excuse a check whose failure path IS reachable: in the engine's own home the
         # declaration is inert and the failed bite stands. Asserted as "no N/A note" rather than a strict None
-        # so a fixture dir that also carries a requires.json stays correctly judged.
+        # so a fixture dir that also carries a requires.json stays correctly judged — and paired with the
+        # adopter-root assertion, so a declaration the code cannot FIND (wrong filename) can never satisfy this
+        # by returning None.
         for fdir in self._dirs():
             stem = os.path.basename(fdir)
             with self.subTest(fixture=stem):
-                found = hcb._failed_bite_applicability(
-                    f"engine/check/{stem}", fdir, self._root(origin=HOME_URL), "hard")
+                unit = f"engine/check/{stem}"
+                self.assertTrue(
+                    self._na(hcb._failed_bite_applicability(unit, fdir, self._root(origin=ADOPTER_URL), "hard")),
+                    f"{stem}: the declaration must be FOUND and honored in a copy, or 'inert at home' below "
+                    f"would pass merely because nothing was read")
+                found = hcb._failed_bite_applicability(unit, fdir, self._root(origin=HOME_URL), "hard")
                 self.assertFalse(self._na(found), found)
 
 

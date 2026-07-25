@@ -140,7 +140,7 @@ def _message(demo_rel: str) -> str:
     """Operator-facing finding for an orphan demo: consequence + concrete file + the two real fixes, plain words.
     custom/script surfaces only the per-finding message, so it carries the whole story."""
     return (
-        f"`{demo_rel}` is a construction-only demonstration file that isn't accounted for: it isn't on the list "
+        f"`{demo_rel}` is one of the engine's own build-evidence demonstration files, and it isn't accounted for: it isn't on the list "
         f"of files removed when a project is first set up, and nothing that stays in a finished project uses it. "
         f"As it stands it would ship into every generated project as leftover workshop clutter. Fix it one of two "
         f"ways: add it to the removal list (.engine/provisioning/first-run-assets.json and _FIRST_RUN_ASSET_FILES "
@@ -150,7 +150,7 @@ def _message(demo_rel: str) -> str:
 
 
 def _manifest_fault_message() -> str:
-    """Operator-facing finding when the census can't be read inside the construction repo. Fail-closed, plain
+    """Operator-facing finding when the census can't be read inside the engine's own home repository. Fail-closed, plain
     words: this check can't confirm no leftover demos ship, so it can't pass; restore the permanent list."""
     return (
         f"The engine can't read the list of files it removes when a project is first set up (`{_MANIFEST_REL}`). "

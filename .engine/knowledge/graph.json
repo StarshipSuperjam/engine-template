@@ -5910,7 +5910,7 @@
       },
       "slug": "census_completeness_check",
       "source": {
-        "fingerprint": "sha256:662470161ab8347100c2b85aabcd788616bc365c8bfdfc0ed35cc2eee0af58f3",
+        "fingerprint": "sha256:2c3d2cbd68ecc39c17b33416ce4602ca80239f61c50d15973c5f2c50ae3e0e74",
         "path": ".engine/tools/census_completeness_check.py"
       },
       "status": "active",
@@ -6556,7 +6556,7 @@
       },
       "slug": "demo_home_repo_seam",
       "source": {
-        "fingerprint": "sha256:ea291585b014a2b3435f2abe0769f6c4d3bb34ba06f4c3cbbd1023e3c1af87e8",
+        "fingerprint": "sha256:aab1be774fdac120c1f692415b0c4f364862cc79d12b9a5f06674e15f2dac11d",
         "path": ".engine/tools/demo_home_repo_seam.py"
       },
       "status": "active",
@@ -7695,7 +7695,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:1b999c3631f484653786702a07e38622682022ee4e9d101c94127777319d63e5",
+        "fingerprint": "sha256:9dbf868325152766e10e1500b25ddd9fc16a4af85c51d6d30d225ce2907bc294",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -8103,7 +8103,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:85a31a4b1476f9c1ba2767957678ec2d78f7a68a82f3b5c9c599a8e77774e6d5",
+        "fingerprint": "sha256:49b24fa1f26eb75ccb779d81b5a45176bb70169f7013ab5fe47d029181e8fedc",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -8375,7 +8375,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:d72bd2771213eb1fb7b48877df43ae21140e842475f1dad5b8b8d9285e708a20",
+        "fingerprint": "sha256:a68330072b9b9f05ead9f79ed218389e938c8a0199cf468d8e6f441143ee06fe",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -9276,7 +9276,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:54770f346a586f88f958316a728b82d9f090e0077f498aa377c7b035453d6817",
+        "fingerprint": "sha256:41ac64a036921e5978c99f29ac881f0870aa3333a87ca43845866a9dadd59c3d",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -9820,7 +9820,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:3455c56b242fda42df1af7d3441c02cbe4c9aed30685d28d1dc0c6e31f72b8dd",
+        "fingerprint": "sha256:c02f74d2e040e4397c1d121dfc35d9a36fca8f1311597e30937dbac2d48545cd",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
@@ -10092,7 +10092,7 @@
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:3b094ce34ba7390cbd7541cd988140158e40b08b5ca497d78e06b9291e74cf03",
+        "fingerprint": "sha256:b50c68d41ccca0eb1f3e67033aa6e7e2de9429f341e3b453767a045f503a5184",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
@@ -10789,7 +10789,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:35f637fff5c888de134d86639f903e77631315037eac421f66840954972074d5",
+        "fingerprint": "sha256:62507c5fda57179c14de14ddb1aeb7b68ab8ea789c737b763c9051b89c83e55d",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

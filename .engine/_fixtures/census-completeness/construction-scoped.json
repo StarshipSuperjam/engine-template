@@ -1,4 +1,4 @@
 {
   "property": "no reachable failure path outside the construction repository",
-  "reason": "This check's whole body gates on _in_home_repo(), which now reads the shared origin==home signal (repo_identity.is_home_repo) — it audits the home repo's committed demo census against the first-run retirement manifest, work that only exists in the engine's own home. In a deployed copy (git origin differs from the recorded home_repository) the gate reads False and check() returns before any failure path, so the fixture structurally cannot bite there. In the home repository this declaration is inert and the bite stays required."
+  "reason": "This check audits the engine's own committed demo files against the list of files removed when a project is first set up \u2014 work that only exists in the repository where the engine itself is built. Everywhere else it stops at its first gate and does nothing, so there is no failure here for its self-test to catch. In the engine's own repository this note does not apply and the self-test stays required."
 }

@@ -227,7 +227,7 @@ def _demo() -> int:
         print("   " + ln)
     print()
 
-    print("Note: in THIS construction repo the line shows a maintainer-framed PR title verbatim; in a generated")
+    print("Note: this walkthrough uses a maintainer-style pull request title so the raw shape is visible; in a")
     print("project, PR titles read cleanly for you. No real GitHub call was made, and your saved status was not")
     print("modified.")
     # Self-check (must be able to FAIL on a broken derivation — [[demo-must-exercise-real-logic]]): scenario 1

@@ -85,7 +85,6 @@ class TestDeployedGate(unittest.TestCase):
         self.tmp = tri._mkdtemp(self)
 
     def _repo(self, name, **kw):
-        # `_repo`'s `claude=` default writes a root CLAUDE.md; irrelevant here — the gate never reads it.
         return tri._repo(self.tmp, name, **kw)
 
     def test_home_repo_is_silent(self):
