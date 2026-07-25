@@ -57,6 +57,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -295,6 +296,82 @@ def verify_seal():
 
 # --- Runners -------------------------------------------------------------------------------------------
 
+# --- The query-expansion measurement (the read-time workflow's first step, scored) ----------------------
+# The recall workflow's load-bearing move is REPHRASING: memory's search is a keyword floor, so a question
+# worded unlike the original conversation matches nothing. The workflow has a model do that rephrasing at read
+# time, which no fixed harness can score. What CAN be scored is a deliberately DUMB mechanical stand-in — a
+# committed general synonym map plus a short-phrase rule — run through the SAME frozen scorer and the SAME
+# producer slot as the old path. It is a LOWER BOUND, not the workflow: a model rephrasing in context should do
+# at least this well. Reported beside the sealed baseline so the gain is attributable to expansion alone.
+
+EXPANSIONS_PATH = os.path.join(_FIXTURES, "expansions.json")
+_EXPANSION_LIMIT = 10        # per-phrase cap — the operation doc's rule (search is unbounded by default)
+_MAX_PHRASES = 8             # bound the fan-out so the stand-in stays a search strategy, not a store dump
+
+
+def load_expansions(path=EXPANSIONS_PATH):
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    return set(data.get("_stopwords") or []), (data.get("synonyms") or {})
+
+
+def expand_query(question_text, stopwords, synonyms):
+    """A question -> a handful of SHORT search phrases. Mechanical and question-only: drop stopwords, pair
+    adjacent content words (search is strict implicit-AND, so a long sentence matches nothing), then add
+    synonym-substituted variants of each pair. Deterministic and order-stable, so the measurement reproduces."""
+    words = [w for w in re.findall(r"[a-z0-9]+", (question_text or "").lower()) if w and w not in stopwords]
+    phrases, seen = [], set()
+
+    def _add(parts):
+        phrase = " ".join(parts)
+        if phrase and phrase not in seen:
+            seen.add(phrase)
+            phrases.append(phrase)
+
+    for a, b in zip(words, words[1:]):          # adjacent content-word pairs, in question order
+        _add([a, b])
+    for a, b in zip(words, words[1:]):          # the same pairs with either side swapped for a synonym
+        for alt in synonyms.get(a, []):
+            _add([alt, b])
+        for alt in synonyms.get(b, []):
+            _add([a, alt])
+    for w in words:                             # single anchors last (broadest, so lowest priority)
+        _add([w])
+        for alt in synonyms.get(w, []):
+            _add([alt])
+    return phrases[:_MAX_PHRASES]
+
+
+def expanded_producer(ledger_file, index_file, stopwords, synonyms):
+    """The expansion stand-in in the injected-producer slot: search EACH phrase under a per-phrase limit, then
+    union the hits preserving first-seen order (the pooled set is what the workflow judges). Side-effect-free —
+    the same `index.search` the old path uses, forced onto the machine-independent scan."""
+    def _run(question_text):
+        pooled, seen = [], set()
+        for phrase in expand_query(question_text, stopwords, synonyms):
+            for record in index.search(phrase, force_scan=True, limit=_EXPANSION_LIMIT,
+                                       ledger_file=ledger_file, index_file=index_file).records:
+                rid = record.get(_ID)
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                pooled.append(record)
+        return pooled
+    return _run
+
+
+def run_expanded():
+    """The expansion stand-in over the same committed corpus, scored by the same frozen scorer."""
+    now = int(time.time())
+    corpus = load_corpus()
+    questions = load_questions()
+    stopwords, synonyms = load_expansions()
+    with tempfile.TemporaryDirectory(prefix="recall-benchmark-exp-") as cabinet:
+        lpath, ipath = materialize(corpus, cabinet, now)
+        rows = evaluate(corpus, questions, expanded_producer(lpath, ipath, stopwords, synonyms))
+    return summarize(rows), rows
+
+
 def run_synthetic():
     """Materialize the committed synthetic corpus, run the old-path producer, score, and summarize. Returns
     (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing).
@@ -353,6 +430,31 @@ def cmd_run():
         live = summary["overall_known"]["recall_at_k"]
         print("\n  Sealed baseline recall@%d = %s; this run = %s  (%s)"
               % (K, sealed, live, "reproduced" if sealed == live else "DIVERGED — investigate"))
+    return 0
+
+
+def cmd_expanded():
+    """Score the old path and the expansion stand-in side by side, so the gain is attributable to rephrasing
+    alone (same corpus, same frozen scorer, same producer slot — only the query strategy differs)."""
+    old, _ = run_synthetic()
+    new, _ = run_expanded()
+
+    def _line(label, s):
+        return ("  %-26s overall %-6s   paraphrased %s/%s   hard classes %s/%s   nothing-relevant %s/%s"
+                % (label, s["overall_known"]["recall_at_k"],
+                   s["by_vocab"]["paraphrased"][0], s["by_vocab"]["paraphrased"][1],
+                   s["hard_classes"]["hits"], s["hard_classes"]["n"],
+                   s["nothing_relevant"]["correct"], s["nothing_relevant"]["n"]))
+
+    print("Memory recall benchmark (G2) — does rephrasing the question help?\n")
+    print(_line("one query (old path)", old))
+    print(_line("several rephrasings", new))
+    print("\n  The rephrasing here is a deliberately DUMB mechanical stand-in (a committed general synonym map)")
+    print("  standing in for a step the real workflow gives to the session's model. Read it as a FLOOR: it is")
+    print("  what expansion alone is worth with no understanding at all, not what the workflow achieves.")
+    if new["nothing_relevant"]["correct"] < old["nothing_relevant"]["correct"]:
+        print("\n  ! Searching more ways cost accuracy on questions that SHOULD find nothing — a real regression.")
+        return 1
     return 0
 
 
@@ -484,6 +586,8 @@ def main(argv=None):
                           "nothing) — pass real questions with --ask")
     run.add_argument("--ask", action="append", default=[], metavar="QUESTION",
                      help="a real question for --real-local (repeatable)")
+    run.add_argument("--expanded", action="store_true",
+                     help="also score the query-expansion stand-in and show the gain over the sealed baseline")
     sub.add_parser("demo", help="falsifiable self-check of the scorer")
     sub.add_parser("reseal", help="author-time: recompute the baseline and (re)write seal.json")
     args = parser.parse_args(argv)
@@ -492,7 +596,9 @@ def main(argv=None):
     if args.cmd == "reseal":
         return cmd_reseal()
     if args.cmd == "run":
-        return cmd_real_local(args.ask) if args.real_local else cmd_run()
+        if args.real_local:
+            return cmd_real_local(args.ask)
+        return cmd_expanded() if args.expanded else cmd_run()
     parser.print_help()
     return 0
 

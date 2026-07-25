@@ -212,5 +212,81 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(rb._demo(), 1)
 
 
+class QueryExpansionTests(unittest.TestCase):
+    """The measurement of the workflow's load-bearing step. The expansion stand-in must be a GENERAL query
+    strategy — mechanical, question-only, reproducible — not a lookup table of answers, and its gain must be
+    real recall rather than the noise of returning more records."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.stopwords, cls.synonyms = rb.load_expansions()
+
+    def _expand(self, q):
+        return rb.expand_query(q, self.stopwords, self.synonyms)
+
+    def test_phrases_stay_short_because_search_is_implicit_and(self):
+        # Every word of a phrase must appear in one record, so a long phrase reliably matches nothing.
+        for phrase in self._expand("how long before stored gadget entries are purged"):
+            self.assertLessEqual(len(phrase.split()), 2,
+                                 "an expansion phrase longer than a couple of words cannot match")
+
+    def test_stopwords_are_dropped(self):
+        joined = " ".join(self._expand("what is the ceiling on repeat attempts"))
+        for filler in ("what", "is", "the", "on"):
+            self.assertNotIn(f" {filler} ", f" {joined} ")
+
+    def test_a_synonym_variant_is_produced(self):
+        # The step that attacks the paraphrase failure: the question's word is not the record's word.
+        self.assertTrue(any("nightly" in p for p in self._expand("the evening data dump")),
+                        "expansion must try a synonym of the question's wording")
+
+    def test_expansion_is_deterministic(self):
+        q = "which authentication method do employees use to sign in now"
+        self.assertEqual(self._expand(q), self._expand(q))
+
+    def test_expansion_is_a_pure_function_of_the_question(self):
+        # The fairness property that makes the number meaningful: expansion cannot consult the corpus, so it
+        # cannot be tuned to the planted answers. It sees the question and the committed map, nothing else.
+        import inspect
+        src = inspect.getsource(rb.expand_query)
+        for forbidden in ("load_corpus", "CORPUS_PATH", "load_questions", "expected_"):
+            self.assertNotIn(forbidden, src, "expansion must never read the corpus or the labels")
+
+    def test_the_map_is_general_not_a_per_question_answer_table(self):
+        # A map keyed by question id (or holding whole phrases) would be reverse-engineered answers wearing a
+        # synonym map's clothes. Keys must be single ordinary words.
+        for key, alts in self.synonyms.items():
+            self.assertNotIn(" ", key, "a synonym key must be a single word, not a phrase")
+            self.assertFalse(key.startswith("q"), "a synonym key must not be a question id")
+            for alt in alts:
+                self.assertNotIn(" ", alt, "a synonym value must be a single word, not a planted phrase")
+
+    def test_expansion_beats_the_old_path_on_paraphrased_questions(self):
+        old, _ = rb.run_synthetic()
+        new, _ = rb.run_expanded()
+        self.assertGreater(new["by_vocab"]["paraphrased"][0], old["by_vocab"]["paraphrased"][0],
+                           "rephrasing must recover at least some reworded question the single query missed")
+
+    def test_expansion_does_not_buy_recall_with_false_positives(self):
+        # Searching several ways returns more records; the questions that SHOULD find nothing are the control.
+        # If they degrade, the recall gain is noise, not retrieval.
+        old, _ = rb.run_synthetic()
+        new, _ = rb.run_expanded()
+        self.assertGreaterEqual(new["nothing_relevant"]["correct"], old["nothing_relevant"]["correct"],
+                                "expansion must not start answering questions that have no answer")
+
+    def test_expanded_run_reproduces(self):
+        a, _ = rb.run_expanded()
+        b, _ = rb.run_expanded()
+        self.assertEqual(a, b)
+
+    def test_the_sealed_baseline_is_untouched_by_the_expansion_work(self):
+        # The expansion path must not have moved the frozen ground truth it is measured against.
+        seal, problems = rb.verify_seal()
+        self.assertEqual(problems, [])
+        self.assertEqual(rb.run_synthetic()[0]["overall_known"]["recall_at_k"],
+                         seal["old_path_baseline"]["overall_known"]["recall_at_k"])
+
+
 if __name__ == "__main__":
     unittest.main()
