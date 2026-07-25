@@ -12,6 +12,10 @@ allowed-tools: Bash(uv run *)
    can adjust and the current values (`uv run --directory .engine -- python tools/tune.py show <group>`), take
    their choice, save it, and prepare it as a pull request they approve. Tell them, in plain words, that
    nothing changes until they merge it.
+2. If they came here because a check told them a saved setting no longer exists, clear it instead:
+   `uv run --directory .engine -- python tools/tune.py forget <group> <setting>`. Say why it was retired if
+   the engine records a reason (the command prints it), and that clearing it changes nothing about how the
+   engine behaves — the value was already being ignored.
 
 ## Notes
 

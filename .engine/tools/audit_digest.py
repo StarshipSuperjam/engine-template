@@ -190,8 +190,9 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
 # ---- the recall-completeness disclosure (issue #332) -------------------------
 # Recall surfaces only the curated layer (episodic summaries + gists); the raw, word-for-word turn-notes behind
 # them are kept and fully recoverable — never deleted by that recall-exclusion. The verdict requires this
-# disclosure to reach the operator at the point of consumption (the recall answer carries it — scent + the memory
-# search tool) AND in the committed audits digest (never digest-only). This is the digest half: a STANDING line
+# disclosure to reach the operator at the point of consumption (the recall answer carries it — the memory search
+# tool's own note, and the recall runbook the per-prompt cue points at) AND in the committed audits digest
+# (never digest-only). This is the digest half: a STANDING line
 # (the digest is committed in CI with no access to the local gitignored ledger, so it cannot enumerate sessions —
 # the whole-store exclusion collapses to one line, exactly as the verdict allows). It is NOT a forgetting event:
 # nothing was retired or erased, so there is no undo handle. The wording is a build-spec leaf.

@@ -29,7 +29,7 @@ values:
 ## Rule
 
 This policy is the home of the dials that decide what the engine shows you first, and how much room each
-kind of thing gets, every time it gets its bearings. The numbers live in this file's settings block — the
+kind of thing gets, when it gets its bearings at the start of a session. The numbers live in this file's settings block — the
 `values` at the very top — in plain sight rather than buried in code, so the engine's priorities can be read
 and checked. That block is the one place the engine actually reads; the numbers are not set by hand or by
 feel but calibrated from how the engine performs, and any change to them is proposed and reviewed, never silent.

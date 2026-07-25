@@ -4,10 +4,16 @@ title: Memory recall — finding what this project already knows
 
 ## Purpose
 
-How to answer "what did we decide about X?", "why did we do it that way?", or "have we hit this before?" from
-this project's saved memory. Enter it whenever a request leans on something from an earlier session — a past
-decision, the reasoning behind it, a lesson learned, or something the operator said they prefer — and before
-relying on your own recollection of this project, which does not survive between sessions.
+How to find what this project already settled, from its saved memory. Enter it on either of two shapes, and
+before relying on your own recollection of this project, which does not survive between sessions:
+
+- **A request that points backwards** — "what did we decide about X?", "why did we do it that way?", "have we
+  hit this before?", anything about last time or an earlier session.
+- **A request that points forwards over ground already covered** — an approach to propose, a call to make, an
+  instruction to act on, where this project may already have **decided** it, already **tried and rejected**
+  it, or stated a **preference** that contradicts it. Nothing in the wording announces a past here; that is
+  precisely why it is worth checking. Silently repeating a settled dead end is the costlier failure, and the
+  one nothing else catches.
 
 The point of the procedure is that memory's search is a **keyword** tool, not a meaning-aware one. It matches
 words, so a question worded differently from the original conversation finds nothing. The meaning is supplied
@@ -16,11 +22,15 @@ results. Skipping the rephrasing is what makes recall fail.
 
 ## Steps
 
-1. **Decide whether memory is the right source at all.** Canonical project artifacts outrank remembered
-   narrative: a merged pull request, a decision record under `.engine/contracts/`, an issue, or the code itself
-   is stronger evidence than a memory of it. Use memory for the *narrative* — why a choice was made, what was
-   rejected, what went wrong last time, what the operator prefers. If the answer belongs in a canonical
-   artifact, read that instead, and use memory only to find *which* artifact to read.
+1. **Decide which source answers it.** Canonical project artifacts outrank remembered narrative: a merged pull
+   request, a decision record under `.engine/contracts/`, an issue, or the code itself is stronger evidence
+   than a memory of it. So if the answer belongs in a canonical artifact, read that instead — and use memory
+   to find *which* artifact to read. Memory is the right source for the *narrative*: why a choice was made,
+   what was rejected and why, what went wrong last time, what the operator prefers.
+   **This step is not an off-ramp.** On the forwards-facing shape above, "was this already tried?" has no
+   canonical artifact to consult — a rejected approach usually leaves no file behind, only the conversation
+   that rejected it. Deciding memory is not the right source *because the prompt names no past* is the exact
+   miss this procedure exists to prevent.
 2. **Turn the question into several short search phrases.** Write three to six, and make them differ from each
    other — this is the step that does the real work:
    - Keep one phrase using the question's own key terms — when the wording happens to match, that is the

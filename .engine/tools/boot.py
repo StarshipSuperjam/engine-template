@@ -725,7 +725,8 @@ def _recent_decisions_recall(read=None) -> list[dict]:
     model: memory detects and owns its store, boot relays, attention ranks what it is handed).
 
     The pull is non-lexical on purpose: a cold start has no prompt to match against, so it asks "what was
-    decided lately?" (recency-ordered) — the per-prompt scent is what asks "what relates to THIS?".
+    decided lately?" (recency-ordered). "What relates to THIS?" is asked mid-session instead, by the model
+    running the recall workflow the per-prompt cue points it at — never by this relay.
 
     Normalises each record for the pure ranker: the ledger stores an epoch `ts`, the ranking reads a trailing-Z
     moment, so the conversion happens HERE at the relay boundary rather than letting a raw epoch reach the
@@ -814,8 +815,9 @@ def render_recalled_decisions(entries: list | None) -> list:
 
     ATTRIBUTED, not confirmed. These are the project's own recorded decisions, which is exactly why the block
     says so rather than asserting them: a decision can have been superseded since it was written, and the
-    ledger records what WAS decided, never a promise it still holds. Same trust seam the per-prompt scent
-    carries — a pointer the model verifies before asserting, never content it repeats as current fact.
+    ledger records what WAS decided, never a promise it still holds. Same trust seam the recall workflow
+    carries — attributed narrative the model verifies before asserting, never content it repeats as current
+    fact.
 
     Each record's text is defanged: it is replayed into the model's context and a session can have pasted
     anything into the notes it was consolidated from. [] when nothing was recalled (a fresh project, an
@@ -2029,7 +2031,12 @@ def render_dashboard(s: dict) -> str:
             "If you set up a backup, ask me to restore it from there; if not, tell me and I'll help you get your "
             "recall working again.")
 
-    if s.get("fast_search_unavailable"):
+    if s.get("fast_search_unavailable") and not s.get("recall_offline"):
+        # Gated on the availability line above NOT having fired. The two detectors are independent — one asks
+        # "does the store open?", the other "does this machine have fast search?" — so on a damaged store with
+        # no fast search both are True, and the operator would read "I couldn't open your saved memory"
+        # immediately followed by "Recall still works and still finds the same things", which is false in that
+        # state. Availability wins: there is no point discussing the speed of a lookup that cannot run.
         # The LATENCY disclosure, distinct from the availability floor above: recall still answers every
         # question, it just answers by reading the whole store. Peer voice — lead with what still works, name
         # the consequence in time rather than in machinery, and do NOT invent a remedy: the fix is a different
@@ -2039,8 +2046,9 @@ def render_dashboard(s: dict) -> str:
         degraded.append(
             "Looking things up in your saved memory will be slow on this computer — the quick-lookup feature "
             "isn't available here, so I have to read through everything each time. Recall still works and "
-            "still finds the same things; it just takes longer as your memory grows. There's nothing you need "
-            "to do about it.")
+            "still finds the same things; it just takes longer as your memory grows. This comes down to how "
+            "my own tooling was installed on this machine rather than anything in your project — ask me about "
+            "it if the wait starts to bother you.")
 
     malformed = s.get("ledger_malformed")
     if malformed:

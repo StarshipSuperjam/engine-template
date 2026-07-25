@@ -677,11 +677,11 @@ def _demo() -> int:
 
     print("\n" + "-" * 80)
     print("Reminder: what you just saw is the engine looking things up in a PRACTICE cabinet we filled for this")
-    print("demo. In real use the cabinet is still EMPTY — nothing has filed anything into it yet — and the")
-    print("engine still does NOT remember across sessions. The piece that files your real work into the cabinet,")
-    print("and the piece that looks things up while you work, are later steps. Today only proves: once things")
-    print("ARE filed, you can always look them up — fast when the search feature is present, slower but never")
-    print("broken when it is not, and nothing is lost if the fast lookup is thrown away.")
+    print("demo, then threw away — your own saved memory was never opened. What this proves is narrow and")
+    print("durable: once things ARE filed, you can always look them up — fast when the search feature is")
+    print("present, slower but never broken when it is not, and nothing is lost if the fast lookup is thrown")
+    print("away. Whether your own cabinet has anything in it depends on how long the engine has been running")
+    print("here; ask me and I'll tell you what is actually stored.")
     print("\nVary it yourself: edit the questions and memories near the top of this file and run it again.")
     return 0 if all(results) else 1
 

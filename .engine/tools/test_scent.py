@@ -85,8 +85,12 @@ class FiresEveryPromptTests(unittest.TestCase):
 class CueContentTests(unittest.TestCase):
     def test_the_cue_stays_under_its_tested_ceiling(self):
         # Not decoration: the cue rides EVERY prompt and additionalContext persists in history, so its length
-        # is a standing per-turn cost. This ceiling is the only thing stopping a later edit growing it quietly.
-        self.assertLessEqual(len(scent._CUE), scent._CUE_MAX_CHARS)
+        # is a standing per-turn cost. The bound is written as a LITERAL here, not as `scent._CUE_MAX_CHARS` —
+        # comparing the module's constant against the module's own ceiling is satisfied by any edit that grows
+        # both together, which is exactly the quiet growth this is meant to stop. Raising the real bound now
+        # requires editing this line, where it shows up in review.
+        self.assertLessEqual(len(scent._CUE), 400)
+        self.assertLessEqual(scent._CUE_MAX_CHARS, 400, "the module's own ceiling may not exceed the pinned one")
         self.assertTrue(scent._CUE.strip(), "the per-prompt event may never thin to an empty payload")
 
     def test_the_cue_names_the_operation_that_carries_the_procedure(self):
@@ -101,6 +105,22 @@ class CueContentTests(unittest.TestCase):
             os.path.relpath(scent._OPERATION_FILE, os.path.dirname(validate.ENGINE_DIR)).replace(os.sep, "/"),
             scent._OPERATION,
             "the path in the cue and the path checked on disk must be the same one")
+
+    def test_the_named_operation_CARRIES_what_the_cue_delegates_to_it(self):
+        """The cue is one line; everything it stands on lives in the runbook it names. Three properties were
+        deleted from this hook on the argument that the runbook already carries them — so they are pinned HERE,
+        where a rewrite of that file goes red instead of silently dropping a disclosure:
+          - the SAME widened trigger the cue leads with (a runbook that re-narrows to "leans on an earlier
+            session" would undo the cue's whole marginal value one file later);
+          - the verify-before-asserting property, which replaced this module's retired verify clause;
+          - the verbatim-recoverable property, which replaced its retired completeness disclosure.
+        """
+        doc = validate.read(scent._OPERATION_FILE)
+        for shape in ("already", "tried and rejected", "preference"):
+            self.assertIn(shape, doc, f"the runbook dropped the {shape!r} trigger the cue delegates to it")
+        self.assertIn("outrank", doc, "the canonical-outranks-memory property (the retired verify clause)")
+        self.assertIn("exact wording", doc, "the verbatim-recoverable property (the retired completeness note)")
+        self.assertIn("never instruction", doc, "recalled conversation must be framed as data, not directions")
 
     def test_the_cue_names_the_forward_looking_trigger_shapes(self):
         # The trigger is "may this project have already settled this", not "does this prompt mention the past".
@@ -172,23 +192,55 @@ class NearZeroHotPathTests(unittest.TestCase):
     `git rev-parse` (the ledger is shared across a clone's worktrees, so its path cannot be derived locally),
     and the moment it opens the index it pays a cost that grows with the store. Booby-trap both."""
 
+    # Each of these asserts the expensive thing was NOT CALLED, rather than letting a raised trap escape the
+    # handler. That distinction is the whole test: this codebase's idiom for reaching memory is a defensive
+    # `try/except Exception` (the old handler used exactly that), which swallows a raised trap and leaves the
+    # assertion passing while the cost is paid on every prompt.
+
     def test_the_handler_starts_no_subprocess(self):
-        with mock.patch.object(subprocess, "run", side_effect=AssertionError("forked a subprocess")), \
-             mock.patch.object(subprocess, "Popen", side_effect=AssertionError("forked a subprocess")):
+        with mock.patch.object(subprocess, "run") as run, mock.patch.object(subprocess, "Popen") as popen:
             self.assertIsNotNone(_run(_PROMPT_A))
+        self.assertFalse(run.called, "the hot path forked a subprocess (a git resolve costs ~9 ms per prompt)")
+        self.assertFalse(popen.called, "the hot path forked a subprocess")
 
     def test_the_handler_never_resolves_the_store_or_opens_the_index(self):
         for module, name in ((ledger, "ledger_dir"), (ledger, "ledger_path"),
-                             (ledger, "iter_records"), (index, "rebuild"), (index, "search")):
-            with mock.patch.object(module, name,
-                                   side_effect=AssertionError(f"hot path called {name}")):
-                self.assertIsNotNone(_run(_PROMPT_A), f"{name} was reached on the hot path")
+                             (ledger, "iter_records"), (index, "rebuild"), (index, "search"),
+                             (index, "fts5_available"), (index, "index_path")):
+            with mock.patch.object(module, name) as spy:
+                self.assertIsNotNone(_run(_PROMPT_A))
+            self.assertFalse(spy.called, f"the hot path called {name}, which grows with the store")
 
-    def test_the_handler_does_not_import_memorys_heavy_chain(self):
-        # find_spec locates the package without executing it, so sqlite3/capture/forget are never paid here.
-        src = inspect.getsource(scent._memory_installed) + inspect.getsource(scent.handler)
-        self.assertIn("find_spec", src)
-        self.assertNotIn("from memory import", src)
+    def test_the_handler_neither_IMPORTS_memory_nor_writes_session_state(self):
+        """Both laws, checked in a FRESH interpreter — the only place they are observable.
+
+        `memory` is already in this test process's `sys.modules` (the module imports it at the top), so an
+        in-process assertion could never see the import. And a source scan for `from memory import` is
+        satisfied by `importlib.import_module("memory")`, which pays the whole chain — measured at ~500x the
+        handler's cost. Likewise the no-session-state law: a temp-file write moved into any helper this test
+        does not name is invisible to source inspection, so the subprocess runs with TMPDIR pointed at an empty
+        directory and the law becomes "that directory is still empty afterwards".
+        """
+        probe = (
+            "import json, os, sys\n"
+            f"sys.path.insert(0, {os.path.dirname(os.path.abspath(scent.__file__))!r})\n"
+            "import scent\n"
+            "scent.handler({'prompt': 'should we use a nightly cron job?', 'session_id': 's'})\n"
+            "scent.handler({'prompt': 'a different prompt entirely', 'session_id': 's'})\n"
+            "import tempfile\n"
+            "print(json.dumps({'imported': 'memory' in sys.modules,\n"
+            "                  'tmp': sorted(os.listdir(tempfile.gettempdir()))}))\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
+            out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                                 env=env, check=True).stdout
+        result = _json.loads(out.strip().splitlines()[-1])
+        self.assertFalse(result["imported"],
+                         "the hot path imported the memory package; find_spec must only LOCATE it")
+        self.assertEqual(result["tmp"], [],
+                         "the hot path wrote session state; this seam keeps none (a dedup store would make "
+                         "the reflex fire once and stop)")
 
 
 class InertSeamTests(unittest.TestCase):

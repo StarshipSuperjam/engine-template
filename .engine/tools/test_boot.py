@@ -636,7 +636,8 @@ class TestDegradedNotice(unittest.TestCase):
         dash = boot.render_dashboard(_signals(fast_search_unavailable=True))
         self.assertIn("slow on this computer", dash)
         self.assertIn("still works", dash)                      # availability is intact, and says so
-        self.assertIn("nothing you need to do", dash.lower())   # no invented remedy
+        self.assertIn("ask me about it", dash.lower())          # a real door, not an invented remedy
+        self.assertNotIn("nothing you need to do", dash.lower())   # ...and not a door shut in their face
         self.assertNotIn("couldn't open your saved memory", dash)   # never the offline floor's wording
         for jargon in ("fts5", "sqlite", "index", "ledger", "substrate", "latency"):
             self.assertNotIn(jargon, dash.lower())
@@ -648,6 +649,14 @@ class TestDegradedNotice(unittest.TestCase):
         offline = boot.render_dashboard(_signals(recall_offline=True))
         self.assertNotEqual(slow, offline)
         self.assertNotIn("ask me to restore", slow)
+
+    def test_an_unopenable_store_suppresses_the_slow_search_line(self):
+        # Both detectors are independent, so a damaged store on a machine without fast search sets both. The
+        # operator must not read "I couldn't open your saved memory" followed by "Recall still works and still
+        # finds the same things" — the second is false in that state. Availability wins.
+        both = boot.render_dashboard(_signals(recall_offline=True, fast_search_unavailable=True))
+        self.assertIn("couldn't open your saved memory", both)
+        self.assertNotIn("slow on this computer", both)
 
     def test_no_slow_search_shows_no_notice(self):
         for clean in (_signals(), _signals(fast_search_unavailable=False)):
@@ -680,6 +689,25 @@ class TestDegradedNotice(unittest.TestCase):
                 p.stop()
         self.assertTrue(relayed["recall_offline"])          # the detector's signal is relayed verbatim
         self.assertFalse(failed["recall_offline"])          # a detector fault degrades quietly to False, never breaks
+
+    def test_gather_relays_the_slow_search_signal_and_degrades_quietly(self):
+        # The JOIN between detector and render. Without it, a misspelled or mis-wired key leaves the detector
+        # tests green, the render tests green (they use the fixed _SIGNALS fixture, not gather_signals), and
+        # the operator simply never told their searches are slow — the exact silent-failure shape this
+        # disclosure was relocated out of the per-prompt seam to avoid.
+        patchers = _offline()
+        try:
+            with mock.patch("memory.ledger_health.detect_fast_search_unavailable", return_value=True):
+                relayed = boot.gather_signals()
+            with mock.patch("memory.ledger_health.detect_fast_search_unavailable",
+                            side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertTrue(relayed["fast_search_unavailable"])   # relayed verbatim...
+        self.assertIn("slow on this computer", boot.render_dashboard(relayed))   # ...and it reaches the render
+        self.assertFalse(failed["fast_search_unavailable"])   # a detector fault degrades quietly, never breaks
 
     def test_gather_relays_the_product_signal_and_degrades_quietly(self):
         # eADR-0026: the recorded external product is RELAYED from the checkout_health substrate (boot reads no
@@ -1509,7 +1537,7 @@ class TestRecentDecisionsRender(unittest.TestCase):
         text = "\n".join(block).lower()
         self.assertIn("saved memory", text)
         # The trust seam: a recorded decision may have been superseded — the block must say so, never present
-        # it as current fact (the same verify-before-asserting rule the per-prompt scent carries).
+        # it as current fact (the same verify-before-asserting rule the recall runbook carries).
         self.assertIn("superseded", text)
         self.assertIn("we decided thing 0", "\n".join(block))
 

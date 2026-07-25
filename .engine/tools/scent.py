@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scent.py — the per-prompt recall cue (boot/orientation; memory-substrate-sqlite-fts5).
+"""scent.py — the per-prompt recall cue (boot/orientation; core-owned).
 
 The per-prompt member of the orientation family. It is "metacognition as a push": on every prompt
 (`UserPromptSubmit`) it injects one short, constant, AI-facing line asking whether this project has already
@@ -140,7 +140,16 @@ def _inject_text(decision) -> "str | None":
 def _demo() -> int:
     import shutil
     import tempfile
-    from memory import index, ledger, records  # demo-only (not the hot path), so a plain import is fine
+    try:
+        # Demo-only (never the hot path). Guarded because this file is CORE-owned while memory is an optional
+        # module: on a repo without it, PART 5's whole point is that the cue stays silent, and dying with an
+        # import traceback before reaching that part would be the one shape this demo must not take.
+        from memory import index, ledger, records
+    except ImportError:
+        print("This project does not have the memory feature installed, so there is nothing for the per-prompt")
+        print("reminder to point at — and it stays silent. That is the correct behaviour, and it is all there")
+        print("is to show here. Install the memory feature and run this again to see the reminder itself.")
+        return 0 if _inject_text(handler({"prompt": _DEMO_PROMPT_A, "session_id": "demo"})) is None else 1
 
     def run(prompt):
         return _inject_text(handler({"prompt": prompt, "session_id": "demo"}))
@@ -152,14 +161,18 @@ def _demo() -> int:
     print("PART 1 — the reminder arrives on every message, including the same one twice")
     print("=" * 80)
     first, second, third = run(_DEMO_PROMPT_A), run(_DEMO_PROMPT_A), run(_DEMO_PROMPT_B)
-    ok1 = first is not None and first == second == third
+    # `bool(first)`, not `first is not None`: an injection carrying an EMPTY payload is the thinning this
+    # demonstration exists to rule out, and it would satisfy an is-not-None check while the narrative below
+    # printed "(silent)" beside a passing verdict.
+    ok1 = bool(first) and first == second == third
     print(f'\n  "{_DEMO_PROMPT_A}"           -> {"a reminder" if first else "(silent)"}')
     print(f'  the very same message again           -> {"a reminder" if second else "(silent)"}')
     print(f'  "{_DEMO_PROMPT_B}"                 -> {"a reminder" if third else "(silent)"}')
     print("\n  what it says, every time:")
     for line in (first or "(nothing)").splitlines():
         print(f"      {line}")
-    print("\n  Those two messages share no words with each other, and neither mentions anything from the past.")
+    print(f'\n  The first and third messages above ("{_DEMO_PROMPT_A}" and "{_DEMO_PROMPT_B}") share no words')
+    print("  with each other, and neither mentions anything from the past.")
     print("  The old version looked for words matching something stored and stayed quiet otherwise — so it was")
     print("  silent exactly when you asked in different words, or asked about something already settled without")
     print(f"  knowing it was. => {'Same reminder every message.' if ok1 else '!!! it varied or went silent'}")
@@ -173,6 +186,13 @@ def _demo() -> int:
     prev = os.environ.get(ledger.ENV_DIR)
     os.environ[ledger.ENV_DIR] = tmp     # a PRACTICE cabinet; the real store is never touched
     try:
+        # Belt on that brace. Every worktree of this clone SHARES one real ledger, so a mis-resolved path here
+        # would write demo records into the operator's actual memory. Assert the resolved path really is the
+        # throwaway one before the first append, rather than trusting the environment variable took effect.
+        resolved = ledger.ledger_path()
+        if not resolved.startswith(tmp):
+            print(f"  !!! refusing to run: the practice cabinet did not take effect ({resolved}).")
+            return 1
         empty = run(_DEMO_PROMPT_A)
         secrets = [
             {"role": "decision", "tags": ["scheduling"], "text": "we rejected the nightly cron job outright"},
@@ -185,7 +205,7 @@ def _demo() -> int:
         index.rebuild()
         filled = run(_DEMO_PROMPT_A)
         leaked = [m["text"] for m in secrets if m["text"] in (filled or "")]
-        ok2 = filled is not None and filled == empty and not leaked
+        ok2 = bool(filled) and filled == empty and not leaked
         print("\n  Two memories were filed in the practice cabinet, one of which answers the message above.")
         print(f"  reminder with memory EMPTY  -> {len(empty or '')} characters")
         print(f"  reminder with memory FILLED -> {len(filled or '')} characters, identical: "
@@ -206,10 +226,13 @@ def _demo() -> int:
     print("\n" + "=" * 80)
     print("PART 3 — it stays short, because it is added to every single message")
     print("=" * 80)
-    size = len(_CUE)
+    # Measure what the handler ACTUALLY injected, never the module's constant — a demonstration that reads the
+    # constant is measuring the intention rather than the behaviour.
+    size = len(first or "")
     ok3 = 0 < size <= _CUE_MAX_CHARS
     print(f"\n  the reminder is {size} characters; the limit it is held to is {_CUE_MAX_CHARS}")
-    print("  That limit is checked automatically, so a later edit cannot quietly make this bigger. It is added")
+    print("  A test holds the reminder to 400 characters — written out in the test itself, so raising the")
+    print("  limit is a visible change someone has to approve, not something that slips through. It is added")
     print("  to every message and stays in the conversation, so its length is a running cost, not a one-off.")
     print(f"  => {'Within its limit.' if ok3 else '!!! over the limit'}")
     results.append(ok3)

@@ -130,6 +130,28 @@ def write_override(policy_id: str, key: str, value, *, path: str = OVERRIDES_PAT
     return data
 
 
+def drop_override(policy_id: str, key: str, *, path: str = OVERRIDES_PATH) -> bool:
+    """Remove one saved setting, preserving every other. True when something was removed, False when there was
+    nothing to remove. An emptied policy slice is dropped too, so a committed file is never left holding a
+    meaningless `{}`; a file left with no settings at all is removed rather than committed empty."""
+    data = operator_overrides.load(path)
+    if key not in data.get(policy_id, {}):
+        return False
+    del data[policy_id][key]
+    if not data[policy_id]:
+        del data[policy_id]
+    if not data:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    return True
+
+
 def _pr_title(policy_id: str, key: str) -> str:
     # `Maintenance:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): a setting change
     # is upkeep. Only the LEADING prefix is matched, so the `{policy_id}: {key}` colon inside is untouched.
@@ -198,6 +220,45 @@ def set_value(policy_id: str, key: str, value, *, override_path: str = OVERRIDES
     return {"ok": True, "message": _CONFIRM, "pr": pr}
 
 
+def forget_value(policy_id: str, key: str, *, override_path: str = OVERRIDES_PATH,
+                 opener=_open_tune_pr, open_pr: bool = True) -> dict:
+    """Clear a saved setting the engine no longer has, and open the removal as a reviewed pull request.
+
+    The recourse behind the stale-saved-setting finding. That check blocks a merge when a saved value names a
+    setting that no longer exists, and its advice used to end at "remove this one from your saved settings" —
+    a committed JSON file, which is not a remedy for the non-engineer this engine is written for. This is the
+    same save-and-propose path `set_value` uses, so clearing a setting is reviewed and reversible exactly like
+    changing one; nothing is edited behind the operator's back.
+
+    REFUSES to remove a setting that still exists, and says so: a live setting is changed with `set`, and a
+    verb that could silently delete a working choice is a different and more dangerous thing than this one.
+    """
+    if key in default_values(policy_id):
+        return {"ok": False, "pr": None,
+                "message": (f"“{key}” is still one of the engine's settings, so there is nothing to clear. To "
+                            f"change it, use `set {policy_id} {key} <number>`.")}
+    reason = operator_overrides.retirement_reason(policy_id, key)
+    if not drop_override(policy_id, key, path=override_path):
+        return {"ok": False, "pr": None,
+                "message": f"“{key}” is not in your saved settings, so there is nothing to clear."}
+    if not open_pr or opener is None:
+        return {"ok": True, "message": "Cleared (no pull request opened — practice run).", "pr": None}
+    relpath = os.path.relpath(override_path, validate.ROOT)
+    branch = "engine-tune-clear-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{policy_id}-{key}")
+    title = f"Maintenance: clear a retired engine setting ({policy_id}: {key})"
+    body = (
+        f"You used `/engine-tune` to clear a saved setting the engine no longer has. This pull request removes "
+        f"it.\n\n- Setting: `{key}` (in {policy_id})\n"
+        + (f"- Why it was retired: {reason}\n" if reason else "")
+        + "\nThe value was already being ignored, so nothing about how the engine behaves changes when you "
+        "merge this — it only stops the saved-settings check flagging it on your future changes.\n")
+    try:
+        pr = opener(branch=branch, title=title, body=body, paths=[relpath])
+    except Exception as exc:  # noqa: BLE001 — the clear already happened; report the opener's failure plainly
+        return {"ok": True, "message": f"Cleared, but the pull request could not be opened: {exc}", "pr": None}
+    return {"ok": True, "message": _CONFIRM, "pr": pr}
+
+
 # ---- CLI ------------------------------------------------------------------------------------
 
 def _flag(rest: list, name: str, default=None):
@@ -251,9 +312,22 @@ def _cmd_set(rest: list) -> int:
     return 0 if result["ok"] else 1
 
 
+def _cmd_forget(rest: list) -> int:
+    if len(rest) < 2:
+        print("To clear a setting the engine no longer has: `forget <group> <setting>`.")
+        return 2
+    policy_id, key = rest[0], rest[1]
+    override_path = _flag(rest, "--override", OVERRIDES_PATH)
+    open_pr = "--no-pr" not in rest
+    result = forget_value(policy_id, key, override_path=override_path, open_pr=open_pr)
+    print(result["message"])
+    return 0 if result["ok"] else 1
+
+
 def main(argv: list) -> int:
     if not argv:
-        print("Usage: tune.py show <group> | set <group> <setting> <number> | demo")
+        print("Usage: tune.py show <group> | set <group> <setting> <number> | "
+              "forget <group> <setting> | demo")
         return 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "demo":
@@ -262,7 +336,9 @@ def main(argv: list) -> int:
         return _cmd_show(rest)
     if cmd == "set":
         return _cmd_set(rest)
-    print(f"Unknown command: {cmd}. Try: show, set, demo.")
+    if cmd == "forget":
+        return _cmd_forget(rest)
+    print(f"Unknown command: {cmd}. Try: show, set, forget, demo.")
     return 2
 
 

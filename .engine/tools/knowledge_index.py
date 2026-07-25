@@ -45,7 +45,7 @@ INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on", "supersedes")
 
 # The cold-start adjacency walk's traversal set — pinned to the four STRUCTURAL edges as a build-spec
-# INVARIANT (new edge kinds stay off the walk so orientation/scent budget stays flat). This is the
+# INVARIANT (new edge kinds stay off the walk so the orientation budget stays flat). This is the
 # default neighbors() traverses when no edge_filter is given (the cold-start path), and attention's
 # cold-start caller also passes it explicitly. Its conceptual home is the attention policy's `## Scope`
 # (the surface that owns budget allocation/trim); it is a fixed invariant, not an operator-tunable dial,
