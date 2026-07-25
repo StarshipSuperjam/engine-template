@@ -30,9 +30,11 @@ legacy single-target proposal `{"target": id, …}` is still read as a one-note 
 
 Posture: **deterministic detection, injected emission.** The probe is pure mechanism over the ledger (same ledger +
 same clock -> same selection). The PR-opener is INJECTED (the `module_manager._open_upgrade_pr` discipline) so
-tests/demo run the real logic fully offline; NO hook/workflow/cron invokes `propose`, so the real open is never
-reached AUTOMATICALLY (a deliberate `propose` run is the operator's own choice, the same class as `tune` /
-`module_manager` — and even then it only OPENS a pull request, never erases). Auto-open is
+tests/demo run the real logic fully offline. The real open IS reached automatically: the SessionStart hook
+(`_session_start_handler`, wired for startup/resume/clear on both runtimes) calls the un-injected `propose` once
+per throttle interval, so proposals accrue without the operator asking — what stays the operator's alone is the
+MERGE, since a proposal only ever OPENS a pull request and never erases. (A hand-run `propose` is the same act,
+just un-throttled.) Auto-open is
 de-duplicated: a target already covered by ANY `engine-erasure` pull request (open or merged) or already carrying an
 erasure marker is skipped, and on any host doubt the producer DECLINES to open (fail-SAFE — a missed open just retries;
 declining loses nothing). Memory is local + gitignored, so detection runs in a LOCAL session where the ledger exists,
