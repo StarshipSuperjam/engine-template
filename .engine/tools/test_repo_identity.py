@@ -190,5 +190,35 @@ class TestSlugPrimitives(unittest.TestCase):
             repo_identity.home_repository(repo)
 
 
+class TestIsDownstreamCopyStrict(unittest.TestCase):
+    """The fail-LOUD complement of `is_home_repo`, and the CONTRAST between the two — pinned here, in the
+    module that owns both, so a refactor that widens `is_downstream_copy`'s `try` (or collapses the strict
+    form to `not is_home_repo`) breaks a test beside the contract instead of silently degrading a consumer two
+    modules away into a reassuring, wrong silence."""
+
+    def setUp(self):
+        self.tmp = _mkdtemp(self)
+
+    def test_agrees_with_is_home_repo_on_every_readable_case(self):
+        cases = [("home", f"https://github.com/{HOME}.git", HOME, False),
+                 ("copy", "https://github.com/acme/product.git", HOME, True),
+                 ("nohome", "https://github.com/acme/product.git", None, False),
+                 ("noorigin", None, HOME, False)]
+        for name, origin, home, expected in cases:
+            with self.subTest(case=name):
+                repo = _repo(self.tmp, name, origin=origin, home=home)
+                self.assertIs(repo_identity.is_downstream_copy_strict(repo), expected)
+                self.assertIs(repo_identity.is_home_repo(repo), not expected)
+
+    def test_a_malformed_manifest_raises_here_but_is_swallowed_by_is_home_repo(self):
+        repo = _repo(self.tmp, "corrupt", origin="https://github.com/acme/product.git")
+        with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        with self.assertRaises(Exception):
+            repo_identity.is_downstream_copy_strict(repo)
+        self.assertTrue(repo_identity.is_home_repo(repo),
+                        "is_home_repo must keep failing TOWARD home — the two fail-directions are deliberate")
+
+
 if __name__ == "__main__":
     unittest.main()

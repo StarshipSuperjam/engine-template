@@ -128,6 +128,14 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     #                                    with NO on-disk floored correlate any check catches. A unit test is the
     #                                    wrong instrument (the same PR can flip the belt AND its test), so a change
     #                                    here routes through the guardrail-ack, like modes.py / close.py.
+    ".engine/tools/repo_identity.py",  # the origin==home seam that SCOPES the two hard public-safety checks
+    #                                    (memory-pointer-public-safety, census-completeness) and the negative-
+    #                                    fixture harness. Flipping is_home_repo's fail-direction, or narrowing
+    #                                    origin_slug's host anchor, turns both checks into no-ops in the very
+    #                                    repo they exist to protect — with NO diff to any guarded check script
+    #                                    and no other on-disk floored correlate to surface it. Same criterion as
+    #                                    mechanic_build.py above: a live runtime gate whose weakening is
+    #                                    otherwise invisible, so it routes through the guardrail-ack.
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane

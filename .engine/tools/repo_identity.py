@@ -94,9 +94,9 @@ def home_repository(root: "str | None" = None) -> "str | None":
     """The engine's HOME repository slug (`owner/repo`) recorded in `root`'s manifest — the single coordinate
     for where the engine fetches its own updates from AND where a fork-native deployment escalates a
     contribution to (schema: engine.v1.json `home_repository`). `None` when the manifest is absent or records
-    no/blank home. A present-but-MALFORMED manifest RAISES (loud) — `module_manager._home_repository` (which
-    delegates here via `module_coherence`) and its callers `overlay_disclosure.is_deployed` / `release_cut`
-    rely on a corrupt manifest never being silently read as "no home"."""
+    no/blank home. A present-but-MALFORMED manifest RAISES (loud): `is_downstream_copy_strict` calls this
+    directly, and `release_cut` reaches it through `module_manager._home_repository` (which delegates here via
+    `module_coherence`) — both rely on a corrupt manifest never being silently read as "no home"."""
     engine = _manifest(root) or {}
     home = engine.get("home_repository")
     return home if isinstance(home, str) and home.strip() else None
@@ -130,7 +130,9 @@ def is_downstream_copy(own_slug: "str | None", home_slug=_READ_HOME) -> bool:
       - SAFE, fail-toward-quiet: False (NOT a copy) whenever home is absent/blank/unreadable OR `own_slug` is
         None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet. A MALFORMED
         manifest read here degrades to False (never crash a read-only caller), unlike the fail-LOUD
-        `home_repository()` the update path relies on."""
+        `home_repository()` the update path relies on — which is why `is_downstream_copy_strict` passes the
+        home in explicitly rather than omitting it. Do NOT widen this `try` to cover the whole body: the
+        narrow scope is what lets that caller keep its raise."""
     if home_slug is _READ_HOME:
         try:
             home_slug = home_repository()
@@ -154,3 +156,17 @@ def is_home_repo(root: "str | None" = None) -> bool:
     except Exception:  # noqa: BLE001 — a malformed manifest cannot place the repo -> fail toward home (safe)
         home = None
     return not is_downstream_copy(own, home)
+
+
+def is_downstream_copy_strict(root: "str | None" = None) -> bool:
+    """The fail-LOUD complement of `is_home_repo`: True iff `root` is a downstream copy of the engine, with a
+    MALFORMED manifest RAISING rather than degrading.
+
+    `is_home_repo` deliberately swallows that error and fails toward home — the right direction for a scope
+    detector, whose worst case is checking unnecessarily. It is the WRONG direction for a caller whose quiet
+    verdict is itself a reassurance to the operator: `overlay_disclosure.is_deployed` stays silent when this is
+    False, and silence there reads as "nothing will be overwritten". A corrupt manifest must not be able to
+    produce that. Passing the home in as an ARGUMENT is what preserves the raise — `is_downstream_copy` guards
+    only its sentinel branch — so do not collapse this to `not is_home_repo(root)`, and do not widen that
+    `try`. Both changes are silent: the tests beside this one are what catch them."""
+    return is_downstream_copy(origin_slug(root), home_repository(root))
