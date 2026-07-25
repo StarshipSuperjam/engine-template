@@ -24,7 +24,6 @@ values:
   flex_high_debt_count: 3
   flex_orientation_delta: 0.10
   debt_blocking_threshold: 2
-  scent_strong_match_threshold: 0.5
 ---
 
 ## Rule
@@ -56,22 +55,20 @@ something less important. The dials only adjust matters *inside* that fixed fram
   them; an easy session gives that room back to orientation. The second number is how much room moves.
 - **How bad an open problem must be to actually stop you** (`debt_blocking_threshold`): the severity an open
   problem must reach before it blocks the start of new work rather than just being mentioned.
-- **How strong a word-match must be for the per-prompt hint to fire** (`scent_strong_match_threshold`): the
-  bar a quick keyword match must clear before the engine volunteers a pointer mid-conversation.
 
 ## Scope
 
-These dials govern only how the engine *prioritises and sizes* what it shows you when it gets its bearings —
-at the start of a session and on each prompt. They decide ordering and room, nothing else: not whether
+These dials govern only how the engine *prioritises and sizes* what it shows you when it gets its bearings at
+the start of a session. They decide ordering and room, nothing else: not whether
 something is a tracked problem in the first place (that is the monitoring policy's job), not what is fetched
-or stored, and not the product you are building — only the engine's own attention. Most of them take effect at
+or stored, and not the product you are building — only the engine's own attention. They take effect at
 the start-of-session orientation event, where the ranking tool reads them and sizes what it surfaces. The
 `trim_*` order is the exception: it is read there too, but only acts as a safety rule when the room cannot
 seat every kind — which at the room the engine ships with, it can — so changing it does not alter a normal
 session; it governs only what is shed first if the room is ever set too tight (the default sheds general
-orientation first and blocking debt last). The per-prompt scent uses just one dial — the strong-match
-threshold — to decide when to surface a memory pointer. The numbers themselves stand as deliberate starting
-values, calibrated against real use rather than proven from the outset.
+orientation first and blocking debt last). The per-prompt reminder to consult saved memory reads none of these
+numbers at all — it is unconditional, so there is no bar to set. The numbers themselves stand as deliberate
+starting values, calibrated against real use rather than proven from the outset.
 
 When the engine looks at the parts of the project next to what you are touching, it follows only the
 **structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
@@ -101,7 +98,7 @@ their ranked slots before any weight is applied, so the order holds even if a di
 take real effect at the start-of-session orientation event, where the tool reads them and sizes what it
 surfaces; the `trim_*` order among them is read there too but stays a dormant safety rule at the room the
 engine ships with — it changes what is shed first only if the room is set too tight to seat every kind. The
-per-prompt scent reads only the strong-match threshold, to decide when to surface a memory pointer. Either
-way, nothing blocks work. This policy's whole force is the expectation that these numbers stay
+per-prompt reminder to consult saved memory reads nothing from this policy — it fires on every message
+regardless. Either way, nothing blocks work. This policy's whole force is the expectation that these numbers stay
 here — legible, calibrated from evidence, and surfaced for review when they change — rather than being
 hidden as fixed constants in code.

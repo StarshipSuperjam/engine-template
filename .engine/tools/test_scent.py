@@ -1,20 +1,24 @@
-"""test_scent.py — the per-prompt attention scent handler: scent.py (memory-substrate-sqlite-fts5).
+"""test_scent.py — the per-prompt recall cue: scent.py (memory-substrate-sqlite-fts5).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-The scent is the M1-completing seam: a UserPromptSubmit hook that injects ATTRIBUTED POINTERS over memory's
-fast lookup. These pin its locked laws: silent on no strong match; attributed pointers NOT content (the injected
-text never quotes a record's body and always carries the verify clause); dedup (a pointer surfaced once a session
-is not re-injected, keyed on record id, a new topic still surfaces); the FTS5-absent one-time slower-mode
-disclosure (never a per-prompt slow scan); does-not-reinforce; and fail-open (no prompt / no memory module ->
-silent). Isolation is a throwaway ENGINE_MEMORY_DIR cabinet (the handler's default-path lookup lands there) plus
-explicit cleanup of the OS-temp surfaced-set the dedup uses.
+The scent is the per-prompt member of the orientation family: a UserPromptSubmit hook that injects one short
+constant cue asking whether this project has already settled the thing at hand. These pin its laws: it fires on
+EVERY prompt (the reflex is the deliverable — a sometimes-firing reflex teaches the model that silence means "no
+memory"); the payload is identical regardless of the prompt's words and of what memory holds; it is content-free
+and writes nothing; it stays under its tested character ceiling, because it is injected every turn and
+`additionalContext` persists in history; it names an operation that actually exists; and it stays genuinely
+near-zero — no subprocess, no store open, no path that grows with memory. Fail-open and the inert-seam
+(no memory module -> silent) cases are pinned too.
 """
 
 import inspect
+import io
+import json as _json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -23,10 +27,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scent  # noqa: E402
-import validate  # noqa: E402  (the shipped policy default, read the way the scent reads it)
+import validate  # noqa: E402
 from memory import index, ledger, records  # noqa: E402
-
-_ID = records.RECORD_ID_KEY
 
 
 def _inject(decision):
@@ -36,285 +38,214 @@ def _inject(decision):
     return None
 
 
-class _ScentBase(unittest.TestCase):
-    """A throwaway ENGINE_MEMORY_DIR cabinet; the handler's default-path scent_lookup lands there. Session ids
-    are unique per test (derived from the temp dir) and their OS-temp surfaced-sets are cleared on teardown."""
+def _run(prompt, session_id="s"):
+    return _inject(scent.handler({"prompt": prompt, "session_id": session_id}))
+
+
+# Two prompts with no word in common, NEITHER of which mentions anything past. The second is the shape the
+# old keyword-matching pointer was structurally blind to: an instruction a stored preference may contradict.
+_PROMPT_A = "should we use a nightly cron job for this?"
+_PROMPT_B = "make the welcome copy longer"
+
+
+class FiresEveryPromptTests(unittest.TestCase):
+    """THE law of this slice. The old seam fired only on a strong keyword match, which made it silent on exactly
+    the reworded and forward-looking prompts recall keeps failing. Any reintroduction of a firing condition —
+    a keyword gate, a salience bar, a once-per-session dedup — turns one of these red."""
+
+    def test_the_same_prompt_twice_gets_the_cue_both_times(self):
+        first, second = _run(_PROMPT_A), _run(_PROMPT_A)
+        self.assertIsNotNone(first)
+        self.assertEqual(first, second, "a per-session dedup would make the reflex fire once and stop")
+
+    def test_two_prompts_sharing_no_words_get_the_identical_cue(self):
+        self.assertEqual(set(_PROMPT_A.split()) & set(_PROMPT_B.split()), set(),
+                         "the fixture must genuinely share no vocabulary for this to mean anything")
+        self.assertEqual(_run(_PROMPT_A), _run(_PROMPT_B))
+
+    def test_a_prompt_of_only_common_words_still_gets_the_cue(self):
+        # The old seam went silent here (no distinctive term to match). Silence is what this slice removes.
+        self.assertIsNotNone(_run("the and now to of"))
+
+    def test_a_prompt_naming_nothing_past_still_gets_the_cue(self):
+        # The highest-value case: the operator does not know memory holds the answer, so nothing in the words
+        # signals a past. A trigger keyed on backward reference would miss it.
+        self.assertIsNotNone(_run("make the welcome copy longer"))
+
+    def test_no_prompt_is_silent(self):
+        self.assertIsNone(_inject(scent.handler({"session_id": "s"})))
+        self.assertIsNone(_inject(scent.handler({"prompt": "   ", "session_id": "s"})))
+        self.assertIsNone(_inject(scent.handler({"prompt": None})))
+
+    def test_a_malformed_payload_is_silent_not_a_crash(self):
+        for bad in (None, [], "not-a-dict", 7):
+            self.assertIsNone(_inject(scent.handler(bad)), f"payload {bad!r} raised or spoke")
+
+
+class CueContentTests(unittest.TestCase):
+    def test_the_cue_stays_under_its_tested_ceiling(self):
+        # Not decoration: the cue rides EVERY prompt and additionalContext persists in history, so its length
+        # is a standing per-turn cost. This ceiling is the only thing stopping a later edit growing it quietly.
+        self.assertLessEqual(len(scent._CUE), scent._CUE_MAX_CHARS)
+        self.assertTrue(scent._CUE.strip(), "the per-prompt event may never thin to an empty payload")
+
+    def test_the_cue_names_the_operation_that_carries_the_procedure(self):
+        self.assertIn(scent._OPERATION, scent._CUE)
+
+    def test_the_named_operation_actually_EXISTS(self):
+        # The failure this catches is invisible otherwise: rename or move the runbook and the cue still fires
+        # every turn, still reads correctly, and leads nowhere. No link check covers a string literal in a .py
+        # file (engine/check/link-integrity targets **/*.md), so this assertion is the only thing that would.
+        self.assertTrue(os.path.isfile(scent._OPERATION_FILE), scent._OPERATION_FILE)
+        self.assertEqual(
+            os.path.relpath(scent._OPERATION_FILE, os.path.dirname(validate.ENGINE_DIR)).replace(os.sep, "/"),
+            scent._OPERATION,
+            "the path in the cue and the path checked on disk must be the same one")
+
+    def test_the_cue_names_the_forward_looking_trigger_shapes(self):
+        # The trigger is "may this project have already settled this", not "does this prompt mention the past".
+        # Every backward-referencing shape already reaches recall through the engine-recall skill's own
+        # description on both runtimes; these three are what nothing else catches.
+        for shape in ("already decided", "already tried and rejected", "stated preference"):
+            self.assertIn(shape, scent._CUE, f"the cue dropped the {shape!r} trigger")
+
+    def test_the_cue_carries_no_engine_or_governance_vocabulary(self):
+        # It is AI-facing, but it is also the most-repeated string the engine emits; keep it plain.
+        for jargon in ("eADR", "guardrail", "validator", "suite", "gate"):
+            self.assertNotIn(jargon, scent._CUE)
+
+
+class ContentFreeAndSideEffectFreeTests(unittest.TestCase):
+    """A throwaway ENGINE_MEMORY_DIR cabinet, so anything the handler *might* read or write lands there."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="engine-scent-test-")
         self._prev = os.environ.get(ledger.ENV_DIR)
         os.environ[ledger.ENV_DIR] = self.tmp
-        self.now = int(time.time())
-        self._sids = set()
+        self.bodies = ["we rejected the nightly cron job outright", "keep the welcome copy short"]
+        now = int(time.time())
+        for body, role, tags in ((self.bodies[0], "decision", ["scheduling", "cron"]),
+                                 (self.bodies[1], "preference", ["onboarding", "copy"])):
+            ledger.append({"ts": now, "role": role, "tags": tags, "text": body,
+                           records.RECORD_ID_KEY: records.new_record_id()}, path=ledger.ledger_path())
+        index.rebuild()
 
     def tearDown(self):
-        for sid in self._sids:
-            scent._clear(sid)
         if self._prev is None:
             os.environ.pop(ledger.ENV_DIR, None)
         else:
             os.environ[ledger.ENV_DIR] = self._prev
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def sid(self, suffix=""):
-        s = f"test-{os.path.basename(self.tmp)}-{suffix}"
-        self._sids.add(s)
-        return s
+    def test_the_cue_is_identical_whether_or_not_memory_holds_the_answer(self):
+        # A stored record answers _PROMPT_A directly. The cue must not vary — it is a reminder to look, never
+        # a peek. If it ever varied with the store, it would be leaking retrieval signal into every turn.
+        with_memory = _run(_PROMPT_A)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        os.makedirs(self.tmp, exist_ok=True)
+        self.assertEqual(with_memory, _run(_PROMPT_A))
 
-    def add(self, text, *, role="observation", tags=(), with_id=True):
-        record = {"ts": self.now, "role": role, "tags": list(tags), "text": text}
-        if with_id:
-            record[_ID] = records.new_record_id()
-        ledger.append(record, path=ledger.ledger_path())
-        return record.get(_ID)
-
-    def rebuild(self):
-        index.rebuild()
-
-    def run_scent(self, prompt, session_id):
-        return _inject(scent.handler({"prompt": prompt, "session_id": session_id}))
-
-    def seed_calendar(self):
-        """A small corpus with a DISTINCTIVE 'calendar' term + ordinary-word distractors."""
-        rid = self.add("we decided to build the calendar sync against the user's calendar",
-                       role="decision", tags=["scheduling", "calendar-sync"])
-        self.add("keep the onboarding copy short", role="lesson", tags=["onboarding"])
-        self.add("prefer snake_case for config keys", role="preference", tags=["naming"])
-        self.rebuild()
-        return rid
-
-
-class ThresholdReadsTheTunedValueTests(unittest.TestCase):
-    """#394 — the salience bar the scent clears is an operator-tunable dial, and the scent read
-    it straight from the shipped default, so a reviewed-and-merged `/engine-tune` of it changed nothing.
-
-    These drive the REAL `_threshold()` against a REAL override slice. Nothing here patches `_threshold`
-    out: every other test in this file does (it is not what they are about), which is exactly how a dial can
-    be inert for months behind a green suite — the one test that would notice never existed."""
-
-    def _threshold_with(self, override):
-        # Patch only the override FILE read — the policy read, the merge and the coercion are the real ones.
-        with mock.patch.object(scent.operator_overrides, "slice_for", return_value=override):
-            return scent._threshold()
-
-    def test_the_shipped_default_stands_when_nothing_is_tuned(self):
-        shipped = validate.frontmatter(
-            os.path.join(validate.ENGINE_DIR, "policies", "attention.md"))["values"]["scent_strong_match_threshold"]
-        self.assertEqual(self._threshold_with({}), float(shipped))
-
-    def test_a_tuned_value_actually_reaches_the_scent(self):
-        # THE regression this slice exists to prevent. Revert `_threshold` to a direct frontmatter read and
-        # this is the test that goes red.
-        self.assertEqual(self._threshold_with({"scent_strong_match_threshold": 0.93}), 0.93)
-        self.assertNotEqual(self._threshold_with({"scent_strong_match_threshold": 0.93}),
-                            self._threshold_with({}))
-
-    def test_another_policys_tuned_key_never_moves_this_bar(self):
-        # The merge is per-key: tuning a different dial must not disturb this one.
-        self.assertEqual(self._threshold_with({"debt_blocking_threshold": 9}), self._threshold_with({}))
-
-    def test_a_value_the_engine_cannot_measure_against_is_refused_not_obeyed(self):
-        # The read-time merge refuses it and the shipped default stands, so a hand-edited override file can
-        # neither silence the scent (an endless bar) nor make it fire on everything.
-        for bad in (float("inf"), float("nan"), "loud", True):
-            self.assertEqual(self._threshold_with({"scent_strong_match_threshold": bad}),
-                             self._threshold_with({}), f"a bar of {bad!r} was obeyed")
-
-    def test_a_faulted_override_read_degrades_to_the_default_rather_than_crashing_the_prompt(self):
-        # This runs on every prompt: it must never crash, and must never silently disable itself either.
-        with mock.patch.object(scent.operator_overrides, "slice_for", side_effect=OSError("unreadable")):
-            self.assertEqual(scent._threshold(), scent._DEFAULT_THRESHOLD)
-
-
-class FiringTests(_ScentBase):
-    def test_strong_match_injects_a_pointer(self):
-        self.seed_calendar()
-        text = self.run_scent("how should we handle the calendar sync?", self.sid())
-        self.assertIsNotNone(text)
-
-    def test_near_miss_is_silent(self):
-        self.seed_calendar()
-        self.assertIsNone(self.run_scent("what is the weather like today?", self.sid()))
-
-    def test_common_words_only_is_silent(self):
-        self.seed_calendar()
-        self.assertIsNone(self.run_scent("the and now to of", self.sid()))
-
-    def test_empty_memory_is_silent_then_lights_up(self):
-        # The inert -> live crossover: silent with nothing stored, a pointer once memory is filled + indexed.
-        sid = self.sid()
-        self.assertIsNone(self.run_scent("calendar sync", sid))
-        self.seed_calendar()
-        scent._clear(sid)
-        self.assertIsNotNone(self.run_scent("calendar sync", sid))
-
-    def test_no_prompt_is_silent(self):
-        self.seed_calendar()
-        self.assertIsNone(_inject(scent.handler({"session_id": self.sid()})))
-        self.assertIsNone(_inject(scent.handler({"prompt": "   ", "session_id": self.sid()})))
-
-    def test_missing_memory_module_is_silent(self):
-        # The inert-seam state: no memory package -> the lazy import fails -> silent, never a fault. Force the
-        # `from memory import ...` to raise (patching sys.modules won't: the submodule is already bound).
-        import builtins
-        self.seed_calendar()
-        real_import = builtins.__import__
-
-        def fail_memory(name, *a, **k):
-            if name == "memory" or name.startswith("memory."):
-                raise ImportError("no memory module")
-            return real_import(name, *a, **k)
-
-        with mock.patch("builtins.__import__", side_effect=fail_memory):
-            self.assertIsNone(self.run_scent("calendar sync", self.sid()))
-
-
-class RenderLawTests(_ScentBase):
-    def test_injected_text_excludes_the_record_body(self):
-        body = "we decided to build the calendar sync against the user's calendar"
-        self.seed_calendar()
-        text = self.run_scent("calendar sync", self.sid()) or ""
+    def test_the_cue_quotes_nothing_that_was_stored(self):
+        text = _run(_PROMPT_A) or ""
         self.assertTrue(text)
-        self.assertNotIn(body, text)               # pointers, NOT content
-        self.assertNotIn("snake_case", text)       # no other body leaks either
+        for body in self.bodies:
+            self.assertNotIn(body, text)
+        for tag in ("scheduling", "cron", "onboarding"):
+            self.assertNotIn(tag, text)
 
-    def test_injected_text_carries_the_verify_clause(self):
-        self.seed_calendar()
-        text = self.run_scent("calendar sync", self.sid()) or ""
-        self.assertIn("verify before asserting", text)
+    def test_the_hook_appends_nothing_to_the_ledger(self):
+        def count():
+            return sum(1 for _ in ledger.iter_records(path=ledger.ledger_path()))
+        before = count()
+        _run(_PROMPT_A)
+        self.assertEqual(count(), before)
 
-    def test_names_role_and_tags(self):
-        self.seed_calendar()
-        text = self.run_scent("calendar sync", self.sid()) or ""
-        self.assertIn("decision", text)
-        self.assertIn("calendar-sync", text)       # a tag is a pointer (entity ref), surfaced; the body is not
-
-    def test_a_decision_record_tag_surfaces_as_a_pointer(self):
-        # The operator-facing capability behind #571-follow-up: a note tagged with a decision record's id
-        # surfaces through the scent as a pointer to that decision — the same way any memory does. Covers BOTH
-        # id kinds the consolidation directive now instructs the summarizer to assign: an engine decision id
-        # (eADR-####) and a product ADR id (docs/adr/…). The real handler over the real index; the tag is a
-        # pointer (entity ref), the record body is never quoted. (Distractors mirror seed_calendar so the target
-        # clears the salience bar by contrast.)
-        body = "we settled the telemetry retention window in the telemetry retention decision"
-        self.add(body, role="decision", tags=["eADR-0031", "docs/adr/0007-telemetry-retention"])
-        self.add("keep the onboarding copy short", role="lesson", tags=["onboarding"])
-        self.add("prefer snake_case for config keys", role="preference", tags=["naming"])
-        self.rebuild()
-        text = self.run_scent("what was the telemetry retention decision?", self.sid()) or ""
-        self.assertIn("decision", text)                            # the role is named
-        self.assertIn("eADR-0031", text)                          # the engine-decision pointer surfaces
-        self.assertIn("docs/adr/0007-telemetry-retention", text)  # …and the product-ADR pointer surfaces, verbatim
-        self.assertNotIn(body, text)                              # pointers, NOT the record body
-
-    def test_recall_completeness_is_disclosed_once_per_session(self):
-        # (#332): alongside the FIRST pointers, the scent discloses that these point to curated
-        # summaries whose raw verbatim is kept and recoverable; shown once per session (like the degraded notice),
-        # never repeated on every prompt.
-        self.seed_calendar()
-        sid = self.sid()
-        first = self.run_scent("how should we handle the calendar sync?", sid) or ""
-        self.assertIn(scent._COMPLETENESS_DISCLOSURE, first)
-        self.assertIn("recoverable", first.lower())
-        # a DIFFERENT distinctive topic surfaces a fresh pointer (the term repeated, mirroring seed_calendar, so it
-        # clears the salience bar); the completeness note must NOT repeat on this second firing
-        self.add("we chose the postgres datastore; the postgres rows back the postgres ledger",
-                 role="decision", tags=["storage"])
-        self.rebuild()
-        second = self.run_scent("which postgres datastore did we choose?", sid) or ""
-        self.assertTrue(second)                                    # a fresh pointer still surfaces
-        self.assertNotIn(scent._COMPLETENESS_DISCLOSURE, second)   # but the note is not repeated
-
-    def test_caps_at_surface_max(self):
-        # The cap is a rendering bound, independent of bm25 magnitude (which other tests cover). Lower the
-        # salience bar to 0 so every match qualifies, isolating that _undeduped caps the output at _SURFACE_MAX.
-        for i in range(scent._SURFACE_MAX + 4):
-            self.add(f"calendar planning note {i}", role="decision", tags=[f"e{i}"])
-        self.rebuild()
-        with mock.patch.object(scent, "_threshold", return_value=0.0):
-            text = self.run_scent("calendar", self.sid()) or ""
-        self.assertGreaterEqual(text.count("- a recorded"), 1)                  # non-vacuous: it DID surface
-        self.assertEqual(text.count("- a recorded"), scent._SURFACE_MAX)        # capped at exactly the max
+    def test_source_has_no_write_or_reinforce_calls(self):
+        src = "".join(inspect.getsource(fn) for fn in (scent.handler, scent._memory_installed))
+        for forbidden in ("record_access", "ledger.append", "open("):
+            self.assertNotIn(forbidden, src)
 
 
-class DedupTests(_ScentBase):
-    def test_surfaced_once_per_session(self):
-        self.seed_calendar()
-        sid = self.sid()
-        self.assertIsNotNone(self.run_scent("calendar sync", sid))
-        self.assertIsNone(self.run_scent("calendar sync", sid))   # same id already surfaced -> silent
+class NearZeroHotPathTests(unittest.TestCase):
+    """The cost law, pinned mechanically rather than asserted in the docstring. This hook runs on every prompt
+    in a fresh process, so nothing amortises: the moment it resolves the ledger's location it forks a
+    `git rev-parse` (the ledger is shared across a clone's worktrees, so its path cannot be derived locally),
+    and the moment it opens the index it pays a cost that grows with the store. Booby-trap both."""
 
-    def test_a_new_topic_still_surfaces(self):
-        cal = self.add("the calendar sync decision", role="decision", tags=["scheduling"])
-        exp = self.add("the export pipeline rewrite", role="decision", tags=["export"])
-        for t in ("onboarding copy stays short", "prefer snake_case names", "the nightly cache rebuild",
-                  "dark mode everywhere", "retries capped at three"):
-            self.add(t)   # distractors so 'calendar' and 'export' each keep a high bm25 IDF (fire reliably)
-        self.rebuild()
-        sid = self.sid()
-        first = self.run_scent("calendar", sid)
-        second = self.run_scent("export pipeline", sid)            # a DIFFERENT record -> still surfaces
-        self.assertIsNotNone(first)
-        self.assertIsNotNone(second)
-        self.assertNotEqual(cal, exp)
+    def test_the_handler_starts_no_subprocess(self):
+        with mock.patch.object(subprocess, "run", side_effect=AssertionError("forked a subprocess")), \
+             mock.patch.object(subprocess, "Popen", side_effect=AssertionError("forked a subprocess")):
+            self.assertIsNotNone(_run(_PROMPT_A))
 
-    def test_garbled_session_id_does_not_crash(self):
-        self.seed_calendar()
-        # No usable session id -> no dedup state, but still answers (and never raises).
-        self.assertIsNotNone(_inject(scent.handler({"prompt": "calendar sync", "session_id": ""})))
-        self.assertIsNotNone(_inject(scent.handler({"prompt": "calendar sync", "session_id": None})))
+    def test_the_handler_never_resolves_the_store_or_opens_the_index(self):
+        for module, name in ((ledger, "ledger_dir"), (ledger, "ledger_path"),
+                             (ledger, "iter_records"), (index, "rebuild"), (index, "search")):
+            with mock.patch.object(module, name,
+                                   side_effect=AssertionError(f"hot path called {name}")):
+                self.assertIsNotNone(_run(_PROMPT_A), f"{name} was reached on the hot path")
+
+    def test_the_handler_does_not_import_memorys_heavy_chain(self):
+        # find_spec locates the package without executing it, so sqlite3/capture/forget are never paid here.
+        src = inspect.getsource(scent._memory_installed) + inspect.getsource(scent.handler)
+        self.assertIn("find_spec", src)
+        self.assertNotIn("from memory import", src)
 
 
-class DegradedTests(_ScentBase):
-    def test_fts5_absent_discloses_once_then_silent(self):
-        self.seed_calendar()
-        sid = self.sid()
-        original = index.fts5_available
-        index.fts5_available = lambda *a, **k: False
-        try:
-            first = self.run_scent("calendar sync", sid)
-            second = self.run_scent("calendar sync", sid)
-        finally:
-            index.fts5_available = original
-        self.assertIsNotNone(first)
-        self.assertIn("paused", first)             # the one-time slower-mode disclosure
-        self.assertIsNone(second)                  # not repeated
+class InertSeamTests(unittest.TestCase):
+    def test_no_memory_module_is_silent(self):
+        with mock.patch.object(scent, "_memory_installed", return_value=False):
+            self.assertIsNone(_run(_PROMPT_A))
 
-    def test_missing_index_is_silent_not_degraded(self):
-        self.add("calendar sync decided", role="decision")   # ledger written, index NOT rebuilt
-        self.assertIsNone(self.run_scent("calendar sync", self.sid()))
+    def test_an_unreadable_path_entry_reads_as_absent_rather_than_crashing(self):
+        with mock.patch.object(scent.importlib.util, "find_spec", side_effect=ValueError("odd path entry")):
+            self.assertFalse(scent._memory_installed())
+            self.assertIsNone(_run(_PROMPT_A))
+
+    def test_the_real_gate_finds_the_memory_module_in_this_repo(self):
+        # Non-vacuity for the two tests above: the gate must be capable of returning True, or they prove
+        # nothing but that a stubbed-out seam is silent.
+        self.assertTrue(scent._memory_installed())
 
 
-class NoSideEffectTests(_ScentBase):
-    def test_scent_adds_no_reinforcement(self):
-        self.seed_calendar()
-        def marks():
-            return sum(1 for r in ledger.iter_records(path=ledger.ledger_path())
-                       if isinstance(r, dict) and r.get("kind") == records.REINFORCEMENT_KIND)
-        before = marks()
-        self.run_scent("calendar sync", self.sid())
-        self.assertEqual(marks() - before, 0)      # the push is not usage
-
-    def test_source_has_no_reinforce_or_write_calls(self):
-        src = "".join(inspect.getsource(fn) for fn in
-                      (scent.handler, scent._render, scent._pointer_line, scent._undeduped, scent._score_of))
-        self.assertNotIn("record_access", src)
-        self.assertNotIn("ledger.append", src)
-
-
-class FailOpenTests(_ScentBase):
-    def test_a_crash_in_the_lookup_fails_open(self):
-        # The handler rides run_hook's fail-open; a fault injects nothing and never stalls the turn.
-        import io, json as _json
-        self.seed_calendar()
-        with mock.patch.object(index, "scent_lookup", side_effect=RuntimeError("boom")):
+class FailOpenTests(unittest.TestCase):
+    def test_a_crash_in_the_handler_fails_open(self):
+        with mock.patch.object(scent, "_memory_installed", side_effect=RuntimeError("boom")):
             out, err = io.StringIO(), io.StringIO()
             code = scent.hooks.run_hook(
                 "UserPromptSubmit", scent.handler,
-                stdin=io.StringIO(_json.dumps({"prompt": "calendar sync", "session_id": self.sid()})),
+                stdin=io.StringIO(_json.dumps({"prompt": _PROMPT_A, "session_id": "s"})),
                 stdout=out, stderr=err)
-        self.assertNotEqual(code, 2)               # never a hard block
+        self.assertNotEqual(code, 2)                  # never a hard block
         self.assertEqual(out.getvalue().strip(), "")  # injected nothing
+
+    def test_the_wired_hook_path_injects_the_cue(self):
+        # End-to-end through run_hook, the way the wired hook actually runs — not just the handler in isolation.
+        out, err = io.StringIO(), io.StringIO()
+        code = scent.hooks.run_hook(
+            "UserPromptSubmit", scent.handler,
+            stdin=io.StringIO(_json.dumps({"prompt": _PROMPT_A, "session_id": "s"})),
+            stdout=out, stderr=err)
+        self.assertEqual(code, 0)
+        self.assertIn(scent._OPERATION, out.getvalue())
+
+
+class DemoTests(unittest.TestCase):
+    def test_demo_passes(self):
+        from quiet_call import run as quiet_run
+        self.assertEqual(quiet_run(scent.main, ["demo"]), 0)
+
+    def test_demo_can_fail(self):
+        # A demonstration that cannot fail is not evidence. Break the law it demonstrates — the cue firing on
+        # every prompt — and the demo must notice and exit non-zero.
+        from quiet_call import run as quiet_run
+        calls = {"n": 0}
+
+        def sometimes(payload):
+            calls["n"] += 1
+            return scent.hooks.proceed() if calls["n"] % 2 == 0 else scent.hooks.inject(scent._CUE)
+
+        with mock.patch.object(scent, "handler", side_effect=sometimes):
+            self.assertEqual(quiet_run(scent.main, ["demo"]), 1)
 
 
 if __name__ == "__main__":

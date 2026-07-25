@@ -49,10 +49,10 @@ files; and you relayed them to the operator in plain language. Nothing was writt
 The map answers **structure only** — what is wired to what, never what was decided about it or whether it
 is a good idea. For the distilled reasoning behind a part, that is a separate read.
 
-It is **pull-only by itself.** Two things already push the relevant slice without you asking: the
-per-prompt scent surfaces pointers when your prompt matches them, and the session-start briefing surfaces
-the neighbourhood of the work already in hand. This runbook is the deliberate reach *beyond* what got
-pushed — when you have a specific part to check and nothing surfaced it for you.
+It is **pull-only by itself.** One thing already pushes the relevant slice without you asking: the
+session-start briefing surfaces the neighbourhood of the work already in hand. (The per-prompt cue pushes a
+reminder to consult saved *memory*, not a slice of this map.) This runbook is the deliberate reach *beyond*
+what got pushed — when you have a specific part to check and nothing surfaced it for you.
 
 A change that weakens one of the engine's own guardrails is exactly the kind the impact check exists to
 catch before the fact: run it whenever a change reaches into something other parts rely on.

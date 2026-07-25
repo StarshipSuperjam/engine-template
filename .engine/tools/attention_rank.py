@@ -48,7 +48,7 @@ PRECEDENCE_KEYS = tuple(f"precedence_{c}" for c in CATEGORIES)
 TRIM_KEYS = tuple(f"trim_{c}" for c in CATEGORIES)
 WEIGHT_KEYS = ("weight_recency", "weight_severity", "weight_proximity")
 FLEX_KEYS = ("flex_high_debt_count", "flex_orientation_delta")
-THRESHOLD_KEYS = ("debt_blocking_threshold", "scent_strong_match_threshold")
+THRESHOLD_KEYS = ("debt_blocking_threshold",)
 EXPECTED_VALUE_KEYS = frozenset(
     BUDGET_KEYS + PRECEDENCE_KEYS + TRIM_KEYS + WEIGHT_KEYS + FLEX_KEYS + THRESHOLD_KEYS)
 

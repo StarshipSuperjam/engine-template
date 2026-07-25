@@ -1347,13 +1347,22 @@ def gather_signals(session_id: str | None = None) -> dict:
     try:
         # The memory-availability signal (#397), RELAYED from memory's own LOCAL read: True iff the saved
         # ledger is present-but-unreadable, so recall genuinely can't answer (the availability floor — distinct
-        # from the malformed-LINES rot below, which the file still opens, and from the FTS5 slower-mode the scent
-        # renders). Read-only; degrades quietly to False on any fault. The dead-MCP-SERVER case is the model's own
+        # from the malformed-LINES rot below, which the file still opens, and from the slower-search latency
+        # signal gathered just below). Read-only; degrades quietly to False on any fault. The dead-MCP-SERVER case is the model's own
         # live-helper check (MCP_AVAILABILITY_CHECK), not here — boot reads committed files only.
         from memory import ledger_health as _lh_off
         recall_offline = _lh_off.detect_recall_offline()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         recall_offline = False
+    try:
+        # The slower-search signal: this machine's SQLite has no full-text module, so every memory search
+        # reads the whole store. The LATENCY axis (recall still answers) as against `recall_offline`'s
+        # availability floor. RELAYED from memory's own probe, whose contract names boot as this
+        # disclosure's renderer; it used to ride the per-prompt seam, which no longer queries anything.
+        from memory import ledger_health as _lh_fast
+        fast_search_unavailable = _lh_fast.detect_fast_search_unavailable()
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        fast_search_unavailable = False
     # The reversible-forgetting readout (#413), RELAYED from memory's own read: what recall has set aside
     # (notes gone quiet, notes folded into summaries) that the operator has a handle on. None means "not read"
     # (an unreadable store — surfaced by recall_offline above, never as a false "nothing set aside"); a report
@@ -1462,6 +1471,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         # the memory-availability signal (#397): True iff the saved ledger is present-but-unreadable so recall
         # can't answer (the "memory offline" floor); False on a healthy, empty, or unreadable-to-detect state
         "recall_offline": recall_offline,
+        # the slower-search signal: True iff there is saved memory AND this machine has no full-text search,
+        # so every search reads the whole store (recall still answers — the latency axis, not availability)
+        "fast_search_unavailable": fast_search_unavailable,
         # the reversible-forgetting readout (#413): what recall has set aside (demoted / summarised) with the
         # full count + id set, or None when the store was not read (never a false "nothing set aside")
         "set_aside": set_aside,
@@ -2016,6 +2028,19 @@ def render_dashboard(s: dict) -> str:
             "session — I'm still oriented by the rest of your saved project files. Your saved memory isn't lost. "
             "If you set up a backup, ask me to restore it from there; if not, tell me and I'll help you get your "
             "recall working again.")
+
+    if s.get("fast_search_unavailable"):
+        # The LATENCY disclosure, distinct from the availability floor above: recall still answers every
+        # question, it just answers by reading the whole store. Peer voice — lead with what still works, name
+        # the consequence in time rather than in machinery, and do NOT invent a remedy: the fix is a different
+        # build of a system component, which is not something the operator can act on from here, so saying
+        # "nothing you need to do" is the honest recourse. No backstage vocabulary (a boot test forbids naming
+        # the module). .get() so a fixed-signals test fixture without the key never KeyErrors.
+        degraded.append(
+            "Looking things up in your saved memory will be slow on this computer — the quick-lookup feature "
+            "isn't available here, so I have to read through everything each time. Recall still works and "
+            "still finds the same things; it just takes longer as your memory grows. There's nothing you need "
+            "to do about it.")
 
     malformed = s.get("ledger_malformed")
     if malformed:
