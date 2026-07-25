@@ -5719,7 +5719,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2ed10011aa408c1bafd4a18c660595954bee1be6c71cc2f1a95160a2008373df",
+        "fingerprint": "sha256:dc58b2c5cb9ea4d0aa00cccdb68e19dfbd6c323bd8c75ead64454afbe2dffc96",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8558,7 +8558,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:00c9008f054f5a68589adfa7535ba2483f649e7148fc6203579de82730b5fc55",
+        "fingerprint": "sha256:ad8276d9204546978ff7c780007b8143f04f16af71de8b8a7473dcbd14a62a53",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

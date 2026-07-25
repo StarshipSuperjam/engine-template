@@ -67,6 +67,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -581,14 +582,19 @@ _RELATION_PHRASE = {
 
 
 def _one_line(value: str, limit: int = 200) -> str:
-    """A machine-supplied path rendered safe to sit INSIDE a sentence of model-visible grounding: fence markers
-    defanged, every newline and control character collapsed to a space, and the whole thing length-capped.
+    """A machine-supplied value rendered safe to sit INSIDE a sentence of model-visible text: fence markers
+    defanged, newlines and other control characters collapsed to spaces, and the whole thing length-capped.
 
-    Defanging alone is not enough here. It trims fence rails, but a value carrying a newline can still open its
-    own line in the briefing and read as a fresh instruction. The product slug has always had that shape; the
-    checkout path is a NEW value of the same kind, and it comes from the very seam the build gate treats as
-    untrusted (env or a local file), so it is normalized before it is interpolated rather than after."""
-    flat = " ".join(validate.defang_prompt_fence_markers(value).split())
+    Defanging alone is not enough. It trims fence rails, but a value carrying a newline can still open its own
+    line — on the operator's card in the engine's own voice, or in never-shed grounding where an injected
+    sentence reads as engine-authored. Both values interpolated here have that shape: the recorded product slug
+    (which TRAVELS with a fork, so a co-maintainer inherits whatever a fork's manifest holds) and the checkout
+    path (from the env-or-file seam the build gate treats as untrusted). Both are normalized before they are
+    interpolated, never after. Control characters are removed explicitly — `str.split()` alone breaks only on
+    whitespace, so ESC/NUL/BEL would otherwise survive a "collapsed" claim."""
+    defanged = validate.defang_prompt_fence_markers(value)
+    scrubbed = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in defanged)
+    flat = " ".join(scrubbed.split())
     return flat if len(flat) <= limit else flat[:limit] + "…"
 
 
@@ -625,7 +631,7 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
     if not mech:
         return ""
     state = mech.get("state")
-    product = validate.defang_prompt_fence_markers(mech.get("product") or "")
+    product = _one_line(mech.get("product") or "")
     if state == "resolved":
         return ("GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
                 f"`{product}`, and a folder for it is recorded on this machine at "
@@ -1541,10 +1547,16 @@ def render_dashboard(s: dict) -> str:
     # location that turns out not to exist. It is rendered HOME-CONTRACTED (`~/code/x`, never `/Users/dana/…`),
     # which is what keeps the privacy rule intact — the identifying account name never reaches the card, while
     # the folder stays recognisable enough to fix. The healthy card still prints no path at all.
+    # Held back in a home workshop for the same reason the AI grounding is: the two arrangements contradict each
+    # other, and THIS offer's consent is discharged by the assistant (record a folder, clone the product) — which
+    # in a home repo would be acting on an arrangement it was deliberately given no grounding for. Both surfaces
+    # must withhold together, or the card asks for something the briefing never explained.
     mechanic = s.get("mechanic")
     mech_state = (mechanic or {}).get("state")
-    if mech_state in ("path-unset", "path-unreachable") and not (first_run and first_run.get("present")):
-        product = validate.defang_prompt_fence_markers(mechanic["product"])
+    if (mech_state in ("path-unset", "path-unreachable")
+            and not (first_run and first_run.get("present"))
+            and not s.get("home_workshop")):
+        product = _one_line(mechanic["product"])
         if mech_state == "path-unreachable":
             shown_path = tilde_path(str(mechanic.get("checkout")))
             opening = (f"🔧 **This engine builds `{product}` in a separate checkout of its own, but the folder "
@@ -1867,7 +1879,7 @@ def render_dashboard(s: dict) -> str:
         product_label = (mechanic or {}).get("product") or s.get("product_repository")
         if product_label:
             out.append(f"**What this engine builds:** "
-                       f"{validate.defang_prompt_fence_markers(product_label)}")
+                       f"{_one_line(product_label)}")
             # A RESOLVED mechanic checkout gets a short acknowledgment only — NOT the absolute local path, which
             # embeds the operator's home dir / username and would reach the paste-for-help surface a boot card is.
             # The assistant carries the real path via the AI grounding overlay; the operator dashboard never does.
