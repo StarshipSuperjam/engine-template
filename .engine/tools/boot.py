@@ -1255,10 +1255,13 @@ def gather_signals(session_id: str | None = None) -> dict:
     try:
         # The engine-MECHANIC orientation (eADR-0026, Slice 3), RELAYED from checkout_health's ONE offline reader
         # (boot reads no manifest itself): this engine records an executable product build target, so it is a
-        # mechanic that builds a SEPARATE owned checkout. {"product", "checkout", "state": resolved|path-unset} or
-        # None for the common self-building case. Mutually exclusive with home_workshop by data — a mechanic's
-        # origin differs from its recorded home. Boot relays this one dict onto both surfaces (operator dashboard +
-        # AI grounding); it never recomputes the derived state. Degrades QUIETLY to None on any read failure.
+        # mechanic that builds a SEPARATE owned checkout. Either None (the common self-building case) or
+        # {"product", "checkout", "state": resolved | path-unset | path-unreachable} — the last being a recorded
+        # path with nothing at it. Boot relays this one dict onto both surfaces (operator dashboard + AI
+        # grounding); it never recomputes the derived state. Degrades QUIETLY to None on any read failure. The AI
+        # grounding is additionally held back where a home-workshop grounding renders — the two carry
+        # contradictory instructions, and assemble_pack enforces that structurally rather than trusting the two
+        # signals never to coincide.
         mechanic = checkout_health.mechanic_orientation()
     except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
         mechanic = None
@@ -1431,10 +1434,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
         "home_workshop": home_workshop,
-        # the engine-mechanic orientation (eADR-0026): {"product", "checkout", "state": resolved|path-unset} when
-        # this engine builds a separate OWNED product checkout, or None (self-building / unresolvable). Drives the
-        # dashboard "What this engine builds" line (preferred over product_repository), the path-unset setup offer,
-        # and the AI grounding overlay. Mutually exclusive with home_workshop by data (mechanic origin != home).
+        # the engine-mechanic orientation (eADR-0026): {"product", "checkout", "state": resolved | path-unset |
+        # path-unreachable} when this engine builds a separate OWNED product checkout, or None (self-building /
+        # unresolvable). Drives the dashboard "What this engine builds" line (preferred over product_repository),
+        # the setup offer — which fires on EITHER broken state, so a mistyped path can never leave the offer
+        # silent while the card claims readiness — and the AI grounding overlay.
         "mechanic": mechanic,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None

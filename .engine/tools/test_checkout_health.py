@@ -1224,6 +1224,18 @@ class TestProductBuildTarget(unittest.TestCase):
                 self.assertEqual(checkout_health.mechanic_orientation(root),
                                  {"product": "o/r", "checkout": missing, "state": "path-unreachable"})
 
+    def test_mechanic_orientation_tolerates_a_padded_env_value(self):
+        # An env var pasted with stray whitespace must still resolve; without the strip it would read as a
+        # folder that isn't there and nag for setup that is already correct. (The file seam strips separately.)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            real = os.path.join(tmp, "product-clone")
+            os.makedirs(real)
+            with self._env(ENGINE_PRODUCT_CHECKOUT=f"  {real}\n"):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
+
     def test_mechanic_orientation_expands_a_home_relative_path(self):
         # `~/clone` is the most natural thing an operator writes, and `git -C` does not expand it — so the reader
         # must, or a correct path is reported unreachable and then refused at build time.
