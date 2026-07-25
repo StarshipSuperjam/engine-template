@@ -1174,6 +1174,16 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         home_workshop = None
     try:
+        # The engine-MECHANIC orientation (eADR-0026, Slice 3), RELAYED from checkout_health's ONE offline reader
+        # (boot reads no manifest itself): this engine records an executable product build target, so it is a
+        # mechanic that builds a SEPARATE owned checkout. {"product", "checkout", "state": resolved|path-unset} or
+        # None for the common self-building case. Mutually exclusive with home_workshop by data — a mechanic's
+        # origin differs from its recorded home. Boot relays this one dict onto both surfaces (operator dashboard +
+        # AI grounding); it never recomputes the derived state. Degrades QUIETLY to None on any read failure.
+        mechanic = checkout_health.mechanic_orientation()
+    except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
+        mechanic = None
+    try:
         # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
@@ -1342,6 +1352,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
         "home_workshop": home_workshop,
+        # the engine-mechanic orientation (eADR-0026): {"product", "checkout", "state": resolved|path-unset} when
+        # this engine builds a separate OWNED product checkout, or None (self-building / unresolvable). Drives the
+        # dashboard "What this engine builds" line (preferred over product_repository), the path-unset setup offer,
+        # and the AI grounding overlay. Mutually exclusive with home_workshop by data (mechanic origin != home).
+        "mechanic": mechanic,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
@@ -1424,6 +1439,25 @@ def render_dashboard(s: dict) -> str:
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
+
+    # The engine-MECHANIC path-unset OFFER (eADR-0026, Slice 3): this engine builds a separate OWNED product
+    # checkout, but this machine's path to that checkout isn't set yet — the portable fork case (the committed
+    # slug travelled with the engine, the per-machine path is each maintainer's to set once). SUPPRESSED while
+    # first_run is pending: base engine setup comes before mechanic setup, so there is one onboarding ask, not two
+    # (the same discipline first_run applies to the gate-off offer below). Guided-help voice, provenance-framed (a
+    # per-machine path that never travels, not a defect); boot stays READ-ONLY — the assistant sets the path on the
+    # operator's consent. Points at the build-orchestration note for the full first-time setup (clone the product
+    # as a separate sibling checkout, THEN set the path).
+    mechanic = s.get("mechanic")
+    if mechanic and mechanic.get("state") == "path-unset" and not (first_run and first_run.get("present")):
+        pinned.append(
+            f"🔧 **This engine builds `{validate.defang_prompt_fence_markers(mechanic['product'])}` in a "
+            f"separate checkout of its own — but this machine doesn't know where that checkout is yet.** That's "
+            f"the one thing to set before we can build here: tell me the path to your local clone of it and I'll "
+            f"wire it up (I set `ENGINE_PRODUCT_CHECKOUT`, or write it into `.engine/mechanic/product-checkout-path` "
+            f"— nothing else changes). If you haven't cloned it yet, `.engine/operations/build-orchestration.md` "
+            f"walks the full first-time setup: clone it as a separate folder beside this one, then point me at it. "
+            f"The path stays on this machine — it never travels with the project.")
 
     if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
@@ -1720,13 +1754,21 @@ def render_dashboard(s: dict) -> str:
         # Defanged: the PR title is operator- or (on the external-contribution path) remote-supplied and renders
         # into the model-visible briefing, so it gets the same guard as the product slug below.
         phase = validate.defang_prompt_fence_markers(raw_phase) or "nothing merged yet"
-        # The PRODUCT line — shown ONLY when this engine builds a repo DIFFERENT from the one it is deployed
-        # into (a recorded product; eADR-0026), so a self-building deployment gets no line rather than its own
-        # slug echoed back. Rendered ABOVE the live-derived facts so the offline "may be out of date, re-ground"
-        # caveat below can't misattach to this static stored label (re-grounding never changes it).
-        if s.get("product_repository"):
+        # The PRODUCT line — shown when this engine builds a repo DIFFERENT from the one it is deployed into
+        # (eADR-0026), so a self-building deployment gets no line rather than its own slug echoed back. PREFER the
+        # executable build target (`mechanic["product"]`, the single source of truth per the schema) over the
+        # display-only `product_repository`. Rendered ABOVE the live-derived facts so the offline "may be out of
+        # date, re-ground" caveat below can't misattach to this static stored label (re-grounding never changes it).
+        mechanic = s.get("mechanic")
+        product_label = (mechanic or {}).get("product") or s.get("product_repository")
+        if product_label:
             out.append(f"**What this engine builds:** "
-                       f"{validate.defang_prompt_fence_markers(s['product_repository'])}")
+                       f"{validate.defang_prompt_fence_markers(product_label)}")
+            # A RESOLVED mechanic checkout gets a short acknowledgment only — NOT the absolute local path, which
+            # embeds the operator's home dir / username and would reach the paste-for-help surface a boot card is.
+            # The assistant carries the real path via the AI grounding overlay; the operator dashboard never does.
+            if mechanic and mechanic.get("state") == "resolved":
+                out.append("_Your local checkout of it is set — that's where I'll build._")
         out.append(f"**What merged last:** {phase}")
         out.append(_milestone_line(source.get("milestone")))
         if live is None:
@@ -2376,6 +2418,37 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
             "pull request against protected `main`, cold-context audited before you build it (the plan gate) and "
             "again before merge (the deliverable gate), reaching main only through the maintainer's merge. The "
             "full runbook is `.engine/operations/engine-development.md`; read it to ground before building.")
+        out.append("")
+
+    # The engine-MECHANIC grounding (eADR-0026, Slice 3), AI-facing, Tier 0 (never shed). Fires when this engine
+    # records an executable product build target — it builds a SEPARATE owned checkout and delivers a DIRECT pull
+    # request into it. Mutually exclusive with the home overlay above by data (a mechanic's origin differs from its
+    # recorded home, so detect_home_workshop is False); pinned in a test. Self-labelled AI-facing so it never
+    # enters the operator relay — the operator sees the behaviour (the setup offer, the PR), not this instruction.
+    # This is the ONE surface that carries the absolute checkout path (the assistant needs it to build there); the
+    # operator dashboard shows only a short acknowledgment. build-orchestration.md is a traveling runbook (not a
+    # retired first-run asset), so naming it here is safe in a deployed mechanic.
+    mech = s.get("mechanic")
+    if mech and mech.get("state") == "resolved":
+        out.append(
+            "GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
+            f"`{validate.defang_prompt_fence_markers(mech['product'])}`, checked out SEPARATELY on this machine at "
+            f"`{validate.defang_prompt_fence_markers(mech['checkout'])}`. You build changes IN that checkout and "
+            "open a DIRECT pull request into it, following the owned-product arm of "
+            "`.engine/operations/build-orchestration.md` (build in place — run the checkout's own tools). Because "
+            "you own the product, the merge gate is the operator's OWN gate on it — the same human, not an "
+            "independent reviewer — so what keeps self-improvement honest is NON-REFLEXIVITY: build only "
+            "human-approved RELEASED output of the product, never the mechanic's own unmerged branch.")
+        out.append("")
+    elif mech and mech.get("state") == "path-unset":
+        out.append(
+            "GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
+            f"`{validate.defang_prompt_fence_markers(mech['product'])}`, but this machine's path to that product's "
+            "checkout is not set, so you cannot build here yet. The operator sees a setup offer above; when they "
+            "give you the path, set `ENGINE_PRODUCT_CHECKOUT` (or write `.engine/mechanic/product-checkout-path`) "
+            "on their consent — never a boot-time write. Do not attempt a mechanic build until the checkout "
+            "resolves; the owned-product arm of `.engine/operations/build-orchestration.md` is the runbook once "
+            "it does.")
         out.append("")
 
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing

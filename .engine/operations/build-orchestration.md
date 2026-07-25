@@ -288,6 +288,14 @@ deployment records an executable `product_build_target` — a product the operat
 beside the mechanic — it builds that product and opens a **plain owned draft pull request into the operator's own
 checkout**, NOT through `external-contribution-submit` (that path is for the un-owned case below):
 
+- **First-time setup (once per machine — the fork inherits everything else).** The committed `product_build_target`
+  slug travels with the engine, so a co-maintainer who forks the mechanic already carries "I build this product";
+  the ONE per-machine thing to set is where their local clone of it lives. If there is no clone yet, **clone the
+  owned product as a separate folder BESIDE the mechanic** — a sibling checkout with its own `origin`, never a
+  subdirectory of the mechanic (which is itself the Engine). Then point the mechanic at it: set
+  `ENGINE_PRODUCT_CHECKOUT` to that clone's path, or write the path into `.engine/mechanic/product-checkout-path`
+  (gitignored, never committed — the path is per-machine). Boot surfaces this as a setup offer whenever the target
+  is recorded but the local path is unset.
 - **Preflight from the mechanic tree.** Run `mechanic_build.py preflight`. It REFUSES fail-closed — with a plain
   reason + remedy — unless the checkout is genuinely that product on a real `github.com` origin and clean to
   write into; on success it emits the verified `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`.

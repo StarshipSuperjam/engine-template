@@ -1182,6 +1182,35 @@ class TestProductBuildTarget(unittest.TestCase):
             with self._env(ENGINE_PRODUCT_CHECKOUT=None):
                 self.assertEqual(checkout_health.resolve_product_checkout(root), (None, "path-unset"))
 
+    def test_mechanic_orientation_is_the_one_dict_boot_relays(self):
+        # The single boot-facing reader (Slice 3): None when not a mechanic; else one dict carrying the product
+        # slug and the resolved-or-unset path state. Manifest read once here; the path reuses the same env-then-file
+        # seam as resolve_product_checkout (proven both ways below).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            # not a mechanic -> None (no product_build_target), even with a stray env var set
+            self._write_manifest(root, {"engine_release": "1.0.0"})
+            with self._env(ENGINE_PRODUCT_CHECKOUT="/anything"):
+                self.assertIsNone(checkout_health.mechanic_orientation(root))
+            # a mechanic with the path set via env -> resolved, carrying product + checkout
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            with self._env(ENGINE_PRODUCT_CHECKOUT="/home/me/et"):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": "/home/me/et", "state": "resolved"})
+            # the gitignored fallback file resolves it too (no env)
+            os.makedirs(os.path.join(root, ".engine", "mechanic"))
+            with open(os.path.join(root, ".engine", "mechanic", "product-checkout-path"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("/home/me/from-file\n")
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": "/home/me/from-file", "state": "resolved"})
+            # a mechanic whose local path is unset -> path-unset, checkout None (the fork case)
+            os.remove(os.path.join(root, ".engine", "mechanic", "product-checkout-path"))
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": None, "state": "path-unset"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -557,6 +557,15 @@ def _read_checkout_path_file(cwd: str | None = None) -> str | None:
         return None
 
 
+def _product_checkout_path(cwd: str | None = None) -> str | None:
+    """The per-machine product-checkout path with NO manifest read: env `ENGINE_PRODUCT_CHECKOUT` first (the
+    trusted session-set seam), then the gitignored fallback file. Stripped, or None when neither is set. The
+    single place the two path seams are combined, shared by the callers that have already established this is a
+    mechanic — so the manifest is read once by the caller, not again here."""
+    path = os.environ.get(_PRODUCT_CHECKOUT_ENV) or _read_checkout_path_file(cwd)
+    return path.strip() if path and path.strip() else None
+
+
 def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | None]:
     """Two-state resolution of the per-machine product-checkout path. Returns `(path, state)`:
       - `(None, None)` — SILENT: no `product_build_target` is recorded. The normal self-building deployment (and
@@ -569,10 +578,25 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
     The path is inherently per-machine, so it is never committed; the slug travels, the path is local."""
     if not recorded_product_build_target(cwd):
         return (None, None)                     # silent: not a mechanic
-    path = os.environ.get(_PRODUCT_CHECKOUT_ENV) or _read_checkout_path_file(cwd)
-    if path and path.strip():
-        return (path.strip(), None)
+    path = _product_checkout_path(cwd)
+    if path:
+        return (path, None)
     return (None, "path-unset")                 # loud: target recorded, local path missing
+
+
+def mechanic_orientation(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY: the one value boot relays to orient a mechanic session — or None when this is NOT a
+    mechanic (no `product_build_target` recorded), the normal self-building deployment. When it IS a mechanic:
+    `{"product": <owned slug>, "checkout": <local path | None>, "state": "resolved" | "path-unset"}`. The manifest
+    is read ONCE here (via `recorded_product_build_target`); the per-machine path reuses `_product_checkout_path`,
+    the same seam `resolve_product_checkout` uses. Boot consumes this single dict on both its surfaces (the
+    operator dashboard and the assistant grounding) so the derived state is sourced in one place, never recomputed
+    or spread across renderers. Fail-soft is the caller's job (boot degrades the one signal to None on error)."""
+    target = recorded_product_build_target(cwd)
+    if not target:
+        return None
+    path = _product_checkout_path(cwd)
+    return {"product": target, "checkout": path, "state": "resolved" if path else "path-unset"}
 
 
 def checkout_lossless(checkout_path: str) -> tuple[bool, list[str]] | None:

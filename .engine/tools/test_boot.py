@@ -213,6 +213,93 @@ class TestProductLine(unittest.TestCase):
             self.assertNotIn(raw, dash)
 
 
+class TestMechanicOrientation(unittest.TestCase):
+    """eADR-0026 Slice 3: when this engine builds a SEPARATE owned product checkout, boot orients the session.
+    The operator dashboard prefers the executable build target over the display-only product_repository, shows a
+    short 'checkout is set' ack (never the absolute local path), and pins a guided setup offer when the local
+    path is unset (suppressed while first_run is pending). The assistant gets an AI-facing grounding overlay (the
+    ONE place the checkout path appears). Nothing shows for a self-building deployment, and the mechanic overlay
+    and the home-workshop overlay never co-render."""
+
+    _RESOLVED = {"product": "o/r", "checkout": "/home/me/product", "state": "resolved"}
+    _UNSET = {"product": "o/r", "checkout": None, "state": "path-unset"}
+
+    # -- operator dashboard (render_dashboard, pure over a synthetic signals dict) --
+
+    def test_dashboard_prefers_build_target_over_product_repository(self):
+        dash = boot.render_dashboard(_signals(mechanic=self._RESOLVED, product_repository="acme/display"))
+        self.assertIn("**What this engine builds:** o/r", dash)
+        self.assertNotIn("acme/display", dash)   # the executable coordinate wins, per the schema
+
+    def test_resolved_shows_a_short_ack_not_the_absolute_path(self):
+        dash = boot.render_dashboard(_signals(mechanic=self._RESOLVED))
+        self.assertIn("your local checkout of it is set", dash.lower())
+        self.assertNotIn("/home/me/product", dash)   # the machine path never reaches the operator card
+
+    def test_path_unset_pins_a_guided_setup_offer(self):
+        dash = boot.render_dashboard(_signals(mechanic=self._UNSET)).lower()
+        self.assertIn("separate checkout of its own", dash)
+        self.assertIn("tell me the path to your local clone", dash)   # guided-help voice, not a refusal string
+        self.assertIn("beside this one", dash)                        # teaches the sibling-not-subdir topology
+
+    def test_nothing_for_a_self_building_deployment(self):
+        dash = boot.render_dashboard(_signals()).lower()   # no mechanic signal
+        self.assertNotIn("separate checkout of its own", dash)
+        self.assertNotIn("your local checkout of it is set", dash)
+
+    def test_path_unset_offer_suppressed_while_first_run_pending(self):
+        # Base engine setup comes before mechanic setup — one onboarding ask, not two (mirrors first_run's
+        # suppression of the gate-off offer).
+        first_run = {"present": True, "main": "/p", "home": "StarshipSuperjam/engine-template", "own": "acme/w"}
+        dash = boot.render_dashboard(_signals(mechanic=self._UNSET, first_run=first_run)).lower()
+        self.assertIn("set up my project", dash)                      # first_run wins
+        self.assertNotIn("separate checkout of its own", dash)        # mechanic offer held back
+
+    # -- AI grounding overlay (assemble_pack) --
+
+    def _pack(self, *, mechanic, home_workshop=None):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=mechanic), \
+                 mock.patch.object(boot.first_run_health, "detect_home_workshop", return_value=home_workshop), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
+                 mock.patch.object(boot, "read_state",
+                                   return_value=({"schema_version": 1, "standing_situation": {},
+                                                  "integration_debt": {"open_count": 0}}, False)):
+                return boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_ai_overlay_grounds_a_resolved_mechanic_and_carries_the_path(self):
+        pack = self._pack(mechanic=self._RESOLVED)
+        self.assertIn("for you, not the operator", pack)          # AI-facing, never the operator relay
+        self.assertIn("engine-MECHANIC", pack)
+        self.assertIn("/home/me/product", pack)                  # the overlay IS where the path lives
+        self.assertIn("NON-REFLEXIVITY", pack)                   # carries the honest guarantee inline
+
+    def test_ai_overlay_says_path_unset_and_does_not_carry_a_build_path(self):
+        pack = self._pack(mechanic=self._UNSET)
+        self.assertIn("for you, not the operator", pack)
+        self.assertIn("is not set", pack.lower())
+        self.assertNotIn("build-orchestration.md` (build in place", pack)   # no in-place build until it resolves
+
+    def test_no_ai_overlay_for_a_self_building_deployment(self):
+        pack = self._pack(mechanic=None)
+        self.assertNotIn("engine-MECHANIC", pack)
+
+    def test_mechanic_and_home_overlays_never_co_render(self):
+        # By data a mechanic's origin differs from its recorded home, so the two detectors are mutually exclusive;
+        # pin it so a future manifest change can't silently produce two conflicting grounding paragraphs.
+        mech_pack = self._pack(mechanic=self._RESOLVED, home_workshop=None).lower()
+        self.assertIn("engine-mechanic", mech_pack)
+        self.assertNotIn("engine's own home repo", mech_pack)
+        home = {"present": True, "main": "/x", "home": "o/r", "own": "o/r"}
+        home_pack = self._pack(mechanic=None, home_workshop=home).lower()
+        self.assertIn("engine's own home repo", home_pack)
+        self.assertNotIn("engine-mechanic", home_pack)
+
+
 class TestOpenProblemsProvenance(unittest.TestCase):
     """The LIVE open-problem count names where it came from and that it is fresh, so a zero reads as 'checked,
     and there are none' rather than 'unknown'. The 'none recorded yet' branch is reached only when the register
