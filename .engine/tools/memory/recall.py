@@ -24,12 +24,12 @@ own definition: it is belt-and-braces over explicit path threading, not the prot
     erasure is per-record-id — so a message CAN lose a middle chunk with no way to detect it. This module
     never claims verbatim completeness it cannot verify: it reports what it found and says the wording is
     reconstructed from stored chunks. Honest degradation (eADR-0034), not a false guarantee.
-  - TOLERATE THE LEGACY STORE. Real ledgers hold turn-deltas predating parts of the envelope (no `id`, no
-    `session_id`, no `seq`). Reading one never crashes: a record with no `session_id` is unreachable (nothing
-    names its session), and a record missing `seq`/`speaker` is still returned, under their defaults. Note the
-    honest consequence of that tolerance — several seq-less records from one speaker in one session share the
-    default ordinal and therefore rejoin as ONE turn. No record in a real store is in that shape, and the
-    alternative (dropping them) would lose conversation outright, so tolerance is the deliberate trade.
+  - TOLERATE THE LEGACY STORE WITHOUT INVENTING. Real ledgers hold turn-deltas predating parts of the
+    envelope (no `id`, no `session_id`, no `seq`). Reading one never crashes and never drops it: a record with
+    no `session_id` is simply unreachable (nothing names its session), and one missing `seq`/`speaker` is
+    still shown. But a record with no usable ordinal is NEVER merged with its neighbour — its identity is
+    unknown, and guessing would splice unrelated messages into an utterance nobody said. Tolerance means
+    showing what is there, never manufacturing continuity across it.
 
 WHY IT DOES NOT IMPORT `consolidate.read_deltas`: that reader is the consolidation sweep's, and consolidation
 is retired by the curation-removal slice — importing it would strand this reader on a dying module. The
@@ -53,6 +53,9 @@ DEFAULT_MAX_TURNS = 40      # default cap on one window, so a huge session canno
 MAX_TURNS_CEILING = 200     # the real ceiling: a caller may raise the cap, but not to "the whole store". A
                             # caller-supplied cap with no upper bound is not containment — and the one move
                             # available when a window misses is to raise it, so the pressure is toward dumps.
+MAX_TEXT_BYTES = 200_000    # the OTHER dimension. Capping turns alone does not bound a response: chunking is
+                            # lossless and unbounded, so ONE pasted document can be thousands of chunks and
+                            # megabytes in a single turn. Bound the text too, or the flood guard guards nothing.
 
 _TURN_DELTA_KIND = records.AMBIENT_CAPTURE_KIND
 
@@ -83,10 +86,20 @@ def assert_not_live_store(*paths) -> None:
 
 # ---- the reader ----------------------------------------------------------------------------------------
 
-def _seq_of(record) -> int:
-    """A record's `seq` as an int (the per-message ordinal), defaulting to 0 for a malformed/absent value."""
+def _seq_of(record):
+    """A record's `seq` as an int, or None when it is absent or not an integer. Returning None rather than
+    defaulting to 0 is load-bearing: `seq` is message IDENTITY here, so collapsing 'absent', 'genuinely 0' and
+    'wrong type' into one value makes unrelated messages look like chunks of each other and they get welded
+    into an utterance nobody said. A record with no usable ordinal is kept and shown — just never merged."""
     s = record.get("seq")
-    return s if isinstance(s, int) and not isinstance(s, bool) else 0
+    return s if isinstance(s, int) and not isinstance(s, bool) else None
+
+
+def _sort_key(record):
+    """Order by `seq`, with un-ordinalled records last in ledger order. Stable, so chunks of one message keep
+    the order they were appended — the only authority on intra-message order."""
+    seq = _seq_of(record)
+    return (1, 0) if seq is None else (0, seq)
 
 
 def is_genuine_turn(record) -> bool:
@@ -107,7 +120,7 @@ def session_turns(session_id: str, *, path: "str | None" = None) -> list:
     src = ledger.ledger_path() if path is None else path
     out = [r for r in ledger.iter_records(path=src)
            if is_genuine_turn(r) and r.get("session_id") == session_id]
-    out.sort(key=_seq_of)
+    out.sort(key=_sort_key)
     return out
 
 
@@ -118,13 +131,23 @@ def _join_chunks(turns: list) -> list:
     reported, never used as a completeness proof (an erased middle piece is indistinguishable from a shorter
     message)."""
     joined: list = []
+    budget = MAX_TEXT_BYTES
     for record in turns:
         seq = _seq_of(record)
         speaker = record.get("speaker") if isinstance(record.get("speaker"), str) else "unknown"
         text = record.get("text") if isinstance(record.get("text"), str) else ""
-        if joined and joined[-1]["seq"] == seq and joined[-1]["speaker"] == speaker:
-            joined[-1]["text"] += text          # a continuation chunk of the same message
-            joined[-1]["chunks"] += 1
+        if budget <= 0:
+            break
+        text, budget = text[:budget], budget - len(text)
+        previous = joined[-1] if joined else None
+        # Merge ONLY a genuine continuation chunk: the same message means the SAME present ordinal and the
+        # same speaker. A record with no usable ordinal never merges (its identity is unknown, and guessing
+        # fabricates an utterance), and an exact text repeat is a re-capture of the same message — capture
+        # re-reads a session from the start when its cursor is missing or corrupt — not a second chunk.
+        if (previous is not None and seq is not None and previous["seq"] == seq
+                and previous["speaker"] == speaker and text and not previous["text"].endswith(text)):
+            previous["text"] += text
+            previous["chunks"] += 1
             continue
         joined.append({"seq": seq, "speaker": speaker, "text": text, "chunks": 1})
     return joined
@@ -144,21 +167,22 @@ def resolve_sessions(session_id: str, *, path: "str | None" = None) -> list:
         return [session_id] if session_id else []
     src = ledger.ledger_path() if path is None else path
     wanted: set = set()
-    by_id: dict = {}
+    # id -> session_id ONLY, never the records themselves: retaining whole records here costs memory
+    # proportional to the WHOLE store (tens of MB on a real ledger) to answer a question about one cluster.
+    session_of: dict = {}
     for record in ledger.iter_records(path=src):
         if not isinstance(record, dict):
             continue
         rid = record.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid:
-            by_id[rid] = record
+            session_of[rid] = record.get("session_id")
         if record.get("session_id") == session_id:
             for source_id in (record.get(records.SOURCE_IDS_KEY) or []):
                 if isinstance(source_id, str) and source_id:
                     wanted.add(source_id)
     out: list = []
     for source_id in sorted(wanted):
-        source = by_id.get(source_id)
-        real = source.get("session_id") if isinstance(source, dict) else None
+        real = session_of.get(source_id)
         if (isinstance(real, str) and real and real not in out
                 and not records.is_cross_session_sentinel(real)):
             out.append(real)

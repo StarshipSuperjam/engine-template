@@ -1,5 +1,6 @@
 ---
 name: engine-recall
+invocation: model-auto
 description: Look up what this project already decided, tried, or learned — for "what did we decide about…", "why did we do it that way", "have we hit this before", or anything about last time or an earlier session. Searches your saved memory several ways and reads back the real conversation, not just a summary of it.
 ---
 

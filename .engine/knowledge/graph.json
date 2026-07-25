@@ -5441,6 +5441,7 @@
     },
     {
       "id": "skill:engine-recall",
+      "invocation": "model-auto",
       "name": ".claude/skills/engine-recall/SKILL.md",
       "owner": "core",
       "predicates": {
@@ -5453,7 +5454,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:406d7815c67131fd091356e839c3daac298cba6a5eb4ab16d2de6a95c9d6e773",
+        "fingerprint": "sha256:6a16959c3603004886d31044447d98bff9f9d168c83659b5537617092a4d945d",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -6011,7 +6012,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:3e666ef01a21f35a67481db571c5e7389ed1e3bd4d2a1ae5b29084113e8ee20a",
+        "fingerprint": "sha256:01106e2b544d0550330444f8c335f3e51fd6ee07afe3d2410270b9770209bd06",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -6028,7 +6029,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:275572468d4e29b29b2b3a77c4a350212aef546f5fcff8e7621d5c84cab66015",
+        "fingerprint": "sha256:065092ad9cca868dc0fcc64805c4525d7289191d317f5ccf813187d8c8a9b90c",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -7983,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:867e80065b14fb990a93d42705c67b3f174c27cfb3d23f0ee8e2c5030e5ed86d",
+        "fingerprint": "sha256:efac49f37b68d18266e7b5796bd6b5e86e564b9cc5625166cc54afe02c551383",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8833,7 +8834,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:09fdca5503bbba28d3a413708faa4d1c3af48141bd6ff82123c0daa3ea4749aa",
+        "fingerprint": "sha256:39b0ddf7c3edf9c104c60a8190067968b1943d700441d09186a39422ca99a647",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -9989,7 +9990,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:fbd68dd931f4306fd67be5e5f8e7c580f8370c967b81c7dd09ee62e1c5676d98",
+        "fingerprint": "sha256:2bce6e66633c030b50d6b87a9b1944c96f95545b028c103439fef0eececdd7bb",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",

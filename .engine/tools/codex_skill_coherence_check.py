@@ -43,16 +43,17 @@ def _policy_disallows_implicit(policy_path: str) -> bool:
     return isinstance(policy, dict) and policy.get("allow_implicit_invocation") is False
 
 
-def _source_is_operator_typed(name: str) -> bool:
-    """True iff the Claude source for `name` declares `invocation: operator-typed` — the only value that
-    withholds implicit invocation. An omitted invocation means model-auto (the platform default). A missing or
-    unreadable source falls back to True, so the check keeps demanding the protection rather than waiving it on
-    doubt (fail toward the finding)."""
+def _source_demands_protection(name: str) -> bool:
+    """True unless the Claude source for `name` EXPLICITLY declares itself model-reachable. Everything else —
+    an operator-typed declaration, an omitted invocation, an unrecognized value, a missing or unreadable
+    source — demands the protection. The exemption must be declared rather than inferred from an omission, so
+    that a forgotten key can never quietly hand the model a command the operator meant to type; every form of
+    doubt fails toward the finding."""
     src = os.path.join(validate.ROOT, ".claude", "skills", name, "SKILL.md")
     if not os.path.isfile(src):
         return True
     try:
-        return (validate.frontmatter(src) or {}).get("invocation") == "operator-typed"
+        return (validate.frontmatter(src) or {}).get("invocation") not in ("model-auto", "model-only")
     except Exception:  # noqa: BLE001 — unreadable source reads as protected-required (fail toward the finding)
         return True
 
@@ -68,7 +69,7 @@ def findings(tier: str, skills_dir: str | None = None) -> list:
         skill_dir = os.path.dirname(skill_md)
         name = os.path.basename(skill_dir)
         policy_path = os.path.join(skill_dir, "agents", "openai.yaml")
-        if not _source_is_operator_typed(name):
+        if not _source_demands_protection(name):
             continue                       # deliberately model-reachable — its twin may be reachable as well
         if not _policy_disallows_implicit(policy_path):
             out.append(validate.finding(

@@ -114,14 +114,17 @@ class TestSkillPolicyMirrorsTheSource(unittest.TestCase):
     def test_model_reachable_source_allows_implicit_invocation(self):
         self.assertIn("allow_implicit_invocation: true", codex_gen.skill_policy("model-auto"))
 
-    def test_an_omitted_invocation_is_model_reachable(self):
-        # An omitted invocation means model-auto (the platform default) — the shape the recall command uses.
-        self.assertIn("allow_implicit_invocation: true", codex_gen.skill_policy(None))
-
-    def test_an_unrecognized_value_does_not_silently_refuse_protection(self):
-        # Only the exact operator-typed token withholds implicit invocation; anything else is treated as
-        # model-reachable. Pinned so the mapping is a deliberate, visible choice rather than an accident.
+    def test_model_only_source_allows_implicit_invocation(self):
         self.assertIn("allow_implicit_invocation: true", codex_gen.skill_policy("model-only"))
+
+    def test_an_omitted_invocation_fails_CLOSED(self):
+        # The safety default. Model-reachability must be DECLARED: reading an omission as "model-auto" here
+        # would make a forgotten key indistinguishable from a deliberate choice, and would hand the model a
+        # command the operator meant to type. Doubt renders the protection.
+        self.assertIn("allow_implicit_invocation: false", codex_gen.skill_policy(None))
+
+    def test_an_unrecognized_value_fails_CLOSED(self):
+        self.assertIn("allow_implicit_invocation: false", codex_gen.skill_policy("typo-auto"))
 
 
 class TestCodexCoherenceExemptionIsSourceBound(unittest.TestCase):
@@ -137,16 +140,31 @@ class TestCodexCoherenceExemptionIsSourceBound(unittest.TestCase):
         self.check = check
 
     def test_operator_typed_source_still_demands_protection(self):
-        self.assertTrue(self.check._source_is_operator_typed("engine-start"),
+        self.assertTrue(self.check._source_demands_protection("engine-start"),
                         "an operator-typed command must still be held to the protection")
 
-    def test_a_model_reachable_source_is_exempt(self):
-        self.assertFalse(self.check._source_is_operator_typed("engine-recall"),
+    def test_a_declared_model_reachable_source_is_exempt(self):
+        self.assertFalse(self.check._source_demands_protection("engine-recall"),
                          "the deliberately model-reachable command is the one sanctioned exemption")
 
     def test_an_unknown_skill_fails_toward_demanding_protection(self):
         # No source to read is doubt, and doubt must not waive a security gate.
-        self.assertTrue(self.check._source_is_operator_typed("engine-does-not-exist"))
+        self.assertTrue(self.check._source_demands_protection("engine-does-not-exist"))
+
+    def test_the_exemption_must_be_DECLARED_not_inferred_from_an_omission(self):
+        # The gate and the renderer must agree on failing closed: a command that simply omits the key is
+        # protected, so a forgotten declaration can never silently become a model-startable command.
+        self.assertNotIn("engine-recall", [])  # anchor: the exemption is by declaration, checked below
+        import glob
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        exempt = [os.path.basename(os.path.dirname(p))
+                  for p in sorted(glob.glob(os.path.join(root, "..", ".claude", "skills", "engine-*",
+                                                         "SKILL.md")))
+                  if not self.check._source_demands_protection(os.path.basename(os.path.dirname(p)))]
+        self.assertEqual(exempt, ["engine-recall"])
+        fm = validate.frontmatter(os.path.join(root, "..", ".claude", "skills", "engine-recall", "SKILL.md"))
+        self.assertEqual(fm.get("invocation"), "model-auto",
+                         "the exempt command must state its reachability, not imply it by omission")
 
     def test_every_operator_typed_skill_still_renders_refusing_implicit_invocation(self):
         # The end-to-end property the narrowing must not have broken: exactly one shipped command is

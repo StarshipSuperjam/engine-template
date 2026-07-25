@@ -73,19 +73,21 @@ _OPENAI_YAML_MODEL_STARTABLE = (
     "policy:\n"
     "  allow_implicit_invocation: true\n")
 
-# The one governance value that decides the policy: only `operator-typed` withholds implicit invocation. An
-# omitted invocation means model-auto (the platform default), and `model-only` is model-reachable by
-# definition — so the policy mirrors the Claude source instead of assuming every engine command is typed.
-_OPERATOR_TYPED = "operator-typed"
+# The governance values that decide the policy. Model-reachability must be DECLARED, never inferred from an
+# omission: on the Claude side an omitted invocation means model-auto (the platform default), but reading it
+# that way here would make "deliberately model-reachable" indistinguishable from "the author forgot the key",
+# and the failure would silently hand the model a command it was never meant to start. So this fails CLOSED —
+# anything that does not explicitly declare reachability renders operator-only.
+_MODEL_REACHABLE = ("model-auto", "model-only")
 
 
 def skill_policy(invocation) -> str:
     """The Codex `agents/openai.yaml` for a skill whose Claude source declares `invocation`. Keeping this a
-    function of the SOURCE (rather than a constant) is what lets a model-auto skill exist: hard-coding the
-    operator-only policy for every skill would ship the capability on Claude and quietly disable it on Codex,
-    a runtime-partial build. The self-election safety property is unchanged — an operator-typed skill still
-    renders with implicit invocation refused."""
-    return _OPENAI_YAML_TYPED if invocation == _OPERATOR_TYPED else _OPENAI_YAML_MODEL_STARTABLE
+    function of the SOURCE (rather than a constant) is what lets a model-reachable skill exist at all:
+    hard-coding the operator-only policy for every skill would ship such a capability on Claude and quietly
+    disable it on Codex, a runtime-partial build. The self-election safety property is preserved and defaults
+    toward it — only an explicit model-auto / model-only declaration renders implicit invocation allowed."""
+    return _OPENAI_YAML_MODEL_STARTABLE if invocation in _MODEL_REACHABLE else _OPENAI_YAML_TYPED
 
 
 def _split_frontmatter(path: str):

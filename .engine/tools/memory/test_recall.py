@@ -126,6 +126,48 @@ class LegacyToleranceTests(_CabinetBase):
         self.assertEqual(len(turns), 1)
         self.assertEqual(turns[0]["speaker"], "unknown")
 
+    def test_distinct_records_without_a_seq_are_never_welded_into_one_utterance(self):
+        # THE fabrication guard. `seq` is message identity; treating "absent" as the ordinal 0 made unrelated
+        # messages look like chunks of one another and spliced them, with no separator, into a sentence nobody
+        # said — then handed it to a model as verbatim testimony. Each must stay its own turn.
+        bare = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "s1", "speaker": "user"}
+        self._write(dict(bare, text="Move the export before the upload."),
+                    dict(bare, text="And drop the stale manifest."),
+                    dict(bare, text="Then re-run the nightly."))
+        turns = recall.window("s1", path=self.cabinet)["turns"]
+        self.assertEqual(len(turns), 3, "records with no ordinal must never merge")
+        self.assertNotIn("upload.And", " ".join(t["text"] for t in turns))
+
+    def test_a_non_integer_seq_neither_merges_nor_reorders(self):
+        # Type drift is the same hazard by another route: a string ordinal used to collapse to 0, fusing the
+        # record into the first turn AND silently moving it to the front of the conversation.
+        self._write(_rec("s1", 0, "user", "genuinely first"),
+                    {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "s1", "speaker": "user",
+                     "seq": "3", "text": "later, with a string ordinal"})
+        turns = recall.window("s1", path=self.cabinet)["turns"]
+        self.assertEqual(len(turns), 2)
+        self.assertEqual(turns[0]["text"], "genuinely first", "an unusable ordinal must not jump the queue")
+
+    def test_a_re_captured_duplicate_is_not_doubled_into_one_turn(self):
+        # Capture re-reads a session from the start when its cursor is missing or corrupt — benign for the
+        # summariser, but here the duplicates land adjacent and used to concatenate into doubled wording.
+        self._write(_rec("s1", 0, "user", "Move the export."), _rec("s1", 0, "user", "Move the export."))
+        turns = recall.window("s1", path=self.cabinet)["turns"]
+        self.assertNotIn("Move the export.Move the export.", " ".join(t["text"] for t in turns))
+
+    def test_genuine_chunks_still_rejoin_after_the_guards(self):
+        # The guards must not break the real case they sit beside.
+        self._write(_rec("s1", 0, "user", "part-one "), _rec("s1", 0, "user", "part-two"))
+        turns = recall.window("s1", path=self.cabinet)["turns"]
+        self.assertEqual([t["text"] for t in turns], ["part-one part-two"])
+
+    def test_a_window_is_bounded_in_bytes_not_only_in_turns(self):
+        # Capping turns alone bounds nothing: chunking is lossless and unbounded, so one pasted document can
+        # be thousands of chunks and megabytes inside a SINGLE turn.
+        self._write(*[_rec("s1", 0, "user", "x" * 4000) for _ in range(200)])
+        result = recall.window("s1", path=self.cabinet)
+        self.assertLessEqual(sum(len(t["text"]) for t in result["turns"]), recall.MAX_TEXT_BYTES)
+
 
 class WindowingTests(_CabinetBase):
     def _many(self, n):
