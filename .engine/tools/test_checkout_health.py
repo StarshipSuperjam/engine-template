@@ -1182,6 +1182,74 @@ class TestProductBuildTarget(unittest.TestCase):
             with self._env(ENGINE_PRODUCT_CHECKOUT=None):
                 self.assertEqual(checkout_health.resolve_product_checkout(root), (None, "path-unset"))
 
+    def test_mechanic_orientation_is_the_one_dict_boot_relays(self):
+        # The single boot-facing reader (Slice 3): None when not a mechanic; else one dict carrying the product
+        # slug and the resolved-or-unset path state. Manifest read once here; the path reuses the same env-then-file
+        # seam as resolve_product_checkout (proven both ways below).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            # not a mechanic -> None (no product_build_target), even with a stray env var set
+            self._write_manifest(root, {"engine_release": "1.0.0"})
+            with self._env(ENGINE_PRODUCT_CHECKOUT="/anything"):
+                self.assertIsNone(checkout_health.mechanic_orientation(root))
+            # a mechanic pointed at a REAL directory -> resolved, carrying product + checkout
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            real = os.path.join(tmp, "product-clone")
+            os.makedirs(real)
+            with self._env(ENGINE_PRODUCT_CHECKOUT=real):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
+            # the gitignored fallback file resolves it too (no env)
+            os.makedirs(os.path.join(root, ".engine", "mechanic"))
+            with open(os.path.join(root, ".engine", "mechanic", "product-checkout-path"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(real + "\n")
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
+            # a mechanic whose local path is unset -> path-unset, checkout None (the fork case)
+            os.remove(os.path.join(root, ".engine", "mechanic", "product-checkout-path"))
+            with self._env(ENGINE_PRODUCT_CHECKOUT=None):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": None, "state": "path-unset"})
+
+    def test_mechanic_orientation_separates_a_recorded_path_from_a_real_one(self):
+        # A typo'd / moved / deleted folder must NOT read as ready to build in: it is its own state, so boot can
+        # keep offering (and echo the bad value) instead of affirming a readiness it never checked.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            missing = os.path.join(tmp, "not-cloned-here")
+            with self._env(ENGINE_PRODUCT_CHECKOUT=missing):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": missing, "state": "path-unreachable"})
+
+    def test_mechanic_orientation_tolerates_a_padded_env_value(self):
+        # An env var pasted with stray whitespace must still resolve; without the strip it would read as a
+        # folder that isn't there and nag for setup that is already correct. (The file seam strips separately.)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            real = os.path.join(tmp, "product-clone")
+            os.makedirs(real)
+            with self._env(ENGINE_PRODUCT_CHECKOUT=f"  {real}\n"):
+                self.assertEqual(checkout_health.mechanic_orientation(root),
+                                 {"product": "o/r", "checkout": real, "state": "resolved"})
+
+    def test_mechanic_orientation_expands_a_home_relative_path(self):
+        # `~/clone` is the most natural thing an operator writes, and `git -C` does not expand it — so the reader
+        # must, or a correct path is reported unreachable and then refused at build time.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "co")
+            self._write_manifest(root, {"product_build_target": "o/r"})
+            with mock.patch.dict(os.environ, {"HOME": tmp}):
+                os.makedirs(os.path.join(tmp, "clone"))
+                with self._env(ENGINE_PRODUCT_CHECKOUT="~/clone"):
+                    got = checkout_health.mechanic_orientation(root)
+            self.assertEqual(got["state"], "resolved")
+            self.assertEqual(got["checkout"], os.path.join(tmp, "clone"))
+            self.assertNotIn("~", got["checkout"])
+
 
 if __name__ == "__main__":
     unittest.main()

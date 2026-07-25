@@ -67,6 +67,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -578,6 +579,90 @@ _RELATION_PHRASE = {
     ("depends_on", "out"): "depends on",
     ("depends_on", "in"): "is relied on by",
 }
+
+
+def _one_line(value: str, limit: int = 200) -> str:
+    """A machine-supplied value rendered safe to sit INSIDE a sentence of model-visible text: fence markers
+    defanged, newlines and other control characters collapsed to spaces, and the whole thing length-capped.
+
+    Defanging alone is not enough. It trims fence rails, but a value carrying a newline can still open its own
+    line — on the operator's card in the engine's own voice, or in never-shed grounding where an injected
+    sentence reads as engine-authored. Both values interpolated here have that shape: the recorded product slug
+    (which TRAVELS with a fork, so a co-maintainer inherits whatever a fork's manifest holds) and the checkout
+    path (from the env-or-file seam the build gate treats as untrusted). Both are normalized before they are
+    interpolated, never after. Control characters are removed explicitly — `str.split()` alone breaks only on
+    whitespace, so ESC/NUL/BEL would otherwise survive a "collapsed" claim."""
+    defanged = validate.defang_prompt_fence_markers(value)
+    scrubbed = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in defanged)
+    flat = " ".join(scrubbed.split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
+
+
+def tilde_path(path: str) -> str:
+    """A machine-local path with the home directory contracted back to `~` — the inverse of expanduser.
+    `/Users/dana/code/x` renders `~/code/x`. Used where a path must be shown to the OPERATOR: the folder still
+    has to be recognisable (they cannot correct a path they cannot see), while the account name — the part that
+    makes a pasted status card identifying — does not travel with it. Returns the path unchanged when it is not
+    under home, or when home cannot be determined."""
+    try:
+        home = os.path.expanduser("~")
+    except Exception:  # noqa: BLE001 — an unresolvable home just means no contraction
+        return path
+    if home and home != os.sep and (path == home or path.startswith(home + os.sep)):
+        return "~" + path[len(home):]
+    return path
+
+
+def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
+    """The engine-MECHANIC grounding paragraph (eADR-0026) — AI-facing, Tier 0 in the pack (never shed), or ""
+    when this deployment is not a mechanic. A PURE renderer over `checkout_health.mechanic_orientation`'s dict, so
+    the grounding can be exercised (and demonstrated) without assembling a whole pack.
+
+    Fires when the engine records an executable product build target: it builds a SEPARATE owned checkout and
+    delivers a DIRECT pull request into it. Mutually exclusive with the home-workshop overlay by data (a mechanic's
+    origin differs from its recorded home). Self-labelled AI-facing so it never enters the operator relay — the
+    operator sees the behaviour (the setup offer, the pull request), not this instruction. This is the ONE surface
+    carrying the absolute checkout path: the assistant needs it to build there, while the operator's card shows
+    only a short acknowledgment. `build-orchestration.md` is a traveling runbook (not a retired first-run asset),
+    so naming it is safe in a deployed mechanic.
+
+    `first_run_pending` is threaded in because the operator's setup offer is SUPPRESSED during first-run setup:
+    the grounding must not tell the assistant the operator is looking at an offer that was withheld."""
+    if not mech:
+        return ""
+    state = mech.get("state")
+    product = _one_line(mech.get("product") or "")
+    if state == "resolved":
+        return ("GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
+                f"`{product}`, and a folder for it is recorded on this machine at "
+                f"`{_one_line(str(mech.get('checkout')))}`. That folder is UNVERIFIED here — this orientation "
+                "only checked that something is there, NOT that it is really that product, on a trusted origin, "
+                "or safe to write in. So do not build from this path directly: run `mechanic_build.py preflight` "
+                "FIRST and use the path IT emits, which is checked fail-closed and refuses in plain language "
+                "otherwise. Then you build changes IN that checkout and open a DIRECT pull request into it, "
+                "following the owned-product arm of `.engine/operations/build-orchestration.md` (build in place "
+                "— run the checkout's own tools). "
+                "Because you own the product, the merge gate is the operator's OWN gate on it — the same human, "
+                "not an independent reviewer — so what keeps self-improvement honest is NON-REFLEXIVITY: this "
+                "mechanic UPGRADES ITSELF only to human-approved RELEASED output of the product, never to its "
+                "own unmerged branch. (That governs what this engine runs ON, not what you may build: building "
+                "unmerged product work here and opening a pull request for it is exactly the job.)")
+    if state not in ("path-unset", "path-unreachable"):
+        return ""
+    seen = ("The operator is NOT being shown the mechanic setup offer this session — first-time engine setup is "
+            "still pending and comes first, so do not pull them into mechanic setup until that is done"
+            if first_run_pending else
+            "The operator has a setup offer on their card this session")
+    detail = ("no path to that product's checkout is recorded on this machine" if state == "path-unset" else
+              f"the recorded path `{_one_line(str(mech.get('checkout')))}` does not "
+              f"exist on this machine")
+    return ("GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
+            f"`{product}`, but {detail}, so you cannot build here yet. {seen}. When they give you a folder, "
+            "record it in `.engine/mechanic/product-checkout-path` (durable and gitignored — an environment "
+            "variable would not survive the session) on their consent, never a boot-time write; pass a "
+            "`~`-relative path through as given, the reader expands it. Do not attempt a mechanic build until "
+            "the checkout resolves; the owned-product arm of `.engine/operations/build-orchestration.md` is the "
+            "runbook once it does.")
 
 
 def render_neighborhood(nb: dict | None) -> list:
@@ -1174,6 +1259,19 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         home_workshop = None
     try:
+        # The engine-MECHANIC orientation (eADR-0026, Slice 3), RELAYED from checkout_health's ONE offline reader
+        # (boot reads no manifest itself): this engine records an executable product build target, so it is a
+        # mechanic that builds a SEPARATE owned checkout. Either None (the common self-building case) or
+        # {"product", "checkout", "state": resolved | path-unset | path-unreachable} — the last being a recorded
+        # path with nothing at it. Boot relays this one dict onto both surfaces (operator dashboard + AI
+        # grounding); it never recomputes the derived state. Degrades QUIETLY to None on any read failure. The AI
+        # grounding is additionally held back where a home-workshop grounding renders — the two carry
+        # contradictory instructions, and assemble_pack enforces that structurally rather than trusting the two
+        # signals never to coincide.
+        mechanic = checkout_health.mechanic_orientation()
+    except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
+        mechanic = None
+    try:
         # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
@@ -1342,6 +1440,12 @@ def gather_signals(session_id: str | None = None) -> dict:
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
         "home_workshop": home_workshop,
+        # the engine-mechanic orientation (eADR-0026): {"product", "checkout", "state": resolved | path-unset |
+        # path-unreachable} when this engine builds a separate OWNED product checkout, or None (self-building /
+        # unresolvable). Drives the dashboard "What this engine builds" line (preferred over product_repository),
+        # the setup offer — which fires on EITHER broken state, so a mistyped path can never leave the offer
+        # silent while the card claims readiness — and the AI grounding overlay.
+        "mechanic": mechanic,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
@@ -1424,6 +1528,52 @@ def render_dashboard(s: dict) -> str:
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
+
+    # The engine-MECHANIC setup OFFER (eADR-0026, Slice 3): this engine builds a separate OWNED product checkout,
+    # but this machine's path to that checkout is missing (the portable fork case — the committed slug travelled,
+    # the per-machine path is each maintainer's to set once) or points at nothing. BOTH broken states offer, so a
+    # typo'd path can never leave the offer silent while the card claims readiness. SUPPRESSED while first_run is
+    # pending: base engine setup comes before mechanic setup, so there is one onboarding ask, not two (the same
+    # discipline first_run applies to the gate-off offer below). Boot stays READ-ONLY — the assistant records the
+    # path, or clones the product, on the operator's consent.
+    #
+    # The gitignored per-machine FILE is named first and the env var second, deliberately: an env var set inside a
+    # session does not survive it, so leading with it would have the engine claim it had handled something that
+    # comes back next session. The file is both durable and private (it is gitignored, so it never travels with
+    # the project — which is what the closing sentence promises).
+    #
+    # The unreachable case ECHOES the recorded path even though the healthy card deliberately never prints it:
+    # the operator cannot correct a typo they cannot see, and this is a value they themselves supplied for a
+    # location that turns out not to exist. It is rendered HOME-CONTRACTED (`~/code/x`, never `/Users/dana/…`),
+    # which is what keeps the privacy rule intact — the identifying account name never reaches the card, while
+    # the folder stays recognisable enough to fix. The healthy card still prints no path at all.
+    # Held back in a home workshop for the same reason the AI grounding is: the two arrangements contradict each
+    # other, and THIS offer's consent is discharged by the assistant (record a folder, clone the product) — which
+    # in a home repo would be acting on an arrangement it was deliberately given no grounding for. Both surfaces
+    # must withhold together, or the card asks for something the briefing never explained.
+    mechanic = s.get("mechanic")
+    mech_state = (mechanic or {}).get("state")
+    if (mech_state in ("path-unset", "path-unreachable")
+            and not (first_run and first_run.get("present"))
+            and not s.get("home_workshop")):
+        product = _one_line(mechanic["product"])
+        if mech_state == "path-unreachable":
+            shown_path = tilde_path(str(mechanic.get("checkout")))
+            opening = (f"🔧 **This engine builds `{product}` in a separate checkout of its own, but the folder "
+                       f"I have recorded for it isn't there:** "
+                       f"`{_one_line(shown_path)}`. It may be a "
+                       f"typo, or the folder may have moved or been renamed since. ")
+        else:
+            opening = (f"🔧 **This engine builds `{product}` in a separate checkout of its own — but this machine "
+                       f"doesn't know where that checkout is yet.** ")
+        pinned.append(
+            opening +
+            "That's the one thing to set before we can build here. Say **point me at my product checkout** and "
+            "give me the folder (`~` is fine) — I'll record it in `.engine/mechanic/product-checkout-path`, which "
+            "stays on this machine and is the setting that lasts; nothing else changes. If you haven't cloned it "
+            "yet, say **clone my product for me** and I'll set it up as its own folder NEXT TO this one — beside "
+            "it, never inside it, because this folder is the Engine itself. The path never travels with the "
+            "project: a colleague who forks this already inherits what it builds, and sets only their own folder.")
 
     if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
@@ -1720,13 +1870,21 @@ def render_dashboard(s: dict) -> str:
         # Defanged: the PR title is operator- or (on the external-contribution path) remote-supplied and renders
         # into the model-visible briefing, so it gets the same guard as the product slug below.
         phase = validate.defang_prompt_fence_markers(raw_phase) or "nothing merged yet"
-        # The PRODUCT line — shown ONLY when this engine builds a repo DIFFERENT from the one it is deployed
-        # into (a recorded product; eADR-0026), so a self-building deployment gets no line rather than its own
-        # slug echoed back. Rendered ABOVE the live-derived facts so the offline "may be out of date, re-ground"
-        # caveat below can't misattach to this static stored label (re-grounding never changes it).
-        if s.get("product_repository"):
+        # The PRODUCT line — shown when this engine builds a repo DIFFERENT from the one it is deployed into
+        # (eADR-0026), so a self-building deployment gets no line rather than its own slug echoed back. PREFER the
+        # executable build target (`mechanic["product"]`, the single source of truth per the schema) over the
+        # display-only `product_repository`. Rendered ABOVE the live-derived facts so the offline "may be out of
+        # date, re-ground" caveat below can't misattach to this static stored label (re-grounding never changes it).
+        mechanic = s.get("mechanic")
+        product_label = (mechanic or {}).get("product") or s.get("product_repository")
+        if product_label:
             out.append(f"**What this engine builds:** "
-                       f"{validate.defang_prompt_fence_markers(s['product_repository'])}")
+                       f"{_one_line(product_label)}")
+            # A RESOLVED mechanic checkout gets a short acknowledgment only — NOT the absolute local path, which
+            # embeds the operator's home dir / username and would reach the paste-for-help surface a boot card is.
+            # The assistant carries the real path via the AI grounding overlay; the operator dashboard never does.
+            if mechanic and mechanic.get("state") == "resolved":
+                out.append("_Your local checkout of it is set — that's where I'll build._")
         out.append(f"**What merged last:** {phase}")
         out.append(_milestone_line(source.get("milestone")))
         if live is None:
@@ -2377,6 +2535,26 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
             "again before merge (the deliverable gate), reaching main only through the maintainer's merge. The "
             "full runbook is `.engine/operations/engine-development.md`; read it to ground before building.")
         out.append("")
+
+    # The engine-MECHANIC grounding (eADR-0026, Slice 3), AI-facing, Tier 0 (never shed). Fires when this engine
+    # records an executable product build target — it builds a SEPARATE owned checkout and delivers a DIRECT pull
+    # request into it. Mutually exclusive with the home overlay above by data (a mechanic's origin differs from its
+    # recorded home, so detect_home_workshop is False); pinned in a test. Self-labelled AI-facing so it never
+    # enters the operator relay — the operator sees the behaviour (the setup offer, the PR), not this instruction.
+    # This is the ONE surface that carries the absolute checkout path (the assistant needs it to build there); the
+    # operator dashboard shows only a short acknowledgment. build-orchestration.md is a traveling runbook (not a
+    # retired first-run asset), so naming it here is safe in a deployed mechanic.
+    # Mutually exclusive with the home overlay ABOVE, structurally — not merely by the data happening to differ.
+    # The two carry contradictory Tier-0 instructions ("the machinery here IS the work" vs "you build a SEPARATE
+    # checkout and open a pull request into it"), so a deployment that somehow produced both signals must get one
+    # answer, not both. The home framing wins: it is the stricter, repo-identity claim, and a home checkout that
+    # also names a build target is a misconfiguration to be read conservatively rather than acted on.
+    if not s.get("home_workshop"):
+        grounding = render_mechanic_grounding(s.get("mechanic"),
+                                              first_run_pending=bool((s.get("first_run") or {}).get("present")))
+        if grounding:
+            out.append(grounding)
+            out.append("")
 
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
     # knowledge-faculty advertisement (#92), the surface-catalog recognition slice (D-309 / #495), the
