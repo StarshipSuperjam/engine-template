@@ -51,6 +51,8 @@ import urllib.request
 import boot
 import github_client
 import module_manager
+import repo_identity
+import validate
 import weakening_guard
 
 COMMENT_MARKER = "<!-- engine-overlay-disclosure -->"
@@ -121,14 +123,22 @@ class _Comments:
             raise _CommentError(f"GitHub returned {status} editing comment {comment_id} on {self.repo}")
 
 
-def is_deployed() -> bool:
-    """True iff this repo has an engine update HOME that is a DIFFERENT repo than its own origin — an
-    upstream that will overlay (overwrite) its engine files on the next update. False (silent) when no home
-    is recorded, when the origin can't be determined, or when home == origin (the self-hosting engine repo,
-    which IS its own home and has no upstream to overwrite it)."""
-    home = module_manager._home_repository()
-    own = boot.repo_slug()
-    return bool(home and own and home != own)
+def is_deployed(root: "str | None" = None) -> bool:
+    """True iff this repo has an engine update HOME that is a DIFFERENT repo than its own ON-DISK git origin —
+    an upstream that will overlay (overwrite) its engine files on the next update. False (silent) when no home
+    is recorded, when the origin can't be read, or when home == origin (the engine's own home repo, which has
+    no upstream to overwrite it).
+
+    Both sides come from `repo_identity`, so both describe the SAME checkout: the origin is read from disk,
+    never from `GITHUB_REPOSITORY`, and the comparison is slug-normalized. A recorded home differing only in
+    case or a trailing `.git` therefore can no longer make the engine's own repo read as deployed and comment
+    on its own pull requests — and since `.engine/engine.json` is carved out of the overlay, such a value would
+    persist with no update able to correct it.
+
+    A malformed manifest RAISES rather than reading as "not deployed"; `main()` turns that into a visible,
+    non-blocking failure. `root` is injectable (default: this process's checkout) so the tests and the demo can
+    drive both verdicts against real throwaway checkouts."""
+    return repo_identity.is_downstream_copy_strict(root or validate.ROOT)
 
 
 def _is_bot(comment: dict) -> bool:
@@ -259,7 +269,17 @@ def main() -> int:
     event = _load_event()
     number = (event.get("pull_request") or {}).get("number")
 
-    if not is_deployed():
+    # Its own try, BEFORE the gates below: a corrupt manifest must not read as a clean "nothing to disclose",
+    # which an operator takes as "nothing will be overwritten". Widening the try further down instead would
+    # reorder the number / engine-authored / fork gates.
+    try:
+        deployed = is_deployed()
+    except Exception as exc:  # noqa: BLE001 — unreadable identity is a BROKEN run: visible, never a false all-clear
+        print(f"overlay-disclosure: could not read this repository's engine record (.engine/engine.json), so "
+              f"the heads-up about files a future update would overwrite did not run. This does not block your "
+              f"merge. The file looks damaged — restore it from your project's history. ({exc})", file=sys.stderr)
+        return 1
+    if not deployed:
         print("overlay-disclosure: no distinct update home (self-hosting or unset) — nothing to disclose.")
         return 0
     if number is None:
@@ -276,7 +296,7 @@ def main() -> int:
     try:
         changed = weakening_guard.fetch_all_changed_files(repo, number, token)
         paths = overwritten_paths(changed)
-        status = reconcile(_Comments(repo, token), number, paths, module_manager._home_repository())
+        status = reconcile(_Comments(repo, token), number, paths, repo_identity.home_repository(validate.ROOT))
     except Exception as exc:  # noqa: BLE001 — a broken disclosure must be VISIBLE (non-blocking), not green
         print(f"overlay-disclosure: could not complete the disclosure ({exc}).", file=sys.stderr)
         return 1

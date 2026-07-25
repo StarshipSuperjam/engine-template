@@ -2,7 +2,7 @@
 """first_run_health — the standing "this copy hasn't finished first-run setup" detector (issue #353).
 
 Catches when a repo created from the engine template ("Use this template", or a clone-and-push of it) is
-still sitting in its un-transformed, construction-state shape — so [boot] can OFFER to walk the operator
+still sitting in its un-transformed, as-copied shape — so [boot] can OFFER to walk the operator
 through `/engine-setup` on the first session, instead of the repo silently reporting itself "already set up"
 and stranding the adopter. The detect / surface / consent split mirrors the leftover-LICENSE detector
 (`license_health`) and the stranded-checkout detector (`checkout_health`): provisioning detects, boot
@@ -25,12 +25,13 @@ OBSERVABLE installed shape instead, using two grounded signals:
      an untouched fresh copy and a setup INTERRUPTED partway (before or after the floor swap): the remedy is
      identical, since `/engine-setup` resumes idempotently (#519 §1).
 
-A construction FORK of the workshop (a contributor's fork, origin != home, construction file still present)
-is the one offline false-positive the two signals cannot separate from a fresh copy — because a pre-swap
-fresh copy carries the same construction CLAUDE.md. It is separated ONLINE by `forked_from_home`, a
-best-effort, token-gated GitHub read of the repo's fork parentage (a fork of the engine home is NOT an
-adopter to nag). Offline (no token) the offer still shows; it is read-only and low-harm, and construction
-actually happens in worktrees on `origin == home`, where the downstream-copy signal never fires.
+A FORK of the engine's own home (a contributor's fork: origin != home, and the one-time setup tool still
+present, because a fork of the engine's repo carries it) is the one offline false-positive the two signals
+cannot separate from a fresh copy — the two are identical on disk, since a fork and a fresh copy inherit the
+same committed files. It is separated ONLINE by `forked_from_home`, a best-effort, token-gated GitHub read of
+the repo's fork parentage (a fork of the engine home is NOT an adopter to nag). Offline (no token) the offer
+still shows; it is read-only and low-harm, and the engine's own development actually happens in worktrees on
+`origin == home`, where the downstream-copy signal never fires.
 
 OFFLINE + READ-ONLY at the core (`detect_first_run_pending`), the online parentage read kept OFF that
 critical path (the `checkout_health`/`license_health` offline-online seam). Fix-never-here: the offer routes
@@ -212,7 +213,7 @@ def _fixture(tmp: str, name: str, *, origin: str, home: str,
     optionally the one-time setup tool, and a placeholder root CLAUDE.md. The CLAUDE.md content is incidental —
     detect_first_run_pending keys on the origin vs recorded home and the setup tool's presence, never the file's
     text — so `floor_swapped` only varies a cosmetic label (a fresh copy inherits the committed floor either way
-    since #323; there is no distinct construction file)."""
+    since #323)."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".engine", "tools"), exist_ok=True)
     _git(root, "init", "-q")

@@ -29,12 +29,13 @@ The roster (the set proven):
 The only admissible carve-outs are bounded and disclosed, never an author's silent self-classification:
   - a unit with **no statically-decidable failure path in the CI environment** — disclosed by a
     `not-applicable.json` carrying that exact bounded reason, listed loudly here as a soft note;
-  - a **construction-scoped** unit (#512) — disclosed by a `construction-scoped.json` carrying the exact bounded
-    reason below, and honored ONLY where the ambient repo state confirms it: the unit is still run, and only a
+  - a **home-scoped** unit (#512) — disclosed by a `construction-scoped.json` (a frozen format name; see the
+    constant below) carrying the exact bounded reason, and honored ONLY where the ambient repo state confirms
+    it: the unit is still run, and only a
     silent failed bite (no hard finding at all — a crash or fail-closed verdict is evidence, never excused) in a
-    repo whose root CLAUDE.md is no longer the construction-governance body collapses to a loud
-    soft note. In the construction repo the declaration is inert and the bite stays required — so the
-    declaration can never exempt a check where its failure path is reachable;
+    repo whose git origin is not the update home its manifest records — a copy of the engine, not its home —
+    collapses to a loud soft note. In the engine's own home repo the declaration is inert and the bite stays
+    required — so the declaration can never exempt a check where its failure path is reachable;
   - a unit whose bite is witnessable only with a **declared live environment** (#531) — disclosed by a
     `requires.json` naming the environment variables the witness needs. Ignored entirely in CI (where the
     declared environment is provided and the bite stays enforced); on a local machine missing one of the named
@@ -66,17 +67,27 @@ _PATH_KINDS = {"presence", "schema", "shape"}
 # The exact bounded carve-out property (fixed VERBATIM precisely so a compressed slug cannot reopen
 # the self-classification escape). A not-applicable.json must carry this exact string.
 _NA_PROPERTY = "no statically-decidable failure path in the CI environment"
-# The construction-scoped property (#512), same VERBATIM discipline. A construction-scoped.json must carry it —
-# and the declaration is honored only where the ambient root confirms the repo is NOT the construction one.
+# The home-scoped property (#512), same VERBATIM discipline. The declaration file must carry it, and is honored
+# only where the ambient root confirms the repo is NOT the engine's own home.
+#
+# THIS FILENAME AND THIS STRING ARE A FROZEN ON-DISK FORMAT — do not "tidy" them to match the engine's prose.
+# Both travel into every deployed repo, and the two arrive by DIFFERENT delivery paths: the script through the
+# engine overlay, the declaration through the fixture-namespace reconcile. A repo running an engine old enough
+# to predate that reconcile receives the new script and keeps the old declaration — so changing either side
+# turns this check hard-red in that repo, over a file the engine itself shipped, with nothing its operator can
+# do. The fixture namespace is also a never-delete carve-out of the reconcile, so a renamed file's old copy
+# would strand there permanently. The engine's prose vocabulary moved on from "construction"; this format did
+# not, and the mismatch is deliberate. TestLiveDeclarationsAreHonored pins both sides against the shipped files.
+_HS_DECLARATION = "construction-scoped.json"
 _CS_PROPERTY = "no reachable failure path outside the construction repository"
 # The declared-environment property (#531), same VERBATIM discipline for the same reason: a requires.json
 # must carry it alongside the named variables, so this class of declaration can no more be minted casually
 # than the other two.
 _REQ_PROPERTY = "the aimed bite is witnessable only with a live repository connection"
-# The home recognizer is the shared origin==home seam (repo_identity.is_home_repo, #323) — the SAME signal the
-# two home-scoped checks' own `_is_construction_repo()` gates on, so the harness and the checks can never
-# disagree about what "the home repo" is (a disagreement would let a check no-op in a copy while the harness
-# still demanded its bite — a false red). See _is_construction_root below; keyed on the PASSED root so a test
+# The home recognizer is the shared origin==home seam (repo_identity.is_home_repo) — the SAME signal the two
+# home-scoped checks' own `_in_home_repo()` gates on, so the harness and the checks can never disagree about
+# what "the home repo" is (a disagreement would let a check no-op in a copy while the harness still demanded
+# its bite — a false red). Called directly at the one site that needs it, keyed on the PASSED root so a test
 # can drive both branches (the live run passes validate.ROOT).
 
 
@@ -181,7 +192,7 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
     """Prove one custom/script INSTANCE bites its fixture. The fixture dir (`<id-stem>/`) holds an expect.json and
     an optional target.json (the run_unit target — e.g. a seeded `env`); a missing dir with no disclosure fails
     closed. The instance's own rule (its real script) runs unchanged — only the target is substituted. A failed
-    bite consults the fixture's bounded applicability declarations (construction-scoped / declared environment)
+    bite consults the fixture's bounded applicability declarations (home-scoped / declared environment)
     LAST — the unit always runs first, so a check that unexpectedly bites is simply covered, never excused."""
     stem = (rule.get("id") or "").split("engine/check/")[-1]
     fdir = os.path.join(fixture_root, stem)
@@ -203,7 +214,7 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
     # The declarations may only excuse a unit that ran and STAYED SILENT (no hard finding at all) — the true
     # signature of a structurally-inert check. A run that produced any hard finding (a crash, a non-zero exit,
     # unreadable output, or the check's own fail-closed verdict) is evidence, and evidence is never excused:
-    # a genuinely construction-scoped check cannot crash in a deployed repo, because it returns at its gate
+    # a genuinely home-scoped check cannot crash in a deployed repo, because it returns at its gate
     # before doing anything.
     if not any(f.get("severity") == "hard" for f in found):
         alt = _failed_bite_applicability(rule.get("id"), fdir, root, tier)
@@ -212,56 +223,54 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
     return [validate.finding(tier, _no_bite_msg(f"check '{rule.get('id')}'", fdir, expect, found, root))]
 
 
-def _is_construction_root(root: str) -> bool:
-    """True iff `root` is the engine's OWN home repo — its git origin equals the recorded home_repository, via
-    the shared `repo_identity.is_home_repo` seam (#323). This is the SAME signal the two home-scoped checks'
-    `_is_construction_repo()` gate on, so the harness honors a construction-scoped exemption in EXACTLY the
-    repos where those checks no-op — the two can never disagree (the pre-#323 marker read diverged from the
-    re-keyed checks in a fresh copy that still carried the marker but had its own origin). Keyed on the passed
-    root so tests can drive both branches; the live run passes validate.ROOT. An unreadable origin/home fails
-    TOWARD home, matching the checks' own fail-direction (both then treat an unplaceable repo as home)."""
-    return repo_identity.is_home_repo(root)
-
-
 def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list | None":
     """The bounded applicability declarations, consulted ONLY after a unit failed to bite. Returns the finding
     list that replaces the did-not-bite red (a loud soft note, or a hard rejection of a malformed declaration),
     or None when no declaration applies and the failed bite must stand. Two declarations exist:
 
-      - construction-scoped.json (#512): the check's failure path is reachable only in the construction repo.
+      - the home-scoped declaration (#512): the check's failure path is reachable only in the engine's own home.
         Honored only where the AMBIENT root confirms the repo is not the construction one — in the construction
         repo the declaration is inert and the failed bite stands, so it can never exempt a reachable check.
       - requires.json (#531): the bite is witnessable only with the named environment variables (a live-API
         witness). IGNORED in CI, where the declared environment is provided and the bite stays enforced; outside
         CI a missing named variable collapses the red to a loud soft note so a local rehearsal reads honestly.
     """
-    cs_path = os.path.join(fdir, "construction-scoped.json")
+    cs_path = os.path.join(fdir, _HS_DECLARATION)
     if os.path.isfile(cs_path):
         try:
             disclosure = _load(cs_path)
         except Exception as exc:  # noqa: BLE001 — an unreadable declaration is a failure to prove, fails closed
-            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' is unreadable "
-                    f"({exc}); the failed bite stands until it is fixed.")]
+            return [validate.finding(tier, f"The home-scoped disclosure for '{unit}' ({_HS_DECLARATION}) is "
+                    f"unreadable ({exc}); the failed bite stands until it is fixed.")]
         if not isinstance(disclosure, dict):
-            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' is not a JSON "
-                    f"object; the failed bite stands until it is fixed.")]
+            return [validate.finding(tier, f"The home-scoped disclosure for '{unit}' ({_HS_DECLARATION}) is not "
+                    f"a JSON object; the failed bite stands until it is fixed.")]
         if disclosure.get("property") != _CS_PROPERTY:
-            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' does not carry the "
-                    f"only admissible reason (\"{_CS_PROPERTY}\"); a check may be construction-scoped only when "
-                    f"its failure path is unreachable outside the construction repository. Either fix the check "
-                    f"or correct the disclosure's recorded reason.")]
-        if not _is_construction_root(root):
+            # Quoting the property verbatim is right HERE: this message is read by whoever authors a
+            # declaration, and it must hand them the exact string the format demands.
+            return [validate.finding(tier, f"The home-scoped disclosure for '{unit}' ({_HS_DECLARATION}) does "
+                    f"not carry the only admissible reason (\"{_CS_PROPERTY}\"); a check may be home-scoped only "
+                    f"when its failure path is unreachable outside the engine's own home repository. Either fix "
+                    f"the check or correct the disclosure's recorded reason.")]
+        # The SAME origin==home seam the two home-scoped checks gate on, so the harness honors an exemption in
+        # EXACTLY the repos where those checks no-op — the two can never disagree. Keyed on the passed root so
+        # tests can drive both branches; the live run passes validate.ROOT. An unreadable origin/home fails
+        # TOWARD home, matching the checks' own fail-direction (both treat an unplaceable repo as home).
+        if not repo_identity.is_home_repo(root):
             reason = disclosure.get("reason", "")
             # A plain soft finding (never the collapsible no-op class): this note is the loud disclosure the
             # carve-out promises, and it must render in full in the suite output, not fold into a
             # "nothing to do" summary line.
-            return [validate.finding("soft", f"NOT APPLICABLE HERE — '{unit}' is construction-scoped: "
-                    f"{_CS_PROPERTY}. This repository's root CLAUDE.md is not the construction-governance body, "
-                    f"so the check is structurally inert here and its bite cannot be witnessed; it stays "
-                    f"required to bite in the construction repository's CI. Recorded reason: {reason} This "
-                    f"carve-out is disclosed here and re-derived at the review gate; it is not a proof that the "
-                    f"check bites.")]
-        # The construction repo itself: the declaration is inert — fall through to any other declaration.
+            # The property is NOT quoted here: this reader is an operator looking at their own repository, and
+            # the format's frozen wording would only puzzle them. State the real reason in plain words instead.
+            return [validate.finding("soft", f"NOT APPLICABLE HERE — '{unit}' only has a failure path in the "
+                    f"engine's own home repository. This repository is a copy of the engine: its git origin is "
+                    f"not the update home recorded in .engine/engine.json, so the check stops at that gate "
+                    f"before doing anything. There is nothing here for its self-test to catch and nothing for "
+                    f"you to fix. It is still required to catch its own broken example where the engine itself "
+                    f"is built. Recorded reason: {reason} This carve-out is disclosed here and re-derived when "
+                    f"the change is reviewed; it is not a proof that the check works.")]
+        # The engine's own home: the declaration is inert — fall through to any other declaration.
     req_path = os.path.join(fdir, "requires.json")
     if os.path.isfile(req_path):
         try:
@@ -286,7 +295,7 @@ def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list |
         missing = [n for n in names if not os.environ.get(n)]
         if missing and not in_ci:
             reason = req.get("reason", "")
-            # A plain soft finding for the same render-in-full reason as the construction-scoped note.
+            # A plain soft finding for the same render-in-full reason as the home-scoped note.
             return [validate.finding("soft", f"NOT WITNESSED HERE — '{unit}' declares its bite needs "
                     f"{', '.join(missing)}, absent on this machine. In CI the declaration is ignored and the "
                     f"bite stays enforced; this note only keeps a local rehearsal honest instead of falsely "

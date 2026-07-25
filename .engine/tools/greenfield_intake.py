@@ -69,22 +69,17 @@ def detect_greenfield(cwd: "str | None" = None) -> "dict | None":
     try:
         if not os.path.isfile(os.path.join(root, _INTAKE_REL)):
             return None  # the intake isn't installed — never offer a command that doesn't exist
-        if _is_construction_repo(root):
-            return None  # the engine's own construction repo: no product spec is legitimate here
+        # The engine's own home repo — its git origin equals its recorded home_repository. There a missing
+        # product spec is legitimate (the repo builds the engine, not a product), so the nudge no-ops, exactly
+        # as the leftover-license offer does. Fails TOWARD home when the origin can't be read, so an
+        # unplaceable repo stays quiet; boot only ever offers, never acts.
+        if repo_identity.is_home_repo(root):
+            return None
         if os.path.isfile(os.path.join(root, _INDEX_REL)):
             return None  # the intake has already been run — self-resolved, never nag mid-authoring
         return {"greenfield": True, "fingerprint": _FINGERPRINT}
     except Exception:  # noqa: BLE001 — a detector fault degrades to "no offer", never breaks boot
         return None
-
-
-def _is_construction_repo(root: str) -> bool:
-    """True iff `root` is the engine's OWN home repo — its git origin equals its recorded home_repository
-    (repo_identity.is_home_repo; #323). There a missing product spec is legitimate — the repo builds the engine,
-    not a product — so the nudge no-ops, exactly as the leftover-license offer no-ops (the engine==product
-    carve-out). Fails TOWARD home when the origin can't be read, so an unplaceable repo is treated as home and
-    the nudge stays quiet; boot only ever offers, never acts."""
-    return repo_identity.is_home_repo(root)
 
 
 def _demo() -> int:

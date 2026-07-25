@@ -11,8 +11,10 @@ inherited manifest records, while the home repo has `origin == home`.
 Kept deliberately DEPENDENCY-LIGHT (stdlib + `validate` only) so the lean HARD CI safety checks
 (`memory_pointer_public_safety_check`, `census_completeness_check`, `hard_check_bite_check`) can gate on it
 WITHOUT dragging the modes/close/hooks lifecycle machinery that lives in `module_coherence` into a
-`pull_request_target`-adjacent path. `module_coherence` re-exports the slug primitives from here, so this is
-their single home and no parallel copy can drift.
+`pull_request_target`-adjacent path. `module_coherence` re-exports the slug primitives from here rather than
+keeping its own, so the two can never drift apart. Other modules — `first_run_health`, `boot`, `instantiator`,
+`weakening_guard` — still carry their own origin/home readers with their own fail-directions; this is the
+single home for the primitives it defines, not yet the only reader of that state in the tree.
 
 Two contracts callers rely on:
   - `is_home_repo(root)` reads the EXAMINED checkout's ON-DISK git origin (`git -C <root> remote get-url
@@ -92,9 +94,9 @@ def home_repository(root: "str | None" = None) -> "str | None":
     """The engine's HOME repository slug (`owner/repo`) recorded in `root`'s manifest — the single coordinate
     for where the engine fetches its own updates from AND where a fork-native deployment escalates a
     contribution to (schema: engine.v1.json `home_repository`). `None` when the manifest is absent or records
-    no/blank home. A present-but-MALFORMED manifest RAISES (loud) — `module_manager._home_repository` (which
-    delegates here via `module_coherence`) and its callers `overlay_disclosure.is_deployed` / `release_cut`
-    rely on a corrupt manifest never being silently read as "no home"."""
+    no/blank home. A present-but-MALFORMED manifest RAISES (loud): `is_downstream_copy_strict` calls this
+    directly, and `release_cut` reaches it through `module_manager._home_repository` (which delegates here via
+    `module_coherence`) — both rely on a corrupt manifest never being silently read as "no home"."""
     engine = _manifest(root) or {}
     home = engine.get("home_repository")
     return home if isinstance(home, str) and home.strip() else None
@@ -128,7 +130,9 @@ def is_downstream_copy(own_slug: "str | None", home_slug=_READ_HOME) -> bool:
       - SAFE, fail-toward-quiet: False (NOT a copy) whenever home is absent/blank/unreadable OR `own_slug` is
         None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet. A MALFORMED
         manifest read here degrades to False (never crash a read-only caller), unlike the fail-LOUD
-        `home_repository()` the update path relies on."""
+        `home_repository()` the update path relies on — which is why `is_downstream_copy_strict` passes the
+        home in explicitly rather than omitting it (an argument is evaluated in ITS frame, so the raise never
+        reaches this `except` at all)."""
     if home_slug is _READ_HOME:
         try:
             home_slug = home_repository()
@@ -152,3 +156,19 @@ def is_home_repo(root: "str | None" = None) -> bool:
     except Exception:  # noqa: BLE001 — a malformed manifest cannot place the repo -> fail toward home (safe)
         home = None
     return not is_downstream_copy(own, home)
+
+
+def is_downstream_copy_strict(root: "str | None" = None) -> bool:
+    """The fail-LOUD complement of `is_home_repo`: True iff `root` is a downstream copy of the engine, with a
+    MALFORMED manifest RAISING rather than degrading.
+
+    `is_home_repo` deliberately swallows that error and fails toward home — the right direction for a scope
+    detector, whose worst case is checking unnecessarily. It is the WRONG direction for a caller whose quiet
+    verdict is itself a reassurance to the operator: `overlay_disclosure.is_deployed` stays silent when this is
+    False, and silence there reads as "nothing will be overwritten". A corrupt manifest must not be able to
+    produce that. The load-bearing detail is the EXPLICIT home ARGUMENT: it is evaluated in this frame, so the
+    raise happens before `is_downstream_copy` is entered and its fail-soft `except` never sees it. Collapsing
+    this to `not is_home_repo(root)`, or dropping the explicit argument, silently restores the swallow —
+    `TestIsDownstreamCopyStrict` pins both. (Widening `is_downstream_copy`'s own `try` does NOT affect this
+    caller, for the same argument-evaluation reason; no test claims otherwise.)"""
+    return is_downstream_copy(origin_slug(root), home_repository(root))

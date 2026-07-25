@@ -16,9 +16,10 @@ The open-removal-PR DEDUPE is a SEPARATE, best-effort, ONLINE step (`removal_pr_
 never sits on the offline detector's critical path (the `checkout_health` offline/online seam).
 
 Fix-never-here: the removal lands as a reviewed pull request the operator merges (build-orchestration's trivial
-fast path), never a boot-time delete. No-op in the engine's OWN template/construction repo, where the
-root LICENSE is legitimately the engine's, not a leftover — judged against the EXAMINED checkout's committed
-`HEAD:CLAUDE.md` (not this process's repo), so the guard tracks the repo whose LICENSE is being judged.
+fast path), never a boot-time delete. No-op in the engine's OWN home repository, where the root LICENSE is
+legitimately the engine's, not a leftover — judged by whether the EXAMINED checkout's git origin equals the
+update home its manifest records (not this process's repo), so the guard tracks the repo whose LICENSE is
+being judged.
 """
 from __future__ import annotations
 
@@ -85,30 +86,23 @@ def _committed(main: str, rel: str) -> str | None:
     return _run(["git", "-C", main, "show", f"HEAD:{rel}"])
 
 
-def _is_engine_template_repo(main: str) -> bool:
-    """True iff the EXAMINED main checkout is the engine's OWN home repo — its git origin equals its recorded
-    home_repository (repo_identity.is_home_repo) — where the root LICENSE is legitimately the engine's, never a
-    leftover to offer removing (the engine==product carve-out; #323). Fails TOWARD home when the origin can't be
-    read, so an unplaceable repo does NOT get a spurious LICENSE-removal offer — the opposite of the retired
-    marker's fail-toward-product direction, and net safer (it never offers to strip the workshop's own LICENSE).
-    A deployed repo with a genuine leftover LICENSE and no readable origin loses only the helpful nudge; the
-    reviewed-PR consent gate remains the backstop against a wrong offer."""
-    return repo_identity.is_home_repo(main)
-
-
 def detect_foreign_license(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY. Returns {"present": True, "main": <path>, "fingerprint": <seed id>} when the main
     checkout's committed root LICENSE positively matches one of the engine's OWN historically-shipped template
     seeds; else None — healthy (the product's own license, or no LICENSE), unresolvable, or the engine's own
-    template/construction repo. All non-fire paths are fail-soft quiet (never a crash into boot's SessionStart).
+    home repository. All non-fire paths are fail-soft quiet (never a crash into boot's SessionStart).
     The `fingerprint` is the matched-seed id: stable session-to-session for the same license (so the ledger
     collapse works), changing if the license becomes a DIFFERENT recognizable seed (so a retired finding
     re-surfaces on a new leak)."""
     main = _main_checkout(cwd)
     if main is None:
         return None
-    if _is_engine_template_repo(main):
-        return None                       # the engine's OWN template repo: its root LICENSE is legitimately ours
+    # The EXAMINED checkout is the engine's OWN home repo — its git origin equals its recorded home_repository
+    # — where the root LICENSE is legitimately the engine's, never a leftover to offer removing. Fails TOWARD
+    # home when the origin can't be read, so an unplaceable repo gets no spurious removal offer; a deployed repo
+    # with a genuine leftover and no readable origin loses only the nudge, and the reviewed-PR gate still backs it.
+    if repo_identity.is_home_repo(main):
+        return None
     text = _committed(main, "LICENSE")
     if text is None:
         return None                       # no committed LICENSE -> nothing to clear

@@ -1,8 +1,10 @@
 """Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice.
 
 These lock the behaviours a non-engineer cannot read code to verify:
-  - the deployed-only gate is correct (silent in the self-hosting repo, whose home == its own origin — the
-    exact bug the plan gate caught: `home is not None` is TRUE here, so the gate must compare home vs origin);
+  - the deployed-only gate is correct: it compares the checkout's ON-DISK git origin against the update home
+    that checkout's own manifest records, slug-normalized — so the engine's own home stays silent, a case- or
+    `.git`-skewed recorded home cannot make it comment on its own pull requests, `GITHUB_REPOSITORY` cannot
+    flip it either way, and a corrupt manifest fails LOUD rather than as a reassuring silence;
   - an engine-authored lifecycle pull request (update/removal/arrival branch) is exempt (the notice would
     read backwards there);
   - the overwrite set is the overlay's OWN membership (present provides + module MANIFESTS + FOUNDATION_CODE),
@@ -29,6 +31,9 @@ import validate                       # noqa: E402
 import module_coherence               # noqa: E402
 import module_manager                 # noqa: E402
 import overlay_disclosure as od       # noqa: E402
+import repo_identity                  # noqa: E402
+import test_repo_identity as tri      # noqa: E402  (reuse its REAL throwaway-git-checkout fixtures — the
+                                      #  on-disk origin read IS what the deployed gate is about)
 import quiet_call                     # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 import demo_overlay_disclosure        # noqa: E402
 
@@ -68,26 +73,60 @@ class _Recorder:
 
 
 class TestDeployedGate(unittest.TestCase):
-    """The corrected gate: deployed iff an update home is recorded AND it differs from the repo's origin."""
+    """The gate: deployed iff the checkout's ON-DISK git origin differs, slug-normalized, from the update home
+    its OWN manifest records.
 
-    def _gate(self, home, own):
-        with mock.patch.object(od.module_manager, "_home_repository", return_value=home), \
-             mock.patch.object(od.boot, "repo_slug", return_value=own):
-            return od.is_deployed()
+    Driven against REAL throwaway git checkouts, never mocked seams. What this change is ABOUT is which read
+    the gate performs, so a test that patched two function names would assert only that they are called — it
+    would stay green against an implementation that consulted `GITHUB_REPOSITORY` alongside them, and the
+    env-immunity case below could not be written at all."""
 
-    def test_no_home_is_silent(self):
-        self.assertFalse(self._gate(None, "acme/product"))
+    def setUp(self):
+        self.tmp = tri._mkdtemp(self)
 
-    def test_home_equals_origin_is_silent(self):
-        # The self-hosting engine repo: home points at itself. `home is not None` is TRUE, so the naive gate
-        # would fire — this asserts the corrected home != origin comparison keeps it silent.
-        self.assertFalse(self._gate(HOME, HOME))
+    def _repo(self, name, **kw):
+        return tri._repo(self.tmp, name, **kw)
 
-    def test_home_differs_from_origin_is_active(self):
-        self.assertTrue(self._gate(HOME, "acme/product"))
+    def test_home_repo_is_silent(self):
+        self.assertFalse(od.is_deployed(self._repo("home", origin=f"https://github.com/{HOME}.git")))
 
-    def test_unknown_origin_is_silent(self):
-        self.assertFalse(self._gate("acme/home", None))
+    def test_downstream_copy_is_active(self):
+        self.assertTrue(od.is_deployed(self._repo("copy", origin="https://github.com/acme/product.git")))
+
+    def test_absent_home_is_silent(self):
+        self.assertFalse(od.is_deployed(
+            self._repo("nohome", origin="https://github.com/acme/product.git", home=None)))
+
+    def test_unreadable_origin_is_silent(self):
+        self.assertFalse(od.is_deployed(self._repo("noorigin", origin=None)))
+
+    def test_case_and_git_suffix_skew_in_the_recorded_home_is_silent(self):
+        # The old raw `!=` fired on the engine's OWN home whenever the recorded home was case-skewed or
+        # `.git`-suffixed — posting a comment on every engine-template pull request. `.engine/engine.json` is
+        # carved out of the overlay, so such a value persists and no update corrects it.
+        self.assertFalse(od.is_deployed(self._repo(
+            "skew", origin="git@github.com:starshipsuperjam/Engine-Template.git",
+            home="StarshipSuperjam/engine-template.git")))
+
+    def test_github_repository_env_cannot_flip_the_gate_either_way(self):
+        # The gate judges the CHECKOUT, never this process's environment — both directions.
+        home = self._repo("envhome", origin=f"https://github.com/{HOME}.git")
+        copy = self._repo("envcopy", origin="https://github.com/acme/product.git")
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "acme/product"}):
+            self.assertFalse(od.is_deployed(home))
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": HOME}):
+            self.assertTrue(od.is_deployed(copy))
+
+    def test_a_malformed_manifest_raises_loud_not_a_silent_false(self):
+        # Why the gate keys on is_downstream_copy_strict and NOT on `not is_home_repo()`: is_home_repo swallows
+        # this, and a swallowed corrupt manifest would read to an operator as "nothing will be overwritten".
+        # The contrast is pinned here, in one place, so a refactor of either cannot quietly converge them.
+        repo = self._repo("corrupt", origin="https://github.com/acme/product.git")
+        with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        with self.assertRaises(Exception):
+            od.is_deployed(repo)
+        self.assertTrue(repo_identity.is_home_repo(repo))
 
 
 class TestEngineAuthoredExempt(unittest.TestCase):
@@ -252,6 +291,16 @@ class TestVisibleFailure(unittest.TestCase):
         with mock.patch.object(od, "is_deployed", return_value=False):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(od.main(), 0)
+
+    def test_an_unreadable_engine_record_is_a_visible_red_not_a_traceback_and_not_a_green(self):
+        # The gate raising must become the module's designed visible failure, never an uncaught traceback and
+        # never the clean-run line — silence there reads to an operator as "nothing will be overwritten".
+        with mock.patch.object(od, "is_deployed", side_effect=ValueError("bad manifest")):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                self.assertEqual(od.main(), 1)
+            self.assertIn("could not read this repository's engine record", err.getvalue())
+            self.assertNotIn("nothing to disclose", out.getvalue())
 
 
 class TestOverwriteSetMatchesOverlay(unittest.TestCase):

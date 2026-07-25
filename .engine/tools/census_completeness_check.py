@@ -48,12 +48,12 @@ _TOOLS_REL = os.path.join(".engine", "tools")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 
 
-def _is_construction_repo() -> bool:
+def _in_home_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Reads the REAL root
     (validate.ROOT) via the shared `repo_identity.is_home_repo` seam, NOT overridable — a backdoor past this gate
     would let the check fire in a deployed repo where the demos are gone. Mirrors
-    memory_pointer_public_safety_check._is_construction_repo so the two home-scoped checks agree on what "the
+    memory_pointer_public_safety_check._in_home_repo so the two home-scoped checks agree on what "the
     home repo" is (both now delegate to the one seam, which is stronger than the old identical-marker binding).
     Kept as a named predicate because this check's tests monkeypatch it to drive the gate."""
     return repo_identity.is_home_repo(validate.ROOT)
@@ -140,7 +140,7 @@ def _message(demo_rel: str) -> str:
     """Operator-facing finding for an orphan demo: consequence + concrete file + the two real fixes, plain words.
     custom/script surfaces only the per-finding message, so it carries the whole story."""
     return (
-        f"`{demo_rel}` is a construction-only demonstration file that isn't accounted for: it isn't on the list "
+        f"`{demo_rel}` is one of the engine's own build-evidence demonstration files, and it isn't accounted for: it isn't on the list "
         f"of files removed when a project is first set up, and nothing that stays in a finished project uses it. "
         f"As it stands it would ship into every generated project as leftover workshop clutter. Fix it one of two "
         f"ways: add it to the removal list (.engine/provisioning/first-run-assets.json and _FIRST_RUN_ASSET_FILES "
@@ -150,7 +150,7 @@ def _message(demo_rel: str) -> str:
 
 
 def _manifest_fault_message() -> str:
-    """Operator-facing finding when the census can't be read inside the construction repo. Fail-closed, plain
+    """Operator-facing finding when the census can't be read inside the engine's own home repository. Fail-closed, plain
     words: this check can't confirm no leftover demos ship, so it can't pass; restore the permanent list."""
     return (
         f"The engine can't read the list of files it removes when a project is first set up (`{_MANIFEST_REL}`). "
@@ -165,7 +165,7 @@ def check(root: str | None = None) -> list:
     the home repo — the demos are already retired in a deployed copy. WITHIN the home repo it fails CLOSED: an
     unreadable/malformed census yields one hard finding, never a silent pass. Separated from main() so a test can
     drive it against a seeded fixture root."""
-    if not _is_construction_repo():
+    if not _in_home_repo():
         return []
     root = root or validate.ROOT
     census = _census(root)

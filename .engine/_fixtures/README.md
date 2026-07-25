@@ -33,6 +33,17 @@ does not satisfy the assertion. A unit with no statically-decidable CI failure p
 (verbatim — a compressed slug would reopen the self-classification escape this exact-string rule closes); the meta-check lists
 every such carve-out loudly and it is re-derived at the review gate.
 
+A unit whose failure path is reachable only in the engine's OWN home repository instead carries a
+`construction-scoped.json` whose `property` is exactly
+`"no reachable failure path outside the construction repository"` — the same verbatim discipline, and honored
+only where the checkout's git origin is not the update home its manifest records. **That filename and that
+string are a FROZEN on-disk format.** They keep the retired "construction" wording on purpose: the check
+script and the declaration reach a deployed repo by two different delivery paths (the engine overlay and the
+fixture reconcile), so changing either side turns the meta-check hard-red in a repo running an engine old
+enough to receive one without the other — and this namespace is a never-delete carve-out of that reconcile, so
+a renamed file's old copy would strand permanently. The engine's prose vocabulary moved on; this format did
+not. `TestLiveDeclarationsAreHonored` pins both sides against the shipped files.
+
 **Every fixture must live under `.engine/_fixtures/` and nowhere else.** The exclusions that shield these files
 are anchored on this exact path, so a fixture placed outside the namespace (or under a near-miss sibling like
 `_fixtures-schema/`) would get none of the shielding and red the real suite.

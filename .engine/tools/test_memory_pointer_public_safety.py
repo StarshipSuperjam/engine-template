@@ -36,13 +36,13 @@ class IsConfiguredTests(unittest.TestCase):
 
 class CheckTests(unittest.TestCase):
     def setUp(self):
-        self._cons, self._txt = guard._is_construction_repo, guard._committed_pointer_text
+        self._cons, self._txt = guard._in_home_repo, guard._committed_pointer_text
 
     def tearDown(self):
-        guard._is_construction_repo, guard._committed_pointer_text = self._cons, self._txt
+        guard._in_home_repo, guard._committed_pointer_text = self._cons, self._txt
 
     def _drive(self, *, construction, committed):
-        guard._is_construction_repo = lambda: construction
+        guard._in_home_repo = lambda: construction
         guard._committed_pointer_text = lambda pointer_rel=guard.POINTER_REL: committed
         return guard.check()
 
@@ -79,10 +79,10 @@ class GateDelegatesToTheHomeRepoSeam(unittest.TestCase):
             return True
 
         with mock.patch.object(guard.repo_identity, "is_home_repo", fake_home):
-            self.assertTrue(guard._is_construction_repo())
+            self.assertTrue(guard._in_home_repo())
         self.assertEqual(seen["root"], guard.validate.ROOT, "the gate must judge THIS checkout's root")
         with mock.patch.object(guard.repo_identity, "is_home_repo", lambda root=None: False):
-            self.assertFalse(guard._is_construction_repo())
+            self.assertFalse(guard._in_home_repo())
 
 
 if __name__ == "__main__":

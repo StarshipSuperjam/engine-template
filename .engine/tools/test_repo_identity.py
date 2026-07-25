@@ -36,18 +36,16 @@ def _mkdtemp(case: unittest.TestCase) -> str:
     return d
 
 HOME = "StarshipSuperjam/engine-template"
-_MARKER = "# engine-template — construction governance\n"
-_NO_MARKER = "# Your project runs on an Engine\n"
 
 
 def _git(root: str, *args: str) -> None:
     subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
 
 
-def _repo(tmp: str, name: str, *, origin: "str | None", home: "str | None" = HOME,
-          claude: str = _MARKER) -> str:
-    """A throwaway git checkout: an `origin` remote (omitted when None), an `.engine/engine.json` recording
-    `home` (omitted when None), and a root CLAUDE.md that either carries the construction marker or does not."""
+def _repo(tmp: str, name: str, *, origin: "str | None", home: "str | None" = HOME) -> str:
+    """A throwaway git checkout: an `origin` remote (omitted when None) and an `.engine/engine.json` recording
+    `home` (omitted when None). Those two are the whole of what places a checkout — no file CONTENT is read,
+    which is the point of the seam."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".engine"), exist_ok=True)
     _git(root, "init", "-q")
@@ -58,8 +56,6 @@ def _repo(tmp: str, name: str, *, origin: "str | None", home: "str | None" = HOM
         manifest["home_repository"] = home
     with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh)
-    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-        fh.write(claude)
     return root
 
 
@@ -71,21 +67,8 @@ class TestIsHomeRepo(unittest.TestCase):
         repo = _repo(self.tmp, "home", origin=f"https://github.com/{HOME}.git")
         self.assertTrue(repo_identity.is_home_repo(repo))
 
-    def test_home_even_when_the_marker_is_absent(self):
-        # THE re-key proof: origin==home, but the root CLAUDE.md is the deployed floor (no marker) — the old
-        # marker gate would read False here; the origin gate reads True.
-        repo = _repo(self.tmp, "home_no_marker", origin=f"https://github.com/{HOME}.git", claude=_NO_MARKER)
-        self.assertTrue(repo_identity.is_home_repo(repo))
-
     def test_copy_when_origin_differs(self):
         repo = _repo(self.tmp, "copy", origin="https://github.com/adopter/their-product.git")
-        self.assertFalse(repo_identity.is_home_repo(repo))
-
-    def test_copy_even_when_it_carries_the_marker(self):
-        # The other half of marker-independence: a copy that inherited the construction CLAUDE.md (marker
-        # present) is STILL a copy — origin!=home wins over the traveled text.
-        repo = _repo(self.tmp, "copy_marker", origin="https://github.com/adopter/their-product.git",
-                     claude=_MARKER)
         self.assertFalse(repo_identity.is_home_repo(repo))
 
     def test_no_origin_fails_toward_home(self):
@@ -188,6 +171,36 @@ class TestSlugPrimitives(unittest.TestCase):
             fh.write("{ not valid json ")
         with self.assertRaises(Exception):
             repo_identity.home_repository(repo)
+
+
+class TestIsDownstreamCopyStrict(unittest.TestCase):
+    """The fail-LOUD complement of `is_home_repo`, and the CONTRAST between the two — pinned here, in the
+    module that owns both, so a refactor that widens `is_downstream_copy`'s `try` (or collapses the strict
+    form to `not is_home_repo`) breaks a test beside the contract instead of silently degrading a consumer two
+    modules away into a reassuring, wrong silence."""
+
+    def setUp(self):
+        self.tmp = _mkdtemp(self)
+
+    def test_agrees_with_is_home_repo_on_every_readable_case(self):
+        cases = [("home", f"https://github.com/{HOME}.git", HOME, False),
+                 ("copy", "https://github.com/acme/product.git", HOME, True),
+                 ("nohome", "https://github.com/acme/product.git", None, False),
+                 ("noorigin", None, HOME, False)]
+        for name, origin, home, expected in cases:
+            with self.subTest(case=name):
+                repo = _repo(self.tmp, name, origin=origin, home=home)
+                self.assertIs(repo_identity.is_downstream_copy_strict(repo), expected)
+                self.assertIs(repo_identity.is_home_repo(repo), not expected)
+
+    def test_a_malformed_manifest_raises_here_but_is_swallowed_by_is_home_repo(self):
+        repo = _repo(self.tmp, "corrupt", origin="https://github.com/acme/product.git")
+        with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        with self.assertRaises(Exception):
+            repo_identity.is_downstream_copy_strict(repo)
+        self.assertTrue(repo_identity.is_home_repo(repo),
+                        "is_home_repo must keep failing TOWARD home — the two fail-directions are deliberate")
 
 
 if __name__ == "__main__":
