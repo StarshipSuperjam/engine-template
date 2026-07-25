@@ -46,11 +46,11 @@ class _Construction(unittest.TestCase):
     gate = True
 
     def setUp(self):
-        self._cons = guard._is_construction_repo
-        guard._is_construction_repo = lambda: self.gate
+        self._cons = guard._in_home_repo
+        guard._in_home_repo = lambda: self.gate
 
     def tearDown(self):
-        guard._is_construction_repo = self._cons
+        guard._in_home_repo = self._cons
 
 
 class ScopeTests(_Construction):
@@ -168,10 +168,10 @@ class GateDelegatesToTheHomeRepoSeam(unittest.TestCase):
             return True
 
         with mock.patch.object(guard.repo_identity, "is_home_repo", fake_home):
-            self.assertTrue(guard._is_construction_repo())
+            self.assertTrue(guard._in_home_repo())
         self.assertEqual(seen["root"], guard.validate.ROOT, "the gate must judge THIS checkout's root")
         with mock.patch.object(guard.repo_identity, "is_home_repo", lambda root=None: False):
-            self.assertFalse(guard._is_construction_repo())
+            self.assertFalse(guard._in_home_repo())
 
 
 class LiveTreeTests(unittest.TestCase):

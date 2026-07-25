@@ -37,7 +37,7 @@ import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home se
 POINTER_REL = ".engine/memory-backup/pointer.json"
 
 
-def _is_construction_repo() -> bool:
+def _in_home_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Delegates to the shared
     `repo_identity.is_home_repo` seam, which fails TOWARD home under an unreadable origin — the safe direction
@@ -71,7 +71,7 @@ def check(pointer_rel: str = POINTER_REL) -> "dict | None":
     committed path read via `git show HEAD:` — overridable so the negative-fixture meta-check can point it at a
     committed fixture pointer; the home-scope gate is NOT overridable (a backdoor past it would defeat
     this safety check)."""
-    if not _is_construction_repo():
+    if not _in_home_repo():
         return None
     text = _committed_pointer_text(pointer_rel)
     if text is None or not is_configured_pointer(text):

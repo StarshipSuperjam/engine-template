@@ -73,10 +73,10 @@ _CS_PROPERTY = "no reachable failure path outside the construction repository"
 # must carry it alongside the named variables, so this class of declaration can no more be minted casually
 # than the other two.
 _REQ_PROPERTY = "the aimed bite is witnessable only with a live repository connection"
-# The home recognizer is the shared origin==home seam (repo_identity.is_home_repo, #323) — the SAME signal the
-# two home-scoped checks' own `_is_construction_repo()` gates on, so the harness and the checks can never
-# disagree about what "the home repo" is (a disagreement would let a check no-op in a copy while the harness
-# still demanded its bite — a false red). See _is_construction_root below; keyed on the PASSED root so a test
+# The home recognizer is the shared origin==home seam (repo_identity.is_home_repo) — the SAME signal the two
+# home-scoped checks' own `_in_home_repo()` gates on, so the harness and the checks can never disagree about
+# what "the home repo" is (a disagreement would let a check no-op in a copy while the harness still demanded
+# its bite — a false red). Called directly at the one site that needs it, keyed on the PASSED root so a test
 # can drive both branches (the live run passes validate.ROOT).
 
 
@@ -212,17 +212,6 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
     return [validate.finding(tier, _no_bite_msg(f"check '{rule.get('id')}'", fdir, expect, found, root))]
 
 
-def _is_construction_root(root: str) -> bool:
-    """True iff `root` is the engine's OWN home repo — its git origin equals the recorded home_repository, via
-    the shared `repo_identity.is_home_repo` seam (#323). This is the SAME signal the two home-scoped checks'
-    `_is_construction_repo()` gate on, so the harness honors a construction-scoped exemption in EXACTLY the
-    repos where those checks no-op — the two can never disagree (the pre-#323 marker read diverged from the
-    re-keyed checks in a fresh copy that still carried the marker but had its own origin). Keyed on the passed
-    root so tests can drive both branches; the live run passes validate.ROOT. An unreadable origin/home fails
-    TOWARD home, matching the checks' own fail-direction (both then treat an unplaceable repo as home)."""
-    return repo_identity.is_home_repo(root)
-
-
 def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list | None":
     """The bounded applicability declarations, consulted ONLY after a unit failed to bite. Returns the finding
     list that replaces the did-not-bite red (a loud soft note, or a hard rejection of a malformed declaration),
@@ -250,7 +239,11 @@ def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list |
                     f"only admissible reason (\"{_CS_PROPERTY}\"); a check may be construction-scoped only when "
                     f"its failure path is unreachable outside the construction repository. Either fix the check "
                     f"or correct the disclosure's recorded reason.")]
-        if not _is_construction_root(root):
+        # The SAME origin==home seam the two home-scoped checks gate on, so the harness honors an exemption in
+        # EXACTLY the repos where those checks no-op — the two can never disagree. Keyed on the passed root so
+        # tests can drive both branches; the live run passes validate.ROOT. An unreadable origin/home fails
+        # TOWARD home, matching the checks' own fail-direction (both treat an unplaceable repo as home).
+        if not repo_identity.is_home_repo(root):
             reason = disclosure.get("reason", "")
             # A plain soft finding (never the collapsible no-op class): this note is the loud disclosure the
             # carve-out promises, and it must render in full in the suite output, not fold into a

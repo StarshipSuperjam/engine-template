@@ -478,7 +478,7 @@ class TestRetiredAssetFilter(unittest.TestCase):
                                         ".claude/skills/example-kept-skill/SKILL.md"]}}
 
     @unittest.skipUnless(
-        _ccc._is_construction_repo(),
+        _ccc._in_home_repo(),
         "construction-only invariant: nothing is retired here yet, so _retired_absent() is empty. In a deployed "
         "repo the first-run retire step has legitimately removed those assets, so this would fail — the deployed "
         "shape is covered by test_deployed_shape_filters_the_real_retired_entries below.")

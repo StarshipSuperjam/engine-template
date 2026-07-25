@@ -62,7 +62,7 @@ def _project_to_deployed(dest: str) -> None:
 
 
 class TestDeployedSelfTests(unittest.TestCase):
-    @unittest.skipUnless(_ccc._is_construction_repo(),
+    @unittest.skipUnless(_ccc._in_home_repo(),
                          "the belt runs where a release is cut (the construction repo); it ships inert to a "
                          "deployed repo, whose own engine-ci runs the suite directly")
     @unittest.skipIf(os.environ.get(_NESTED_ENV),

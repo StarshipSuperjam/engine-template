@@ -84,8 +84,8 @@ def _home_repo_runs_the_guards_without_a_marker() -> bool:
     with tempfile.TemporaryDirectory() as d:
         root = _fixture(d, origin=f"https://github.com/{HOME}.git", claude=_DEPLOYED_FLOOR)
         with _rooted_at(root):
-            leak_sees_home = leak._is_construction_repo()
-            census_sees_home = census._is_construction_repo()
+            leak_sees_home = leak._in_home_repo()
+            census_sees_home = census._in_home_repo()
             findings = census.check(root)
     bit = [f["location"]["file"] for f in findings]
     orphan_bitten = ".engine/tools/demo_orphan_stand_in.py" in bit
@@ -98,8 +98,8 @@ def _downstream_copy_no_ops_even_with_a_marker() -> bool:
     with tempfile.TemporaryDirectory() as d:
         root = _fixture(d, origin="https://github.com/adopter/their-product.git", claude=_MARKER)
         with _rooted_at(root):
-            leak_sees_home = leak._is_construction_repo()
-            census_sees_home = census._is_construction_repo()
+            leak_sees_home = leak._in_home_repo()
+            census_sees_home = census._in_home_repo()
             findings = census.check(root)
     print(f"   downstream copy, marker PRESENT in CLAUDE.md: leak guard sees home? {leak_sees_home}; "
           f"census guard sees home? {census_sees_home}; census findings? {len(findings)}")

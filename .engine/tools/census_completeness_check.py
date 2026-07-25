@@ -48,12 +48,12 @@ _TOOLS_REL = os.path.join(".engine", "tools")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 
 
-def _is_construction_repo() -> bool:
+def _in_home_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Reads the REAL root
     (validate.ROOT) via the shared `repo_identity.is_home_repo` seam, NOT overridable — a backdoor past this gate
     would let the check fire in a deployed repo where the demos are gone. Mirrors
-    memory_pointer_public_safety_check._is_construction_repo so the two home-scoped checks agree on what "the
+    memory_pointer_public_safety_check._in_home_repo so the two home-scoped checks agree on what "the
     home repo" is (both now delegate to the one seam, which is stronger than the old identical-marker binding).
     Kept as a named predicate because this check's tests monkeypatch it to drive the gate."""
     return repo_identity.is_home_repo(validate.ROOT)
@@ -165,7 +165,7 @@ def check(root: str | None = None) -> list:
     the home repo — the demos are already retired in a deployed copy. WITHIN the home repo it fails CLOSED: an
     unreadable/malformed census yields one hard finding, never a silent pass. Separated from main() so a test can
     drive it against a seeded fixture root."""
-    if not _is_construction_repo():
+    if not _in_home_repo():
         return []
     root = root or validate.ROOT
     census = _census(root)

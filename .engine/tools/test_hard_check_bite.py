@@ -19,6 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import repo_identity  # noqa: E402  (the shared origin==home seam the harness gates on)
 import hard_check_bite_check as hcb  # noqa: E402
 
 ROOT = validate.ROOT
@@ -27,8 +28,8 @@ CHECK_DIR = os.path.join(ROOT, ".engine", "check")
 RULE_PATH = os.path.join(ROOT, ".engine", "check", "hard-check-bite.json")
 CLOSED_KINDS = sorted(k for k in validate.REGISTRY if k != "custom/script")
 
-# #323: _is_construction_root now reads the shared origin==home seam, so a fixture root is PLACED by its git
-# origin + recorded home (not a CLAUDE.md marker). HOME_URL -> the home repo; ADOPTER_URL -> a downstream copy.
+# The harness reads the shared origin==home seam, so a fixture root is PLACED by its git origin + recorded
+# home. HOME_URL -> the engine's own home repo; ADOPTER_URL -> a downstream copy.
 HOME_SLUG = "StarshipSuperjam/engine-template"
 HOME_URL = f"https://github.com/{HOME_SLUG}.git"
 ADOPTER_URL = "https://github.com/adopter/their-product.git"
@@ -246,7 +247,7 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                     # Construction-scoped (#512): required to bite here in the construction repo; in a
                     # deployed repo the ambient-verified carve-out yields the loud NOT APPLICABLE HERE note.
                     found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
-                    if hcb._is_construction_root(ROOT):
+                    if repo_identity.is_home_repo(ROOT):
                         self.assertEqual(found, [], f"{stem}: did not bite in the construction repo")
                     else:
                         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
@@ -256,7 +257,7 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                     # Construction-scoped (#512) AND it reads its fixture via `git show HEAD:`, so in the
                     # construction repo it bites only once the fixture is committed at HEAD; in a deployed
                     # repo the ambient-verified carve-out yields the loud NOT APPLICABLE HERE note.
-                    if not hcb._is_construction_root(ROOT):
+                    if not repo_identity.is_home_repo(ROOT):
                         found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
                         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
                         self.assertTrue(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found),
@@ -306,7 +307,7 @@ class TestS5GoLive(unittest.TestCase):
         # longer the construction body) the two construction-scoped checks (#512) add their ambient-derived
         # NOT APPLICABLE HERE notes on top.
         na_notes = [f for f in findings if "NOT APPLICABLE" in (f.get("message") or "")]
-        expected_na = 4 if hcb._is_construction_root(ROOT) else 6
+        expected_na = 4 if repo_identity.is_home_repo(ROOT) else 6
         self.assertEqual(len(na_notes), expected_na,
                          f"expected {expected_na} disclosed N/A notes to be surfaced, got: {na_notes}")
 
@@ -579,7 +580,7 @@ class TestDeclarationCensus(unittest.TestCase):
     visible, reviewable test edit instead of a quiet file drop."""
 
     @unittest.skipUnless(
-        hcb._is_construction_root(ROOT),
+        repo_identity.is_home_repo(ROOT),
         "construction-repo drift canary: it pins the SOURCE's exact declaration set so a newly-authored declaration "
         "is a visible test edit. It is scoped to the construction checkout because a deployed repo does not author "
         "these declarations, and a deployed repo's fixture surface can differ from the source's (installed modules, "
