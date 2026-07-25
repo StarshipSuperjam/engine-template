@@ -66,6 +66,11 @@ COMPLETENESS_NOTE = ("Reconstructed from the stored conversation. Long messages 
                      "rejoined here in the order they were written; if a piece was permanently erased, the "
                      "rejoined wording would be missing it without saying so.")
 
+# Said whenever the byte budget bit. Without it a shortened turn reads as the whole message — the same class
+# of defect as splicing two messages together: wording presented as complete when it is not.
+SHORTENED_NOTE = ("This window hit its size limit, so at least one message is cut short here — ask for a "
+                  "narrower window (an anchor, or fewer turns) to see any of it in full.")
+
 
 # ---- the leak guard ------------------------------------------------------------------------------------
 
@@ -131,26 +136,35 @@ def _join_chunks(turns: list) -> list:
     reported, never used as a completeness proof (an erased middle piece is indistinguishable from a shorter
     message)."""
     joined: list = []
+    last_chunk: list = []          # the previous record's raw text, per joined turn (never returned)
     budget = MAX_TEXT_BYTES
+    dropped = False
     for record in turns:
         seq = _seq_of(record)
         speaker = record.get("speaker") if isinstance(record.get("speaker"), str) else "unknown"
-        text = record.get("text") if isinstance(record.get("text"), str) else ""
+        raw = record.get("text") if isinstance(record.get("text"), str) else ""
         if budget <= 0:
+            dropped = True
             break
-        text, budget = text[:budget], budget - len(text)
+        text = raw[:budget]
+        budget -= len(text)
+        dropped = dropped or len(text) < len(raw)
         previous = joined[-1] if joined else None
         # Merge ONLY a genuine continuation chunk: the same message means the SAME present ordinal and the
         # same speaker. A record with no usable ordinal never merges (its identity is unknown, and guessing
-        # fabricates an utterance), and an exact text repeat is a re-capture of the same message — capture
-        # re-reads a session from the start when its cursor is missing or corrupt — not a second chunk.
+        # fabricates an utterance), and a record repeating the PREVIOUS RECORD's text exactly is a re-capture
+        # of that message — capture re-reads a session from the start when its cursor is missing or corrupt —
+        # not a second chunk. Compared against the previous CHUNK, never the accumulated text, so a genuine
+        # chunk that merely ends the same way as what came before is still joined.
         if (previous is not None and seq is not None and previous["seq"] == seq
-                and previous["speaker"] == speaker and text and not previous["text"].endswith(text)):
+                and previous["speaker"] == speaker and text and last_chunk[-1] != raw):
             previous["text"] += text
             previous["chunks"] += 1
+            last_chunk[-1] = raw
             continue
         joined.append({"seq": seq, "speaker": speaker, "text": text, "chunks": 1})
-    return joined
+        last_chunk.append(raw)
+    return joined, dropped
 
 
 def resolve_sessions(session_id: str, *, path: "str | None" = None) -> list:
@@ -204,8 +218,11 @@ def window(session_id: str, *, anchor_seq: "int | None" = None, radius: int = DE
     the completeness caveat when turns come back, and why it is empty when they do not."""
     sessions = resolve_sessions(session_id, path=path)
     turns: list = []
+    shortened = False
     for real in sessions:
-        for turn in _join_chunks(session_turns(real, path=path)):
+        joined, dropped = _join_chunks(session_turns(real, path=path))
+        shortened = shortened or dropped
+        for turn in joined:
             turn["session_id"] = real
             turns.append(turn)
     total = len(turns)
@@ -224,7 +241,8 @@ def window(session_id: str, *, anchor_seq: "int | None" = None, radius: int = DE
         "total": total,
         "returned": len(selected),
         "truncated": len(selected) < total,
-        "note": COMPLETENESS_NOTE if selected else _empty_note(session_id, sessions),
+        "note": ((COMPLETENESS_NOTE + (" " + SHORTENED_NOTE if shortened else ""))
+                 if selected else _empty_note(session_id, sessions)),
     }
 
 

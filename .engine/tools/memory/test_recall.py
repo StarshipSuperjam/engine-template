@@ -161,6 +161,25 @@ class LegacyToleranceTests(_CabinetBase):
         turns = recall.window("s1", path=self.cabinet)["turns"]
         self.assertEqual([t["text"] for t in turns], ["part-one part-two"])
 
+    def test_a_chunk_that_merely_ends_like_the_last_one_still_rejoins(self):
+        # The duplicate guard must compare the PREVIOUS CHUNK, not the accumulated text: comparing against
+        # everything so far would refuse a genuine continuation whose text happens to be a suffix of it, and
+        # silently split one message into two.
+        self._write(_rec("s1", 0, "user", "hello world"), _rec("s1", 0, "user", "world"))
+        turns = recall.window("s1", path=self.cabinet)["turns"]
+        self.assertEqual([t["text"] for t in turns], ["hello worldworld"])
+
+    def test_a_shortened_window_says_it_was_shortened(self):
+        # A turn cut off by the size budget must not read as the whole message — that is the fabrication
+        # defect in another form: wording presented as complete when it is not.
+        self._write(*[_rec("s1", 0, "user", "x" * 4000) for _ in range(200)])
+        note = recall.window("s1", path=self.cabinet)["note"]
+        self.assertIn("size limit", note)
+
+    def test_an_untruncated_window_makes_no_such_claim(self):
+        self._write(_rec("s1", 0, "user", "short and complete"))
+        self.assertNotIn("size limit", recall.window("s1", path=self.cabinet)["note"])
+
     def test_a_window_is_bounded_in_bytes_not_only_in_turns(self):
         # Capping turns alone bounds nothing: chunking is lossless and unbounded, so one pasted document can
         # be thousands of chunks and megabytes inside a SINGLE turn.
