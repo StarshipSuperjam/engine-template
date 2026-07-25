@@ -299,10 +299,17 @@ def verify_seal():
 # --- The query-expansion measurement (the read-time workflow's first step, scored) ----------------------
 # The recall workflow's load-bearing move is REPHRASING: memory's search is a keyword floor, so a question
 # worded unlike the original conversation matches nothing. The workflow has a model do that rephrasing at read
-# time, which no fixed harness can score. What CAN be scored is a deliberately DUMB mechanical stand-in — a
-# committed general synonym map plus a short-phrase rule — run through the SAME frozen scorer and the SAME
-# producer slot as the old path. It is a LOWER BOUND, not the workflow: a model rephrasing in context should do
-# at least this well. Reported beside the sealed baseline so the gain is attributable to expansion alone.
+# time, which no fixed harness can score. What CAN be scored is a mechanical stand-in — a committed synonym map
+# plus a short-phrase rule — run through the SAME frozen scorer and the SAME producer slot as the old path, so
+# the difference is attributable to query strategy alone.
+#
+# WHAT THIS NUMBER IS NOT: it is not a lower bound. The map was authored from the QUESTION SET, and that set
+# pairs each reworded question with an original-vocabulary twin which itself restates the planted record — so
+# "the expander never reads the corpus" is true and still does NOT make the map blind to the corpus wording
+# (every recovered question was won by a synonym pair visible in its own twin). A genuinely blind expander
+# would likely score lower. Nor is it an upper bound: a model rephrasing with real understanding should beat a
+# synonym table. Treat it as evidence of DIRECTION — searching several wordings recovers what one wording
+# misses, at no cost to the nothing-relevant control.
 
 EXPANSIONS_PATH = os.path.join(_FIXTURES, "expansions.json")
 _EXPANSION_LIMIT = 10        # per-phrase cap — the operation doc's rule (search is unbounded by default)
@@ -449,9 +456,14 @@ def cmd_expanded():
     print("Memory recall benchmark (G2) — does rephrasing the question help?\n")
     print(_line("one query (old path)", old))
     print(_line("several rephrasings", new))
-    print("\n  The rephrasing here is a deliberately DUMB mechanical stand-in (a committed general synonym map)")
-    print("  standing in for a step the real workflow gives to the session's model. Read it as a FLOOR: it is")
-    print("  what expansion alone is worth with no understanding at all, not what the workflow achieves.")
+    print("\n  The rephrasing here is a mechanical stand-in (a committed synonym map) for a step the real")
+    print("  workflow gives to the session's model. Read this number as EVIDENCE OF DIRECTION, not as a bound")
+    print("  in either direction. It is not a floor: the map was written against a question set that pairs")
+    print("  each reworded question with its original-vocabulary twin, so its synonyms are close to the very")
+    print("  words the planted records use — a genuinely blind expander would likely do worse. Nor is it a")
+    print("  ceiling: a model rephrasing with real understanding should do better. What it does show is that")
+    print("  searching several wordings recovers questions one wording misses, at no cost to the questions")
+    print("  that should correctly find nothing.")
     if new["nothing_relevant"]["correct"] < old["nothing_relevant"]["correct"]:
         print("\n  ! Searching more ways cost accuracy on questions that SHOULD find nothing — a real regression.")
         return 1

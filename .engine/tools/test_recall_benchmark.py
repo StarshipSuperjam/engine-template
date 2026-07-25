@@ -252,9 +252,12 @@ class QueryExpansionTests(unittest.TestCase):
         for forbidden in ("load_corpus", "CORPUS_PATH", "load_questions", "expected_"):
             self.assertNotIn(forbidden, src, "expansion must never read the corpus or the labels")
 
-    def test_the_map_is_general_not_a_per_question_answer_table(self):
-        # A map keyed by question id (or holding whole phrases) would be reverse-engineered answers wearing a
-        # synonym map's clothes. Keys must be single ordinary words.
+    def test_the_map_holds_single_words_not_question_ids_or_phrases(self):
+        # A CRUDE answer table — keyed by question id, or holding whole planted phrases — would be caught
+        # here. This is deliberately NOT a test that the map is "general": a map derived from the question
+        # set's original-vocabulary twins passes it, and that is in fact how this map was authored. Generality
+        # is judged by a human reading the committed map, which is why it is committed; the printed report
+        # states the resulting limit on the number rather than pretending this test carries it.
         for key, alts in self.synonyms.items():
             self.assertNotIn(" ", key, "a synonym key must be a single word, not a phrase")
             self.assertFalse(key.startswith("q"), "a synonym key must not be a question id")

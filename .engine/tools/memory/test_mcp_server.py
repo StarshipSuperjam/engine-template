@@ -113,13 +113,17 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # (issue #332): the recall answer itself discloses that the raw verbatim behind the curated
-        # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
+        # (issue #332): the recall answer itself discloses that these are summaries and that the verbatim
+        # conversation behind them is kept. Now that a reader for it exists, the note must NAME that reader —
+        # a disclosure that the wording is "recoverable" without saying how leaves the reader stuck.
+        # Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
         self.assertTrue(data["results"])
         self.assertIn("recall_completeness", data)
-        self.assertIn("recoverable", data["recall_completeness"].lower())
+        note = data["recall_completeness"].lower()
+        self.assertIn("summaries", note)
+        self.assertIn("recall-window", note, "the note must name the reader that gets the exact wording")
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose

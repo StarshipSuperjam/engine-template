@@ -76,8 +76,9 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
 # assistant relays it to the operator (the operator-communication law) and can offer the verbatim. The wording is
 # a build-spec leaf.
 _RECALL_COMPLETENESS_NOTE = (
-    "These are curated summaries. The original word-for-word notes behind them are still kept and recoverable — "
-    "offer to pull the exact wording if the operator wants it."
+    "These are curated summaries. The original word-for-word conversation behind them is kept and readable with "
+    "`recall-window` — read it before relying on wording, and tell the operator when an answer rests on the "
+    "summary rather than on what was actually said."
 )
 
 
@@ -89,7 +90,8 @@ _RECALL_COMPLETENESS_NOTE = (
         "weaker one). Optional `roles` narrows to record kinds (decision, rationale/pushback, lesson, dead-end, "
         "preference, intent, observation); optional `tags` narrows to records carrying any given tag (entity refs "
         "like 'eADR-0007' or free topic tags — compose the link to knowledge yourself by tag-filtering an entity "
-        "id); optional `limit` caps results. Returns narrative recall only, never structural fact (knowledge's "
+        "id); optional `limit` caps results — SET IT (10 is a sensible default), because omitting it returns "
+        "every match and floods your context on a large store. Returns narrative recall only, never structural fact (knowledge's "
         "job). Each result carries the substrate's own fields (role, narrative, tags, provenance, score). Using a "
         "memory reinforces it, so what you rely on stays easy to recall."
     ),
@@ -109,9 +111,10 @@ def search(query: str, roles: list[str] | None = None,
         "Read back the actual conversation of one past session — the exact user and assistant turns, in the "
         "order they happened. This is the companion to `search`: search names a relevant session, then read "
         "that session here rather than relying on a summary of it. `session_id` is the session to read (take "
-        "it from a search result's `session_id`; for a cross-session gist that field is a cluster key like "
-        "'tag:…', so follow the gist's `source_ids` to real sessions first). Optional `anchor_seq` centres the "
-        "window on one message and `radius` sets how many turns either side; `max_turns` caps the result. "
+        "it from a search result's `session_id` — a cluster key like 'tag:…' works too, it is resolved for "
+        "you). Optional `anchor_seq` centres the window on one message, with `radius` turns either side; a "
+        "ranked result carries no position, so anchor on a FOLLOW-UP read once a first window has shown which "
+        "ordinals exist. `max_turns` caps the result (clamped to this server's own ceiling). "
         "Fetches, never ranks — ordering is the conversation's own. Reads only; it changes nothing. Long "
         "messages were stored in pieces and are rejoined here, and machine-inserted text (continuation "
         "summaries, notifications) is left out so it is never mistaken for what the operator said."

@@ -11,7 +11,8 @@ IT FETCHES, IT DOES NOT RANK. There is exactly one ranking contract for memory (
 second ranked path would fork it. The workflow above the seam ranks: it searches for candidate sessions, then
 calls here to READ each one. Ordering here is the conversation's own order, never a relevance judgement.
 
-THE LAWS (load-bearing, each pinned by a test):
+THE LAWS (load-bearing, each pinned by a test — except the leak guard, whose honest tier is stated at its
+own definition: it is belt-and-braces over explicit path threading, not the protection itself):
   - READ-ONLY. Never writes, never reinforces, never mutates the ledger. A window changes nothing.
   - GENUINE TURNS ONLY. Harness-injected pseudo-turns (a `/compact` continuation summary, a
     `task-notification` block) are skipped — presenting machine scaffolding as the operator's own words is a
@@ -24,7 +25,11 @@ THE LAWS (load-bearing, each pinned by a test):
     never claims verbatim completeness it cannot verify: it reports what it found and says the wording is
     reconstructed from stored chunks. Honest degradation (eADR-0034), not a false guarantee.
   - TOLERATE THE LEGACY STORE. Real ledgers hold turn-deltas predating parts of the envelope (no `id`, no
-    `session_id`, no `seq`). A malformed record is skipped, never a crash.
+    `session_id`, no `seq`). Reading one never crashes: a record with no `session_id` is unreachable (nothing
+    names its session), and a record missing `seq`/`speaker` is still returned, under their defaults. Note the
+    honest consequence of that tolerance — several seq-less records from one speaker in one session share the
+    default ordinal and therefore rejoin as ONE turn. No record in a real store is in that shape, and the
+    alternative (dropping them) would lose conversation outright, so tolerance is the deliberate trade.
 
 WHY IT DOES NOT IMPORT `consolidate.read_deltas`: that reader is the consolidation sweep's, and consolidation
 is retired by the curation-removal slice — importing it would strand this reader on a dying module. The
@@ -44,7 +49,10 @@ from memory import ledger, records  # noqa: E402
 
 # ---- tuning leaves (recorded build-spec leaves) ---------------------------------------------------------
 DEFAULT_RADIUS = 6          # turns either side of an anchor when one is given ("around the hit")
-DEFAULT_MAX_TURNS = 40      # hard cap on one window, so a huge session cannot flood a session's context
+DEFAULT_MAX_TURNS = 40      # default cap on one window, so a huge session cannot flood a session's context
+MAX_TURNS_CEILING = 200     # the real ceiling: a caller may raise the cap, but not to "the whole store". A
+                            # caller-supplied cap with no upper bound is not containment — and the one move
+                            # available when a window misses is to raise it, so the pressure is toward dumps.
 
 _TURN_DELTA_KIND = records.AMBIENT_CAPTURE_KIND
 
@@ -59,10 +67,14 @@ COMPLETENESS_NOTE = ("Reconstructed from the stored conversation. Long messages 
 # ---- the leak guard ------------------------------------------------------------------------------------
 
 def assert_not_live_store(*paths) -> None:
-    """Fail loud if a throwaway path would resolve to the real memory store. A read tool that misfires does
-    not corrupt — it EXFILTRATES: this module's whole job is printing verbatim conversation, and a demo's
-    stdout can be a CI log. Every worktree of one clone shares a single ledger (`_git_common_root`), so a
-    missing environment override silently resolves to the operator's real store."""
+    """Refuse a throwaway path that resolves to the real memory store. A read tool that misfires does not
+    corrupt — it EXFILTRATES: this module's whole job is printing verbatim conversation, and a demo's stdout
+    can be a CI log. Every worktree of one clone shares a single ledger (`_git_common_root`), so a missing
+    environment override silently resolves to the operator's real store.
+
+    HONEST TIER — belt-and-braces, not the protection. The real safeguard is that the demo threads an explicit
+    `path=` into every call, so it never consults the default at all; this guard would only catch a future
+    edit that stopped doing so. Called where the path is a fresh temp directory, it cannot fire today."""
     live = os.path.realpath(ledger.ledger_path())
     for p in paths:
         if os.path.realpath(p) == live:
@@ -118,33 +130,89 @@ def _join_chunks(turns: list) -> list:
     return joined
 
 
+def resolve_sessions(session_id: str, *, path: "str | None" = None) -> list:
+    """The REAL sessions a window id names. Normally that is the id itself — but a summary folded from several
+    sessions carries a cluster key (`tag:…` / `sim:…`) that is not a session at all, and its own provenance is
+    a list of RECORD ids, not session ids. Resolving it means following those record ids back to the episodes
+    they fold and reading the session off each.
+
+    Without this the caller is stranded: the two exposed operations take a query and a session id, so nothing
+    can look a record id up, and the raw episodes behind a completed roll-up are dropped from ranked recall —
+    a cluster-key window would silently return nothing on exactly the OLDEST memories, which is when a
+    transcript is most wanted. One ledger pass; unresolvable ids simply yield no session."""
+    if not records.is_cross_session_sentinel(session_id):
+        return [session_id] if session_id else []
+    src = ledger.ledger_path() if path is None else path
+    wanted: set = set()
+    by_id: dict = {}
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        rid = record.get(records.RECORD_ID_KEY)
+        if isinstance(rid, str) and rid:
+            by_id[rid] = record
+        if record.get("session_id") == session_id:
+            for source_id in (record.get(records.SOURCE_IDS_KEY) or []):
+                if isinstance(source_id, str) and source_id:
+                    wanted.add(source_id)
+    out: list = []
+    for source_id in sorted(wanted):
+        source = by_id.get(source_id)
+        real = source.get("session_id") if isinstance(source, dict) else None
+        if (isinstance(real, str) and real and real not in out
+                and not records.is_cross_session_sentinel(real)):
+            out.append(real)
+    return out
+
+
 def window(session_id: str, *, anchor_seq: "int | None" = None, radius: int = DEFAULT_RADIUS,
            max_turns: int = DEFAULT_MAX_TURNS, path: "str | None" = None) -> dict:
-    """One session's conversation as readable turns — the transcript window a recall workflow reads after a
-    search names a candidate session.
+    """A past conversation as readable turns — what a recall workflow reads after a search names a candidate.
 
-    `anchor_seq` centres the window on one message (the hit), taking `radius` turns either side; omitted, the
-    window starts at the beginning of the session. `max_turns` caps the result either way, so a very long
-    session cannot flood the caller's context. Returns
-    {session_id, turns, total, returned, truncated, note} — `note` is the completeness caveat, present
-    whenever any turn is returned."""
-    turns = _join_chunks(session_turns(session_id, path=path))
+    `session_id` is a session, or a cluster key for a summary folded from several sessions (resolved through
+    `resolve_sessions`, so the caller never has to chase record ids it has no tool to look up). `anchor_seq`
+    centres the window on one message (the hit) with `radius` turns either side; omitted, the window starts at
+    the beginning. `max_turns` caps the result — and when an anchor is given the cap is applied AROUND the
+    anchor, never truncated from the front, so widening the radius can never push the hit out of its own
+    window (silently returning a plausible window that lacks the very message asked about).
+
+    Returns {session_id, sessions, turns, total, returned, truncated, note}; `note` always says something —
+    the completeness caveat when turns come back, and why it is empty when they do not."""
+    sessions = resolve_sessions(session_id, path=path)
+    turns: list = []
+    for real in sessions:
+        for turn in _join_chunks(session_turns(real, path=path)):
+            turn["session_id"] = real
+            turns.append(turn)
     total = len(turns)
-    if anchor_seq is not None:
-        centre = next((i for i, t in enumerate(turns) if t["seq"] >= anchor_seq), total)
-        lo = max(0, centre - max(0, radius))
-        selected = turns[lo:lo + max(0, radius) * 2 + 1]
+    cap = min(max(0, max_turns), MAX_TURNS_CEILING)
+    if anchor_seq is not None and turns:
+        centre = next((i for i, t in enumerate(turns) if t["seq"] >= anchor_seq), total - 1)
+        half = min(max(0, radius), cap // 2 if cap else 0)
+        lo = max(0, centre - half)
+        selected = turns[lo:lo + (half * 2 + 1)][:cap]
     else:
-        selected = turns
-    selected = selected[:max(0, max_turns)]
+        selected = turns[:cap]
     return {
         "session_id": session_id,
+        "sessions": sessions,
         "turns": selected,
         "total": total,
         "returned": len(selected),
         "truncated": len(selected) < total,
-        "note": COMPLETENESS_NOTE if selected else "",
+        "note": COMPLETENESS_NOTE if selected else _empty_note(session_id, sessions),
     }
+
+
+def _empty_note(session_id: str, sessions: list) -> str:
+    """Why an empty window is empty — so a caller can tell 'wrong id' from 'nothing readable there' instead of
+    reading silence as 'memory does not hold it'."""
+    if records.is_cross_session_sentinel(session_id) and not sessions:
+        return ("That id is a cluster key for a summary folded from several sessions, and the sessions behind "
+                "it could not be resolved — answer from the summary itself and say the original conversation "
+                "is not reachable.")
+    return ("No stored conversation for that session. Either the id is not one this project captured, or the "
+            "session held nothing but machine-inserted text.")
 
 
 def render(result: dict) -> str:
@@ -197,6 +265,15 @@ def _demo() -> int:
         result = window("s-demo", path=cabinet)
         print(render(result))
         print()
+        print("  (the last message was stored as two separate pieces, 'BIG-ONE ' and 'BIG-TWO' — above, it is")
+        print("   rejoined into the one message it was. A machine-inserted line was also stored in this")
+        print("   practice conversation; it is deliberately absent above, so it can never be read back as")
+        print("   something you said.)")
+        print()
+        empty = window("s-nothing", path=cabinet)
+        print("  Asked for a session that doesn't exist, it explains itself rather than going silent:")
+        print(f"    {empty['note']}")
+        print()
 
         print("PART 2 — the checks that can fail:")
         texts = [t["text"] for t in result["turns"]]
@@ -218,10 +295,22 @@ def _demo() -> int:
         print(f"  another session's words never leak in ............. {'PASS' if isolated else 'FAIL'}")
         ok = ok and isolated
 
-        empty = window("s-nothing", path=cabinet)
-        quiet = empty["turns"] == [] and empty["note"] == ""
-        print(f"  an unknown session returns nothing, quietly ....... {'PASS' if quiet else 'FAIL'}")
-        ok = ok and quiet
+        explained = empty["turns"] == [] and "No stored conversation" in empty["note"]
+        print(f"  an unknown session says WHY it found nothing ...... {'PASS' if explained else 'FAIL'}")
+        ok = ok and explained
+
+        # A summary folded from several sessions carries a cluster key, not a session. Reading it must
+        # resolve to the real conversation, or the oldest memories are unreachable exactly when wanted.
+        ledger.append({"v": 1, "kind": "gist", records.RECORD_ID_KEY: "g-demo", "session_id": "tag:exports",
+                       "text": "a summary folded from earlier sessions",
+                       records.SOURCE_IDS_KEY: ["ep-demo"]}, path=cabinet)
+        ledger.append({"v": 1, "kind": "episodic", records.RECORD_ID_KEY: "ep-demo",
+                       "session_id": "s-demo", "text": "the episode it folded"}, path=cabinet)
+        folded = window("tag:exports", path=cabinet)
+        resolved = folded["sessions"] == ["s-demo"] and any("nightly export" in t["text"]
+                                                            for t in folded["turns"])
+        print(f"  a folded summary resolves to its real session ..... {'PASS' if resolved else 'FAIL'}")
+        ok = ok and resolved
 
     print()
     print("Reading a conversation back changes nothing — this only reads." if ok else "The reader is WRONG.")

@@ -75,11 +75,14 @@ class WindowFidelityTests(_CabinetBase):
         texts = [t["text"] for t in recall.window("s1", path=self.cabinet)["turns"]]
         self.assertEqual(texts, ["mine"])
 
-    def test_unknown_session_is_quietly_empty(self):
+    def test_unknown_session_explains_why_it_is_empty(self):
+        # An empty window must never read as bare silence: a caller has to be able to tell "wrong id" from
+        # "this session holds nothing readable", instead of concluding memory does not hold the answer.
         self._write(_rec("s1", 0, "user", "mine"))
         result = recall.window("nope", path=self.cabinet)
         self.assertEqual(result["turns"], [])
-        self.assertEqual(result["note"], "", "no completeness note when there is nothing to caveat")
+        self.assertIn("No stored conversation", result["note"])
+        self.assertNotIn("Reconstructed", result["note"], "no completeness caveat when nothing was returned")
 
     def test_blank_session_id_returns_nothing(self):
         self._write(_rec("s1", 0, "user", "mine"))
@@ -139,6 +142,21 @@ class WindowingTests(_CabinetBase):
         turns = recall.window("s1", anchor_seq=0, radius=3, path=self.cabinet)["turns"]
         self.assertEqual(turns[0]["text"], "turn-0", "a window at the start must not wrap or crash")
 
+    def test_widening_the_radius_never_pushes_the_anchor_out_of_its_own_window(self):
+        # The failure this guards: the cap used to truncate FORWARD from the window's start, so a radius at or
+        # above max_turns returned a plausible window that did not contain the hit it was centred on — and a
+        # model following "widen if the answer isn't there" would conclude memory lacked the answer.
+        self._many(500)
+        for radius in (6, 20, 60, 100, 400):
+            turns = recall.window("s1", anchor_seq=300, radius=radius, path=self.cabinet)["turns"]
+            seqs = [t["seq"] for t in turns]
+            self.assertIn(300, seqs, f"the anchor fell out of its own window at radius={radius}")
+
+    def test_anchor_past_the_end_does_not_crash(self):
+        self._many(10)
+        turns = recall.window("s1", anchor_seq=9999, radius=3, path=self.cabinet)["turns"]
+        self.assertTrue(turns, "an anchor beyond the last turn should still return the tail, not nothing")
+
     def test_max_turns_caps_a_long_session_and_says_so(self):
         self._many(60)
         result = recall.window("s1", max_turns=5, path=self.cabinet)
@@ -146,11 +164,53 @@ class WindowingTests(_CabinetBase):
         self.assertEqual(result["total"], 60)
         self.assertTrue(result["truncated"], "a truncated window must report that it was truncated")
 
+    def test_a_caller_cannot_raise_the_cap_without_limit(self):
+        # Containment must be the implementation's, not the caller's: when a window misses, the one move
+        # available is to raise the cap, so an unbounded cap turns a miss into a whole-session dump.
+        self._many(400)
+        result = recall.window("s1", max_turns=100_000, path=self.cabinet)
+        self.assertEqual(result["returned"], recall.MAX_TURNS_CEILING)
+        self.assertTrue(result["truncated"])
+
     def test_completeness_note_rides_a_non_empty_window(self):
         # The honest-degradation claim: chunk completeness is NOT provable, so the window says so rather
         # than implying verbatim fidelity it cannot verify.
         self._many(2)
         self.assertIn("permanently erased", recall.window("s1", path=self.cabinet)["note"])
+
+
+class ClusterKeyResolutionTests(_CabinetBase):
+    """A summary folded from several sessions carries a CLUSTER KEY, not a session, and its provenance is a
+    list of RECORD ids. Neither exposed operation can look a record id up, and the episodes behind a completed
+    roll-up are dropped from ranked recall — so without resolution here, a window on the OLDEST memories (the
+    ones most likely to be folded) returns silence at exactly the moment a transcript is wanted."""
+
+    def _folded(self):
+        self._write(_rec("s-real", 0, "user", "the original conversation"),
+                    {"v": 1, "kind": "episodic", records.RECORD_ID_KEY: "ep1", "session_id": "s-real",
+                     "text": "an episode"},
+                    {"v": 1, "kind": "gist", records.RECORD_ID_KEY: "g1", "session_id": "tag:topic",
+                     "text": "a folded summary", records.SOURCE_IDS_KEY: ["ep1"]})
+
+    def test_a_cluster_key_resolves_to_its_real_sessions(self):
+        self._folded()
+        self.assertEqual(recall.resolve_sessions("tag:topic", path=self.cabinet), ["s-real"])
+
+    def test_a_window_on_a_cluster_key_returns_the_real_conversation(self):
+        self._folded()
+        result = recall.window("tag:topic", path=self.cabinet)
+        self.assertEqual(result["sessions"], ["s-real"])
+        self.assertEqual([t["text"] for t in result["turns"]], ["the original conversation"])
+
+    def test_an_ordinary_session_id_resolves_to_itself(self):
+        self.assertEqual(recall.resolve_sessions("s-real", path=self.cabinet), ["s-real"])
+
+    def test_an_unresolvable_cluster_key_says_so_instead_of_going_silent(self):
+        self._write(_rec("s-real", 0, "user", "hello"))
+        result = recall.window("sim:orphan", path=self.cabinet)
+        self.assertEqual(result["turns"], [])
+        self.assertIn("cluster key", result["note"],
+                      "an unresolvable cluster key must explain itself, not read as 'memory has nothing'")
 
 
 class ReadOnlyTests(_CabinetBase):

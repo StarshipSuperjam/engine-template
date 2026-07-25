@@ -66,7 +66,9 @@ def is_injected_record(record) -> bool:
     """True iff `record` is a harness-injected pseudo-turn the consolidation sweep should skip as fuel: tagged
     `INJECTED_TAG` at capture (the durable path — covers every chunk), OR — back-compat for records captured
     before tagging existed — its text begins with an injected marker. The record stays physically resident and
-    recoverable in the ledger and is already recall-excluded by kind; this only keeps it out of consolidation."""
+    recoverable in the ledger and is already recall-excluded by kind. Two readers share this predicate: the
+    consolidation sweep skips such a record as fuel, and the transcript-window reader leaves it out of a
+    window so machine scaffolding is never presented as something the operator said."""
     if not isinstance(record, dict):
         return False
     tags = record.get("tags")

@@ -66,7 +66,7 @@
             "minLength": 1
           },
           "anchor_seq": {
-            "description": "Centre the window on the message with this ordinal (a search hit's position in the conversation). Omit to read from the start of the session.",
+            "description": "Centre the window on the message with this ordinal. Note what a caller can actually supply: ranked results are summaries and carry no position within a conversation, so this is normally omitted on a first read and used on a follow-up, once an earlier window has shown which ordinals exist. Omit to read from the start.",
             "type": "integer"
           },
           "radius": {
@@ -75,7 +75,7 @@
             "minimum": 0
           },
           "max_turns": {
-            "description": "The maximum number of turns to return, so a long session cannot flood the caller. Omit for the implementation's default.",
+            "description": "How many turns to return at most, so a long session cannot flood the caller. A request above the implementation's own ceiling is clamped to it rather than honoured — the bound is the implementation's, not the caller's. Omit for the default.",
             "type": "integer",
             "minimum": 1
           }
@@ -87,8 +87,13 @@
         "required": ["session_id", "turns"],
         "properties": {
           "session_id": {
-            "description": "The session that was read.",
+            "description": "The session that was asked for, echoed back as given.",
             "type": "string"
+          },
+          "sessions": {
+            "description": "The real sessions actually read. Normally the one asked for; when the request named a cluster key for a summary folded from several sessions, the implementation resolves it and this names what it resolved to. Empty when nothing could be resolved.",
+            "type": "array",
+            "items": { "type": "string" }
           },
           "turns": {
             "description": "The conversation turns in the order they happened, best-effort rejoined where the implementation stored one long message in pieces. Each turn is an object whose exact shape is the memory substrate's own (who spoke, the wording, its ordinal), not frozen by this contract. Empty when the session holds no readable conversation.",
@@ -108,7 +113,7 @@
             "type": "boolean"
           },
           "note": {
-            "description": "An optional plain-language completeness caveat, present only when turns are returned: the wording is reconstructed from what remains stored, and an implementation cannot in general prove no part of a long message was permanently erased. Whether the note is present is not frozen by this contract.",
+            "description": "A plain-language note about this answer. When turns are returned it is the completeness caveat: the wording is reconstructed from what remains stored, and an implementation cannot in general prove no part of a long message was permanently erased. When no turns are returned it says WHY, so a caller can tell an unresolvable id from a session holding nothing readable, rather than reading silence as 'memory does not hold it'. Its exact wording is not frozen by this contract.",
             "type": "string"
           }
         }

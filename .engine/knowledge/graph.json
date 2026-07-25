@@ -606,7 +606,7 @@
       },
       "slug": "codex-skill-coherence",
       "source": {
-        "fingerprint": "sha256:0a6024905a16a23622f82ab4801305820a23b96fb85adbe2dcb134c63f3c7e38",
+        "fingerprint": "sha256:0be8621ded8d2b5ffa579c589407693f7482d795c497da4125bf47bd6394324e",
         "path": ".engine/check/codex-skill-coherence.json"
       },
       "status": "active",
@@ -2750,7 +2750,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:78f45a58568441db9e898988cab29fb4571b32cd5c432ab63324fa2ce84328c1",
+        "fingerprint": "sha256:a6726ccda4152e20b1b0d255b5da7d6767a10b5efbbfeb6bf7447022acd266f2",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -3843,7 +3843,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:cee75fb4b50a45a0c1a2f6e676add3d38ddeb6fbdc1e76f3f23279bf6298b534",
+        "fingerprint": "sha256:be70abd4f40991c18776c3f37101517c177cac43e3fa148657d733c54931ef2f",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4376,7 +4376,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:4ebeecf72e688780d157e6c56df540155d17f851939d5a14811a1ee16ada02a3",
+        "fingerprint": "sha256:9c9978e4173bf2ecbd9567e86d3fe8e737359ed646e04c08a15dccd11940160a",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -5453,7 +5453,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:be08dabdae3db1db33bc59f1a5bfb0ec69fb716f5ff0a52c67b5560aca0fd4c9",
+        "fingerprint": "sha256:406d7815c67131fd091356e839c3daac298cba6a5eb4ab16d2de6a95c9d6e773",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -5773,7 +5773,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:3e65dbc6e0ad9a17d1e2fb0f217088febd081c3906549b2b22840769c955e319",
+        "fingerprint": "sha256:daaca3a4ec1d5a3d80cd5ee2360c37a1a0928e26d829d7ad3ffdf722287827d3",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -6028,7 +6028,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:071e5063d2294a7db0a908bb6c67360174f6d54c7fda46188cc3adf8a25c46f8",
+        "fingerprint": "sha256:275572468d4e29b29b2b3a77c4a350212aef546f5fcff8e7621d5c84cab66015",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -7558,7 +7558,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:1e611b8911dbda6c69ee0f9f93f59cc963d883d74bfa946908ed715ee8a4a69d",
+        "fingerprint": "sha256:dd70b48dc52ea59ce672bb1dad531049ce959820910478f96b3df71340ddf7ca",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7983,7 +7983,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:6daec600167c81a54b885eedf14f5f4929a15aad5b0803dcddf2ab46b21766f7",
+        "fingerprint": "sha256:867e80065b14fb990a93d42705c67b3f174c27cfb3d23f0ee8e2c5030e5ed86d",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8000,7 +8000,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:dbfad5e574cceff02e66fbf0d7d5e51ed7241b48587d3560607b934d8eeefc5c",
+        "fingerprint": "sha256:3739feeba35f5551d6aa4bcdeb3c26faf660763f6c83b697a08da0f57c84335d",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -8017,7 +8017,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:820c61d6922d96a07bc476a3599e4d0fc581915d6d7bc9e8b28362b9739120c9",
+        "fingerprint": "sha256:cfaaadf64bbdcefa5a2ff718c439fa5f291a6df93cf36236d459a284b103da8c",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8833,7 +8833,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:db1d2ce1a72fbc687265f5ca2b677cd44d0fe59af58b53910240b2c8c494f9f1",
+        "fingerprint": "sha256:09fdca5503bbba28d3a413708faa4d1c3af48141bd6ff82123c0daa3ea4749aa",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -9088,7 +9088,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:9ed7766492386580c0a81177e2a6257ecacd18fa97098f3eb4b0a993d347085f",
+        "fingerprint": "sha256:be6adef0831b21e6edfdc4a00c27ced92fa864005c1ea3f2efb4e2b0d2354275",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -9615,7 +9615,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:c3d08bbd9aedb5a552e1409173698ea6c45928cbaadb1cdb1c84a83de3cf3d13",
+        "fingerprint": "sha256:ab8d245c8648addd3018ba3eb022b3e22196095a458bd2d05861f0a56422c851",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -9989,7 +9989,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:ea49c672b6b5660c7d496b204faaf819c805eacc50df64f2f504711be4dd6a16",
+        "fingerprint": "sha256:fbd68dd931f4306fd67be5e5f8e7c580f8370c967b81c7dd09ee62e1c5676d98",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",
@@ -10006,7 +10006,7 @@
       },
       "slug": "test_recall_benchmark",
       "source": {
-        "fingerprint": "sha256:ec2045b79c709df851aba9c1d5bd4ab3d11e452f6601ac6da5ef7bf04d501556",
+        "fingerprint": "sha256:c018b8e747be882e1c934f7ab05d02b2bb17faf2831f27690d6a8b19cdc8fb97",
         "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",

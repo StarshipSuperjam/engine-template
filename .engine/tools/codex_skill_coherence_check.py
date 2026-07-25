@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Codex-skill invocation guard — the custom/script entry for engine/check/codex-skill-coherence.
 
-The Codex twin of the skill self-election guard: every ENGINE Codex skill (an engine-prefixed
-directory under `.agents/skills/`) is operator-typed, and on Codex the operator-only property is not
+The Codex twin of the skill self-election guard. Most ENGINE Codex skills (engine-prefixed directories
+under `.agents/skills/`) are operator-typed, and on Codex the operator-only property is not
 a frontmatter flag but the companion policy file — `agents/openai.yaml` carrying
 `policy.allow_implicit_invocation: false` (the model must never start the command on its own; the
-operator's explicit $-invocation still works). This check goes red when an engine Codex skill ships
+operator's explicit $-invocation still works). The bar is each skill's OWN Claude source: a command
+deliberately declared model-reachable (recall) is allowed a reachable twin, since pinning every skill
+to operator-only would ship such a capability on one runtime and silently disable it on the other.
+This check goes red when an engine Codex skill ships
 without that companion, or with the policy absent or not false — so the self-election protection
 cannot be dropped on one runtime while the other stays green (eADR-0034). Operator-authored,
 un-prefixed product skills in the same directory are not engine-governed.

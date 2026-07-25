@@ -23,13 +23,18 @@ results. Skipping the rephrasing is what makes recall fail.
    artifact, read that instead, and use memory only to find *which* artifact to read.
 2. **Turn the question into several short search phrases.** Write three to six, and make them differ from each
    other — this is the step that does the real work:
-   - Use the words the conversation itself would have used, not the words of the question you were just asked.
+   - Keep one phrase using the question's own key terms — when the wording happens to match, that is the
+     cheapest hit there is — and make the others the words the conversation itself would have used.
    - Include at least one phrase using different vocabulary for the same idea (a synonym set), because the
      original wording may share no words with the question.
    - Include project anchors where they apply — a file or subsystem name, an issue or decision-record id, a
      person, a feature name.
    - **Keep each phrase to roughly two to four words.** Search requires *every* word in a phrase to appear in
      the same record, so a long natural-language sentence reliably matches nothing.
+
+   Worked example — "Why did we pick NDJSON over a database?" becomes: `ndjson database` (the question's own
+   terms), then `append only`, `newline delimited`, `line delimited`, `ledger format`, `git native`. Six
+   phrases at the limit in step 3 pools at most sixty records, which is why the limit is not optional.
 3. **Search each phrase separately** with the memory search tool (`mcp__engine-memory__search`), and **set a
    limit on each call** (10 is a reasonable default) — the tool returns *every* match when no limit is given,
    which on a large store floods the session. Narrow with the optional role filter when the question has a
@@ -41,9 +46,14 @@ results. Skipping the rephrasing is what makes recall fail.
 5. **Read the conversation behind the promising hits.** A search result is a summary written after the fact.
    For the few that look like they answer the question, read the real conversation with the window tool
    (`mcp__engine-memory__recall-window`), passing the hit's `session_id`. Anchor on the hit's position and widen
-   only if the answer is not there. If a hit's session field is a cluster key rather than a real session (a
-   summary folded from several sessions), follow that record's source references to real sessions first, then
-   read those.
+   only if the answer is not there. A first read starts at the beginning — a search result is a summary and
+   carries no position in the conversation, so there is nothing to anchor on yet; once that window shows you
+   the ordinals, anchor a follow-up read on the relevant one with a radius of 6, or 20 for more context. The
+   window keeps the anchor centred, so widening never pushes it out of view. Pass the hit's `session_id` even when it is a cluster
+   key for a summary folded from several sessions: the window resolves that to the real sessions itself. When
+   it cannot, it says so in its note — answer from the summary and say plainly that the original conversation
+   is not reachable. An empty window always explains itself; read its note rather than treating silence as
+   "memory does not hold it".
 6. **Judge by meaning and answer.** Rank what you found by whether it actually answers the question, not by
    the order search returned it — that ordering is keyword relevance, which is exactly what you are correcting
    for. Say plainly where the answer came from and how confident it is. If nothing genuinely answers, say that;
@@ -59,6 +69,10 @@ plainly that memory does not hold it. Every promising hit was read in its real c
 as a summary, and where exact wording mattered it was offered. Nothing was written: recall only reads.
 
 ## Notes
+
+**Tool names here are Claude's.** On another runtime the same two capabilities are reached by that runtime's
+own names — check the tools available to you for the engine's memory pair (a ranked `search` and a
+`recall-window`) and use those; the procedure is unchanged.
 
 **Why the rephrasing is not optional.** Memory's search is a keyword floor by deliberate design — the process
 that answers it holds no language model, so it cannot understand that two differently-worded questions mean the
