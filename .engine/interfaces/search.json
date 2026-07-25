@@ -51,6 +51,68 @@
           }
         }
       }
+    },
+    {
+      "name": "recall-window",
+      "description": "Read back the actual conversation of one past session — the exact user and assistant turns, in the order they happened. The companion to `search`: search ranks and names a relevant session, this reads that session's own record rather than a summary of it, so exact wording is recoverable. It fetches and never ranks — ordering is the conversation's own, so this adds no second ranking to the contract. An optional anchor centres the window on one message with a radius either side, and a cap bounds how many turns come back. Read-only: reading a conversation changes nothing.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id"],
+        "properties": {
+          "session_id": {
+            "description": "The session to read, as carried on a search result. A cross-session gist's session field is a cluster key (an implementation-specific sentinel) rather than a real session, so a caller resolves it to real sessions through that record's own source references first.",
+            "type": "string",
+            "minLength": 1
+          },
+          "anchor_seq": {
+            "description": "Centre the window on the message with this ordinal (a search hit's position in the conversation). Omit to read from the start of the session.",
+            "type": "integer"
+          },
+          "radius": {
+            "description": "How many turns to include either side of the anchor. Ignored when no anchor is given. Omit for the implementation's default.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_turns": {
+            "description": "The maximum number of turns to return, so a long session cannot flood the caller. Omit for the implementation's default.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "turns"],
+        "properties": {
+          "session_id": {
+            "description": "The session that was read.",
+            "type": "string"
+          },
+          "turns": {
+            "description": "The conversation turns in the order they happened, best-effort rejoined where the implementation stored one long message in pieces. Each turn is an object whose exact shape is the memory substrate's own (who spoke, the wording, its ordinal), not frozen by this contract. Empty when the session holds no readable conversation.",
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "total": {
+            "description": "How many turns the session holds in all, so a caller can tell a capped window from a complete one.",
+            "type": "integer"
+          },
+          "returned": {
+            "description": "How many turns this answer carries.",
+            "type": "integer"
+          },
+          "truncated": {
+            "description": "True when the window was capped and the session holds more than was returned.",
+            "type": "boolean"
+          },
+          "note": {
+            "description": "An optional plain-language completeness caveat, present only when turns are returned: the wording is reconstructed from what remains stored, and an implementation cannot in general prove no part of a long message was permanently erased. Whether the note is present is not frozen by this contract.",
+            "type": "string"
+          }
+        }
+      }
     }
   ],
   "fallback": {

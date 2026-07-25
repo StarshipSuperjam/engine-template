@@ -65,9 +65,32 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ToolWiringTests(_ServerBase):
-    async def test_tools_list_is_exactly_search(self):
+    async def test_tools_list_is_exactly_the_declared_operations(self):
+        # The server answers search.json's operation set and nothing else — an undeclared tool would be a
+        # private detail a richer swap-in could silently drop, breaking any caller that relied on it.
         names = {t.name for t in await srv.server.list_tools()}
-        self.assertEqual(names, {"search"})
+        self.assertEqual(names, {"search", "recall-window"})
+
+    async def test_recall_window_reads_a_sessions_conversation_back(self):
+        # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so
+        # this is the only way the exact wording comes back.
+        for seq, (speaker, text) in enumerate([("user", "shall we cache the roster"),
+                                               ("assistant", "yes, with a short expiry")]):
+            ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                           "session_id": "s-live", "ts": self.now, "seq": seq, "speaker": speaker,
+                           "text": text, "tags": ["transcript", "stop"]})
+        out = self._result_json(await srv.server.call_tool("recall-window", {"session_id": "s-live"}))
+        self.assertEqual([t["text"] for t in out["turns"]],
+                         ["shall we cache the roster", "yes, with a short expiry"])
+
+    async def test_recall_window_writes_nothing(self):
+        # Reading a conversation must not reinforce or otherwise mutate the store.
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                       "session_id": "s-live", "ts": self.now, "seq": 0, "speaker": "user",
+                       "text": "a stored turn", "tags": ["transcript", "stop"]})
+        before = _marker_count()
+        await srv.server.call_tool("recall-window", {"session_id": "s-live"})
+        self.assertEqual(_marker_count(), before, "reading a window must append no reinforcement marker")
 
     async def test_search_returns_ranked_results_matching_the_library(self):
         self.add("export format export schedule decided", role="decision")

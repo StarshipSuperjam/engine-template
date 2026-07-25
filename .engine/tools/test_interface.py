@@ -116,12 +116,23 @@ class TestDeclaration(unittest.TestCase):
             self.assertIn(decl["status"], STATUS_ENUM, os.path.basename(path))
 
     def test_search_op_set_and_signature(self):
-        """11b: the search contract is ONE read-recall op pinning the query + role/tag/limit boundary."""
-        self.assertEqual({op["name"] for op in SEARCH["operations"]}, {"search"})
-        op = SEARCH["operations"][0]
+        """11b: the recall contract is TWO read-only ops — the ranked search (query + role/tag/limit) and the
+        transcript window that reads one named session back. The window is a FETCH, so it adds no second
+        ranking; declaring it here is what keeps a core-owned recall workflow from depending on a private
+        detail of one implementation's server (a richer swap-in must answer both)."""
+        self.assertEqual({op["name"] for op in SEARCH["operations"]}, {"search", "recall-window"})
+        op = next(o for o in SEARCH["operations"] if o["name"] == "search")
         self.assertEqual(op["input_schema"]["required"], ["query"])
         self.assertEqual(set(op["input_schema"]["properties"]), {"query", "roles", "tags", "limit"})
         self.assertEqual(op["output_schema"]["required"], ["results"])
+
+    def test_recall_window_op_signature(self):
+        """11b: the window op pins the session boundary — one named session in, its own turns out."""
+        op = next(o for o in SEARCH["operations"] if o["name"] == "recall-window")
+        self.assertEqual(op["input_schema"]["required"], ["session_id"])
+        self.assertEqual(set(op["input_schema"]["properties"]),
+                         {"session_id", "anchor_seq", "radius", "max_turns"})
+        self.assertEqual(op["output_schema"]["required"], ["session_id", "turns"])
 
     def test_search_fallback_is_engine_memory(self):
         """11b: the frozen cross-slice handle the memory-substrate slice must register its server under."""
