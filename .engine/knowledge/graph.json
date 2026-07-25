@@ -4049,7 +4049,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:bf5e0ebc44149f586672d8f32819b0e0e58f7696244c95211436e4def08a7e9d",
+        "fingerprint": "sha256:4fa79e292522501f06ea7fbeead518a74f30eccbca5319370ac8b6c35658805b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5719,7 +5719,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1a17ee48c03015c40b528e4f9bf5d2ea5942484e97feb32406beb66cbccaf137",
+        "fingerprint": "sha256:fb447e4b4e1a95f2ad1bb1bee8c971f0527c2ddae45e4ae74309a3b8c3b55537",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5838,7 +5838,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:0c6bc36d3341f3166cd97fb90e35a3f64cee067d4779961a8c8ed08936f0dc1c",
+        "fingerprint": "sha256:8ee5723deae0fd6a3488a59be4c75fd97469444e7cbe303d042a0a0fbed7eb93",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -6542,6 +6542,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_mechanic_orientation",
+      "name": ".engine/tools/demo_mechanic_orientation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_mechanic_orientation",
+      "source": {
+        "fingerprint": "sha256:4b204efd1f98649ec7ae4f97f85c2a8f56b96ecb6efdedcbb35dea226e53f307",
+        "path": ".engine/tools/demo_mechanic_orientation.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_memory_degradation_backup",
       "name": ".engine/tools/demo_memory_degradation_backup.py",
       "owner": "core",
@@ -7164,7 +7181,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:af9e111584e97763b93056ef4b38d5ea3212849c206f624512d23d6fdb66cd7f",
+        "fingerprint": "sha256:5e01221441f4f6a5f12b8a553b80d701e6b64c247edaccc5b806a967656f9dc5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8235,7 +8252,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:72121304ff591f6d56c3e02834bfecb9da1c236a9760ba849449dda4d2870709",
+        "fingerprint": "sha256:ff776d19b2c85a160fc18c20088dee706cb26a8bd5bb856631f32725da9bb818",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -8541,7 +8558,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:43fc912720eba91ed50bbe82aff5a34e6343ea5b0c136b3573ea4500cc573706",
+        "fingerprint": "sha256:463b9bd704b1f7ef09cfbc60b0df6e220da8a8cd7322a331bd1341b6368b4ac0",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8660,7 +8677,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:31e84d47d4f3d65187b020c8624608aad46b769fe98ce83b821143b305cf8f11",
+        "fingerprint": "sha256:66f3044809f340f3c2e6e9363831b84104b4a43936b75f6ba98385754e439286",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -10326,7 +10343,7 @@
       },
       "slug": "test_spec_referent",
       "source": {
-        "fingerprint": "sha256:dcb58527727d279602e453063af1bc6260f704bcbdc1eb1dec7094fbdbcdf29e",
+        "fingerprint": "sha256:c41d80686f4c3c151ea7e365add30852e196dd61f0bd32dfa0e99a554065d272",
         "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",
