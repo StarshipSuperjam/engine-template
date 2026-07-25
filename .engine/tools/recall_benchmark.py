@@ -296,37 +296,46 @@ def verify_seal():
 
 # --- Runners -------------------------------------------------------------------------------------------
 
-# --- The query-expansion measurement (the read-time workflow's first step, scored) ----------------------
-# The recall workflow's load-bearing move is REPHRASING: memory's search is a keyword floor, so a question
-# worded unlike the original conversation matches nothing. The workflow has a model do that rephrasing at read
-# time, which no fixed harness can score. What CAN be scored is a mechanical stand-in — a committed synonym map
-# plus a short-phrase rule — run through the SAME frozen scorer and the SAME producer slot as the old path, so
-# the difference is attributable to query strategy alone.
+# --- The query-decomposition measurement (the read-time workflow's first step, scored) ------------------
+# The recall workflow's load-bearing move is REPHRASING: memory's search is a strict implicit-AND keyword
+# floor, so a whole natural-language question matches nothing and a question worded unlike the original
+# conversation matches nothing either. The workflow gives that rephrasing to the session's model, which no
+# fixed harness can score. What CAN be scored is the mechanical FLOOR of it: split the question into short
+# search phrases and search each, then pool. No vocabulary knowledge of any kind — no synonyms, no thesaurus,
+# no authored artifact — run through the SAME frozen scorer and the SAME producer slot as the old path, so the
+# difference is attributable to query strategy alone.
 #
-# WHAT THIS NUMBER IS NOT: it is not a lower bound. The map was authored from the QUESTION SET, and that set
-# pairs each reworded question with an original-vocabulary twin which itself restates the planted record — so
-# "the expander never reads the corpus" is true and still does NOT make the map blind to the corpus wording
-# (every recovered question was won by a synonym pair visible in its own twin). A genuinely blind expander
-# would likely score lower. Nor is it an upper bound: a model rephrasing with real understanding should beat a
-# synonym table. Treat it as evidence of DIRECTION — searching several wordings recovers what one wording
-# misses, at no cost to the nothing-relevant control.
+# WHY NO SYNONYM MAP. An earlier version of this measurement carried a committed synonym map. A control run —
+# the identical producer with the map emptied — scored BETTER without it (8/22 against 3/22), because synonym
+# variants crowded out the later phrases under the fan-out cap; and raised to an unbounded fan-out the same map
+# recovered 22/22 of deliberately zero-overlap rewordings, which no general English map could do. Both facts
+# said the map was fitted to this corpus rather than general, so it was deleted rather than defended. What
+# remains needs no fairness argument: decomposition cannot be tuned toward answers it has no vocabulary for.
+#
+# WHAT THIS NUMBER IS. A genuine floor for the rephrasing step — the value of merely splitting the question,
+# with zero understanding. A model rephrasing in context has vocabulary this does not and should beat it.
 
-EXPANSIONS_PATH = os.path.join(_FIXTURES, "expansions.json")
 _EXPANSION_LIMIT = 10        # per-phrase cap — the operation doc's rule (search is unbounded by default)
 _MAX_PHRASES = 8             # bound the fan-out so the stand-in stays a search strategy, not a store dump
 
+# Ordinary English function words. Generic by construction — no project or corpus vocabulary appears here, so
+# there is nothing in this list that could aim the measurement at a planted answer.
+STOPWORDS = frozenset("""
+a about after against all an and any are as at be been before being between both but by can did do does
+doing done down during each few for from further had has have having he her here hers him his how i if in
+into is it its itself just me more most my no nor not now of off on once only or other our ours out over own
+same she should so some such than that the their theirs them then there these they this those through to too
+under until up very was we were what when where which while who whom why will with you your yours
+""".split())
 
-def load_expansions(path=EXPANSIONS_PATH):
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
-    return set(data.get("_stopwords") or []), (data.get("synonyms") or {})
 
-
-def expand_query(question_text, stopwords, synonyms):
-    """A question -> a handful of SHORT search phrases. Mechanical and question-only: drop stopwords, pair
-    adjacent content words (search is strict implicit-AND, so a long sentence matches nothing), then add
-    synonym-substituted variants of each pair. Deterministic and order-stable, so the measurement reproduces."""
-    words = [w for w in re.findall(r"[a-z0-9]+", (question_text or "").lower()) if w and w not in stopwords]
+def expand_query(question_text, stopwords=None):
+    """A question -> a handful of SHORT search phrases. Purely mechanical and question-only: drop stopwords,
+    then pair adjacent content words (search demands every word of a phrase in one record, so a whole sentence
+    matches nothing), then single-word anchors as the broadest fallback. Deterministic and order-stable, so
+    the measurement reproduces exactly."""
+    stop = STOPWORDS if stopwords is None else stopwords
+    words = [w for w in re.findall(r"[a-z0-9]+", (question_text or "").lower()) if w and w not in stop]
     phrases, seen = [], set()
 
     def _add(parts):
@@ -337,25 +346,18 @@ def expand_query(question_text, stopwords, synonyms):
 
     for a, b in zip(words, words[1:]):          # adjacent content-word pairs, in question order
         _add([a, b])
-    for a, b in zip(words, words[1:]):          # the same pairs with either side swapped for a synonym
-        for alt in synonyms.get(a, []):
-            _add([alt, b])
-        for alt in synonyms.get(b, []):
-            _add([a, alt])
     for w in words:                             # single anchors last (broadest, so lowest priority)
         _add([w])
-        for alt in synonyms.get(w, []):
-            _add([alt])
     return phrases[:_MAX_PHRASES]
 
 
-def expanded_producer(ledger_file, index_file, stopwords, synonyms):
-    """The expansion stand-in in the injected-producer slot: search EACH phrase under a per-phrase limit, then
-    union the hits preserving first-seen order (the pooled set is what the workflow judges). Side-effect-free —
-    the same `index.search` the old path uses, forced onto the machine-independent scan."""
+def expanded_producer(ledger_file, index_file):
+    """The decomposition stand-in in the injected-producer slot: search EACH phrase under a per-phrase limit,
+    then union the hits preserving first-seen order (the pooled set is what the workflow judges).
+    Side-effect-free — the same `index.search` the old path uses, forced onto the machine-independent scan."""
     def _run(question_text):
         pooled, seen = [], set()
-        for phrase in expand_query(question_text, stopwords, synonyms):
+        for phrase in expand_query(question_text):
             for record in index.search(phrase, force_scan=True, limit=_EXPANSION_LIMIT,
                                        ledger_file=ledger_file, index_file=index_file).records:
                 rid = record.get(_ID)
@@ -368,14 +370,13 @@ def expanded_producer(ledger_file, index_file, stopwords, synonyms):
 
 
 def run_expanded():
-    """The expansion stand-in over the same committed corpus, scored by the same frozen scorer."""
+    """The decomposition stand-in over the same committed corpus, scored by the same frozen scorer."""
     now = int(time.time())
     corpus = load_corpus()
     questions = load_questions()
-    stopwords, synonyms = load_expansions()
     with tempfile.TemporaryDirectory(prefix="recall-benchmark-exp-") as cabinet:
         lpath, ipath = materialize(corpus, cabinet, now)
-        rows = evaluate(corpus, questions, expanded_producer(lpath, ipath, stopwords, synonyms))
+        rows = evaluate(corpus, questions, expanded_producer(lpath, ipath))
     return summarize(rows), rows
 
 
@@ -453,17 +454,25 @@ def cmd_expanded():
                    s["hard_classes"]["hits"], s["hard_classes"]["n"],
                    s["nothing_relevant"]["correct"], s["nothing_relevant"]["n"]))
 
-    print("Memory recall benchmark (G2) — does rephrasing the question help?\n")
-    print(_line("one query (old path)", old))
-    print(_line("several rephrasings", new))
-    print("\n  The rephrasing here is a mechanical stand-in (a committed synonym map) for a step the real")
-    print("  workflow gives to the session's model. Read this number as EVIDENCE OF DIRECTION, not as a bound")
-    print("  in either direction. It is not a floor: the map was written against a question set that pairs")
-    print("  each reworded question with its original-vocabulary twin, so its synonyms are close to the very")
-    print("  words the planted records use — a genuinely blind expander would likely do worse. Nor is it a")
-    print("  ceiling: a model rephrasing with real understanding should do better. What it does show is that")
-    print("  searching several wordings recovers questions one wording misses, at no cost to the questions")
-    print("  that should correctly find nothing.")
+    para_new, para_n = new["by_vocab"]["paraphrased"]
+    para_old = old["by_vocab"]["paraphrased"][0]
+
+    print("Memory recall benchmark (G2) — does splitting the question into short searches help?\n")
+    print(_line("one whole-question query", old))
+    print(_line("split into short phrases", new))
+    print("\n  Every number above is 'how often the right source landed in the top 5'.")
+    print("  The headline: of %d questions deliberately reworded to share NO words with what was actually"
+          % para_n)
+    print("  said, one whole-question search found %d. Splitting the same question into short phrases and"
+          % para_old)
+    print("  searching each finds %d — and the questions that should correctly find NOTHING are unchanged,"
+          % para_new)
+    print("  so the gain is retrieval rather than a wider net catching noise.")
+    print("\n  This is a genuine FLOOR for the rephrasing step: it is pure mechanism — splitting on word")
+    print("  boundaries, with no synonyms, no thesaurus and no vocabulary of any kind, so nothing about it")
+    print("  can be aimed at the planted answers. The real workflow gives this step to the session's model,")
+    print("  which understands the question and should do better. What it does NOT measure is whether the")
+    print("  results are judged well once found — that is the human-judged half, at the removal gate.")
     if new["nothing_relevant"]["correct"] < old["nothing_relevant"]["correct"]:
         print("\n  ! Searching more ways cost accuracy on questions that SHOULD find nothing — a real regression.")
         return 1

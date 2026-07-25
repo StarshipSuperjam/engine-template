@@ -36,7 +36,7 @@ is retired by the curation-removal slice — importing it would strand this read
 genuine-turn predicate is re-stated here deliberately, not by oversight.
 
 CLI:  python tools/memory/recall.py demo               # falsifiable walkthrough on a THROWAWAY cabinet
-      python tools/memory/recall.py window <session>   # read one session's conversation (local, read-only)
+
 """
 from __future__ import annotations
 
@@ -355,21 +355,28 @@ def _demo() -> int:
         ok = ok and resolved
 
     print()
-    print("Reading a conversation back changes nothing — this only reads." if ok else "The reader is WRONG.")
+    if ok:
+        print("Reading a conversation back changes nothing — this only reads.")
+        print()
+        print("What this changes for you: until now I could only see short summaries I had written about past")
+        print("sessions. I can now read the real conversation back, word for word, and I do it on my own")
+        print("initiative while answering — you are not asked first. What I read is exactly what was typed,")
+        print("including anything pasted into a session; most of what is stored was saved before the engine")
+        print("began stripping secrets on the way in, and nothing is stripped on the way out.")
+    else:
+        print("The reader is WRONG.")
     return 0 if ok else 1
 
 
 def main(argv: list) -> int:
+    # `demo` only, deliberately. An earlier draft carried a `window <session-id>` verb that printed verbatim
+    # conversation from the LIVE store to stdout — a surface nothing asked for, on the one path where a stray
+    # invocation (or a CI log) leaks the operator's own words. Reading real memory goes through the MCP
+    # operation, in a session the operator is present for.
     cmd = argv[0] if argv else "demo"
     if cmd == "demo":
         return _demo()
-    if cmd == "window":
-        if len(argv) < 2:
-            print("usage: recall.py window <session-id>")
-            return 2
-        print(render(window(argv[1])))
-        return 0
-    print("usage: recall.py [demo|window <session-id>]")
+    print("usage: recall.py demo")
     return 2
 
 

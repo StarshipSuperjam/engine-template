@@ -6029,7 +6029,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:065092ad9cca868dc0fcc64805c4525d7289191d317f5ccf813187d8c8a9b90c",
+        "fingerprint": "sha256:a9ef2f51a307ee8a3e31fb60d02c3f2c78b5cd9ffe787c55fa2e07a897b12102",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:666cc1af56313eda3b844b9b8204888f168f5def964b5c3e166ff8b771df18a4",
+        "fingerprint": "sha256:f430089ef59392427d3868d33c110b9bf6cdddd0bd16790960fd8dcc5993e988",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8001,7 +8001,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:3739feeba35f5551d6aa4bcdeb3c26faf660763f6c83b697a08da0f57c84335d",
+        "fingerprint": "sha256:d46ba3ff3838ef2e85b7f4e4e85bed73dda4eacaea712935ee0ad7afd8b31c4a",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -10007,7 +10007,7 @@
       },
       "slug": "test_recall_benchmark",
       "source": {
-        "fingerprint": "sha256:c018b8e747be882e1c934f7ab05d02b2bb17faf2831f27690d6a8b19cdc8fb97",
+        "fingerprint": "sha256:5535b5f3eed2ae67d59cd696e6f425de0262e847a440d451955aa923bebe5c37",
         "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
