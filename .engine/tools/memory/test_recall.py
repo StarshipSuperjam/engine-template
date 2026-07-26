@@ -329,12 +329,14 @@ class SessionCardTests(_CabinetBase):
         self.assertEqual([c["session_id"] for c in cards], ["newer", "older"])
 
     def test_a_card_carries_the_operators_first_and_last_request(self):
-        self._session("s1", base_ts=100, turns=[("user", "how do I start"), ("assistant", "like this"),
-                                                ("user", "and then"), ("assistant", "then you are done")])
+        self._session("s1", base_ts=100, turns=[("user", "how do I start the exporter rework"),
+                                                ("assistant", "like this"),
+                                                ("user", "now make the retry path idempotent too"),
+                                                ("assistant", "then you are done")])
         card = recall.session_cards(path=self.cabinet)[0]
-        self.assertEqual(card["first_ask"], "how do I start")   # what the session was for
-        self.assertEqual(card["last_ask"], "and then")          # what was in flight when it stopped
-        self.assertEqual(card["count"], 4)                      # every genuine turn, both speakers
+        self.assertEqual(card["first_ask"], "how do I start the exporter rework")     # what it was for
+        self.assertEqual(card["last_ask"], "now make the retry path idempotent too")  # what was in flight
+        self.assertEqual(card["count"], 4)                      # every genuine message, both speakers
         self.assertEqual((card["started"], card["ended"]), (100, 103))
 
     def test_only_the_operators_own_turns_are_ever_quoted(self):
@@ -367,10 +369,68 @@ class SessionCardTests(_CabinetBase):
                          "the opening of a long message")
 
     def test_a_long_turn_is_cut_at_a_word_boundary_and_says_so(self):
-        self._session("s1", base_ts=100, turns=[("user", "word " * 200), ("assistant", "ok")])
+        # Uneven word lengths, so a naive slice would land mid-word and this can actually tell the difference.
+        long_ask = "rebuild the nightly exporter so that reprocessing an already-delivered batch is harmless " * 4
+        self._session("s1", base_ts=100, turns=[("user", long_ask), ("assistant", "ok")])
         ask = recall.session_cards(path=self.cabinet)[0]["first_ask"]
         self.assertLessEqual(len(ask), recall.CARD_TEXT_CHARS + 1)   # +1 for the ellipsis
         self.assertTrue(ask.endswith("…"), "a cut excerpt must show that there is more")
+        # The load-bearing property the name claims: the cut lands on a word boundary, so the excerpt never
+        # ends in a fragment of a word. A plain slice at CARD_TEXT_CHARS would.
+        self.assertTrue(long_ask.startswith(ask[:-1]), "the excerpt must be a genuine prefix")
+        self.assertTrue(long_ask[len(ask) - 1] == " " or ask[-2] == " ",
+                        "the cut must fall at a word boundary, not mid-word")
+
+    def test_an_engine_inserted_block_inside_an_operator_turn_is_marked_not_quoted(self):
+        # A harness block fused into a real prompt cannot be dropped record-wise without losing the operator's
+        # own words, so it is MARKED wherever the text is shown. A card is such a place.
+        fused = "<system-reminder>internal engine note</system-reminder> what I actually want is the exporter fix"
+        self._session("s1", base_ts=100, turns=[("user", fused), ("assistant", "ok")])
+        ask = recall.session_cards(path=self.cabinet)[0]["first_ask"]
+        self.assertNotIn("internal engine note", ask, "engine-inserted text is never quoted as speech")
+        self.assertIn(records.HARNESS_SPAN_MARKER, ask, "and its removal is visible, not silent")
+        self.assertIn("what I actually want", ask, "the operator's own words in the same turn survive")
+
+    def test_harness_scaffolding_is_never_quoted_as_something_the_operator_asked(self):
+        # The harness delivers slash-command preambles, skill headers, plugin adverts and attachment manifests
+        # through the PROMPT channel, so they arrive attributed to the operator. Measured on the real store when
+        # this was found: 22 excerpts were engine scaffolding shown as the operator's words.
+        for scaffold in ("<skill> <name>engine-status</name> <path>/x/SKILL.md</path>",
+                         "<recommended_plugins> Here is a list of plugins available but not installed",
+                         "Base directory for this skill: /Users/x/.claude/skills/engine-parts",
+                         "# Files mentioned by the user: ## screenshot.png",
+                         "[$engine-status](/Users/x/.agents/skills/engine-status/SKILL.md)"):
+            with self.subTest(scaffold=scaffold[:30]):
+                self._write(_rec("s1", 0, "user", scaffold, ts=100),
+                            _rec("s1", 1, "user", "the thing I actually asked about the exporter", ts=101))
+                card = recall.session_cards(path=self.cabinet)[0]
+                self.assertEqual(card["first_ask"], "the thing I actually asked about the exporter")
+                os.remove(self.cabinet)   # fresh cabinet per sub-case
+
+    def test_a_bare_continuation_does_not_take_the_closing_line(self):
+        # "Go" / "Continue" is really what was said and identifies nothing. Measured: 32 of 87 real sessions
+        # closed with something under 40 characters. The block is shed-first; a row must earn its place.
+        self._session("s1", base_ts=100, turns=[("user", "rework the exporter so it is idempotent"),
+                                                ("assistant", "done"), ("user", "Continue.")])
+        card = recall.session_cards(path=self.cabinet)[0]
+        self.assertEqual(card["last_ask"], "", "a content-free continuation is not a handle")
+
+    def test_the_count_is_messages_not_stored_records(self):
+        # Capture splits a >4KB message into several records sharing one seq. Counting records overstates.
+        self._write(_rec("s1", 0, "user", "a long message, part one ", ts=100),
+                    _rec("s1", 0, "user", "part two ", ts=100),
+                    _rec("s1", 0, "user", "part three", ts=100),
+                    _rec("s1", 1, "assistant", "one reply", ts=101))
+        self.assertEqual(recall.session_cards(path=self.cabinet)[0]["count"], 2,
+                         "three chunks of one message plus one reply is TWO messages")
+
+    def test_the_current_session_is_excluded(self):
+        # Capture writes to the live session from its first turn, so on a resume "where we left off" would
+        # otherwise lead with the conversation the reader is already in.
+        self._session("live", base_ts=9000, turns=[("user", "what I am asking right now"), ("assistant", "ok")])
+        self._session("past", base_ts=1000, turns=[("user", "what I asked last time"), ("assistant", "ok")])
+        ids = [c["session_id"] for c in recall.session_cards(exclude="live", path=self.cabinet)]
+        self.assertEqual(ids, ["past"])
 
     def test_the_limit_is_honoured(self):
         for i in range(6):

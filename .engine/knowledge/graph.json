@@ -5774,7 +5774,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:9b3d0c9f3b6317152b6a9501088f4440ba38979aa0cfcd4dd135936d84967afb",
+        "fingerprint": "sha256:23a268799b8dfef46624100c182b7ef1048e36d734d7e226f319bc6f40ed1f4a",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -5808,7 +5808,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c7f290ac6291355b1e4f9b91809f999f1b1949ffe8e7a03a7e6ad0a7061c8cf3",
+        "fingerprint": "sha256:b51c85186d825e32084c1a24d1b4d157c6660353c766a96ef754305acf9f1a23",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5893,7 +5893,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:e495ef6fe1bd9535161971e04fd3430478347aa47e521ce58e49969d6e4a96ea",
+        "fingerprint": "sha256:4c5d906a3ba3bc36f1152e11cccce8e6674e68321fef881e9a209b03fad04bb2",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -6046,7 +6046,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:2c3e2d2cf7a6fd1bba9cb404a4462b9f01412fe02a78cce771c796860bc3d2d3",
+        "fingerprint": "sha256:8157eca724197a1283e9e3b0714f409b949ddfff361b6ba770ee96d7e6073f3e",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -6114,7 +6114,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:61adebeae05ee4910034a48027fa727d100a62cae0322c5cbfd23018ac499c00",
+        "fingerprint": "sha256:ff019069762d3bd3deda9821e843aa4fb1878bb71566e04877a7b6db0a033b63",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -7066,7 +7066,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:de2c642d10d93784df711acebdbfa5c37a954f35050803fd5358acc2f6ca555f",
+        "fingerprint": "sha256:bb4e7d5529e6c8896b7c83821b8857a649deacfd232d3cfab3d2619038c2cfcc",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -7440,7 +7440,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:bf657cc7be1627b9b0444c226099aeb196a3aba0122083d4f52d6fddf382617e",
+        "fingerprint": "sha256:430f233cd482acc2bd0c11784c04ec899dd6b5c66a1cfa31321877c9238ff88e",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:d50cfcb58bfc418944051b56199ad4b6bd49999097da68c83a9206b014ae0c2e",
+        "fingerprint": "sha256:78d4a20d6ca08df9b59fa42b23d8acdf03b1b81b2ba21821c6bb61b8e20b625b",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8018,7 +8018,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:e568ad2388adfbf63d89f6fa268d0c79342782172f7762d0e585dd18a8955613",
+        "fingerprint": "sha256:506fb8f4b7f9e4543bb9973b11c7293dbda9d4b93b018a6299c48af213bfc433",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8239,7 +8239,7 @@
       },
       "slug": "score",
       "source": {
-        "fingerprint": "sha256:269fa0d9720101ca1cc3b3767d6a560ae36d2e749e548dd5a13ec63385c01e32",
+        "fingerprint": "sha256:a051fe831c5ce0c0d3eacac6da9ef0c4b3471d19f7e9119459205dc8a4d1658c",
         "path": ".engine/tools/memory/score.py"
       },
       "status": "active",
@@ -8664,7 +8664,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:18ff24110e9a44c08ddad75f8764ab887527b719284de313dfece429de09ff7f",
+        "fingerprint": "sha256:ea23e54b0640e694ef5d2d018a4c07750a4944220a665b988dcd7f1363614144",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8868,7 +8868,7 @@
       },
       "slug": "test_compact_trigger",
       "source": {
-        "fingerprint": "sha256:c0fb21063f69855adb0f54604ba4945492a76a06b507a994256b5bafbcc37f1a",
+        "fingerprint": "sha256:0bb8ec0d202bde2f329dbd381bcf2c8c10a0db6dad35a91999eb83ecacb70064",
         "path": ".engine/tools/memory/test_compact_trigger.py"
       },
       "status": "active",
@@ -9990,7 +9990,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:52e239abb13ac65fd8d543e0c3ed8e5679e121cf1075bee464b77afa2d469d02",
+        "fingerprint": "sha256:d4d80f561f7c33e766bb80b47932b47684fc08958fc303fc9024ccb275d321ff",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",

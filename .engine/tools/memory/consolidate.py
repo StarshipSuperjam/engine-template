@@ -482,14 +482,17 @@ def _pre_compact_handler(payload) -> dict:
     """PreCompact CANNOT reach the in-context AI (the shipped runtime: a hook never makes the model generate;
     PreCompact's only lever is blocking compaction), so AI consolidation stays on the SessionStart sweep. But
     DETERMINISTIC ledger compaction is exactly the cheap pre-compaction housekeeping this hook CAN do — it rides
-    the "tolerable moment, never the hot path" the design names for the expensive step and, IF
-    enough reclaimable waste has piled up, folds-and-prunes it. `maybe_compact` is fail-open (never
+    the "tolerable moment, never the hot path" the design names for the expensive step. It folds-and-prunes
+    when enough reclaimable waste has piled up, AND — regardless of waste — carries out any erasure the
+    operator has already merged, so an approved deletion never waits on unrelated housekeeping.
+    `maybe_compact` is fail-open (never
     raises); the compaction it rides folds Layer-1 bookkeeping AND physically removes any record an
     `operator-adjudicated-erasure` marker targets (Layer-2) — and the sole minter, `compact.enact_erasure`, is now
     fired only by the cross-session erasure observer, and only for a target the operator authorised by merging a
     single-purpose `engine-erasure` PR, so absent such a merge it still erases nothing. This handler ALWAYS proceeds — PreCompact must never block the squash."""
     from memory import compact   # lazy: keep compaction's import graph off the SessionStart load path
-    compact.maybe_compact()       # gated on reclaimable waste; report dropped (a leaf renders no prose); fail-open
+    compact.maybe_compact()       # waste gate OR a pending merged erasure; report dropped (a leaf renders no
+                                  # prose); fail-open
     return hooks.proceed()
 
 

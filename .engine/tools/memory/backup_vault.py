@@ -557,7 +557,7 @@ def _prune_snapshots(gh, owner: str, repo: str, namespace: str, keep_name: str) 
 
 def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> dict:
     """The migration-snapshot manifest: the rolling four-key manifest PLUS `migration-id` and a `kind` marker, so the
-    restore + the code-older-than-data detector (later work) reads the snapshot's identity from a STABLE format in
+    restore + the code-older-than-data detector (`restore_vault.surface_resurrection`) read the snapshot's identity from a STABLE format in
     the manifest, never by parsing the operator-deletable tag name. The rolling four-key manifest stays frozen."""
     m = build_manifest(ledger_path=ledger_path, now=now, engine_version=engine_version)
     m["migration-id"] = migration_id

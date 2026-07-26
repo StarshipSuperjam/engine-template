@@ -172,13 +172,10 @@ def _age_phrase(seconds: int) -> str:
 
 
 def _cost_for(record: dict, now: int) -> str:
-    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's kind + a coarse age
-    bucket (+ role, for a duplicate), never the note's `text`/`session_id`/`tags`. Dispatches by kind: a
-    consolidated session's raw turn-by-turn note reads differently from a crash-duplicate, and — the one consent
-    fact this class turns on — names that erasing gives up the verbatim original wording while the curated summary
-    stays (the disclosure floor held until this merge). Shared by `build_proposal` (the committed grammar) and
-    `_print_candidates` (the local list). (A third evidence class should turn this if/else into a {kind: builder}
-    table.)"""
+    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's role + a coarse age
+    bucket, never the note's `text`/`session_id`/`tags`. ONE evidence class reaches here (the crash-duplicate
+    orphan), so there is no dispatch: every line describes a summary a crashed save left behind, of which a good
+    copy survives. Shared by `build_proposal` (the committed grammar) and `_print_candidates` (the local list)."""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
     # ONE class reaches here now. The captured-conversation branch was removed with the class itself: nothing
@@ -401,10 +398,9 @@ def _pr_title(n: int) -> str:
 
 def _collapse(costs: list) -> list:
     """Collapse identical cost lines into "{k} notes — {line}" rows (ordered by first appearance), each with its
-    count stated explicitly (never a bare total). A bulk consolidated-raw batch — whose role-less line varies only
-    by the coarse age bucket — reads as a few per-vintage rows instead of thousands of near-identical lines; a
-    crash-duplicate batch (lines vary by role + age) stays one line per note (count 1), preserving the per-note
-    enumeration. Reads ONLY the content-free `costs` — no session id / record id / text — so the committed
+    count stated explicitly (never a bare total). Lines vary by role + age, so in practice a crash-duplicate batch
+    stays one line per note (count 1) and the per-note enumeration is preserved; the collapse is what keeps a
+    batch of near-identical lines legible if one ever arises." Reads ONLY the content-free `costs` — no session id / record id / text — so the committed
     `targets`/`costs` stay 1:1 and no grouping key ever leaks into the rendered body."""
     order: list = []
     counts: dict = {}
@@ -460,8 +456,8 @@ def _pr_body(proposal: dict) -> str:
 # --- the coherent-batch selector (issue #536: small homogeneous batches, a keeper blocks only its group) ----
 
 def _group_key(record: dict, now: int) -> tuple:
-    """A content-free homogeneity key for batching: the note's KIND (a consolidated-raw turn-delta vs a
-    crash-duplicate) plus its coarse vintage bucket (the SAME `_age_phrase` the cost line uses). Notes
+    """A content-free homogeneity key for batching: the note's kind (one class reaches here) plus its coarse
+    vintage bucket (the SAME `_age_phrase` the cost line uses), so grouping varies by vintage. Notes"
     that share a key form one coherent batch. Built only from kind + birth-age — never the note's
     text/session/tags — and never written to the committed proposal (mirrors `_collapse`: no grouping key
     leaks into the body)."""
@@ -724,8 +720,9 @@ def _plant_retired(text: str, role: str, age_days: int, batch: str) -> str:
 
 def _plant_consolidated_raw(session: str, batch: str, age_days: int, *, n: int, word: str) -> list:
     """Plant a SETTLED consolidated session: an episodic summary + its closing marker (both aged `age_days`) plus `n`
-    raw turn-deltas captured just before it. The summary stands in for the raw; once the consolidation is settled, the
-    raw earns erasure. Returns the turn-delta ids."""
+    raw turn-deltas captured just before it. This is a NEGATIVE fixture: the conversation is the canonical record,
+    so however settled its summary, the proposer must never offer the raw turns for erasure. Returns the
+    turn-delta ids."""
     from memory import consolidate
     m_ts = int(time.time()) - age_days * _DAY
     ep = consolidate._make_episodic(session, {"role": "decision", "text": "a settled summary"}, batch)
@@ -949,7 +946,7 @@ def _demo_body(tree: str) -> bool:
     # come from duplicates of a different vintage.
     _plant_retired("an older interrupted save nobody came back to", "observation", 400, "batch-ancient")
     hub8 = _DemoHub(tree)
-    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest group (the settled raw)
+    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest duplicate group
     kept = first8["opened"][0] if first8["opened"] else None
     if kept is not None:
         hub8.close(kept)                                  # the operator closes it WITHOUT merging — keep this batch

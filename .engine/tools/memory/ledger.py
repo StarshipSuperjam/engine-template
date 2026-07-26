@@ -45,9 +45,12 @@ try:
 except ImportError:  # pragma: no cover - the engine targets POSIX; degrade rather than crash.
     _HAVE_FCNTL = False
 
-# The on-disk framing version (newline-terminated NDJSON). This is the *format* version; the record-SHAPE
-# version a migration routes on is the per-record `v` envelope, owned by `records.py` / `capture.py`. Exposed so
-# the backup snapshot-manifest has a legible version source.
+# The on-disk framing version (newline-terminated NDJSON) — the FILE format, not the record shape. This is the
+# version a restore routes a migration on: `restore_vault` compares the backup manifest's recorded version
+# against this one and asks `ledger_migrations` for the chain between them. Exposed so the backup
+# snapshot-manifest has a legible version source. (Each record also carries its own `v` shape stamp, written by
+# every producer; nothing reads it while only one record shape has ever existed — it is what would let a reader
+# tell two shapes apart if a second ever landed.)
 LEDGER_FORMAT_VERSION = 1
 
 ENV_DIR = "ENGINE_MEMORY_DIR"

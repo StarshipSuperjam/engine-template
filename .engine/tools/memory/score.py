@@ -9,7 +9,8 @@ out of recall, so this scale reaches membership through roll-up even though it n
 
 `archived` used to be an index-exclusion state: `forget.live_records` dropped whatever landed in it, retiring a
 never-reinforced record at somewhere between 26 and 33 days. That age-out is gone for every record kind. It is
-now a freshness label like the other three, naming the coldest end of the scale and hiding nothing.
+now a freshness label like the other three. It hides nothing BY ITSELF — but it is the roll-up's candidate
+signal, and a completed roll-up does supersede what it folded out of recall (see `tier`).
 
 Scoring works from a record's birth + its live reinforcement markers, and **compaction** folds those markers into
 a carried **frecency snapshot** on the record (records.FRECENCY_SNAPSHOT_KEY etc.) and prunes them. So this module

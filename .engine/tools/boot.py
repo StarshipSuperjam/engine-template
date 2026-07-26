@@ -748,7 +748,7 @@ def _recent_decisions_recall(read=None) -> list[dict]:
         return []
 
 
-def _recent_sessions_recall(read=None) -> list:
+def _recent_sessions_recall(read=None, *, session_id=None) -> list:
     """The last few work sessions, one card each, RELAYED read-only from memory's own derivation.
 
     This is the cold-start half of recall, and it answers a different question from search. Search answers
@@ -758,12 +758,14 @@ def _recent_sessions_recall(read=None) -> list:
 
     Memory owns the mechanism (`recall.session_cards` derives a card from the conversation on every read; boot
     stores nothing and computes nothing new), boot owns the wording — the same split as every other relay here.
+    The CURRENT session is excluded: capture has been writing to it since its first turn, so on a resume the
+    most prominent "where we left off" card would otherwise be the conversation the reader is already in.
     Lazy import (memory is off the cold-start path); every fault degrades to [], because an unreadable store
     costs this readout and never the pack, and boot already surfaces an unreadable store as its own
     memory-offline notice rather than from here."""
     try:
         from memory import recall as _recall
-        cards = (read or _recall.session_cards)()
+        cards = (read or _recall.session_cards)(exclude=session_id)
         return [c for c in cards if isinstance(c, dict)]
     except Exception:  # noqa: BLE001 — orientation context; its loss never breaks the pack
         return []
@@ -781,32 +783,47 @@ def render_recent_sessions(cards: list) -> list:
     shown = [c for c in cards if isinstance(c, dict) and c.get("first_ask")]
     if not shown:
         return []
-    out = ["### Where we left off"]
+    out = ["--- where we left off (orientation context, not an alarm) ---"]
     for card in shown:
-        when = _relative_day(card.get("ended"))
         turns = card.get("count") or 0
-        out.append(f"- **{when}** ({turns} message" + ("" if turns == 1 else "s") + ")")
-        out.append(f"  - Started with: {card['first_ask']}")
+        # The session id travels with the card so the assistant can open it DIRECTLY with the window reader.
+        # Without it the only handle was the excerpt, and searching for an excerpt does not reliably find its
+        # own session — measured: searching the opening words of one session returned a different one.
+        sid = card.get("session_id") or ""
+        head = f"- {_relative_moment(card.get('ended'))} — {turns} message" + ("" if turns == 1 else "s")
+        out.append(head + (f" (session `{sid}`)" if sid else ""))
+        out.append(f"  - opened with: {_quote_for_pack(card['first_ask'])}")
         if card.get("last_ask"):
-            out.append(f"  - Last asked: {card['last_ask']}")
-    out.append("_Your own words, quoted from those conversations. Ask me to open any of them and I'll read it "
-               "back._")
+            out.append(f"  - last request: {_quote_for_pack(card['last_ask'])}")
+    out.append("These are the operator's requests, quoted and cut short, from conversations this project "
+               "captured. Some may be text the harness sent through the prompt channel rather than something "
+               "they typed. Offer to read any of these back — `recall-window` takes the session id above.")
     return out
 
 
-def _relative_day(ended) -> str:
-    """A past moment in the words a person uses — "today", "yesterday", "3 days ago". Age is clamped at zero, so
-    a clock skew that puts a record slightly in the future reads as "today" rather than a negative number of
-    days. Falls back to a plain marker when there is no usable moment, never a fabricated one."""
+def _quote_for_pack(text: str) -> str:
+    """Neutralise fence and prompt markers in quoted conversation before it enters the pack — the same
+    treatment the recalled-decisions block gives its rows two blocks up, and needed MORE here: this quotes raw
+    conversation rather than a written note, so it can carry anything a past session pasted."""
+    return validate.defang_prompt_fence_markers(text or "")
+
+
+def _relative_moment(ended) -> str:
+    """A past moment in the words a person uses — "today 14:05", "yesterday 09:12", "3 days ago". Age is clamped
+    at zero, so a clock skew that puts a record slightly in the future reads as today rather than a negative
+    number of days. Falls back to a plain marker when there is no usable moment, never a fabricated one.
+
+    The clock time is carried for today and yesterday because a day label alone does not SEPARATE anything: an
+    operator running several sessions in a day gets four rows all reading "today", which is no handle at all.
+    Beyond that the day is distinguishing enough and the time is noise."""
     if not isinstance(ended, (int, float)) or isinstance(ended, bool):
         return "an earlier session"
     now = datetime.datetime.now(datetime.timezone.utc).timestamp()
     days = max(0, int((now - ended) // 86400))
-    if days == 0:
-        return "today"
-    if days == 1:
-        return "yesterday"
-    return f"{days} days ago"
+    if days > 1:
+        return f"{days} days ago"
+    clock = datetime.datetime.fromtimestamp(ended).strftime("%H:%M")
+    return f"{'today' if days == 0 else 'yesterday'} {clock}"
 
 
 def _set_aside_recall(read=None) -> "dict | None":
@@ -1413,7 +1430,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     # "Where we left off" (the cold-start orientation): the last few sessions, derived from the conversation
     # itself and RELAYED read-only. [] means nothing to show — a fresh project, or an unread store, which the
     # memory-offline notice above already owns. Boot renders; memory derives.
-    recent_sessions = _recent_sessions_recall()
+    recent_sessions = _recent_sessions_recall(session_id=session_id)
     # "What merged last" assembled LIVE from native GitHub sources, read-only: the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never

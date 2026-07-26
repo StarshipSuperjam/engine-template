@@ -347,13 +347,45 @@ def reclaimable_waste(path: "str | None" = None) -> int:
     return sum(1 for r in ledger.iter_records(path=target) if _is_foldable(r, closed_rollup))
 
 
+def _gate_counts(path: "str | None" = None) -> tuple:
+    """Both gate signals from ONE traversal: `(reclaimable_waste, pending_erasures)`. `maybe_compact` needs both
+    on every PreCompact, and each answer is a full O(ledger) read — computing them separately read a 29 MB file
+    twice for numbers one pass already has in hand, on a hook whose whole justification is that it is cheap.
+    LOCK-FREE, never writes. The closed-rollup derivation stays its own pass: the fold predicate needs the whole
+    set before it can classify any record."""
+    target = path if path is not None else ledger.ledger_path()
+    closed_rollup = forget._closed_rollup_batches(target)
+    waste = 0
+    wanted: set = set()
+    present: set = set()
+    for r in ledger.iter_records(path=target):
+        if _is_foldable(r, closed_rollup):
+            waste += 1
+        if not isinstance(r, dict):
+            continue
+        if _is_erasure_marker(r):
+            tid = r.get(records.TARGET_KEY)
+            if isinstance(tid, str) and tid:
+                wanted.add(tid)
+            continue                       # a marker is never removable, so it is never "present" to erase
+        rid = r.get(records.RECORD_ID_KEY)
+        if isinstance(rid, str) and rid:
+            present.add(rid)
+    return waste, len(wanted & present)
+
+
 def pending_erasures(path: "str | None" = None) -> int:
     """How many merge-authorised erasures are still WAITING to be carried out — valid `operator-adjudicated-erasure`
     markers whose target record is still resident in the ledger. A LOCK-FREE read (one O(ledger) pass), never writes.
 
     Counting "target still present" and not "marker present" is what keeps this from firing forever: `compact`
     removes the target but RETAINS the marker as an idempotency tombstone, so an already-enacted erasure leaves a
-    marker whose target is gone, and this correctly reports nothing pending."""
+    marker whose target is gone, and this correctly reports nothing pending.
+
+    "Present" mirrors what `compact` can actually REMOVE, which is why erasure markers are excluded from it:
+    `_is_erased` refuses to remove a marker (that is what makes the tombstone durable), so a marker naming
+    another marker's id would otherwise read as pending forever and rewrite the whole ledger on every pass. The
+    counter's notion of resident must be the executor's notion of removable, or the gate cannot terminate."""
     target = path if path is not None else ledger.ledger_path()
     wanted: set = set()
     present: set = set()
@@ -364,6 +396,7 @@ def pending_erasures(path: "str | None" = None) -> int:
             tid = r.get(records.TARGET_KEY)
             if isinstance(tid, str) and tid:
                 wanted.add(tid)
+            continue                       # a marker is never removable, so it is never "present" to erase
         rid = r.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid:
             present.add(rid)
@@ -402,13 +435,21 @@ def maybe_compact(path: "str | None" = None) -> dict:
         from memory import capture
         target = path if path is not None else ledger.ledger_path()
         capture.reap_orphaned_migration(os.path.dirname(target) or ".")
-        pending = pending_erasures(path)
+        waste, pending = _gate_counts(path)     # both signals, one read of the ledger
         if pending:
-            return compact(path)       # a merged erasure waits on nothing else
-        waste = reclaimable_waste(path)
+            # Say WHY it fired. Physical erasure is the one act here that cannot be undone, and without this
+            # the report is indistinguishable from routine housekeeping — a caller (or a later reader of a
+            # log) could not tell a tidy from a deletion having just been carried out.
+            report = compact(path)
+            if isinstance(report, dict):
+                report["fired_for"] = "a merged erasure was waiting"
+            return report
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}
-        return compact(path)
+        report = compact(path)
+        if isinstance(report, dict):
+            report["fired_for"] = "reclaimable bookkeeping had built up"
+        return report
     except Exception as exc:   # fail-open: a maintenance fault must never strand the squash the hook rides
         return {"status": "skipped", "reason": f"compaction faulted, skipped: {exc}", "waste": -1}
 
@@ -697,7 +738,8 @@ def _demo_body(data_dir: str) -> bool:
 
 # --- demo-trigger: WHEN the tidy fires on its own (the gate + fail-open) ----------------------------------
 # A SEPARATE walkthrough from `demo` (which proves the tidy itself is crash-safe). This one proves the GATE: the
-# tidy fires ONLY once enough private bookkeeping has piled up, leaves a clean-enough cabinet untouched, and — if
+# tidy fires when enough private bookkeeping has piled up (and, separately, whenever an erasure the operator has
+# already merged is waiting), leaves an otherwise clean-enough cabinet untouched, and — if
 # the tidy ever faults — the engine carries on and loses nothing. Dial the two pile numbers below (or the
 # threshold near the top) and watch the "skipped"/"fired" flip:
 #     uv run --directory .engine --frozen -- python tools/memory/compact.py demo-trigger
@@ -727,9 +769,9 @@ def _demo_trigger() -> int:
     print("engine just carries on — it never holds anything up. This tidy is PURELY MECHANICAL filing: no AI reads,")
     print("judges, or rewrites anything here, and none of your actual notes change — it only folds away the private")
     print("bookkeeping. (The AI-written summaries are a SEPARATE background job, the roll-up sweep; it never runs at")
-    print("this moment.) Once you merge this PR this runs automatically — at the moment your conversation's context is")
-    print("compacted — on your real sessions, in the background, with no further approval each time; that is what")
-    print("merging turns on. NOTHING is ever erased; permanently erasing")
+    print("this moment.) This runs automatically on your real sessions — at the moment your conversation's context")
+    print("is compacted — in the background, with no further approval each time. Nothing is erased by the tidying")
+    print("itself; permanently erasing")
     print("a real note is a separate step you approve by merging a pull request (and applying the `guardrail-ack`")
     print("label). Practice cabinet, thrown away. Vary it: change the two pile numbers near the top (or the")
     print("threshold) and watch the tidy flip between skipped and fired.")
@@ -753,7 +795,8 @@ def _demo_trigger_body() -> bool:
     ids_before = _content_ids()
     report1 = maybe_compact()                          # the REAL auto-trigger
     untouched = (ledger.generation() == version_before and _content_ids() == ids_before)
-    print(f"  private bookkeeping piled up: {waste_below}   (the tidy only fires at {_COMPACT_WASTE_THRESHOLD})")
+    print(f"  private bookkeeping piled up: {waste_below}   (that alone fires the tidy at {_COMPACT_WASTE_THRESHOLD};")
+    print("   an erasure you already approved fires it whatever the pile is)")
     print(f"  the engine's own decision: {report1['status']}   (it chose NOT to tidy)")
     print(f"  the filing cabinet is left exactly as it was (nothing rewritten): {'yes' if untouched else 'NO'}")
     part1 = report1["status"] == "skipped" and untouched
@@ -846,9 +889,10 @@ def _demo_erase() -> int:
     print("note you did not authorise is left exactly as it was. The slip that authorises an erase names the note by a")
     print("private tag, never its words. And running the tidy again changes nothing — an erase happens once and only")
     print("once. This is the ONE thing the engine can do to your memory that cannot be undone, and it happens ONLY")
-    print("because you merged a single-purpose pull request authorising exactly that note. The engine may OFFER a")
-    print("note for erasure by opening such a pull request; nothing is erased unless you merge it, and nothing in")
-    print("the engine can write that authorisation for you.")
+    print("because you merged a single-purpose pull request asking for exactly that note. From time to time the")
+    print("engine opens such a pull request itself, proposing notes it judges you no longer need — and once you")
+    print("merge one, the engine does write the slip and carry the erase out. What it can never do is merge:")
+    print("your merge is the whole of the authorisation, and nothing in the engine can supply it for you.")
     print("That was a PRACTICE cabinet, thrown away when the demo ended. Vary it: at the top, switch which note is")
     print("authorised (by its word) and re-run — the erase follows your choice; the note you did not authorise survives.")
     return 0 if ok else 1
