@@ -44,21 +44,25 @@ results. Skipping the rephrasing is what makes recall fail.
 
    Worked example — "Why did we pick NDJSON over a database?" becomes: `ndjson database` (the question's own
    terms), then `append only`, `newline delimited`, `line delimited`, `ledger format`, `git native`. Six
-   phrases at the limit in step 3 pools at most sixty records, which is why the limit is not optional.
+   phrases at the limit in step 3 pools at most sixty records. Most are short, but a piece of a long message
+   runs to a few thousand characters, so an unbounded pool is genuinely expensive — which is why the limit
+   matters even though the tool now applies one for you.
 3. **Search each phrase separately** with the memory search tool (`mcp__engine-memory__search`), and **set a
-   limit on each call** (10 is a reasonable default) — the tool returns *every* match when no limit is given,
-   which on a large store floods the session. Narrow with the optional role filter when the question has a
-   clear shape (`decision`, `rationale/pushback`, `lesson`, `dead-end`, `preference`, `intent`, `observation`),
-   and with the tag filter when you have an entity id such as a decision-record id.
+   limit on each call** (10 is the default it applies if you do not). Use the tag filter when you have an entity
+   id such as a decision-record id. **Do not reach for the role filter by habit:** captured conversation carries
+   no role, so any role filter returns curated summaries only and silently drops the conversation — and a
+   silent drop looks exactly like "there is nothing there". Use it only when you specifically want the curated
+   layer and would rather miss something said once than read a fragment.
 4. **Merge the results and drop duplicates.** Pool the hits from every phrase and de-duplicate by record id.
    Judge the pooled set, not each search in isolation: a record that surfaced for two different phrasings is
    usually a better answer than one that topped a single search.
-5. **Read the conversation behind the promising hits.** A search result is a summary written after the fact.
-   For the few that look like they answer the question, read the real conversation with the window tool
-   (`mcp__engine-memory__recall-window`), passing the hit's `session_id`. Anchor on the hit's position and widen
-   only if the answer is not there. A first read starts at the beginning — a search result is a summary and
-   carries no position in the conversation, so there is nothing to anchor on yet; once that window shows you
-   the ordinals, anchor a follow-up read on the relevant one with a radius of 6, or 20 for more context. The
+5. **Read the conversation behind the promising hits.** A hit is either a summary written after the fact or one
+   piece of a real message — long messages were stored in pieces, so a conversation hit is a fragment and must
+   never be quoted as if it were the whole thing. For the few that look like they answer the question, read the
+   real conversation with the window tool (`mcp__engine-memory__recall-window`), passing the hit's `session_id`.
+   **A conversation hit carries its own `seq` — anchor directly on it** with a radius of 6, or 20 for more
+   context, and skip the exploratory first read entirely. A summary hit carries no position, so for those start
+   at the beginning; once that window shows you the ordinals, anchor a follow-up read on the relevant one. The
    window keeps the anchor centred, so widening never pushes it out of view. Pass the hit's `session_id` even when it is a cluster
    key for a summary folded from several sessions: the window resolves that to the real sessions itself. When
    it cannot, it says so in its note — answer from the summary and say plainly that the original conversation
@@ -68,9 +72,10 @@ results. Skipping the rephrasing is what makes recall fail.
    the order search returned it — that ordering is keyword relevance, which is exactly what you are correcting
    for. Say plainly where the answer came from and how confident it is. If nothing genuinely answers, say that;
    a confident answer assembled from near-misses is worse than "I did not find it."
-7. **Offer the exact wording when it matters.** Summaries are paraphrases. When wording is load-bearing — what
-   the operator actually asked for, a commitment, a specific phrasing — offer the verbatim conversation from
-   step 5 rather than relying on the summary of it.
+7. **Offer the exact wording when it matters.** A summary is a paraphrase; the conversation is not. When
+   wording is load-bearing — what the operator actually asked for, a commitment, a specific phrasing — offer the
+   verbatim conversation from step 5 rather than relying on a summary of it, and say which of the two you are
+   quoting.
 
 ## Done when
 
@@ -103,7 +108,8 @@ so it is never mistaken for something the operator said. What it cannot prove is
 was permanently erased later — so treat the wording as faithful but not certified, and say so if a fine
 distinction in phrasing is carrying weight.
 
-**A known gap, until raw conversation becomes searchable.** Search reaches the curated summaries, not the raw
-turns themselves. So something said once and never summarized cannot be *found* by step 3, even though step 5
-could read it if you knew which session to look in. When you know roughly when a conversation happened, reading
-the session directly is the way around it.
+**Who said it changes what it means.** A conversation hit carries its speaker. An operator turn is what was
+actually asked for; an assistant turn is what a past session *proposed* — which may have been rejected,
+corrected, or overtaken later in that same conversation. Most of the recorded conversation is the assistant's
+own words, so this is the common case, not the edge one: read the window around an assistant turn before
+treating it as something that was settled, and never report a past proposal as a past decision.

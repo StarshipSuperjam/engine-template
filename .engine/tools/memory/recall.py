@@ -2,10 +2,10 @@
 """recall.py — the transcript-window reader (memory-substrate-sqlite-fts5).
 
 The read side of eADR-0038's transcript-first recall: memory's canonical record is the exact user/assistant
-conversation, so recall must be able to READ IT BACK. `index.search` deliberately cannot — raw `turn-delta`
-records are excluded from every ranked path (`forget._is_ambient_capture`, applied once on the shared
-`live_records` stream), because verbatim turns would swamp a lexical ranking. This module is the missing
-fetch: given a session, hand back that session's conversation as readable turns.
+conversation, so recall must be able to READ IT BACK. `index.search` now REACHES that conversation and ranks
+it, but what it returns is one record — and a message longer than the chunk size was stored as several. So a
+search hit is a fragment, positioned but not whole. This module is the fetch that makes it whole: given a
+session, hand back that session's conversation as readable turns, in order, with the pieces rejoined.
 
 IT FETCHES, IT DOES NOT RANK. There is exactly one ranking contract for memory (the `search` interface); a
 second ranked path would fork it. The workflow above the seam ranks: it searches for candidate sessions, then

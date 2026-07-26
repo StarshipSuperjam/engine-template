@@ -3843,7 +3843,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:be70abd4f40991c18776c3f37101517c177cac43e3fa148657d733c54931ef2f",
+        "fingerprint": "sha256:49ce42b7cd935ef06dd1c6af074544f66d652a4f5c7b97088c86f69b534924ba",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4376,7 +4376,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:23cfd643844846bc5f1e90680c104ac9796fb54510b731cac6b38287d1dd3128",
+        "fingerprint": "sha256:29ff688709c2a318e17dbe89fa2bd5ec31758b6dbbaa18e639cfcd5bfe52c35f",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -5672,7 +5672,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:f8bd980e0d90a0059f95e6f56276172bd4606c0a878534b059c8a4e36c731124",
+        "fingerprint": "sha256:e59799bb561afb8fadecdb5109f44a1f8bba1185d1bc50737100208367b3829d",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:ef68788d65f813e322819653f541176d287d26b480866c894f01fd6fab6dd819",
+        "fingerprint": "sha256:9f058a97dc80336bc4aba5f60808475c771546077d8525f5cf16ec57bdc71ae7",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8545,7 +8545,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:0af28b118b84fd942bdf0b45d66607aa75daec845f8c807ed6a3a24a5d1a42ca",
+        "fingerprint": "sha256:38e8e5cb1596b7e9018a0de271869f7e11f0f6db5b78e8f748e1e52cb54247ff",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",

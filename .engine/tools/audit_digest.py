@@ -187,21 +187,24 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
         where)
 
 
-# ---- the recall-completeness disclosure (issue #332) -------------------------
-# Recall surfaces only the curated layer (episodic summaries + gists); the raw, word-for-word turn-notes behind
-# them are kept and fully recoverable — never deleted by that recall-exclusion. The verdict requires this
-# disclosure to reach the operator at the point of consumption (the recall answer carries it — the memory search
-# tool's own note, and the recall runbook the per-prompt cue points at) AND in the committed audits digest
-# (never digest-only). This is the digest half: a STANDING line
-# (the digest is committed in CI with no access to the local gitignored ledger, so it cannot enumerate sessions —
-# the whole-store exclusion collapses to one line, exactly as the verdict allows). It is NOT a forgetting event:
-# nothing was retired or erased, so there is no undo handle. The wording is a build-spec leaf.
+# ---- the recall-completeness disclosure ---------------------------------------
+# What recall reaches, said plainly and in one standing line. This used to disclose an EXCLUSION — recall
+# surfaced only the curated summaries, and the word-for-word notes behind them, while kept, could not be found.
+# That exclusion is gone: search now reaches the recorded conversation itself. The disclosure survives because
+# the thing worth telling the operator survives — it is just the opposite fact, and it now carries the caveat
+# that a searched conversation is stored as it was said. The disclosure must reach the operator at the point of
+# consumption (the recall answer carries it — the memory search tool's own note, and the recall runbook the
+# per-prompt cue points at) AND in the committed audits digest (never digest-only). This is the digest half: a
+# STANDING line (the digest is committed in CI with no access to the local gitignored ledger, so it cannot
+# enumerate sessions — the whole-store statement collapses to one line). It is NOT a forgetting event: nothing
+# was retired or erased, so there is no undo handle. The wording is a build-spec leaf.
 _RECALL_COMPLETENESS_HEADING = "## Memory recall completeness"
 _RECALL_COMPLETENESS_DIGEST = (
     f"\n\n{_RECALL_COMPLETENESS_HEADING}\n\n"
-    "Memory recall surfaces curated summaries of past sessions; the raw, word-for-word notes behind them are kept "
-    "and fully recoverable on request — they are not deleted by being left out of recall, and nothing was "
-    "forgotten. Ask to see the exact wording for any of them."
+    "Memory recall reaches both the summaries of past sessions and the word-for-word conversation behind them, "
+    "so something said once and never summarised can now be found rather than only read. Nothing was forgotten "
+    "or deleted. What is searched is the conversation as it was recorded, so ask to see the exact wording of "
+    "anything an answer rests on."
 )
 
 
