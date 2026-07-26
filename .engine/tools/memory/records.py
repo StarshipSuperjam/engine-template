@@ -206,8 +206,9 @@ SUPERSEDED_BY_KEY = "superseded_by"
 # authorised it. Pure non-content provenance: no `text`/`session_id`; `index` keeps MERGE_SHA_KEY (and TARGET_KEY)
 # OUT of the search body, and `forget.live_records` drops the marker from recall (forget._is_bookkeeping). `compact`
 # removes the TARGET but RETAINS the marker itself (the idempotency tombstone, so a re-compaction is a clean no-op).
-# In this PR the marker is minted ONLY by hand — the test + the throwaway-cabinet demo (compact.enact_erasure,
-# the SOLE minter); no automatic producer exists until the cross-session observer reads a merged erasure PR.
+# `compact.enact_erasure` is the SOLE minter, and its one live caller is the cross-session observer
+# (`erasure_observer.enact_from_merged_prs`), which mints a marker only from a MERGED single-purpose erasure pull
+# request; a test and the throwaway-cabinet demo mint one directly. No path mints one from an AI's say-so alone.
 # The MERGE_SHA presence is a STRUCTURAL fail-safe floor, NOT consent verification — the real merged-not-closed /
 # immutable-merge-tree binding is the observer's job; `compact`'s read-side validity check ignores a
 # SHA-less marker so a hand-written or bypassed one can never erase.
@@ -222,16 +223,14 @@ ERASURE_TAG = "operator-adjudicated-erasure"     # the marker's tag (kept out of
 # key OUT of the search body too (index._NON_BODY_KEYS) — belt-and-suspenders, since scored copies are never indexed.
 SCORE_KEY = "score"
 
-# Cross-session roll-up cluster sentinels (#235). Roll-up's coarse "related" pre-filter was group-by-
-# session; the richer signal relates COLD episodes ACROSS sessions — a shared-topic-tag cluster (`tag:<tag>`) or a
-# lexical-similarity cluster (`sim:<id8>`). Such a gist has no single originating session, so it carries the
-# CLUSTER KEY as its `session_id` — a non-empty string, so every store/veto invariant that assumes a session_id
-# still holds. The gist's real-session provenance is NOT lost: it lives in SOURCE_IDS_KEY, from which
-# `forget.earned_consolidated_raw` recovers each contributing real session to credit the erasure veto. A real work
-# session id is a uuid hex, so it can never collide with these `<prefix>:` sentinels.
+# Cross-session roll-up cluster sentinel (#235). Roll-up's coarse "related" pre-filter was group-by-session; the
+# richer signal relates COLD episodes ACROSS sessions by shared topic tag (`tag:<tag>`). Such a gist has no single
+# originating session, so it carries the CLUSTER KEY as its `session_id` — a non-empty string, so every store
+# invariant that assumes a session_id still holds. The gist's real-session provenance is NOT lost: it lives in
+# SOURCE_IDS_KEY, and `recall.resolve_sessions` reads it back to reach the real conversations. A real work session
+# id is a uuid hex, so it can never collide with a `<prefix>:` sentinel.
 TAG_SESSION_PREFIX = "tag:"      # a gist rolling up a cross-session shared-topic-tag cluster
-SIM_SESSION_PREFIX = "sim:"      # a gist rolling up a cross-session lexical-similarity cluster
-_CROSS_SESSION_SENTINEL_PREFIXES = (TAG_SESSION_PREFIX, SIM_SESSION_PREFIX)
+_CROSS_SESSION_SENTINEL_PREFIXES = (TAG_SESSION_PREFIX,)
 
 
 def is_cross_session_sentinel(session_id) -> bool:

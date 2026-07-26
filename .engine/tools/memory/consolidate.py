@@ -156,8 +156,8 @@ def read_deltas(session_id: str, *, after_seq: int = _NO_WATERMARK, cwd=None) ->
 def _marker_watermark(m_ts, through_seq, genuine) -> int:
     """One marker's watermark in seq-space. When it carries a `through_seq` (written now, #446), that IS the
     watermark. A LEGACY marker (pre-#446) has none — project its `ts` boundary into seq-space as the max
-    genuine seq captured no later than the marker (`ts <= marker.ts`), the same correlation
-    `forget.earned_consolidated_raw` uses. This keeps the model on ONE axis (seq) and, crucially, means a
+    genuine seq captured no later than the marker (`ts <= marker.ts`). This keeps the model on ONE axis (seq)
+    and, crucially, means a
     pre-#446 ledger is NOT re-consolidated wholesale on rollout — a legacy-tidied session projects to the seq
     it was actually tidied through, not to the never-consolidated sentinel (which would re-summarize its whole
     history into duplicates)."""

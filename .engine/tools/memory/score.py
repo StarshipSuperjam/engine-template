@@ -3,15 +3,17 @@
 A record scores **frecency × role-weight × recency**, which maps onto four tiers — **hot → warm → cold →
 archived**. This module is the pure scoring law. Its readers are `index` (the usage tiebreak that reorders
 near-equal lexical matches) and `rollup` (which folds `cold` summaries into a gist). Tier is **derived on
-read** — nothing here is persisted, and nothing here is authoritative about what recall can reach.
+read** — nothing here is persisted, and no tier is read by `forget.live_records`. That is not the same as
+harmless: `rollup` selects its candidates by tier, and a completed roll-up supersedes the episodes it folded
+out of recall, so this scale reaches membership through roll-up even though it never states it (see `tier`).
 
 `archived` used to be an index-exclusion state: `forget.live_records` dropped whatever landed in it, retiring a
 never-reinforced record at somewhere between 26 and 33 days. That age-out is gone for every record kind. It is
 now a freshness label like the other three, naming the coldest end of the scale and hiding nothing.
 
-Scoring first worked from a record's birth + its live reinforcement markers. A later pass adds **compaction**, which
-folds those markers into a carried **frecency snapshot** on the record (records.FRECENCY_SNAPSHOT_KEY etc.) and
-prunes them. So this module is now **snapshot-aware**: when a record carries a valid snapshot, `score` resumes
+Scoring works from a record's birth + its live reinforcement markers, and **compaction** folds those markers into
+a carried **frecency snapshot** on the record (records.FRECENCY_SNAPSHOT_KEY etc.) and prunes them. So this module
+is **snapshot-aware**: when a record carries a valid snapshot, `score` resumes
 the recurrence from it (decaying the snapshot forward + folding any post-snapshot accesses); otherwise it takes
 the original birth-seeded path. Both yield the IDENTICAL score for the same record-state — legal precisely
 because frecency is a **recurrence on the carried snapshot** (see `frecency`): `decay(now − t0) ·
@@ -211,8 +213,10 @@ def mint_snapshot(record, access_ts, now: "int | None" = None):
 
 
 def tier(record, access_ts, now: "int | None" = None) -> str:
-    """The freshness tier of `record`: HOT / WARM / COLD / ARCHIVED. NONE of them changes what recall can
-    reach — the scale rides the search ranking, and COLD is the roll-up's candidate signal."""
+    """The freshness tier of `record`: HOT / WARM / COLD / ARCHIVED. No tier is read by `forget.live_records`,
+    so none of them DIRECTLY decides what recall reaches. One hop away it does: COLD/ARCHIVED is the roll-up's
+    candidate signal, and a COMPLETED roll-up supersedes its source episodes out of recall — so a record this
+    scale cools can leave recall by that route. Say "not a membership rule", never "cannot affect membership"."""
     now = int(time.time()) if now is None else now
     s = score(record, access_ts, now)
     if s >= HOT_THRESHOLD:

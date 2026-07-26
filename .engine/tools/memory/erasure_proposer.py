@@ -115,29 +115,36 @@ def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> li
     and the store grows without an automatic bound.
 
     A note earns erasure iff it is logically retired AND its birth-age `now - ts` exceeds `EARNED_ERASURE_MIN_AGE_DAYS`
-    (the only durable temporal field) AND it carries zero reinforcement markers ("never recalled" — a load-bearing
-    safety floor). Returns the records (each carrying its content-free id), de-duplicated by id. Ordered oldest
-    `ts` first, then by id (a total, content-free tie-break). Mutates nothing."""
+    (the only durable temporal field). Returns the records (each carrying its content-free id), de-duplicated by id.
+    Ordered oldest `ts` first, then by id (a total, content-free tie-break). Mutates nothing.
+
+    A note also has to carry zero reinforcement markers ("never recalled"). Two honest limits on what that check
+    is worth, so nobody mistakes it for the protection that matters. It cannot fire in the current design: a
+    crash-orphan is excluded from `live_records` from the moment it is written — `store_episodic` appends the
+    episodics, then the closing marker, then rebuilds, so the orphan window never reaches the index — and nothing
+    re-closes its batch afterwards, so no search can ever have returned one. And it is blind after a compaction
+    anyway, because compaction prunes reinforcement markers into a carried snapshot this does not read. It is kept
+    as a cheap belt-and-braces guard against a future class that IS recallable, not because it is load-bearing
+    today. The floor that actually holds is the one below it: the operator merges the erasure pull request, or
+    nothing is erased."""
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     cutoff = now - EARNED_ERASURE_MIN_AGE_DAYS * _DAY
     access = forget._access_index(src)
     earned: list = []
     seen: set = set()
-    groups = forget.duplicates(path)
-    for source in (groups,):
-        for _sid, recs in source.items():
-            for r in recs:
-                rid = r.get(records.RECORD_ID_KEY)
-                ts = r.get("ts")
-                if not observer._is_record_id(rid) or rid in seen:
-                    continue
-                if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
-                    continue                   # too fresh (or no usable birth time) -> not yet earned
-                if access.get(rid):
-                    continue                   # ever recalled -> the safety floor refuses to propose erasing it
-                seen.add(rid)
-                earned.append(r)
+    for _sid, recs in forget.duplicates(path).items():
+        for r in recs:
+            rid = r.get(records.RECORD_ID_KEY)
+            ts = r.get("ts")
+            if not observer._is_record_id(rid) or rid in seen:
+                continue
+            if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
+                continue                   # too fresh (or no usable birth time) -> not yet earned
+            if access.get(rid):
+                continue                   # ever recalled -> refuse to propose erasing it
+            seen.add(rid)
+            earned.append(r)
     earned.sort(key=lambda r: (r["ts"], r[records.RECORD_ID_KEY]))
     return earned
 
@@ -605,8 +612,8 @@ def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
         again = "that note"
         them = "it"
     else:
-        # Kind-agnostic on purpose: a batch may mix crash-duplicates and consolidated raw; the per-note kind + cost
-        # is in the pull-request body. "Set aside as safe to remove" is true of both classes (both logically retired).
+        # Kind-agnostic wording: the per-note detail is in the pull-request body, and "set aside as safe to remove"
+        # is true of anything that reaches here (every candidate is already logically retired from recall).
         scope = f"{note_count} old notes it had set aside as safe to remove (each described in the pull request)"
         keep = "every note stays exactly where it is"
         again = "those notes"

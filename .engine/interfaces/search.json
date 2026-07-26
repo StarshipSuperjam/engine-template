@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "search",
   "title": "Memory recall",
-  "description": "Read-only recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Every conforming implementation answers the same recall operation, so a session can ask \"what do we already know about this?\" and get the relevant past episodes ranked best-first, without knowing whether the offline keyword floor or a richer meaning-based engine is answering. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` writes nothing at all. Every conforming implementation answers the same recall operation, so a session can ask \"what do we already know about this?\" and get the relevant past episodes ranked best-first, without knowing whether the offline keyword floor or a richer meaning-based engine is answering. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
   "status": "active",
   "operations": [
     {
