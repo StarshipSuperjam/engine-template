@@ -1,5 +1,5 @@
 ---
-id: eADR-0039
+id: eADR-0035
 title: "Deferred work is recorded at the site with one engine-namespaced marker; a tracked issue is the escalation, never the entry fee"
 status: accepted
 date: 2026-07-26

@@ -371,7 +371,7 @@ with the engine's marker: the token `ENGINE-TODO` then a colon (or a parenthesis
 then what is not built and what the code does instead. It is read as the first thing after a comment leader or
 first on its line, so a trailing note and a docstring both work — and naming the form inline in backticks does
 not create one. No issue is required: a tracked issue is the escalation for a marker nobody clears, never the
-price of recording one. A decision *not* to build is a carve-out in the pull-request body instead (`eADR-0039`).
+price of recording one. A decision *not* to build is a carve-out in the pull-request body instead (`eADR-0035`).
 
 **Ground-truth load-bearing claims first-hand.** Before resting a gate, an escalation, or a merge consent on a
 claim, verify it against the source yourself: read the locked or settled specification directly rather than a

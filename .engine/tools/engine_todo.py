@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The deferred-work marker: its parser, and the `list` command that enumerates every one (eADR-0039).
+"""The deferred-work marker: its parser, and the `list` command that enumerates every one (eADR-0035).
 
 A marker records, at the site in source, work knowingly left unbuilt. Writing one costs a description and
 nothing else — no issue, milestone, or owner reference — because a tracked issue is the escalation for a

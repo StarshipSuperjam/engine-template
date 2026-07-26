@@ -67,7 +67,7 @@ decisions behind; nothing is left dangling.
   capability delivered, not by effort or count.
 - **A deferral is written where the work is.** Work genuinely owed to the code is recorded at the site with the
   engine's marker, never as prose a later slice can only find by luck; a decision *not* to build is a carve-out
-  in the pull-request body instead. `engine_todo.py list` enumerates every outstanding one. Grammar: `eADR-0039`.
+  in the pull-request body instead. `engine_todo.py list` enumerates every outstanding one. Grammar: `eADR-0035`.
 - Every change is a **pull request against protected `main`**; **validator-green before merge** (`validators-core`).
 - **Plan-first, one step at a time**; each step re-grounded from merged disk before the next.
 - **A deliverable-gate cold review on every non-trivial PR**, plus an **operator-runnable behavioral demo** for
