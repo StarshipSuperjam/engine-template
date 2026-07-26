@@ -17,7 +17,9 @@ marker is dropped, while the marked (completed) pass is kept. The retirement is 
 
 Leaf discipline: this module RETURNS records / a report and renders no operator-facing prose
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
-so the fast and slow lookups retire identically (the parity law, index.py). stdlib-only.
+so the fast and slow lookups retire identically (the parity law, index.py). `index.extend` applies the same
+membership predicate when capture adds a turn to an already-built index, so the incremental path cannot admit
+what a full rebuild would drop. stdlib-only.
 
 **Scored demotion tiers**. A record is reinforced each time it is recalled — an append-only
 `reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds a record's

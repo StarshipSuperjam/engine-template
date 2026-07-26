@@ -25,12 +25,15 @@ AMBIENT_CAPTURE_KIND = "turn-delta"  # the role-less, Stop-appended verbatim cap
 EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
 MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
 
-# Recall membership (issue #332). Recall surfaces the curated layer — episodic records + gists — and
-# excludes ambient `turn-delta` capture, which is fuel for consolidation and the abandoned-session sweep, never
-# recall content. `forget._is_ambient_capture` keys on AMBIENT_CAPTURE_KIND above; the discriminator is the
-# record's `kind`, re-derived on every recall read / index rebuild (no per-record marker, no carried bit — it
-# survives compaction for free). It is a targeted exclusion of the ambient kind, not a curated-kind allowlist: a
-# record carrying a `role` + `text` but no explicit kind is an episodic-shaped recall record and stays surfaced.
+# Recall membership. Recall surfaces the recorded conversation AND the curated layer over it — the transcript
+# is the canonical record and the summaries above it are the disposable layer (eADR-0038). The whole
+# `turn-delta` kind was once excluded, because verbatim turns vastly outnumber paraphrased summaries and matched
+# more exactly, crowding them out of every recall; the answer now is that the summaries are the layer being
+# retired, not the conversation. `forget._is_excluded_capture` holds what remains of the exclusion: harness-
+# injected pseudo-turns only, keyed on `is_injected_record` below. It is re-derived on every recall read / index
+# rebuild (no per-record marker, no carried bit — it survives compaction for free), and it is a targeted
+# exclusion rather than an allowlist: a record carrying a `role` + `text` but no explicit kind is an
+# episodic-shaped recall record and stays surfaced.
 
 # Tags.
 DEFAULT_EPISODIC_TAG = "episodic"
@@ -66,9 +69,11 @@ def is_injected_record(record) -> bool:
     """True iff `record` is a harness-injected pseudo-turn the consolidation sweep should skip as fuel: tagged
     `INJECTED_TAG` at capture (the durable path — covers every chunk), OR — back-compat for records captured
     before tagging existed — its text begins with an injected marker. The record stays physically resident and
-    recoverable in the ledger and is already recall-excluded by kind. Two readers share this predicate: the
-    consolidation sweep skips such a record as fuel, and the transcript-window reader leaves it out of a
-    window so machine scaffolding is never presented as something the operator said."""
+    recoverable in the ledger; what this withholds is only ever surfacing, never storage. THREE readers share
+    this predicate, and it carries more weight than it used to: the consolidation sweep skips such a record as
+    fuel, the transcript-window reader leaves it out of a window, and recall itself now excludes it — since the
+    rest of the conversation became recall content, this predicate is the whole of what recall withholds, so a
+    gap here would surface machine scaffolding as something the operator said."""
     if not isinstance(record, dict):
         return False
     tags = record.get("tags")

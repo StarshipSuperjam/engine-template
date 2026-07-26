@@ -19,7 +19,8 @@ pushes a constant cue asking the model to run the recall workflow, and every que
 makes deliberately. The closed record shape + role vocabulary come from the reflection step.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
-`unicode61`): the fast lookup stores the tokens it produces, and the slow scan matches the same way. That one
+`unicode61`): the fast lookup is BUILT from the tokens it produces (the FTS table is contentless — it keeps the
+inverted index, not a second copy of the text), and the slow scan matches the same way. That one
 shared word-splitter — not FTS5's own, which folds some scripts differently — is what makes the slow backup
 return the same set of records the fast lookup does, not a degraded different answer.
 """
@@ -559,9 +560,11 @@ def recent_decisions(*, limit: int = _RECENT_DECISIONS_LIMIT, roles=_DECISION_RO
     through the recall workflow; this answers the different question boot asks at orientation — "what was
     decided lately?".
 
-    Reads the CURATED layer through `forget.live_records`, the one shared read path (so the ambient `turn-delta`
-    verbatim is excluded here exactly as it is from search), and filters to the decision-bearing
-    roles. SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
+    Reads through `forget.live_records`, the one shared read path, and filters to the decision-bearing ROLES.
+    That role filter is now what keeps the recorded conversation out of this partition — captured turns carry
+    no role, and they ARE reachable through search. The exclusion this reader depends on used to come for free
+    from the shared stream and no longer does, so the filter is load-bearing rather than incidental.
+    SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
     orienting must not silently re-rank what recall surfaces later.
 
     Deterministic: ordered by the record's own recorded `ts` (newest first), ties broken by record id, so the
@@ -719,6 +722,38 @@ def _demo_one_bad_entry(cabinet: str, index_file: str) -> bool:
     return ok
 
 
+def _demo_conversation_is_findable(cabinet: str, index_file: str) -> bool:
+    print("\n" + "=" * 80)
+    print("PART 5 — something said once in conversation and never summarised. Can it be FOUND?")
+    print("=" * 80)
+    said = {"kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: "turn-1", "session_id": "s-demo",
+            "seq": 7, "speaker": "user", "tags": ["transcript", "stop"], "ts": int(time.time()),
+            "text": "the quokka connector keeps dropping friday deploys"}
+    scaffolding = {"kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: "turn-2", "session_id": "s-demo",
+                   "seq": 8, "speaker": "user", "tags": ["transcript", "stop", records.INJECTED_TAG],
+                   "ts": int(time.time()),
+                   "text": "<task-notification> the quokka background job finished </task-notification>"}
+    ledger.append(said, path=cabinet)
+    ledger.append(scaffolding, path=cabinet)
+    rebuild(ledger_file=cabinet, index_file=index_file)
+    fast = [r.get("text") for r in query("quokka", ledger_file=cabinet, index_file=index_file).records]
+    slow = [r.get("text") for r in query("quokka", force_scan=True,
+                                         ledger_file=cabinet, index_file=index_file).records]
+    found = said["text"] in fast
+    scaffolding_kept_out = all("task-notification" not in (t or "") for t in fast)
+    agree = fast == slow
+    print("\n  you asked about: \"quokka\"")
+    for text in fast:
+        print("    found:", text)
+    print("\n  The sentence was said once and no summary of it was ever written — the only record of it is the")
+    print("  conversation itself, and it came back anyway. That is the whole point of this change.")
+    print("  What did NOT come back is the machine's own notification, which also contained the word: text the")
+    print("  engine inserted is never handed back as something you said.")
+    ok = found and scaffolding_kept_out and agree
+    print(f"  => {'Found it, and kept the scaffolding out.' if ok else '!!! ' + ('the conversation was not findable' if not found else 'machine scaffolding leaked into recall' if not scaffolding_kept_out else 'the two lookups disagreed')}")
+    return ok
+
+
 def _demo() -> int:
     import shutil
 
@@ -735,6 +770,7 @@ def _demo() -> int:
             _demo_still_answered_when_fast_off(cabinet, index_file),
             _demo_throwaway_nothing_lost(cabinet, index_file),
             _demo_one_bad_entry(cabinet, index_file),
+            _demo_conversation_is_findable(cabinet, index_file),
         ]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

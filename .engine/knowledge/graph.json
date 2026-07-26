@@ -5893,7 +5893,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:88b685af59239886a823ef9cbb8d6d9f5fcaef2a15e0130849cf39b8be88411a",
+        "fingerprint": "sha256:d92e580733ab09ae6d16815735853e0f55b5d1c20856fabf8d3efbf2c8bc015a",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -7134,7 +7134,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:80ec76cb939ec6ff4d7868902f7ceb5b54cc8cbef186f4c1c84ce08c54c6d1cd",
+        "fingerprint": "sha256:f5de7b0070fb33820d564778de8cb329409108e57205f1345dca7b250e238509",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7253,7 +7253,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:704ec46a85809669336edd1e6054c26d63e9685bc482c3cedea0e1c68cf292bf",
+        "fingerprint": "sha256:42cead63364e4c00bc57bafcd3b1487def9fe1474eec5e598f0d47ade48fe405",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -8018,7 +8018,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:cfaaadf64bbdcefa5a2ff718c439fa5f291a6df93cf36236d459a284b103da8c",
+        "fingerprint": "sha256:0d3adb3bcb24e8e4c04188dfa49d330f8be7259191d4331ca5c362c44136a1b4",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8256,7 +8256,7 @@
       },
       "slug": "scrub",
       "source": {
-        "fingerprint": "sha256:b97e65703e85a6d6d4b7c493dfa0c83a8d9350050d03ac3ae22463b2818e1471",
+        "fingerprint": "sha256:7f44882af1b4f97d2d87dd372f37cb3263f3a1a823bc90dabd653b0ad5e729fa",
         "path": ".engine/tools/memory/scrub.py"
       },
       "status": "active",

@@ -703,7 +703,9 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     stable, content-free record id minted at capture — kept out of the search body too
     (index._NON_BODY_KEYS). `injected` adds `records.INJECTED_TAG` so the consolidation sweep skips a
     harness-injected pseudo-turn as fuel (issue #274) — the record still lands and stays fully recoverable;
-    the tag (like every tag) is kept out of the search body, and turn-deltas are recall-excluded by kind anyway."""
+    the tag (like every tag) is kept out of the search body. That tag now also keeps the pseudo-turn out of
+    RECALL: genuine turns are recall content, so this tag is what separates the operator's words from the
+    harness's."""
     tags = ["transcript", "stop"]
     if injected:
         tags.append(records.INJECTED_TAG)
@@ -887,11 +889,11 @@ def _demo_transcript(path: str, turns) -> None:
 
 def _demo_notes(query_text: str):
     """Read the saved turn-notes straight back out of the cabinet (the ledger) and return those whose text
-    contains the asked-for words. Ambient turn-delta capture is durability fuel that lives in the LEDGER,
-    not the recall index (issue #332: recall surfaces the curated layer, never raw ambient capture) — so
-    the honest read-back for what capture just wrote is the ledger itself, which is exactly what this demo
-    proves ('saved and can't be lost'). Recall and ranking are a separate part of the engine, not exercised
-    here — a plain substring match stands in for 'ask for these words'."""
+    contains the asked-for words. The LEDGER is the one source of truth and the index is derived from it, so
+    the honest read-back for what capture just wrote is the ledger itself — which is exactly what this demo
+    proves ('saved and can't be lost'), independently of whether any index exists. Recall and ranking are a
+    separate part of the engine, not exercised here — a plain substring match stands in for 'ask for these
+    words'."""
     needle = query_text.lower()
     return [r.get("text", "") for r in ledger.read(path=ledger.ledger_path()).records
             if needle in (r.get("text") or "").lower()]
