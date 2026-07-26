@@ -845,9 +845,10 @@ def _demo_erase() -> int:
     print("What this just proved: the engine can PERMANENTLY erase a note — but ONLY the one you authorised, and the")
     print("note you did not authorise is left exactly as it was. The slip that authorises an erase names the note by a")
     print("private tag, never its words. And running the tidy again changes nothing — an erase happens once and only")
-    print("once. This is the ONE thing the engine can do to your memory that cannot be undone. Soon it will happen")
-    print("ONLY because you merged a single-purpose pull request authorising exactly that note; THIS change ships that")
-    print("mechanism, alone — nothing erases on its own yet (no slip is ever created automatically until a later step).")
+    print("once. This is the ONE thing the engine can do to your memory that cannot be undone, and it happens ONLY")
+    print("because you merged a single-purpose pull request authorising exactly that note. The engine may OFFER a")
+    print("note for erasure by opening such a pull request; nothing is erased unless you merge it, and nothing in")
+    print("the engine can write that authorisation for you.")
     print("That was a PRACTICE cabinet, thrown away when the demo ended. Vary it: at the top, switch which note is")
     print("authorised (by its word) and re-run — the erase follows your choice; the note you did not authorise survives.")
     return 0 if ok else 1

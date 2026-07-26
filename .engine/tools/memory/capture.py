@@ -5,8 +5,9 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
 
   - **Every completed turn (`Stop`) appends the turn's session-id-tagged delta to the ledger** — an
     *append, not a summarization*, so it never taxes mid-session use. The expensive AI-judged
-    consolidation into clean, role-typed episodic records is the REFLECTION half, deferred
-    because it needs the in-context AI's judgment, which a fire-and-forget hook does not have.
+    consolidation into clean, role-typed episodic records is the REFLECTION half (`consolidate.py`),
+    which runs separately because it needs the in-context AI's judgment — something a fire-and-forget
+    hook does not have.
 
   - **Capture is cheap, generous, and LOSSLESS over conversation.** A long *turn* is *chunked*
     (paragraph-preferred, 4 KB) and every chunk is stored — conversational content is never elided at
@@ -34,8 +35,8 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
     (on contention it gives up after ~1s and the delta is caught at the next Stop). Write-safety across
     the per-session appends is the ledger-integrity law (serialized writes), not hook ordering.
 
-The record SHAPE established here (and the per-record `v` version envelope the ledger left as a
-forward-owe) is record-kind `"turn-delta"`; the closed memory *role* vocabulary attaches to the
+The record SHAPE established here (with the per-record `v` version envelope, which the ledger's own
+format version does not cover) is record-kind `"turn-delta"`; the closed memory *role* vocabulary attaches to the
 `"episodic"` records the reflection step adds, not to raw turn-deltas. stdlib-only; runs on the venv
 python alongside close.
 """
@@ -61,7 +62,7 @@ if _PARENT not in sys.path:
 
 from memory import ledger, records, scrub  # noqa: E402
 
-RECORD_VERSION = 1                       # the per-record ledger-version envelope (a forward-owe)
+RECORD_VERSION = 1                       # the per-record shape version a migration routes on (`v` on each record)
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
                                              # leaf `forget` also reads); aliased here so the string never drifts
 CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling

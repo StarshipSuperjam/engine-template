@@ -36,7 +36,7 @@ the decisions aging out from underneath it, which is the worse half of the same 
 The live caller that appends a marker on recall is **the search server**; this module ships the marker kind and
 the `record_access` appender. eADR-0038's end state has no tiered demotion at all.
 
-The **logical retirement of gist-rolled-up episodes**. A deferred AI-judged pass (`rollup.py`)
+The **logical retirement of gist-rolled-up episodes**. A separate AI-judged pass (`rollup.py`)
 consolidates old, low-frecency EPISODIC summaries of one session into a compact GIST and supersedes the raws — a
 per-raw `superseded` marker (records.py) names the raw by its stable id and the gist by `superseded_by`, under a
 roll-up `batch` closed by a `rolled-up` marker. `live_records` retires a raw whose supersession's batch is CLOSED
@@ -50,9 +50,9 @@ not here; this module hosts its operator demo (the `identity` verb). Ledger comp
 that folds the reinforcement markers into a carried frecency snapshot AND a closed-batch supersession into a carried
 `superseded_by` field — lives in `compact.py` (it needs the atomic file-replace primitive the
 Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is the separate, gated path. `record_access` (the reinforcement appender) is held under the shared single-writer lock so a
-compaction swap can never race it. Perf forward-owe: the access-index and supersession passes add O(ledger) passes to `live_records` (the access
-index over the reinforcement markers; the supersession passes over the markers); the compaction — folding those
-markers into carried fields — is the designed retirement of that cost.
+compaction swap can never race it. Cost: the access-index and supersession passes add O(ledger) passes to
+`live_records` (the access index over the reinforcement markers; the supersession passes over the markers).
+Compaction is what bounds that — it folds those markers into carried fields, so the passes stay cheap.
 """
 
 from __future__ import annotations

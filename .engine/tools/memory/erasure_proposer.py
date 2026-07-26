@@ -1,9 +1,9 @@
 """erasure_proposer.py — the Layer-2 erasure EMITTER (memory substrate).
 
-This is the memory substrate's single irreversible act: physically erasing a remembered note. An earlier step built
-the enactment core (`compact.enact_erasure`, the sole append-only minter, shipped inert); a later step built the
-cross-session OBSERVER (`erasure_observer`), which turns a *merged single-purpose erasure pull request* into the
-gated marker. THIS module is the PRODUCER that closes the loop: a deterministic probe over the engine's
+This is the memory substrate's single irreversible act: physically erasing a remembered note. Three parts carry it:
+the enactment core (`compact.enact_erasure`, the sole append-only minter, and `compact` itself, the sole executor of
+physical removal); the cross-session OBSERVER (`erasure_observer`), which turns a *merged single-purpose erasure pull
+request* into the gated marker; and THIS module, the PRODUCER that closes the loop — a deterministic probe over the engine's
 already-logically-retired notes selects one that has **earned erasure**, writes the content-free proposal at the
 observer's fixed path, and AUTO-OPENS a single-purpose pull request labelled `engine-erasure` for the operator to
 merge. After this: a local self-review -> an auto-opened erasure PR -> the operator merges -> a later session's
@@ -421,8 +421,8 @@ def _pr_body(proposal: dict) -> str:
     the body names each note's plain-language cost — the operator sees WHAT they consent to erase, never a bare count.
     Identical lines collapse to a per-vintage "{k} notes — {line}" row (see `_collapse`), so a bulk raw batch stays
     legible while a crash-duplicate batch stays one-line-per-note. It is all-or-nothing and stated as such: merge-all
-    or keep-all, no per-note pick; and closing keeps every note FOR NOW — a decline is "not this time", so the engine
-    may offer these notes again at a later review, until the operator erases them (a close still never erases). Renders
+    or keep-all, no per-note pick; and closing keeps every note — a decline is "not this time", so the engine may
+    offer these notes again at a later review, until the operator erases them (a close still never erases). Renders
     from `costs` (which `write_proposal` pins one-to-one with the committed `targets`), so the list read is exactly the
     list erased. Raises on an empty batch (the caller never reaches it with none)."""
     costs = proposal.get("costs") or []

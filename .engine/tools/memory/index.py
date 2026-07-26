@@ -441,8 +441,8 @@ def query(
 ) -> QueryResult:
     """Recall the records matching `text` — every query word must appear (implicit AND). Uses the fast lookup
     when this machine has FTS5 and the index exists; otherwise the slow backup scan over the ledger. Both paths
-    apply the SAME tokenizer, so they return the same set of records. UNRANKED (ledger order);
-    ranking is a later concern.
+    apply the SAME tokenizer, so they return the same set of records. UNRANKED (ledger order) on purpose — this
+    is the membership primitive the rebuild/scan callers need; ranked recall is `search`.
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file

@@ -20,8 +20,7 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     chore no longer floods the operator's chat (#280). The ONE exception: if the backlog has grown past
     `_BACKLOG_ALARM_THRESHOLD` (a sign the tidy has stalled), the MAIN loop itself surfaces ONE plain line (a
     COUNT, never the id codes) so a silent failure can't hide. The directive stays prompt — done THIS session,
-    not deferred forever (the passivity that left 21 sessions untidied is gone) — and always subordinate to the
-    operator's request.
+    never carried forward indefinitely — and always subordinate to the operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate subsumes the normal path — the previous session is "no longer live with no
     marker" shortly after it ends. The lease heartbeat (#396) is what tells "no longer live" from a still-
@@ -425,8 +424,8 @@ def _consolidation_directive(pending: list) -> str:
         "the thread is ABOUT (a subsystem, feature, file area, or concept, e.g. `rollup`, `erasure`, "
         "`backup`), plus any decision record it names verbatim, kept in its canonical case so two notes about the "
         "same decision share a tag — an engine decision id like `eADR-0031`, or a product ADR id like "
-        "`docs/adr/0007-slug` (whatever id your project's ADRs carry). These tags are what a later pass uses to "
-        "relate notes ACROSS sessions; they are NOT "
+        "`docs/adr/0007-slug` (whatever id your project's ADRs carry). These tags are what the roll-up pass uses "
+        "to relate notes ACROSS sessions; they are NOT "
         "the label. Prefer stable nouns you would reuse across sessions over one-off phrases, keep the whole "
         "list to at most 8 tags, and omit the list rather than invent a tag. "
         "If the operator explicitly asked to remember something (\"remember X\", \"always do Y\"), the "

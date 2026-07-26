@@ -674,8 +674,8 @@ def render_neighborhood(nb: dict | None) -> list:
     The walk is bidirectional: a connective focus surfaces its reverse tissue — its governing rule, its
     dependents, the checks that target it — not just the module it lives in. Each relationship is rendered with
     its TRUE count, so a highly-connected focus reads "core provides 147 (showing 4: ...)": the sample is
-    DISCLOSED as a sample, never an arbitrary capped few passed off as the whole or the salient set (honest
-    truncation — ranking WHICH few is relevant is deferred). A genuinely bare leaf (its only
+    DISCLOSED as a sample, never an arbitrary capped few passed off as the whole or the salient set — honest
+    truncation instead of a relevance ranking the map has no basis to compute. A genuinely bare leaf (its only
     edge is `is part of` -> its module) honestly reads module-only. Plain words throughout: relationship
     verbs + slugs, never raw ids or internal type nouns.
 
