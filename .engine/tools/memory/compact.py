@@ -45,13 +45,17 @@ migration-revert is SURFACED through boot's open-findings via the generation sta
 the restore round-trip's resurrection guard (`restore_vault.surface_resurrection`), which declines an
 older-generation restore and surfaces it rather than silently resurrecting erased records.)
 
-**The live AUTO-trigger.** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
-foldable markers (reinforcement + CLOSED-batch supersessions) — reaching `_COMPACT_WASTE_THRESHOLD`, and rides
-memory's `PreCompact` hook: the "tolerable moment, never the hot path" the design names for the expensive step.
-Until the young ledger accumulates that much waste the gate SKIPS, so nothing is rewritten; when
-it fires it is still the Layer-1 no-op-shaped tidy (recall content byte-preserved, only non-recall markers folded).
-The reinforcement markers it folds come from recall; the closed-batch supersessions from the live
-roll-up sweep. `should_compact` / `reclaimable_waste` are pure lock-free reads (the gate never writes).
+**The live AUTO-trigger.** `maybe_compact` rides memory's `PreCompact` hook — the "tolerable moment, never the
+hot path" the design names for the expensive step — and fires `compact` for either of TWO reasons. The ordinary
+one is housekeeping: `reclaimable_waste` (foldable markers — reinforcement + CLOSED-batch supersessions) reaching
+`_COMPACT_WASTE_THRESHOLD`. On a ledger below that line nothing is rewritten. The other is not housekeeping at
+all: a PENDING ERASURE (`pending_erasures`) fires the pass regardless of waste, because `compact` is the sole
+executor of physical removal, so gating it behind unrelated bookkeeping would leave an erasure the operator had
+already merged waiting on a counter that has nothing to do with it. Either way the fold itself is the Layer-1
+no-op-shaped tidy (recall content byte-preserved, only non-recall markers folded) plus whatever Layer-2 removal a
+valid merge-gated marker authorises. The reinforcement markers it folds come from recall; the closed-batch
+supersessions from the live roll-up sweep. `should_compact` / `reclaimable_waste` / `pending_erasures` are pure
+lock-free reads (the gate never writes).
 
 Leaf discipline: RETURNS a small report and renders no operator-facing prose (the demo is the
 one operator surface). stdlib + the cycle-free `memory` set (ledger / records / score / forget); `capture` (the
@@ -343,6 +347,29 @@ def reclaimable_waste(path: "str | None" = None) -> int:
     return sum(1 for r in ledger.iter_records(path=target) if _is_foldable(r, closed_rollup))
 
 
+def pending_erasures(path: "str | None" = None) -> int:
+    """How many merge-authorised erasures are still WAITING to be carried out — valid `operator-adjudicated-erasure`
+    markers whose target record is still resident in the ledger. A LOCK-FREE read (one O(ledger) pass), never writes.
+
+    Counting "target still present" and not "marker present" is what keeps this from firing forever: `compact`
+    removes the target but RETAINS the marker as an idempotency tombstone, so an already-enacted erasure leaves a
+    marker whose target is gone, and this correctly reports nothing pending."""
+    target = path if path is not None else ledger.ledger_path()
+    wanted: set = set()
+    present: set = set()
+    for r in ledger.iter_records(path=target):
+        if not isinstance(r, dict):
+            continue
+        if _is_erasure_marker(r):
+            tid = r.get(records.TARGET_KEY)
+            if isinstance(tid, str) and tid:
+                wanted.add(tid)
+        rid = r.get(records.RECORD_ID_KEY)
+        if isinstance(rid, str) and rid:
+            present.add(rid)
+    return len(wanted & present)
+
+
 def should_compact(path: "str | None" = None) -> bool:
     """True once the reclaimable waste reaches `_COMPACT_WASTE_THRESHOLD` — the gate that keeps the auto-trigger
     off a clean / low-waste ledger (else every `PreCompact` would rewrite a byte-identical ledger and rebuild the
@@ -355,12 +382,16 @@ def maybe_compact(path: "str | None" = None) -> dict:
     clean no-op. FAIL-OPEN by construction — it NEVER raises (any fault degrades to a skipped report so the host
     action, the context squash, always proceeds).
 
-    It DOES carry out erasure, and the docstring used to deny it: `compact` is the sole executor of physical
-    removal (`_erasure_targets` / `_is_erased`), so every automatic fire enacts whatever erasures already have a
-    valid merge-gated marker. Consent is untouched by that — a marker exists only because the operator merged an
-    `engine-erasure` pull request, and nothing here can mint one — but the TIMING is not this function's to
-    choose on the operator's behalf, and callers reasoning about "when does the deletion actually happen?" were
-    being told the wrong answer. It is: at the next fire of this gate.
+    It DOES carry out erasure: `compact` is the sole executor of physical removal (`_erasure_targets` /
+    `_is_erased`), so every fire enacts whatever erasures already have a valid merge-gated marker. Consent is
+    untouched by that — a marker exists only because the operator merged an `engine-erasure` pull request, and
+    nothing here can mint one — but the TIMING is not this function's to choose on the operator's behalf.
+
+    So a pending erasure fires the pass on its OWN account, ahead of the waste gate. Otherwise the answer to
+    "when does the deletion actually happen?" would be "once roughly `_COMPACT_WASTE_THRESHOLD` units of
+    unrelated bookkeeping happen to pile up" — an unbounded wait after the operator merged, with nothing
+    surfacing that it had not happened yet. Consent honoured but not executed is its own defect, and it is the
+    same reason `reap_orphaned_migration` below runs ahead of the gate.
     Returns the `compact` report on a fire, or `{"status": "skipped", ...}` when the gate holds it off or a fault
     is swallowed."""
     try:
@@ -371,6 +402,9 @@ def maybe_compact(path: "str | None" = None) -> dict:
         from memory import capture
         target = path if path is not None else ledger.ledger_path()
         capture.reap_orphaned_migration(os.path.dirname(target) or ".")
+        pending = pending_erasures(path)
+        if pending:
+            return compact(path)       # a merged erasure waits on nothing else
         waste = reclaimable_waste(path)
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}

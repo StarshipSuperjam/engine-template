@@ -6046,7 +6046,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:c8d3a93ffcaf8254f3453f0311801685e7cc3f19dc42618e14aa7c7053e73c7e",
+        "fingerprint": "sha256:7ef25828eb5973505c8b94bb42f08ae9517949e8f4326e58f5882554edd31ee6",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -8868,7 +8868,7 @@
       },
       "slug": "test_compact_trigger",
       "source": {
-        "fingerprint": "sha256:0c1e20bb4c0e0bb6e72a701f133d8e5e366a69036f8f356f4afdadd8290e267f",
+        "fingerprint": "sha256:c0fb21063f69855adb0f54604ba4945492a76a06b507a994256b5bafbcc37f1a",
         "path": ".engine/tools/memory/test_compact_trigger.py"
       },
       "status": "active",
