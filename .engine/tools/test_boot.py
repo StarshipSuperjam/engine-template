@@ -87,6 +87,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
+            "fast_search_unavailable": False,
             "set_aside": None, "foreign_license": None, "first_run": None, "greenfield_intake": None,
             "operator_backlog_count": None, "operator_backlog_register": None,
             "operator_backlog_degraded": False}
@@ -525,7 +526,7 @@ class TestDegradedNotice(unittest.TestCase):
         # line must NOT attach to those (it would falsely promise a fix). It also never appears on a healthy boot.
         for sig in (dict(att_degraded=["state"]), dict(att_degraded=["attention"]), dict(att_degraded=["git"]),
                     dict(map_rebuilt=True), dict(ledger_malformed=2), dict(migration_stalled=True),
-                    dict(recall_offline=True), dict()):
+                    dict(recall_offline=True), dict(fast_search_unavailable=True), dict()):
             dash = boot.render_dashboard(_signals(**sig))
             self.assertNotIn("dropped connection", dash,
                              f"{sig}: the restart line must not attach to a non-reconnectable degrade")
@@ -626,6 +627,41 @@ class TestDegradedNotice(unittest.TestCase):
         for jargon in ("ledger", "index", "substrate", "fts5", "offline", "sqlite"):
             self.assertNotIn(jargon, dash.lower())   # "(memory offline)" is the internal name; the render is plainer
 
+    def test_slow_search_shows_the_latency_notice_without_inventing_a_remedy(self):
+        # The disclosure that used to ride the per-prompt seam. That seam now pushes a constant cue and queries
+        # nothing, so cold start is the only place left that can state this unconditionally — and it is where
+        # the orientation contracts put every other degraded-substrate line anyway. Distinct from the
+        # availability floor above: recall still ANSWERS, it is only slow. The honest recourse is that there is
+        # none the operator can act on, so the line says so rather than inventing a fix.
+        dash = boot.render_dashboard(_signals(fast_search_unavailable=True))
+        self.assertIn("slow on this computer", dash)
+        self.assertIn("still works", dash)                      # availability is intact, and says so
+        self.assertIn("ask me about it", dash.lower())          # a real door, not an invented remedy
+        self.assertNotIn("nothing you need to do", dash.lower())   # ...and not a door shut in their face
+        self.assertNotIn("couldn't open your saved memory", dash)   # never the offline floor's wording
+        for jargon in ("fts5", "sqlite", "index", "ledger", "substrate", "latency"):
+            self.assertNotIn(jargon, dash.lower())
+
+    def test_slow_search_and_offline_are_different_notices(self):
+        # Two axes, two lines: a store that cannot be opened is not the same as one that reads slowly, and the
+        # operator's response differs (restore a backup vs. nothing at all).
+        slow = boot.render_dashboard(_signals(fast_search_unavailable=True))
+        offline = boot.render_dashboard(_signals(recall_offline=True))
+        self.assertNotEqual(slow, offline)
+        self.assertNotIn("ask me to restore", slow)
+
+    def test_an_unopenable_store_suppresses_the_slow_search_line(self):
+        # Both detectors are independent, so a damaged store on a machine without fast search sets both. The
+        # operator must not read "I couldn't open your saved memory" followed by "Recall still works and still
+        # finds the same things" — the second is false in that state. Availability wins.
+        both = boot.render_dashboard(_signals(recall_offline=True, fast_search_unavailable=True))
+        self.assertIn("couldn't open your saved memory", both)
+        self.assertNotIn("slow on this computer", both)
+
+    def test_no_slow_search_shows_no_notice(self):
+        for clean in (_signals(), _signals(fast_search_unavailable=False)):
+            self.assertNotIn("slow on this computer", boot.render_dashboard(clean))
+
     def test_no_recall_offline_shows_no_notice(self):
         for clean in (_signals(), _signals(recall_offline=False)):
             self.assertNotIn("couldn't open your saved memory", boot.render_dashboard(clean))
@@ -653,6 +689,25 @@ class TestDegradedNotice(unittest.TestCase):
                 p.stop()
         self.assertTrue(relayed["recall_offline"])          # the detector's signal is relayed verbatim
         self.assertFalse(failed["recall_offline"])          # a detector fault degrades quietly to False, never breaks
+
+    def test_gather_relays_the_slow_search_signal_and_degrades_quietly(self):
+        # The JOIN between detector and render. Without it, a misspelled or mis-wired key leaves the detector
+        # tests green, the render tests green (they use the fixed _SIGNALS fixture, not gather_signals), and
+        # the operator simply never told their searches are slow — the exact silent-failure shape this
+        # disclosure was relocated out of the per-prompt seam to avoid.
+        patchers = _offline()
+        try:
+            with mock.patch("memory.ledger_health.detect_fast_search_unavailable", return_value=True):
+                relayed = boot.gather_signals()
+            with mock.patch("memory.ledger_health.detect_fast_search_unavailable",
+                            side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertTrue(relayed["fast_search_unavailable"])   # relayed verbatim...
+        self.assertIn("slow on this computer", boot.render_dashboard(relayed))   # ...and it reaches the render
+        self.assertFalse(failed["fast_search_unavailable"])   # a detector fault degrades quietly, never breaks
 
     def test_gather_relays_the_product_signal_and_degrades_quietly(self):
         # eADR-0026: the recorded external product is RELAYED from the checkout_health substrate (boot reads no
@@ -1482,7 +1537,7 @@ class TestRecentDecisionsRender(unittest.TestCase):
         text = "\n".join(block).lower()
         self.assertIn("saved memory", text)
         # The trust seam: a recorded decision may have been superseded — the block must say so, never present
-        # it as current fact (the same verify-before-asserting rule the per-prompt scent carries).
+        # it as current fact (the same verify-before-asserting rule the recall runbook carries).
         self.assertIn("superseded", text)
         self.assertIn("we decided thing 0", "\n".join(block))
 

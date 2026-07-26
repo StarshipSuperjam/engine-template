@@ -2750,7 +2750,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:a6726ccda4152e20b1b0d255b5da7d6767a10b5efbbfeb6bf7447022acd266f2",
+        "fingerprint": "sha256:1cef884ba5a007f018083903984aa150b92c8cc297c911f11f4f17245e928d3e",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -2950,7 +2950,7 @@
       },
       "slug": "engine-tune",
       "source": {
-        "fingerprint": "sha256:82517fea3f9ff363b2d866ada63bdbc26e15e0861b59444a0154fdb5f70b3d3e",
+        "fingerprint": "sha256:983afb32910c556c2c9cca323f725c1837e4c073e0173be93f6b2d42e029d937",
         "path": ".agents/skills/engine-tune/SKILL.md"
       },
       "status": "active",
@@ -3390,7 +3390,7 @@
       },
       "slug": "eADR-0018-cognitive-substrate-one-workflow",
       "source": {
-        "fingerprint": "sha256:e1485439fd47358b83876b430399be7bdd8d53e4eafc82f68e248299c8c13b4d",
+        "fingerprint": "sha256:040543b286305b8d9ccab70926924da6864b9de7a0d0ce29b00590882fc50428",
         "path": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md"
       },
       "status": "accepted",
@@ -3670,7 +3670,7 @@
       },
       "slug": "eADR-0032-attention-policy-plus-function",
       "source": {
-        "fingerprint": "sha256:c2c68142cc0f3defb450b76e11d02f19fd29fe8426fba4f2586c3d52c5ca3f44",
+        "fingerprint": "sha256:71e3cbfe152a79a5999bcc1b360895e4206091d1e527b6853d71cc7142186b8c",
         "path": ".engine/contracts/eADR-0032-attention-policy-plus-function.md"
       },
       "status": "accepted",
@@ -3875,7 +3875,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a2425be5c7a42849de935ca4a45caed57eac9dfef90709398e68319dbcdc89b3",
+        "fingerprint": "sha256:5f8719476450ccf4dd27d77b0157a78a713d73132a4b61e52c8879918c2f740a",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4076,7 +4076,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:e2793d986a0ba638c8dc9bb419d1c60fcd8a906d0fd8f5b4b50ccdfb1aeda63a",
+        "fingerprint": "sha256:d6e335a69976d1cec3b9162bb1e1c47cdcc769a2dfe7707d2145b41b947126c8",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4356,7 +4356,7 @@
       },
       "slug": "knowledge-impact-check",
       "source": {
-        "fingerprint": "sha256:cb2eda222d974abc538e4bde28b1ba985996e5598d4656c97395f9f8e0d01d5b",
+        "fingerprint": "sha256:d6a665a5fac2e4a6c70c900dc2dcd721ef7b7be8df57426e5fcb00f693d9df75",
         "path": ".engine/operations/knowledge-impact-check.md"
       },
       "status": "active",
@@ -4376,7 +4376,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:9c9978e4173bf2ecbd9567e86d3fe8e737359ed646e04c08a15dccd11940160a",
+        "fingerprint": "sha256:23cfd643844846bc5f1e90680c104ac9796fb54510b731cac6b38287d1dd3128",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -4536,7 +4536,7 @@
       },
       "slug": "tune-policy",
       "source": {
-        "fingerprint": "sha256:3c875924ae5d48affaecd0c9869de7d377cf5735258ea9f4e64ae5573e032f86",
+        "fingerprint": "sha256:daa071e18354bcf2ac08d1dd0d6908939d5961066707fdceb2d8b2011bfde6f8",
         "path": ".engine/operations/tune-policy.md"
       },
       "status": "active",
@@ -4556,7 +4556,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:92b2bd09b8051a51c3d4a625010ceb70272fb5ddf1a255f5692936331081207a",
+        "fingerprint": "sha256:028377276c2b3e63b914709fff3613931ec779c5ea66677bb1fc8d8a8de074da",
         "path": ".engine/policies/attention.md"
       },
       "status": "active",
@@ -5454,7 +5454,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:6a16959c3603004886d31044447d98bff9f9d168c83659b5537617092a4d945d",
+        "fingerprint": "sha256:fd0648d9728ef8d66019212937701b108bfd55c7adc49622cc1b8d7bada87ec4",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -5564,7 +5564,7 @@
       },
       "slug": "engine-tune",
       "source": {
-        "fingerprint": "sha256:1fc97d591be69171ba82856c370e6945d8ec4e9579875af149a19e7dd718cfad",
+        "fingerprint": "sha256:50340b7b159efb5265749a8abda815eb879246fe22646e47273713d419138a15",
         "path": ".claude/skills/engine-tune/SKILL.md"
       },
       "status": "active",
@@ -5655,7 +5655,7 @@
       },
       "slug": "attention_rank",
       "source": {
-        "fingerprint": "sha256:337eba3d61796e26ae44f3d98437f85e0cd32c6aea76f02a122011ead1ac535c",
+        "fingerprint": "sha256:7d69bb7e880a3496de9a287ff963a38feb593d4c98deb5b63a6f3e41136e5e29",
         "path": ".engine/tools/attention_rank.py"
       },
       "status": "active",
@@ -5672,7 +5672,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:6ea479e6f2817a9d5043fda1c2e9e77d1e121172a19dc2c8647a18b5fbcee29e",
+        "fingerprint": "sha256:f8bd980e0d90a0059f95e6f56276172bd4606c0a878534b059c8a4e36c731124",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -5808,7 +5808,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:6dab6eb4e06663581eabaaa3fc3a3acf4e1065e3e71de0059518cb71e9faab68",
+        "fingerprint": "sha256:b70105becda2f137f6176b7b6aaa5dec13a298e8559d4ce6bd5ba211577ec4e8",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6046,7 +6046,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:20bf85484c7ef0eec0fa6f3873406388d423cc16edea1809d9d7a03463cc854b",
+        "fingerprint": "sha256:fcd896f23f7285f5664ca499446654bb13b26a6fa9a107750c38fa8bd9f54f7e",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -6284,7 +6284,7 @@
       },
       "slug": "demo_attention_live_dials",
       "source": {
-        "fingerprint": "sha256:6be97b0de86f05e9fc6c6d1c685aa3580e8f22b5934cd26c070bafe2f0c72565",
+        "fingerprint": "sha256:7820a559ef5a960cbc1210a071f0087a4cc1c2bf0c7d49b1a3719dec9dc62313",
         "path": ".engine/tools/demo_attention_live_dials.py"
       },
       "status": "active",
@@ -7253,7 +7253,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:5a6acff3e07138f5764bd048ee89d6c27cdab213d29033ab417eba7276d702ba",
+        "fingerprint": "sha256:48b8c98bc0c5bb54592d2bb733382799e4105f192536bc1bf187084a106ac5f1",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7372,7 +7372,7 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:9f4286b4552705c69609020dea70e6c6148d6251d058952d7ade708a35e52289",
+        "fingerprint": "sha256:736aa61b1428192460dd20c459226021b1adb0ea7a2b6c2e3c18e0b40c7726c0",
         "path": ".engine/tools/knowledge_index.py"
       },
       "status": "active",
@@ -7457,7 +7457,7 @@
       },
       "slug": "ledger_health",
       "source": {
-        "fingerprint": "sha256:6995786b847ca92ff90e7c8808ac3b43328c853e722e1fe9b0df231d10fb7b3c",
+        "fingerprint": "sha256:9a3cb7a56dd193b4ea6b9d092707bb20cbefd39f5be3109c12fb305336719fb1",
         "path": ".engine/tools/memory/ledger_health.py"
       },
       "status": "active",
@@ -7559,7 +7559,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:dd70b48dc52ea59ce672bb1dad531049ce959820910478f96b3df71340ddf7ca",
+        "fingerprint": "sha256:17c0be2cb28b8d99a40373fad971d254e124e99339aa31b83af02a75374a33e5",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7763,7 +7763,7 @@
       },
       "slug": "operator_overrides",
       "source": {
-        "fingerprint": "sha256:d25b8fafb7073cef460791579c72999b1bd5f212037948e1cfd501c9cd597e28",
+        "fingerprint": "sha256:7fbda24a49b72931402ca9fee32b1c4b264dd10a11325aed6dbde227e981d66c",
         "path": ".engine/tools/operator_overrides.py"
       },
       "status": "active",
@@ -7814,7 +7814,7 @@
       },
       "slug": "policy_override_check",
       "source": {
-        "fingerprint": "sha256:9eea434929f7e96d84bdee3be603b2ec3f0ec4dcc280d4ad76fb60a25a32b478",
+        "fingerprint": "sha256:341543591e1140216e6ac9d60132806079cea423876a698c86e9294989656f58",
         "path": ".engine/tools/policy_override_check.py"
       },
       "status": "active",
@@ -8188,7 +8188,7 @@
       },
       "slug": "scent",
       "source": {
-        "fingerprint": "sha256:9cf5fa8e3456ecf00245dbd19bdc6c7dde961a8ad1b1a13e172b0b33d2fd0380",
+        "fingerprint": "sha256:57644cf9cee34ce3989d97afb5deb63b89ebb5049ef7d8d18339a94c4ebd0c40",
         "path": ".engine/tools/scent.py"
       },
       "status": "active",
@@ -8528,7 +8528,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:a2d67bdb859540a5d187ef2d9fbdc311b8c68c2df7749c6a150b7af91f15a07b",
+        "fingerprint": "sha256:57e12527d1b6c02433a91e52c247197adf77cb3a043d6438b8dfdcb9b526d03e",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -8664,7 +8664,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:ad8276d9204546978ff7c780007b8143f04f16af71de8b8a7473dcbd14a62a53",
+        "fingerprint": "sha256:7d7ac98fed01cfb95c626c37165d537f2bf1e24e2f231f82313db576f5317ef5",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8919,7 +8919,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:313deb1b122b67c83b103966591c88e213b78efcf6e87d6ba79f26b675e5fcce",
+        "fingerprint": "sha256:af22f73ca63672689961d3ee186f459daaa933ea465457620dbc15080db5b9e8",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -9327,7 +9327,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:48401427e0621ae0587fbb1232fb54341fd3f743cf57d237866e033183269cae",
+        "fingerprint": "sha256:51b94e3b836aef65ee721ccbe68c47c25023886dbe4caa54fb5e741ead5afd1e",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -9514,7 +9514,7 @@
       },
       "slug": "test_ledger_health",
       "source": {
-        "fingerprint": "sha256:20a86f0d09101b36dde6e4203a3441df794d5307c4a5ebb31a4a93bcd30d8cba",
+        "fingerprint": "sha256:05295668cbd10cef955867bfb198f102a0b178fd160cd505d65056c821d0bbd1",
         "path": ".engine/tools/memory/test_ledger_health.py"
       },
       "status": "active",
@@ -10116,6 +10116,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_retired_settings",
+      "name": ".engine/tools/test_retired_settings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_retired_settings",
+      "source": {
+        "fingerprint": "sha256:f6fff190c1f8f4f8e0f81390b943a49a62f63d41a7aff297c7cf81150bc6d669",
+        "path": ".engine/tools/test_retired_settings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_review",
       "name": ".engine/tools/dependency_discipline/test_review.py",
       "owner": "dependency-discipline",
@@ -10211,25 +10228,8 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:240a03b83b586f5e68883e0ad4ae5731c9368eab1f88e39d98952643b15a672b",
+        "fingerprint": "sha256:4a31c61dcb70369fc62ff9417406f2b2c874c28c1b67aba20ceb65350438528e",
         "path": ".engine/tools/test_scent.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_scent_lookup",
-      "name": ".engine/tools/memory/test_scent_lookup.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_scent_lookup",
-      "source": {
-        "fingerprint": "sha256:83cc2b8efe66fda2b18560b09a011f8e0e7ade4759be17d11ae02d0c320d2415",
-        "path": ".engine/tools/memory/test_scent_lookup.py"
       },
       "status": "active",
       "type": "tool"
@@ -10687,7 +10687,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:a6c4eb3e8aabba3bf6dad4c95fd4bbaa2cf4021334a30cbfac330c1c47034729",
+        "fingerprint": "sha256:c2c66eb486825a96edca57f07ec82c622f89cf5ed68a646d3e1de255ce70280d",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",

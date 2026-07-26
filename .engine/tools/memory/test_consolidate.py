@@ -503,8 +503,8 @@ class DirectiveTests(_Base):
         self.assertIn("\"tags\"", text)                                    # the store format includes the field
 
     def test_directive_names_both_decision_record_kinds_without_the_phantom_term(self):
-        # The entity-tag guidance points a note at the decision it discusses, so recall/scent surfaces a pointer
-        # to it. It must name BOTH an engine decision id (eADR) and a product ADR id (docs/adr/…), and must NOT
+        # The entity-tag guidance points a note at the decision it discusses, so a tag-filtered recall reaches
+        # it. It must name BOTH an engine decision id (eADR) and a product ADR id (docs/adr/…), and must NOT
         # carry the fabricated "eDEC" record type — a term invented once and rejected as a phantom (nothing in
         # the engine defines or resolves it; the canonical deployment-side record is `<project>-eADR-####`).
         text = consolidate._consolidation_directive(["s0"])

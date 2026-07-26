@@ -27,6 +27,17 @@ update.
 5. **Confirm and hand off.** Tell the operator, plainly: "I've prepared your change as a pull request — open
    it and merge it to make it take effect. Nothing changes until you do." Point them to the pull request.
 
+**Clearing a setting the engine no longer has.** An engine update can retire a setting — the behaviour it
+governed changed, so there is no longer a number to set. The saved-settings check then flags the operator's
+old value on their next change, because a choice they made has stopped applying and they should hear it from
+the engine rather than discover it. An update normally removes the entry itself; when one has survived, run
+`uv run --directory .engine -- python tools/tune.py forget <group> <setting>`. It prepares the removal as a
+pull request exactly like any other change. Tell the operator **why** it was retired (the command prints the
+reason when the engine has one recorded) and that clearing it changes nothing about how the engine behaves —
+the value was already being ignored. The command refuses to clear a setting that is still adjustable, and says
+so — that is a `set`, not a clear. It *will* clear a saved value for one of the fixed safety settings, which
+`set` also refuses: that value can never apply, so leaving it would keep failing the check with no way out.
+
 ## Done when
 
 The operator's choice is saved to the engine's saved-settings file and prepared as a pull request for their

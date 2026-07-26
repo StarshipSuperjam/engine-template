@@ -101,6 +101,9 @@
       ".agents/skills/engine-tune/agents/openai.yaml",
       ".agents/skills/engine-upgrade/SKILL.md",
       ".agents/skills/engine-upgrade/agents/openai.yaml"
+    ],
+    "migration": [
+      ".engine/modules/core/migrations/*.py"
     ]
   },
   "wires": [
@@ -456,5 +459,12 @@
       }
     }
   ],
-  "depends": {}
+  "depends": {},
+  "migrations": {
+    "0.3.0": {
+      "description": "Removes the per-prompt hint's strength setting from your saved settings \u2014 the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
+      "run": "migrations/retire_scent_threshold.py",
+      "kind": "config"
+    }
+  }
 }

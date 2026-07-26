@@ -26,6 +26,13 @@ missing/broken derived index self-heals via that scan, so it is NOT offline) and
 (some lines unreadable, the rest intact). A MISSING/empty ledger is the normal "no memories yet" state, never
 offline. The live MCP server being down is a separate axis boot cannot read (it reads committed files only);
 that case is surfaced by the model's own live-helper check, not here.
+
+`detect_fast_search_unavailable` reports the LATENCY axis its sibling above deliberately excludes: this
+machine's SQLite has no FTS5, so every search falls back to a full scan of the store. Recall still answers —
+availability holds, latency does not (`index.fts5_available`, whose own contract names boot as the renderer of
+this disclosure). It lived on the per-prompt seam while that seam ran a keyword lookup of its own; once the
+per-prompt event became a constant cue that queries nothing, cold start is the only place left that can say it
+unconditionally, which is also where the orientation contracts put every other degraded-substrate line.
 """
 
 from __future__ import annotations
@@ -82,4 +89,23 @@ def detect_recall_offline(cwd: "str | None" = None) -> bool:
     except OSError:
         return True                          # present but unopenable = offline
     except Exception:  # noqa: BLE001 — any other fault degrades to no-signal, never breaks boot
+        return False
+
+
+def detect_fast_search_unavailable(cwd: "str | None" = None) -> bool:
+    """True iff there is saved memory to search AND this machine's SQLite lacks FTS5, so every search falls
+    back to a full scan of the store.
+
+    The LATENCY axis, distinct from `detect_recall_offline`'s availability floor: recall still answers, it just
+    answers by reading everything. Gated on a ledger actually existing, because on the shipped-empty store a
+    full scan is instant and there is no consequence to disclose — the same "no memories yet is not a fault"
+    rule the sibling detectors keep. Absence is decided by `index.fts5_available`'s probe, never by catching a
+    query-time error. Any fault degrades to False (no-signal): best-effort, never a gate.
+    """
+    try:
+        from memory import index, ledger
+        if not os.path.exists(ledger.ledger_path(cwd)):
+            return False                     # nothing stored yet — a slow scan of nothing costs nothing
+        return not index.fts5_available()
+    except Exception:  # noqa: BLE001 — any fault degrades to no-signal, never breaks boot
         return False

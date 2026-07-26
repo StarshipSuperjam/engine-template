@@ -40,6 +40,13 @@ _FILE = ".engine/operator-overrides.json"
 _STALE = ("A saved setting no longer exists: “{key}” isn't one of the engine's settings anymore, "
           "so the engine is using its own value for it instead. Type /engine-tune to set a setting the "
           f"engine still has, or remove this one from your saved settings ({_FILE}).")
+# The same situation when the engine KNOWS why the setting went away (operator_overrides.RETIRED). It names
+# the reason instead of leaving the operator to guess at a change they did not make, and points at the
+# one-step clear rather than at hand-editing a committed file. An engine update normally removes the entry
+# before this can fire, so reaching this line means the value outlived its retirement some other way.
+_RETIRED = ("A setting you saved has been retired: “{key}” — {reason}. The engine is using its own value for "
+            "it instead, so nothing is behaving unexpectedly. An engine update normally clears this out for "
+            f"you; to clear it now, type /engine-tune forget {{key}}, or remove it from {_FILE}.")
 _FIXED = ("A saved setting can't be changed: “{key}” is structural — it encodes part of the engine's safety "
           "order, so the engine is ignoring the saved value. Type /engine-tune to change a setting you can, "
           f"or remove this one from your saved settings ({_FILE}).")
@@ -69,7 +76,12 @@ def findings(tier: str, override: dict | None = None) -> list:
             if key in structural:
                 out.append(validate.finding(tier, _FIXED.format(key=key)))
             elif key not in default:
-                out.append(validate.finding(tier, _STALE.format(key=key)))
+                # A RECORDED retirement gets the reason and the one-step clear; anything else the engine has
+                # no record of retiring keeps the generic line, rather than a reason invented to fill a gap.
+                reason = operator_overrides.retirement_reason(policy_id, key)
+                out.append(validate.finding(
+                    tier,
+                    _RETIRED.format(key=key, reason=reason) if reason else _STALE.format(key=key)))
             elif isinstance(value, bool) or not isinstance(value, (int, float)):
                 out.append(validate.finding(tier, _NOTNUM.format(key=key)))
             # else: a current, eligible, numeric setting — it applies, so nothing to surface.

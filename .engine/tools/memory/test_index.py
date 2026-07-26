@@ -50,7 +50,8 @@ class IndexTestCase(unittest.TestCase):
 class RecentDecisionsTests(IndexTestCase):
     """`recent_decisions` — the memory half of attention's recent-decisions partition (#394), pulled by
     boot at cold start. NON-lexical by construction: a cold start has no prompt to match against, so it asks
-    "what was decided lately?" (recency-ordered); "what relates to THIS?" is the per-prompt scent's job."""
+    "what was decided lately?" (recency-ordered); "what relates to THIS?" is asked mid-session by the model
+    running the recall workflow, never by this pull."""
 
     # Fresh moments: `live_records` surfaces the layer recall should show, so a 1970-epoch fixture would be
     # correctly dropped as long-retired and prove nothing about the role filter.

@@ -53,7 +53,7 @@ FIXTURE_POLICY = {
     **{f"trim_{c}": i + 1 for i, c in enumerate(reversed(CATEGORIES))},
     "weight_recency": 0.5, "weight_severity": 1.0, "weight_proximity": 0.5,
     "flex_high_debt_count": 3, "flex_orientation_delta": 0.10,
-    "debt_blocking_threshold": 2, "scent_strong_match_threshold": 0.5,
+    "debt_blocking_threshold": 2,
 }
 
 # The headline pair: a blocking-debt item that is OLD and just-at-the-bar (low weight) and an in-flight

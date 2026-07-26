@@ -337,7 +337,14 @@ def should_compact(path: "str | None" = None) -> bool:
 def maybe_compact(path: "str | None" = None) -> dict:
     """The auto-trigger memory's `PreCompact` hook rides: compact ONLY when enough waste has piled up, else a
     clean no-op. FAIL-OPEN by construction — it NEVER raises (any fault degrades to a skipped report so the host
-    action, the context squash, always proceeds) and NEVER erases (it calls only the Layer-1-only `compact`).
+    action, the context squash, always proceeds).
+
+    It DOES carry out erasure, and the docstring used to deny it: `compact` is the sole executor of physical
+    removal (`_erasure_targets` / `_is_erased`), so every automatic fire enacts whatever erasures already have a
+    valid merge-gated marker. Consent is untouched by that — a marker exists only because the operator merged an
+    `engine-erasure` pull request, and nothing here can mint one — but the TIMING is not this function's to
+    choose on the operator's behalf, and callers reasoning about "when does the deletion actually happen?" were
+    being told the wrong answer. It is: at the next fire of this gate.
     Returns the `compact` report on a fire, or `{"status": "skipped", ...}` when the gate holds it off or a fault
     is swallowed."""
     try:

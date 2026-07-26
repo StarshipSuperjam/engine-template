@@ -5,11 +5,10 @@ Run it:  uv run --directory .engine --frozen -- python tools/demo_attention_live
 
 WHAT THIS IS FOR. The engine keeps a short, reviewable list of dials that are supposed to decide what it shows
 you at the start of a session — how bad a problem has to be before it stops you, how many open problems make a
-session "busy", how strong a word-match has to be before it volunteers a hint. Those dials read as promises.
+session "busy". Those dials read as promises.
 This shows they are now kept: change a dial, and what the engine surfaces changes. Before this change every one
 of them was inert — the engine lumped every open problem into a single item pinned exactly at the bar, so the
-bar was forever measuring itself, "busy" could never be reached, and a tuned word-match bar never reached the
-part that uses it.
+bar was forever measuring itself, and "busy" could never be reached.
 
 Everything below runs the REAL ranking, the REAL grading, and the REAL boot rendering. Only the outside world
 is faked — GitHub, local git, and the saved-memory store — so nothing is read from or written to your project.
@@ -26,7 +25,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import attention          # noqa: E402  (the REAL assembler)
 import attention_rank     # noqa: E402  (the REAL ranking core)
 import boot               # noqa: E402  (the REAL render)
-import scent              # noqa: E402  (the REAL per-prompt hint threshold)
 import telemetry          # noqa: E402  (the REAL severity grading)
 from unittest import mock  # noqa: E402
 
@@ -41,7 +39,7 @@ _POLICY = {
     **{f"trim_{c}": i + 1 for i, c in enumerate(reversed(_CATEGORIES))},
     "weight_recency": 0.5, "weight_severity": 1.0, "weight_proximity": 0.5,
     "flex_high_debt_count": _BUSY_AT, "flex_orientation_delta": 0.10,
-    "debt_blocking_threshold": _BAR, "scent_strong_match_threshold": 0.5,
+    "debt_blocking_threshold": _BAR,
 }
 _AS_OF = "2026-06-04T00:00:00Z"
 # The saved marker deliberately LAGS the merges below, which is the ordinary situation: it is refreshed on
@@ -204,24 +202,6 @@ def _demo() -> int:
     ok = ok and ok_8
 
     print()
-    print("=" * 88)
-    print("PART 4 — the bar for volunteering a hint mid-conversation (the third dial)")
-    print("=" * 88)
-    # The scent reads its bar from the SAME reviewable policy. It used to read only the shipped default, so
-    # tuning it saved a number nothing ever read. Only the override FILE is faked here; the read is real.
-    with mock.patch.object(scent.operator_overrides, "slice_for", return_value={}):
-        shipped_bar = scent._threshold()
-    with mock.patch.object(scent.operator_overrides, "slice_for",
-                           return_value={"scent_strong_match_threshold": 0.93}):
-        tuned_bar = scent._threshold()
-    print(f"  the shipped bar for volunteering a hint: {shipped_bar}")
-    print(f"  after you tune it to 0.93, what the hint actually uses: {tuned_bar}")
-    print("  => it takes effect. Before this change it still used the shipped number, so tuning this one")
-    print("     changed nothing at all and nothing told you so.")
-    ok_9 = shipped_bar != tuned_bar and tuned_bar == 0.93
-    ok = ok and ok_9
-
-    print()
     print("-" * 88)
     print("Nothing here touched your project: no GitHub call, no git read, no saved-memory read, nothing")
     print("written. Vary `_BAR` or `_BUSY_AT` at the top of this file and run it again — the outcomes move")
@@ -230,7 +210,7 @@ def _demo() -> int:
     if not ok:
         print("\nDEMO UNEXPECTED: a dial did not govern as claimed "
               f"(bar={ok_1 and ok_2}, ungraded-defers={ok_2b}, never-tuned-out={ok_3}, busy={ok_4 and ok_5}, "
-              f"recent-decisions={ok_6 and ok_8}, hint-bar={ok_9}).", file=sys.stderr)
+              f"recent-decisions={ok_6 and ok_8}).", file=sys.stderr)
         return 1
     return 0
 

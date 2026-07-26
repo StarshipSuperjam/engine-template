@@ -67,7 +67,9 @@ surfaces, its sole local write the gitignored standing-alarm presentation ledger
 
 `compact` is deliberately not a trigger: a full re-render after compaction is a deferred enhancement
 that must never be depended on, so the reliable post-compaction floor stays the re-injected `CLAUDE.md`
-plus the next per-prompt scent. The memory reversible-forgetting readout and the modes stance line
+plus the next per-prompt scent. That scent fires on every prompt, so the floor is reached reliably — but what
+it carries is a reminder to consult saved memory, not orientation content, so it restores the reflex to go
+looking rather than the picture itself. The memory reversible-forgetting readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.
 
 **The standing-alarm presentation ledger is boot's one local write.** It is a small, local,
