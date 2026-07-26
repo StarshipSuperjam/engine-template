@@ -23,6 +23,7 @@ import engine_todo
 import engine_todo_form_check
 import quiet_call          # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 import validate
+import census_completeness_check as _ccc   # noqa: E402  (reuse its construction-repo marker read, not a new copy)
 
 T = engine_todo.TOKEN + ":"                    # the bare trigger
 R = engine_todo.TOKEN + "(#412):"              # the trigger carrying an issue reference
@@ -85,6 +86,48 @@ class RejectedPositions(unittest.TestCase):
         self._none("# the " + engine_todo.TOKEN + " grammar is frozen", "the token alone is not a trigger")
 
 
+class LeaderDetection(unittest.TestCase):
+    """A leader-looking substring earlier on the line must not hide the real comment behind it. Taking only
+    the leftmost match made a URL, a `//` division or a `--` inside quotes swallow the marker silently —
+    the same false-negative class the rule was rewritten twice to remove."""
+
+    def _one(self, line):
+        found = engine_todo.scan_text(line)
+        self.assertEqual(len(found), 1, f"no marker recognised in: {line}")
+        return found[0]
+
+    def test_a_url_in_a_string_does_not_hide_a_trailing_marker(self):
+        self.assertEqual(self._one('BASE = "https://api.example.com"   # ' + T + " no retry path").description,
+                         "no retry path")
+
+    def test_a_floor_division_does_not_hide_a_trailing_marker(self):
+        self.assertEqual(self._one("mid = lo // 2   # " + T + " no bounds check").description, "no bounds check")
+
+    def test_a_hash_inside_a_string_does_not_hide_a_trailing_marker(self):
+        self.assertEqual(self._one('h = {"#": 1}   # ' + T + " no escaping").description, "no escaping")
+
+    def test_a_double_dash_inside_a_string_does_not_hide_a_trailing_marker(self):
+        self.assertEqual(self._one("q = 'a--b'   # " + T + " no quoting").description, "no quoting")
+
+
+class ReservedReference(unittest.TestCase):
+    """A reference the grammar does not define must be SEEN and reported, never silently dropped."""
+
+    def test_an_unrecognised_reference_is_still_recognised_as_a_marker(self):
+        found = engine_todo.scan_text("# " + engine_todo.TOKEN + "(slice-7): the retry path is missing")
+        self.assertEqual(len(found), 1, "an unrecognised reference must not make the marker invisible")
+        self.assertEqual(found[0].ref, "slice-7")
+
+    def test_an_unrecognised_reference_is_reported_soft_and_never_hard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "a.py"), "w", encoding="utf-8") as fh:
+                fh.write("x = 1   # " + engine_todo.TOKEN + "(slice-7): the retry path is missing\n")
+            out = engine_todo_form_check.findings("hard", root=tmp)
+        self.assertTrue(out, "the reserved-reference warning must actually fire, not pass vacuously")
+        self.assertTrue(all(f["severity"] != "hard" for f in out))
+        self.assertIn("reserved", out[0]["message"])
+
+
 class Continuation(unittest.TestCase):
     """Multi-line markers. An older parser reading only the first line gets a truncated description, never
     a wrong one — which is what makes widening the rule later safe."""
@@ -106,9 +149,38 @@ class Continuation(unittest.TestCase):
         found = engine_todo.scan_text("# " + T + " first\n# " + T + " second\n")
         self.assertEqual([m.description for m in found], ["first", "second"])
 
-    def test_a_line_at_or_left_of_the_leader_column_closes_the_marker(self):
+    def test_a_comment_at_a_different_column_closes_the_marker(self):
         found = engine_todo.scan_text("    # " + T + " first\n# a comment further left\n")
         self.assertEqual(found[0].description, "first")
+
+    def test_a_trailing_marker_after_code_never_continues(self):
+        # The next line of code very often carries its own unrelated trailing comment. Absorbing it produced
+        # descriptions that were not truncated but simply wrong — and, worse, gave an empty marker a
+        # borrowed description so the hard check stopped seeing it.
+        found = engine_todo.scan_text("x = 1  # " + T + "\ny = 2  # convert this to an int\n")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].description, "", "a trailing note is one line; it must not borrow the next")
+
+    def test_an_empty_trailing_marker_still_reds_when_the_next_line_has_a_comment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "a.py"), "w", encoding="utf-8") as fh:
+                fh.write("x = 1  # " + T + "\ny = 2  # convert this to an int\n")
+            out = engine_todo_form_check.findings("hard", root=tmp)
+        self.assertTrue(any(f["severity"] == "hard" for f in out),
+                        "the one case the hard tier exists for must not be masked by a neighbouring comment")
+
+    def test_a_standalone_comment_block_does_not_absorb_a_differently_indented_neighbour(self):
+        found = engine_todo.scan_text("# " + T + " not wired\n    # a deeper unrelated comment\n")
+        self.assertEqual(found[0].description, "not wired")
+
+    def test_a_docstring_marker_joins_a_same_indent_wrap(self):
+        # Prose wraps at the same indent; requiring a deeper one truncated the description silently.
+        found = engine_todo.scan_text("    " + T + " the envelope is missing\n    callers read the header\n")
+        self.assertIn("callers read the header", found[0].description)
+
+    def test_a_closing_triple_quote_closes_a_docstring_marker(self):
+        found = engine_todo.scan_text("    " + T + " the envelope is missing\n    \"\"\"\n    code = 1\n")
+        self.assertEqual(found[0].description, "the envelope is missing")
 
 
 class FormCheck(unittest.TestCase):
@@ -161,9 +233,21 @@ class FixtureAndScope(unittest.TestCase):
     def test_the_live_tree_carries_no_malformed_marker(self):
         self.assertEqual(engine_todo_form_check.findings("hard"), [])
 
+    @unittest.skipUnless(
+        _ccc._in_home_repo(),
+        "construction-only invariant: engine files ARE the work here, so nothing is skipped. In a deployed "
+        "copy the skip is legitimately non-empty — an engine update overwrites those files — so asserting an "
+        "empty set there would fail the deployed self-test suite.")
     def test_the_engine_owned_skip_is_empty_in_the_home_repository(self):
-        # These files ARE the work here; the skip exists for a deployed copy, where an update overwrites them.
         self.assertEqual(engine_todo.engine_owned_skip(), set())
+
+    def test_an_unreadable_file_list_is_reported_not_returned_as_empty(self):
+        # The worst output this tool can produce is a confident clean answer that means "I could not look".
+        with tempfile.TemporaryDirectory() as tmp:          # a directory that is not a git working copy
+            with self.assertRaises(engine_todo.Unreadable):
+                engine_todo.tracked_files(tmp)
+        out = engine_todo_form_check.findings("hard", root=None)
+        self.assertIsInstance(out, list)   # the real repo is readable, so this stays the clean path
 
 
 class DemoAndCli(unittest.TestCase):
@@ -184,7 +268,11 @@ class DemoAndCli(unittest.TestCase):
         done = subprocess.run([sys.executable, os.path.join(validate.ROOT, ".engine", "tools", "engine_todo.py"),
                                "list", "--json"], capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIsInstance(json.loads(done.stdout), list)
+        payload = json.loads(done.stdout)
+        self.assertIsInstance(payload["markers"], list)
+        # The deployed-repo skip is disclosed in the machine-readable output too, so a consumer can tell a
+        # short list from a complete one.
+        self.assertIn("engine_owned_skipped", payload)
 
 
 if __name__ == "__main__":

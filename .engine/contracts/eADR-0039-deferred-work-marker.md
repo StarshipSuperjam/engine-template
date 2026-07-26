@@ -30,11 +30,20 @@ previously undefined carve-out, closing a bypass through which any author could 
 already the recorded decision. Later work must not mint a second marker for this job, must not make a reference
 mandatory, and must not narrow the recognition rule.
 
-Two limits are part of the decision rather than gaps in it. A surface with no comment syntax carries no marker: a
-deferral concerning such a file is recorded in the code that owns the behaviour, naming that file. And in a
-deployed repository, markers in files an engine update overwrites are not surfaced, because a local fix to them is
-wiped on the next update; that skip is disclosed by the tool rather than silent, and it never extends to
-operator-owned files that happen to live inside the engine's own directory.
+Several limits are part of the decision rather than gaps in it, and each is a place the scan shows less than
+everything. A surface with no comment syntax carries no marker: a deferral concerning such a file is recorded in
+the code that owns the behaviour, naming that file. Inside a block comment written in the leading-star style, the
+marker is written without the star, because the star is the markdown bullet and admitting it as a leader made an
+ordinary list item a marker. A file that is not valid text, or is larger than a source file carrying a
+hand-written note would ever be, is not scanned. And in a deployed repository, markers in files an engine update
+overwrites are not surfaced, because a local fix to them is wiped on the next update; that skip is disclosed by
+the tool rather than silent, and it never extends to operator-owned files that happen to live inside the engine's
+own directory.
+
+One condition is never a limit but a reported failure: if the list of tracked files cannot be read at all, the
+scan says so and the check goes red, rather than reporting the clean result an empty list would otherwise
+produce. A confident "nothing outstanding" that actually means "I could not look" is the worst output available
+here, so it is the one degradation that is refused.
 
 ## Rationale
 

@@ -39,12 +39,17 @@ import validate  # noqa: E402
 
 TOKEN = "ENGINE-TODO"
 
-# The trigger: the token, then either a bare colon or a parenthesised issue reference and a colon. Written so
-# this line is not itself an instance — the character after the token here is an escape, never a colon.
-TRIGGER = re.compile(re.escape(TOKEN) + r"(?:\(#(\d+)\))?:")
+# The trigger: the token, then an OPTIONAL parenthesised reference, then a colon. The parenthetical is
+# captured loosely on purpose — an issue number is the only shape the grammar defines, but a reference the
+# grammar does not define must still be RECOGNISED so it can be reported. Matching only `(#digits)` would make
+# an unrecognised form invisible rather than warned about, which is the silent-loss failure this design
+# refuses. Written so this line is not itself an instance: the token is followed here by an escape, never a
+# colon.
+TRIGGER = re.compile(re.escape(TOKEN) + r"(?:\(([^)\n]*)\))?:")
+_ISSUE_REF = re.compile(r"#\d+\Z")
 
-# Comment leaders, longest-first so `//` is preferred over a bare `/` and `<!--` over `--`. The markdown
-# bullet is excluded by design (see the module note).
+# Comment leaders. Longest-first matters only for the `<!--` / `--` and `//` / `/*` overlaps at one position.
+# The markdown bullet is excluded by design (see the module note).
 LEADERS = ("<!--", "//", "/*", "--", "#")
 
 _SKIP_DIR_NAMES = frozenset({".git"})
@@ -69,73 +74,86 @@ class Marker:
         return {"path": self.path, "line": self.line, "ref": self.ref, "description": self.description}
 
 
-def _leader_at(line: str):
-    """The line's FIRST comment-leader occurrence as (index, leader), or None. Only the first counts: a
-    leader appearing later on the line is inside the first comment's own text, not a second comment."""
-    best = None
-    for leader in LEADERS:
-        i = line.find(leader)
-        if i != -1 and (best is None or i < best[0]):
-            best = (i, leader)
-    return best
+def _leader_positions(line: str):
+    """Every comment-leader occurrence on the line, left to right, as (index, leader).
+
+    EVERY occurrence is offered, not just the first. Taking only the leftmost treats whatever looks like a
+    leader as the comment — and `//`, `--` and `#` occur constantly inside ordinary string literals, so a URL
+    or a path in a constant would win the race and hide a real trailing note behind it. Missing a marker the
+    author believed was recorded is the one failure this design refuses, so recognition errs toward finding
+    one: a trigger sitting immediately after ANY leader on the line is a marker."""
+    out = []
+    i = 0
+    while i < len(line):
+        for leader in LEADERS:
+            if line.startswith(leader, i):
+                out.append((i, leader))
+                i += len(leader)
+                break
+        else:
+            i += 1
+    return out
 
 
 def recognise(line: str):
     """The trigger's match on `line` if it sits in a recognised position, else None.
 
-    Returns (match, leader, leader_col) — leader is None when the line-start position matched, which is what
-    the continuation rule keys on to tell a commented marker from a docstring one."""
+    Returns (match, leader, leader_col, body_offset) — `leader` is None when the line-start position matched,
+    which is what the continuation rule keys on to tell a standalone comment from a docstring line, and
+    `body_offset` is the index in `line` where the matched text begins so the description can be sliced
+    without re-deriving the position."""
     stripped = line.lstrip()
     m = TRIGGER.match(stripped)
     if m:                                    # first non-whitespace token on the line
-        return m, None, len(line) - len(stripped)
-    found = _leader_at(line)
-    if found is not None:
-        index, leader = found
+        return m, None, len(line) - len(stripped), len(line) - len(stripped)
+    for index, leader in _leader_positions(line):
         rest = line[index + len(leader):]
+        pad = len(rest) - len(rest.lstrip())
         m = TRIGGER.match(rest.lstrip())
-        if m:                                # first token immediately after the first leader
-            return m, leader, index
+        if m:                                # first token immediately after this leader
+            return m, leader, index, index + len(leader) + pad
     return None
 
 
-def _tail(line: str, m, leader) -> str:
-    """The description text on the marker's own line: everything after the trigger, with a trailing
-    block-comment closer removed so a one-line HTML or C comment does not end up inside the description."""
-    if leader is None:
-        text = line.lstrip()[m.end():]
-    else:
-        index, _ = _leader_at(line)
-        rest = line[index + len(leader):]
-        text = rest.lstrip()[m.end():]
+def _strip_closer(text: str) -> str:
+    """`text` without a trailing block-comment closer, so a one-line HTML or C comment does not end up with
+    its terminator inside the description."""
+    text = text.rstrip()
     for closer in ("-->", "*/"):
-        if text.rstrip().endswith(closer):
-            text = text.rstrip()[: -len(closer)]
+        if text.endswith(closer):
+            return text[: -len(closer)].strip()
     return text.strip()
+
+
+def _tail(line: str, m, body_offset: int) -> str:
+    """The description on the marker's own line: everything after the trigger. The slice uses the offset
+    recognition already computed, so widening recognition later cannot silently misalign it."""
+    return _strip_closer(line[body_offset + m.end():])
 
 
 def _continues(line: str, leader, leader_col: int, indent: int) -> "str | None":
     """The continuation text `line` contributes to an open marker, or None if it closes the marker.
 
-    A commented marker continues on lines carrying the SAME leader at a column at or right of the marker's; a
-    leaderless (docstring) marker continues on lines indented strictly deeper than the marker itself. Either
-    way a blank line, a line that fails the test, or a line carrying its own trigger closes it — so an older
-    parser meeting a newer multi-line marker still reads a description that is truncated but never wrong."""
-    if not line.strip():
-        return None
-    if recognise(line) is not None:
+    Continuation is offered only to a marker that OWNS ITS LINE — a standalone comment block, or a docstring
+    line. A marker written as a trailing note after code never continues: the next line of code very often
+    carries its own unrelated trailing comment, and absorbing that produced descriptions that were not
+    truncated but simply wrong.
+
+    A standalone comment continues on lines whose leader sits at the marker's own column; a docstring line
+    continues on lines indented at least as deep, which is how prose actually wraps. A blank line, a closing
+    triple quote, a line that fails the test, or a line carrying its own trigger closes the marker — so an
+    older parser meeting a newer multi-line marker still reads a description that is truncated, never wrong."""
+    if not line.strip() or recognise(line) is not None:
         return None
     if leader is None:
+        if '"""' in line or "'''" in line:
+            return None
         this_indent = len(line) - len(line.lstrip())
-        return line.strip() if this_indent > indent else None
+        return _strip_closer(line.strip()) if this_indent >= indent else None
     index = line.find(leader)
-    if index == -1 or index < leader_col:
+    if index == -1 or index != leader_col or line[:index].strip():
         return None
-    text = line[index + len(leader):].strip()
-    for closer in ("-->", "*/"):
-        if text.endswith(closer):
-            text = text[: -len(closer)].strip()
-    return text or None
+    return _strip_closer(line[index + len(leader):]) or None
 
 
 def scan_text(text: str, path: str = "") -> list:
@@ -147,46 +165,68 @@ def scan_text(text: str, path: str = "") -> list:
         if got is None:
             i += 1
             continue
-        m, leader, col = got
-        parts = [_tail(lines[i], m, leader)]
-        start, indent = i + 1, col
+        m, leader, col, body = got
+        parts = [_tail(lines[i], m, body)]
+        # Only a marker that owns its line may continue; a trailing note after code is one line by design.
+        standalone = leader is None or not lines[i][:col].strip()
         j = i + 1
-        while j < len(lines):
-            more = _continues(lines[j], leader, col, indent)
-            if more is None:
-                break
-            parts.append(more)
-            j += 1
-        out.append(Marker(path, i + 1, ("#" + m.group(1)) if m.group(1) else None,
+        if standalone:
+            while j < len(lines):
+                more = _continues(lines[j], leader, col, col)
+                if more is None:
+                    break
+                parts.append(more)
+                j += 1
+        out.append(Marker(path, i + 1, (m.group(1) or None),
                           " ".join(p for p in parts if p).strip()))
-        i = j
+        i = max(j, i + 1)
     return out
 
 
+# Files above this size are not scanned. A source file carrying a hand-written note is orders of magnitude
+# smaller; what lives above the cap is committed data — a dataset, a dump, a captured log. Reading one whole
+# and splitting it into lines costs roughly 66 bytes of object per line, so a large line-oriented file can
+# allocate gigabytes in a check that runs on every merge. The cap bounds that.
+_MAX_BYTES = 2_000_000
+
+
 def scan_file(path: str, rel: str = "") -> list:
-    """Every marker in one file. An unreadable or non-text file yields none rather than raising — a marker
-    scan must never be the thing that fails a run."""
+    """Every marker in one file. A file that is unreadable, not text, or above the size cap yields none
+    rather than raising — a marker scan must never be the thing that fails a run. This is the one place the
+    scan can under-report without saying so; it is bounded to files no hand-written note lives in."""
     try:
+        if os.path.getsize(path) > _MAX_BYTES:
+            return []
         text = validate.read(path)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, ValueError):
         return []
     return scan_text(text, rel or path)
+
+
+class Unreadable(Exception):
+    """The tracked-file list could not be read, so the scan saw nothing and knows it saw nothing.
+
+    This is deliberately not an empty result. Every failure here — git absent from PATH, a working directory
+    that is not a repository, the ownership-mismatch error containers routinely raise, a timeout — used to
+    return an empty list, which flowed through as "no markers" and let a hard check report GREEN having
+    scanned not one file. A confident clean answer that actually means "I could not look" is the worst output
+    this tool can produce, so the failure is raised and the caller reports it as unevaluable."""
 
 
 def tracked_files(root: str = None) -> list:
     """The repository's git-tracked files, repo-relative. Tracked enumeration rather than a filesystem walk
     is what keeps a vendored dependency tree, a virtualenv, or a build output directory out of the scan
     without maintaining a prune list — the index already answers that question. Reads the index, never
-    history, so it stays offline and unaffected by a shallow checkout."""
+    history, so it stays offline and unaffected by a shallow checkout. Raises `Unreadable` when the index
+    cannot be read; an empty list means the repository genuinely tracks nothing."""
     base = root or validate.ROOT
     try:
         done = subprocess.run(["git", "ls-files", "-z"], cwd=base, capture_output=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return []
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Unreadable(f"could not run git in {base}: {exc}") from exc
     if done.returncode != 0:
-        return []
-    return [p for p in done.stdout.decode("utf-8", "replace").split("\0")
-            if p and os.path.basename(os.path.dirname(p)) not in _SKIP_DIR_NAMES]
+        raise Unreadable(f"git ls-files failed in {base}: {done.stderr.decode('utf-8', 'replace').strip()}")
+    return [p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
 
 
 def walked_files(root: str) -> list:
@@ -241,9 +281,20 @@ def engine_owned_skip(root: str = None) -> set:
 def _cmd_list(argv: list) -> int:
     as_json = "--json" in argv
     skip = engine_owned_skip()
-    found = markers(skip=skip)
+    try:
+        found = markers(skip=skip)
+    except Unreadable as exc:
+        # Reported as a failure, never as an empty list: "I could not look" must never read as "nothing here".
+        if as_json:
+            print(json.dumps({"error": "unreadable", "detail": str(exc)}, indent=2))
+        else:
+            print(f"Could not read the list of files this repository tracks, so nothing was scanned — this is "
+                  f"not a clean result. Run this inside the repository. ({exc})", file=sys.stderr)
+        return 1
     if as_json:
-        print(json.dumps([t.as_dict() for t in found], indent=2))
+        # The skip is disclosed here too: a consumer of the JSON in a deployed repository must be able to
+        # tell a short list from a complete one.
+        print(json.dumps({"markers": [t.as_dict() for t in found], "engine_owned_skipped": len(skip)}, indent=2))
         return 0
     if not found:
         print("No outstanding deferred-work markers.")
@@ -312,8 +363,9 @@ def _demo(argv: list) -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — the docstring marker and the trailing-comment marker were both recognised; the heading, the\n"
-          "issue citation, the string literal and the markdown bullet were all correctly ignored.")
+    print("PASS — for the lines above: the docstring marker and the trailing-comment marker were recognised,\n"
+          "and these four shapes were not. That is a check of these seeded lines, not a general guarantee\n"
+          "about every shape the parser can meet; the recognition tests carry that.")
     return 0
 
 

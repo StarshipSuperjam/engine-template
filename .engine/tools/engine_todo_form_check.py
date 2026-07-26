@@ -35,7 +35,17 @@ def findings(tier: str, root: str = None) -> list:
     out = []
     # A seeded tree is walked; a repository is read from its git index. Falling back to an empty list for a
     # seeded tree would let the negative-fixture meta-check pass while this check did nothing.
-    for marker in engine_todo.markers(root=base, skip=skip, walk=bool(root)):
+    try:
+        found = engine_todo.markers(root=base, skip=skip, walk=bool(root))
+    except engine_todo.Unreadable as exc:
+        # Never a silent green: a scan that could not enumerate the tree reports that it could not look,
+        # rather than the clean result an empty file list would otherwise produce.
+        return [validate.finding(tier,
+                "The deferred-work markers could not be checked because the list of files this repository "
+                "tracks could not be read, so nothing was scanned — this is not a clean result. It usually "
+                "means the check ran outside a git working copy, or without git available. Re-run it inside "
+                f"the repository. ({exc})")]
+    for marker in found:
         where = validate.loc(os.path.join(base, marker.path), marker.line)
         if not marker.description:
             out.append(validate.finding(tier,
@@ -45,7 +55,7 @@ def findings(tier: str, root: str = None) -> list:
                        f"Write what is not built and what the code does instead on the same line (or on the "
                        f"lines that continue it), or remove the marker if nothing is actually owed.",
                        where))
-        elif marker.ref is not None and not marker.ref[1:].isdigit():
+        elif marker.ref is not None and not engine_todo._ISSUE_REF.match(marker.ref):
             out.append(validate.finding("soft",
                        f"'{marker.path}' line {marker.line} carries a marker whose parenthesised reference "
                        f"is not an issue number. That form is reserved for a later extension of the grammar, "
