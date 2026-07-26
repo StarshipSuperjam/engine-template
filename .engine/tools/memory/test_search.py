@@ -3,12 +3,15 @@
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-Covers the `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance
-(bm25 on the fast path) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match
-("BM25 leads"); a never-accessed match is deprioritized, never dropped (ranking, not retention); the role/tag
-filters narrow; the fast and slow paths return the same SET (the availability law; the slow path ranks the FULL
-matched set before slicing, not an early ledger-order truncation); and `search` is side-effect-free (it never
-reinforces — that is the MCP server's job — and never writes the ledger). `query` stays UNRANKED.
+Covers the `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance (bm25 on
+both paths) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match ("BM25
+leads"); a never-accessed match is deprioritized, never dropped (ranking, not retention); the role/tag filters
+narrow; the fast and slow paths return the same SET (the availability law; the slow path ranks the FULL matched
+set before slicing, not an early ledger-order truncation); and `search` is side-effect-free (it never reinforces
+— that is the MCP server's job — and never writes the ledger). `query` stays UNRANKED.
+
+The two paths now agree on ORDER as well as membership — `test_index.RankingParityTests` is where that is
+pinned; the set-level assertions here are the weaker floor, kept because they are what the contract promises.
 """
 
 import inspect

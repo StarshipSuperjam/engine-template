@@ -20,7 +20,7 @@ import unicodedata
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import index, ledger, records  # noqa: E402
+from memory import forget, index, ledger, records  # noqa: E402
 
 
 def _bodies(result):
@@ -371,7 +371,14 @@ class ProjectionTests(IndexTestCase):
         # (`content=''`), so it keeps the inverted index and no second copy of the text. Behaviour is the better
         # assertion anyway — it holds whatever the storage shape is, and it is what the parity law actually
         # claims. Each record's own projected tokens must MATCH it on the fast path, and only it.
-        records = [{"body": "first narrative", "title": "a title"}, {"note": "nested", "extra": ["deep", "words"]}]
+        #
+        # The fixture carries the non-ASCII divergence classes on purpose. A desync between the projection and
+        # the tokenizer shows up first where FTS5's own folder and Python's disagree — diacritics, Cyrillic,
+        # Greek tonos — so an ASCII-only fixture would pass while exactly the interesting case was broken.
+        records = [{"body": "first narrative", "title": "a title"}, {"note": "nested", "extra": ["deep", "words"]},
+                   {"body": "the café meeting approved the naïve plan"},
+                   {"body": "ёжик решение про кэш", "note": "δοκιμή τέλος"},
+                   {"body": "snake_case_config and Müller's e=mc2"}]
         self.file(*records)
         self.rebuild()
         for record in records:
@@ -401,6 +408,173 @@ class ProjectionTests(IndexTestCase):
         scan = index.query("shared", limit=3, force_scan=True, ledger_file=self.ledger, index_file=self.index).records
         self.assertEqual(fast, scan)
         self.assertEqual(len(fast), 3)
+
+
+class RankingParityTests(IndexTestCase):
+    """The degraded path scores with the SAME bm25 the fast path reads out of FTS5, computed in plain Python.
+    So the availability law now covers the ANSWER, not merely the fact that one comes back: a machine whose
+    SQLite lacks FTS5 gets the same records in the same order, just slower.
+
+    It used to score `log1p(term occurrences)` — no length normalisation and no inverse document frequency. That
+    was close enough while the store held only short curated summaries, which are all about the same size. It
+    stopped being close enough when the conversation became recall content: a 4 KB transcript fragment and a
+    one-line summary that mention a word the same number of times scored IDENTICALLY, leaving ledger position to
+    decide between them, and a bounded query (the recall workflow caps every expansion) then returned a
+    materially different set on the two paths."""
+
+    def _corpus(self):
+        # Lengths and repetition both vary, and the terms differ in how many records carry them, so length
+        # normalisation and inverse document frequency each have something to bite on. A ranking that ignored
+        # either would order this differently.
+        out = [{"body": "cache " * 12 + "a long fragment that says cache many times and little else " * 6},
+               {"body": "the cache decision: write through, not write back"},
+               {"body": "cache " + " ".join(f"filler{i}" for i in range(300))},
+               {"body": "a short note about the cache"},
+               {"body": "retries and timeouts, plus one mention of cache"}]
+        out += [{"body": f"unrelated note {i} about retries"} for i in range(60)]
+        return out
+
+    def _ranked_bodies(self, text, **kw):
+        return [r["body"] for r in index.search(text, ledger_file=self.ledger, index_file=self.index,
+                                                **kw).records]
+
+    def test_the_two_paths_rank_identically(self):
+        self.file(*self._corpus())
+        self.rebuild()
+        for query_text in ("cache", "retries", "cache retries"):
+            fast = self._ranked_bodies(query_text)
+            scan = self._ranked_bodies(query_text, force_scan=True)
+            self.assertTrue(fast, query_text)
+            self.assertEqual(fast, scan, f"the two paths ordered {query_text!r} differently")
+
+    def test_a_bounded_query_returns_the_same_records_on_both_paths(self):
+        # The case that actually reaches the model: the recall workflow caps every expansion, so a divergence in
+        # ORDER is a divergence in the SET of records the session ever sees.
+        self.file(*self._corpus())
+        self.rebuild()
+        self.assertEqual(self._ranked_bodies("cache", limit=3),
+                         self._ranked_bodies("cache", limit=3, force_scan=True))
+
+    def test_a_padded_fragment_loses_to_a_tight_note_that_says_it_as_often(self):
+        # The product consequence, and the exact thing the old scan-path relevance could not see: these two
+        # mention the term the same number of times, so `log1p(occurrences)` scored them EQUAL and ledger
+        # position broke the tie. Length normalisation puts the tight note first — on both paths.
+        tight = {"body": "cache cache cache — write through, not write back"}
+        padded = {"body": "cache cache cache " + " ".join(f"filler{i}" for i in range(400))}
+        self.file(padded, tight)                              # padded first, so ledger order favours the wrong one
+        self.file(*({"body": f"unrelated note {i}"} for i in range(30)))
+        self.rebuild()
+        for kw in ({}, {"force_scan": True}):
+            self.assertEqual(self._ranked_bodies("cache", **kw)[0], tight["body"],
+                             f"a padded fragment outranked an equally-specific tight note ({kw})")
+
+    def test_the_scores_match_fts5s_own_bm25(self):
+        # Not "close enough" — the scan reproduces fts5's bm25 exactly, epsilon-floored idf included, which is
+        # what makes the order identical rather than merely similar.
+        self.file(*self._corpus())
+        self.rebuild()
+        fast = index.search("cache", ledger_file=self.ledger, index_file=self.index).records
+        scan = index.search("cache", ledger_file=self.ledger, index_file=self.index, force_scan=True).records
+        for a, b in zip(fast, scan):
+            self.assertAlmostEqual(a[records.SCORE_KEY], b[records.SCORE_KEY], places=9)
+
+    def test_a_word_in_every_record_scores_the_floor_not_a_penalty(self):
+        # fts5 floors the inverse document frequency at a positive sliver rather than letting it go negative, so
+        # a term more than half the corpus carries never ranks a record DOWN for containing it. Reproducing that
+        # floor is load-bearing: without it the two paths would disagree on exactly the commonest queries.
+        self.file(*({"body": f"ubiquitous note {i}"} for i in range(20)))
+        self.rebuild()
+        for kw in ({}, {"force_scan": True}):
+            scores = [r[records.SCORE_KEY] for r in
+                      index.search("ubiquitous", ledger_file=self.ledger, index_file=self.index, **kw).records]
+            self.assertEqual(len(scores), 20)
+            self.assertTrue(all(s > 0 for s in scores), f"a floored idf went non-positive ({kw})")
+
+
+class BoundedFastPathTests(IndexTestCase):
+    """The fast path walks its matches in bm25 order and stops once no unread row could reach the top `limit`.
+    The bound is on WORK, never on the answer. It matters because the index MATCHES a common word by the tens of
+    thousands once the conversation is recall content, and hydrating every match to return ten records cost a
+    measured 134 MB resident spike inside the long-lived recall server."""
+
+    def s(self, text, **kw):
+        # `search`, not `query` — the RANKED entry point is the one that hydrates to rank.
+        return index.search(text, ledger_file=self.ledger, index_file=self.index, **kw)
+
+    _MATCHES = 200
+
+    def _varied(self):
+        # Relevance genuinely varies: the token repeats a different number of times against a different amount of
+        # filler, AND it is SELECTIVE — present in a tenth of the store, so bm25's inverse-document-frequency
+        # term is well away from zero. Both are needed. A token present in half the records or more scores an
+        # identical ~0 on every one of them (fts5's idf is log((N-n+0.5)/(n+0.5)), which is 0 at n = N/2), and
+        # then every match ties in one bucket — the separate case the flat-bucket test below covers.
+        matching = [{"body": ("quokka " * (1 + i % 5)) + " ".join(f"filler{i}x{j}" for j in range(i % 11))}
+                    for i in range(self._MATCHES)]
+        return matching + [{"body": f"unrelated entry {i}"} for i in range(9 * self._MATCHES)]
+
+    def test_a_bounded_query_returns_exactly_what_full_hydration_would(self):
+        self.file(*self._varied())
+        self.rebuild()
+        bounded = self.s("quokka", limit=5).records
+        everything = self.s("quokka").records        # unlimited: the whole matched set ranked, then sliced
+        self.assertEqual(len(bounded), 5)
+        self.assertEqual(bounded, everything[:5])
+
+    def test_a_selective_word_stops_reading_long_before_the_end_of_its_matches(self):
+        self.file(*self._varied())
+        self.rebuild()
+        read = []
+        real = index._passes_filters                 # called exactly once per record actually parsed
+        index._passes_filters = lambda r, roles, tags: (read.append(r), real(r, roles, tags))[1]
+        try:
+            self.assertEqual(len(self.s("quokka", limit=5).records), 5)
+        finally:
+            index._passes_filters = real
+        self.assertLess(len(read), self._MATCHES // 3,
+                        f"parsed {len(read)} of {self._MATCHES} matches to answer a limit of 5 — no early stop")
+
+    def test_a_common_word_scores_every_match_but_keeps_none_of_them(self):
+        # A word in EVERY record collapses bm25's IDF to zero, so every match ties in one bucket and the boundary
+        # rule can skip nothing — the ranking really does depend on all of their usage scores. That is the query
+        # shape that produced the 134 MB spike, and the bound that has to hold for it is RETENTION: score each
+        # record and let it go, keeping only the sort key, then re-read the few that won.
+        self.file(*({"body": f"quokka entry {n}"} for n in range(300)))
+        self.rebuild()
+        seen = {}
+        real = index._hydrate_winners
+
+        def spy(conn, keys, limit):
+            seen["keys"] = list(keys)
+            return real(conn, keys, limit)
+
+        index._hydrate_winners = spy
+        try:
+            self.assertEqual(len(self.s("quokka", limit=5).records), 5)
+        finally:
+            index._hydrate_winners = real
+        self.assertEqual(len(seen["keys"]), 300, "a flat bucket has to score every match")
+        self.assertTrue(all(len(k) == 3 and not any(isinstance(f, (dict, str)) for f in k)
+                            for k in seen["keys"]),
+                        "the walk held on to record bodies — the retention bound is what this shape is for")
+
+    def test_a_filter_that_rejects_most_matches_still_returns_a_full_page(self):
+        # The boundary is set from the limit-th record that PASSED the filter, so a query whose filter rejects
+        # nearly everything keeps reading rather than quietly returning a short page.
+        self.file(*({"body": f"quokka entry {n}", "role": "decision" if n % 50 == 0 else "observation"}
+                    for n in range(300)))
+        self.rebuild()
+        self.assertEqual(len(self.s("quokka", roles=["decision"], limit=5).records), 5)
+
+    def test_usage_can_still_promote_a_match_from_deep_in_the_boundary_bucket(self):
+        # Equal-relevance matches all land in ONE bucket, where usage decides the order. A walk that stopped at
+        # the limit-th match would return the first in ledger order and never see the reinforced one — so this
+        # is the property the boundary rule (read the whole bucket, not just up to the limit) exists to keep.
+        self.file(*({records.RECORD_ID_KEY: f"r{n}", "body": "quokka sighting"} for n in range(120)))
+        forget.record_access("r119", path=self.ledger)
+        self.rebuild()
+        top = self.s("quokka", limit=1).records
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in top], ["r119"])
 
 
 class SafetyTests(IndexTestCase):

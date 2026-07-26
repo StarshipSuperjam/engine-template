@@ -228,7 +228,7 @@ def _project_beliefs(ledger_bytes: bytes, *, now: "int | None") -> list:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(ledger_bytes)
-        live = list(forget.live_records(path=tmp, now=now))
+        live = list(forget.live_records(path=tmp))
     finally:
         _quiet_remove(tmp)
     durable = []

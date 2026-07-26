@@ -10,7 +10,7 @@
     "discrimination": "the old-path baseline MUST be meaningfully sub-0.90 on the paraphrased / raw-only / zero-lexical-overlap classes, or the instrument cannot justify the deletion it gates",
     "slice6_precondition": "before the irreversible curation-removal, the maintainer must have run the private --real-local probe on real questions and judged real-memory recall FOR HIMSELF — an UNSCORED, human-judged real-world correlate (there is no ground-truth label for the real ledger); nothing is committed. Wiring this precondition to the deletion gate is a REQUIREMENT on the removal slice, not enforced by this slice."
   },
-  "frozen_old_path": "captured conversation (`turn-delta`) excluded by kind; crash-orphan retirement, closed-batch supersession and archival demotion applied; forced scan path; no limit passed into the search call, so the exclusion is applied BEFORE any cap",
+  "frozen_old_path": "the captured conversation (`turn-delta`) is ABSENT FROM THE SEARCHED CORPUS — the old-path cabinet is materialized without those records, so they are missing from the ranking's own corpus statistics and not merely filtered out of its results; forced scan path; no limit. The committed corpus carries no unclosed batch and no supersession marker, so the crash-orphan and roll-up exclusions `live_records` also applies are structurally inert on it (a test pins that), and no archival age-out exists in the engine to apply.",
   "old_path_baseline": {
     "overall_known": {
       "hits": 25,

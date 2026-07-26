@@ -160,14 +160,15 @@ REINFORCEMENT_TAG = "reinforcement"    # the marker's tag (kept out of the searc
 # folded-away markers: `score` reproduces the pre-compaction score from `FRECENCY_SNAPSHOT_KEY` (the frecency
 # value at compaction time) decayed forward from `SNAPSHOT_TS_KEY`, with `LAST_ACCESS_TS_KEY` flooring recency.
 # This is legal precisely because frecency is a RECURRENCE on the carried snapshot (score.frecency). `TIER_KEY`
-# carries the snapshot-time tier as a legibility field ONLY — the authoritative tier is still RECOMPUTED on read
-# from the snapshot (it ages as time passes), so a future reader must never trust the carried `tier` as current.
-# `index` keeps `TIER_KEY` (a string: "hot"/"cold"/"archived") OUT of the search body (index._NON_BODY_KEYS); the
-# numeric snapshot fields are excluded from the body by type already.
+# is NO LONGER WRITTEN: compaction used to stamp the snapshot-time tier as a legibility field, back when a tier
+# decided whether a record still surfaced. None does now, so the name survives only because a record an OLDER
+# engine compacted still carries one — and `index` must keep it (a string: "hot"/"cold"/"archived") OUT of the
+# search body (index._NON_BODY_KEYS), else those words would match every such record. The numeric snapshot
+# fields are excluded from the body by type already.
 FRECENCY_SNAPSHOT_KEY = "frecency_snapshot"   # float: score.frecency value at compaction time t0
 SNAPSHOT_TS_KEY = "snapshot_ts"               # int: t0, the compaction time the snapshot was stamped at
 LAST_ACCESS_TS_KEY = "last_access_ts"         # int: max(birth, *accesses) at t0, the recency floor
-TIER_KEY = "tier"                             # str: the snapshot-time tier (legibility; recomputed on read)
+TIER_KEY = "tier"                             # str: written by older engines only; kept out of the search body
 
 # The gist roll-up vocabulary. Active forgetting's first move is a SECOND-order
 # consolidation: an AI-judged maintenance pass rolls up OLD, low-frecency EPISODIC summaries of one session into a
@@ -203,7 +204,7 @@ SUPERSEDED_BY_KEY = "superseded_by"
 # single-purpose erasure pull request (the consent gate). It names the target by its stable, content-free
 # RECORD_ID_KEY (reusing TARGET_KEY — already non-body) and carries MERGE_SHA_KEY, the merge identity that
 # authorised it. Pure non-content provenance: no `text`/`session_id`; `index` keeps MERGE_SHA_KEY (and TARGET_KEY)
-# OUT of the search body, and `forget.live_records` drops the marker from recall (forget._is_demoted). `compact`
+# OUT of the search body, and `forget.live_records` drops the marker from recall (forget._is_bookkeeping). `compact`
 # removes the TARGET but RETAINS the marker itself (the idempotency tombstone, so a re-compaction is a clean no-op).
 # In this PR the marker is minted ONLY by hand — the test + the throwaway-cabinet demo (compact.enact_erasure,
 # the SOLE minter); no automatic producer exists until the cross-session observer reads a merged erasure PR.

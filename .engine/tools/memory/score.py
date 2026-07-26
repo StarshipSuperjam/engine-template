@@ -1,10 +1,13 @@
-"""score.py — the demotion scorer for active forgetting (memory substrate).
+"""score.py — the freshness scorer for the memory substrate.
 
-Active forgetting demotes a record in tiers — **hot → warm → cold → archived** — by
-**frecency × role-weight × recency**, where `archived` is an index-exclusion *state* (excluded from recall, but
-the record stays resident + fully recoverable in the one ledger — demotion never deletes). This module is the
-pure scoring law; `forget` collects a record's access timestamps from the ledger and applies it in
-`live_records` (dropping only `archived`). Tier is **derived on read** (nothing recall-affecting is persisted).
+A record scores **frecency × role-weight × recency**, which maps onto four tiers — **hot → warm → cold →
+archived**. This module is the pure scoring law. Its readers are `index` (the usage tiebreak that reorders
+near-equal lexical matches) and `rollup` (which folds `cold` summaries into a gist). Tier is **derived on
+read** — nothing here is persisted, and nothing here is authoritative about what recall can reach.
+
+`archived` used to be an index-exclusion state: `forget.live_records` dropped whatever landed in it, retiring a
+never-reinforced record at somewhere between 26 and 33 days. That age-out is gone for every record kind. It is
+now a freshness label like the other three, naming the coldest end of the scale and hiding nothing.
 
 Scoring first worked from a record's birth + its live reinforcement markers. A later pass adds **compaction**, which
 folds those markers into a carried **frecency snapshot** on the record (records.FRECENCY_SNAPSHOT_KEY etc.) and
@@ -25,7 +28,7 @@ Design constraints (so compaction's fold stays legal and tests stay deterministi
 
 The concrete constants below (half-life, role weights, tier thresholds) are the build-spec-leaf "forgetting
 scores" the design defers to this pass; the *shape* — a birth-seeded product of
-recurrence-form decays, four tiers, archived-only-excludes — is fixed by the spec.
+recurrence-form decays, four tiers — is fixed by the spec.
 
 stdlib-only except `records` (the field-name vocabulary leaf, which imports nothing from `memory`) — so this is
 still a leaf that cannot form an import cycle. No file I/O.
@@ -62,9 +65,8 @@ DEFAULT_ROLE_WEIGHT = 1.00
 
 # Tier names + the score thresholds on the product. A fresh record scores 1.0 * role * 1.0 >= 0.70 -> hot; a
 # never-reinforced default-role record (score = decay(age)**2) ages hot (<= ~7 d) -> warm (~7-16 d) ->
-# cold (~16-30 d) -> archived (> ~30 d). Only `archived` is excluded from recall — and a CAPTURED TURN is
-# exempt from that exclusion (forget._is_demoted): it scores from reinforcement and has none by construction,
-# so the ratchet would expire the canonical record about a month after it was said.
+# cold (~16-30 d) -> archived (> ~30 d). NONE of these excludes a record from recall; `cold` is what `rollup`
+# reads to pick a summary worth folding, and the whole scale is what `index` reads to break a ranking tie.
 HOT = "hot"
 WARM = "warm"
 COLD = "cold"
@@ -207,8 +209,8 @@ def mint_snapshot(record, access_ts, now: "int | None" = None):
 
 
 def tier(record, access_ts, now: "int | None" = None) -> str:
-    """The freshness tier of `record`: HOT / WARM / COLD / ARCHIVED. Only ARCHIVED changes recall
-    (it is excluded from `live_records`, except for a captured turn — see `forget._is_demoted`); the finer hot/warm/cold deprioritization rides the search ranking."""
+    """The freshness tier of `record`: HOT / WARM / COLD / ARCHIVED. NONE of them changes what recall can
+    reach — the scale rides the search ranking, and COLD is the roll-up's candidate signal."""
     now = int(time.time()) if now is None else now
     s = score(record, access_ts, now)
     if s >= HOT_THRESHOLD:

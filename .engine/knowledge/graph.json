@@ -5808,7 +5808,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:b70105becda2f137f6176b7b6aaa5dec13a298e8559d4ce6bd5ba211577ec4e8",
+        "fingerprint": "sha256:ddd1a56a026ae31f09302cde5ace74317b76620ba5a92ed1d0554ffb65722eb5",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6046,7 +6046,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:fcd896f23f7285f5664ca499446654bb13b26a6fa9a107750c38fa8bd9f54f7e",
+        "fingerprint": "sha256:9acd6332f4e0d8e37d4a8e4432a7690b94d13914edc00db5988a4f4fa8610f01",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -6386,7 +6386,7 @@
       },
       "slug": "demo_boot_set_aside_readout",
       "source": {
-        "fingerprint": "sha256:af7a9fdf1f83a5aa02e04814420693aff8e1cdaac063df82c82c35bd984e7f7b",
+        "fingerprint": "sha256:a398df98ea91c46fe11ceafc034e96f6426e742f7ab038adcf535786ac42f104",
         "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
@@ -7134,7 +7134,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:22ccb6dfc0abc423059f188a2de3411471dc8ab028c4d6a33bd85806ebad307b",
+        "fingerprint": "sha256:5cd00195315c6cca7c4989dff3df391de5637d21ffc5542b28ee68d7dcf27663",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7253,7 +7253,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:62e574dedb4a818c5b6b0c73e8833ce403daa4235da070706126bfa2e5169288",
+        "fingerprint": "sha256:6f4f6ed39798ad2668cfe928a950bfff636ee2fa21febabadb5eded55eefa981",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -8001,7 +8001,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:42ca1267053eb87df9dd7f78f3397c0f4dc470a876593c7298d4e23364b4fce7",
+        "fingerprint": "sha256:1fa705ac919c3dfc1e6f5bc5fb4db185a017236b936a26ae108f23ae88b069dc",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -8018,7 +8018,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:646b92ecb6da6674fdc9209b31146839246f7f594f4b68602082ebd59e2db779",
+        "fingerprint": "sha256:5398a01509a7fdf21104c4b9180f8c06512b7c75bd178f9101c745cde851d99a",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8120,7 +8120,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:01e3550cdc1cc7616d043e9b7037feba3052a324fed6b234ab6c234ff98b45e2",
+        "fingerprint": "sha256:400c8db4595ab436b33c8edad23f1166c0be831de66d8ddc8ce966c3a9565ed4",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -8171,7 +8171,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:c48a30cd53611f71702597d18fccadf61619100f75f81eb445637ffe2fab444e",
+        "fingerprint": "sha256:7b7dfb9dfb570151525b0ba6856ef26ac6e45a32c864c9be37d0086d837c4f4e",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -8239,7 +8239,7 @@
       },
       "slug": "score",
       "source": {
-        "fingerprint": "sha256:237ae871abfa4c7cef984f5e51f3ed77547267a7f1dee396ef5b190a2a48b684",
+        "fingerprint": "sha256:c2daaac0bee0a88852da9a8ded39483ebce6af573e003e15eca38581f1647578",
         "path": ".engine/tools/memory/score.py"
       },
       "status": "active",
@@ -8664,7 +8664,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:7d7ac98fed01cfb95c626c37165d537f2bf1e24e2f231f82313db576f5317ef5",
+        "fingerprint": "sha256:73b134fc1a76ac6cbec3b747446ba6859b6628d520092697e8c557284c97199c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8851,7 +8851,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:855e4554877731004df2511fe581a4933496dd32f07ba891aac397471b8bcbfe",
+        "fingerprint": "sha256:f05597e66628c7d9b8588c205a3b8afb9477a248e0bd76fc27cab6e79acf6511",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -9225,7 +9225,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:7084bc8a65a98a0429ea35ae7474f2ddc129d1c59270b2908b294f1a276b7304",
+        "fingerprint": "sha256:fceacc277bc9a92d823341088ffac74359c1c7482ca3feb2d855928f49ed6174",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -9327,7 +9327,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:8e2b4d5a84599a72d3c2c3a03e71c597968073cc8e938de3951c09dde67188a7",
+        "fingerprint": "sha256:69c2f180d39320ea39e85b0632fc25d8710b29a4f8758ecf94911ea636ff7905",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -10007,7 +10007,7 @@
       },
       "slug": "test_recall_benchmark",
       "source": {
-        "fingerprint": "sha256:a4b4c8943e7ee4d82eee9ff1209f21b5eb747a44a1346deb7484502a6fe16baa",
+        "fingerprint": "sha256:1775ffd3d74f28e6c19d27fb1593a45b725ab90395777b93f12fc1791930976e",
         "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
@@ -10262,7 +10262,7 @@
       },
       "slug": "test_score",
       "source": {
-        "fingerprint": "sha256:0c58471656a34a98b8c120f74e00cd0154b3bf8cb80d26cc3477c2ec5cdd2131",
+        "fingerprint": "sha256:377d047857361ad366da1c208f76b7d07066cc59229602368aefe22ac0ca6af1",
         "path": ".engine/tools/memory/test_score.py"
       },
       "status": "active",
@@ -10296,7 +10296,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:73ac8f47008dea3833a085ba302c83ff21b7f42b0cf5da38d38b0304385abbec",
+        "fingerprint": "sha256:05920c1b65204dd10964ddd9f70eef45b6a891bd8799f90b58230211b5a6ccc5",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",

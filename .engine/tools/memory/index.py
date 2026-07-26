@@ -549,33 +549,129 @@ def _rank_slice_score(candidates: list, limit: "int | None") -> list:
     return out
 
 
+# SQLite fts5's own bm25 constants, so the plain-Python scan scores identically to the FTS5 index rather than
+# approximately. `k1` damps repetition, `b` is how hard a long document is penalised for its length. The epsilon
+# floor is fts5's too, and it is not a rounding detail: the textbook inverse-document-frequency goes NEGATIVE for
+# a term carried by more than half the corpus, which would rank a document DOWN for containing the word it was
+# searched for; fts5 clamps it to a positive sliver instead, so every match of a very common word scores the same
+# near-zero and the usage tiebreak decides between them. Verified against fts5's own `bm25()` over a generated
+# corpus: the largest disagreement across 685 scores was 8.5e-22.
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+_BM25_MIN_IDF = 1e-6
+
+
+def _bm25_idf(n_docs: int, doc_freq: int) -> float:
+    """The inverse document frequency of one query term, exactly as fts5 computes it. `doc_freq` can never
+    exceed `n_docs` (it is counted in the same pass), so the logarithm's argument is never non-positive."""
+    idf = math.log((n_docs - doc_freq + 0.5) / (doc_freq + 0.5))
+    return idf if idf > 0.0 else _BM25_MIN_IDF
+
+
+# How many matched rows the fast path fetches bodies for per round trip while walking the bm25 order. Sized from
+# the caller's `limit` so a small page fetches little, with a floor that keeps a heavily-filtered query (which
+# must keep reading past everything the filter rejects) from paying a round trip per record.
+_HYDRATE_CHUNK = 200
+_HYDRATE_MIN = 32
+
+
+def _fast_candidates(conn, match, *, roles, tags, limit, access_index, now):
+    """The fast path's candidate list — ranked WITHOUT holding the whole matched set in memory.
+
+    The old shape fetched every matching row up front and parsed each one into a record dict before ranking. On
+    a curated-only store that was a rounding error. Once the conversation became recall content it was not: a
+    single common word matches by the tens of thousands (20,092 records for "the" against the maintainer's
+    store), so answering a ten-record query parsed and RETAINED the whole store — a measured 134 MB resident
+    spike inside the long-lived recall server, growing linearly with the store.
+
+    Two bounds, because they cover different queries and neither covers both:
+
+    * **Nothing is retained but the sort key.** Each record is parsed, scored and released; only
+      `(relevance, usage, ord)` survives the walk, and the record bodies of the survivors are re-read at the end.
+      Retained cost falls from a parsed dict per match to a flat tuple per match. This is the bound that holds
+      for a COMMON word, where bm25's IDF term collapses to ~0 and every match lands in one relevance bucket —
+      there the ranking genuinely depends on every match's usage, so they must all be scored, just not kept.
+    * **The walk stops early once no unread row could reach the top `limit`.** `_rank_slice_score` sorts by
+      bucketed relevance, then usage, then ledger position; rounding is monotone, so the SQL order is already
+      the bucket order. Once `limit` candidates have been kept, the bucket of the last of them is the BOUNDARY:
+      a row in that same bucket can still overtake them on usage, so it is read too, but a row in any worse
+      bucket sorts behind all of them and can never reach the top `limit`. This is the bound that holds for a
+      SELECTIVE word, where the buckets are many and small ("decision" matched 951 records across 44 buckets,
+      the largest holding 43). With no `limit` the caller asked for everything, so nothing is skipped.
+
+    Either way the returned records are exactly the ones ranking the full matched set would have returned."""
+    cur = conn.execute(
+        "SELECT rowid, bm25(entries_fts) AS relevance FROM entries_fts "
+        "WHERE entries_fts MATCH ? ORDER BY relevance", [match])
+    span = _HYDRATE_CHUNK if limit is None else min(_HYDRATE_CHUNK, max(2 * limit, _HYDRATE_MIN))
+    keys: list = []                      # (relevance, usage, ord) — deliberately NOT the record
+    boundary = None
+    done = False
+    while not done:
+        chunk = cur.fetchmany(span)
+        if not chunk:
+            break
+        if boundary is not None and round(float(chunk[0][1]), _REL_DECIMALS) > boundary:
+            break                        # the whole chunk is past the boundary — do not read any of it
+        bodies = dict(conn.execute(
+            "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(chunk)),
+            [row[0] for row in chunk]).fetchall())
+        for ordinal, relevance in chunk:
+            bucket = round(float(relevance), _REL_DECIMALS)
+            if boundary is not None and bucket > boundary:
+                done = True
+                break
+            record_json = bodies.get(ordinal)
+            if record_json is None:
+                continue                 # an fts row with no `entries` row — what the old JOIN dropped silently
+            record = json.loads(record_json)
+            if not _passes_filters(record, roles, tags):
+                continue
+            # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
+            keys.append((-float(relevance), _usage_of(record, access_index, now), ordinal))
+            if limit is not None and boundary is None and len(keys) >= limit:
+                boundary = bucket
+        bodies = None                    # release the chunk before reading the next one
+    return _hydrate_winners(conn, keys, limit)
+
+
+def _hydrate_winners(conn, keys, limit):
+    """Turn the surviving sort keys back into the `(rel, usage, ord, record)` candidates `_rank_slice_score`
+    expects, reading ONLY the records that can still make the answer. Sorts and slices by the same key that
+    function does — doing it twice costs nothing and is what lets the walk above keep no record bodies at all."""
+    keys.sort(key=lambda c: (round(-c[0], _REL_DECIMALS), -c[1], c[2]))
+    if limit is not None:
+        keys = keys[:limit]
+    if not keys:
+        return []
+    bodies = dict(conn.execute(
+        "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(keys)),
+        [k[2] for k in keys]).fetchall())
+    out = []
+    for rel, usage, ordinal in keys:
+        record_json = bodies.get(ordinal)
+        if record_json is not None:
+            out.append((rel, usage, ordinal, json.loads(record_json)))
+    return out
+
+
 def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
-    """The shared ranked retrieval. Fast path: bm25 over the FTS5 index (when present + generation-current); slow
-    path: a full scan computing a damped term-frequency relevance. BOTH rank the FULL matched set, THEN slice —
-    never an early ledger-order truncation, so the fast and slow paths return the same SET (the availability law;
-    exact ORDER may differ on the degraded path). Returns a QueryResult."""
+    """The shared ranked retrieval. Fast path: bm25 read from the FTS5 index (when present +
+    generation-current); slow path: a full scan over the ledger computing THE SAME bm25 in plain Python. So the
+    two paths agree on the matched set AND on its order — the availability law now holds for the answer, not
+    just for the fact that one comes back. NEITHER truncates in ledger order. The fast path stops walking its
+    (already relevance-ordered) matches once no unread row could reach the top `limit` — a bound on work, never
+    on the answer; see `_fast_candidates`. Returns a QueryResult."""
     access_index = forget._access_index(src)
     # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
     if (not force_scan) and fts5_available() and os.path.exists(dst):
         match = " ".join('"' + token + '"' for token in tokens)
-        sql = (
-            "SELECT e.ord, e.record_json, bm25(entries_fts) AS relevance "
-            "FROM entries_fts JOIN entries e ON e.ord = entries_fts.rowid "
-            "WHERE entries_fts MATCH ? ORDER BY relevance"
-        )
         try:
             conn = sqlite3.connect(dst)
             try:
                 if _index_is_current(conn, src):
-                    rows = conn.execute(sql, [match]).fetchall()
-                    candidates = []
-                    for ordinal, record_json, relevance in rows:
-                        record = json.loads(record_json)
-                        if not _passes_filters(record, roles, tags):
-                            continue
-                        # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
-                        rel = -float(relevance)
-                        candidates.append((rel, _usage_of(record, access_index, now), ordinal, record))
+                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, limit=limit,
+                                                  access_index=access_index, now=now)
                     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
             finally:
                 conn.close()
@@ -583,17 +679,38 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
             # Broken/corrupt index: fall through to the always-correct scan (availability law). A malformed MATCH
             # cannot land here (the tokens are always valid), so this only catches a broken index, never a bad query.
             pass
-    # Slow path — rank the FULL matched set (no early limit break, so the SET matches the fast path).
-    want = set(tokens)
-    candidates = []
-    for ordinal, record in enumerate(forget.live_records(path=src, now=now)):
+    # Slow path — rank the FULL matched set (no early limit break, so the SET matches the fast path), scoring it
+    # with the SAME bm25 the fast path reads out of FTS5. One streaming pass collects both the corpus statistics
+    # bm25 needs (document count, average length, per-term document frequency) and the matched records; the
+    # scores follow once the pass is complete, because a document's rank depends on the whole corpus.
+    want = list(dict.fromkeys(tokens))
+    wanted = set(want)
+    n_docs = total_len = 0
+    doc_freq = dict.fromkeys(want, 0)
+    matched = []
+    for ordinal, record in enumerate(forget.live_records(path=src)):
         body_tokens = _tokenize(_record_text(record))
-        if not (want <= set(body_tokens)):
+        n_docs += 1
+        total_len += len(body_tokens)
+        present = set(body_tokens)
+        for term in wanted & present:
+            doc_freq[term] += 1
+        if not (wanted <= present) or not _passes_filters(record, roles, tags):
             continue
-        if not _passes_filters(record, roles, tags):
-            continue
-        tf = sum(1 for t in body_tokens if t in want)   # total query-term occurrences in the body
-        candidates.append((math.log1p(tf), _usage_of(record, access_index, now), ordinal, record))
+        tf = {}
+        for token in body_tokens:
+            if token in wanted:
+                tf[token] = tf.get(token, 0) + 1
+        matched.append((ordinal, len(body_tokens), tf, record))
+    candidates = []
+    if matched:
+        avgdl = (total_len / n_docs) if n_docs and total_len else 1.0
+        idf = {term: _bm25_idf(n_docs, doc_freq[term]) for term in want}
+        for ordinal, doc_len, tf, record in matched:
+            rel = sum(idf[term] * (tf[term] * (_BM25_K1 + 1))
+                      / (tf[term] + _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / avgdl))
+                      for term in want)
+            candidates.append((rel, _usage_of(record, access_index, now), ordinal, record))
     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
 
 
@@ -659,9 +776,9 @@ def search(
     index_file: "str | None" = None,
 ) -> QueryResult:
     """Ranked, filtered recall — the `search` interface (search.json). Every query word must appear (implicit AND),
-    and the matches come back BEST-FIRST: by lexical relevance (bm25 on the fast path, a damped term-frequency
-    proxy on the slow backup), with usage (frecency × role-weight × recency) breaking near-ties but never
-    overriding a clearly-stronger match. Optional `roles` (the closed vocabulary; an unknown role raises
+    and the matches come back BEST-FIRST: by lexical relevance (the SAME bm25 on both paths — read from FTS5 on
+    the fast one, recomputed in plain Python on the slow backup), with usage (frecency × role-weight × recency)
+    breaking near-ties but never overriding a clearly-stronger match. Optional `roles` (the closed vocabulary; an unknown role raises
     ValueError) and `tags` (any-match) narrow. Each result is a shallow copy carrying `records.SCORE_KEY` (the
     lexical relevance). `degraded` is True when answered by the slow backup scan.
 

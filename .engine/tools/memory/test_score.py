@@ -1,10 +1,13 @@
-"""Unit tests for score.py + forget.py's scored demotion.
+"""Unit tests for score.py + forget.py's reinforcement trail.
 
 Two groups: (1) the pure scoring law (score.py) — determinism, the recurrence/fold property compaction relies on,
-the birth seed, the role-weight prior, the ageing curve, and `ts` robustness; (2) the ledger-backed demotion
-through `forget` — the `record_access` appender, the raw-ledger access index, archived-exclusion-from-recall
-with recoverability, the reinforcement-restores path (which doubles as the raw-read leak guard), and the
-no-erasure build-conformance invariant.
+the birth seed, the role-weight prior, the ageing curve, and `ts` robustness; (2) the ledger-backed half through
+`forget` — the `record_access` appender, the raw-ledger access index (the leak guard), the markers never
+surfacing as recall results, and the no-erasure build-conformance invariant.
+
+The scale no longer decides membership. `live_records` used to drop whatever scored into the archived tier;
+that age-out is gone for every record kind, so the tests that pinned the exclusion now pin its ABSENCE — an old
+record is still recalled, and only its RANKING reflects how long it has gone unused.
 """
 
 from __future__ import annotations
@@ -81,8 +84,8 @@ class ScorerMathTests(unittest.TestCase):
         self.assertEqual(score.tier({"ts": now - 22 * _DAY}, [], now), score.COLD)
 
     def test_a_recent_access_pulls_an_old_record_back_up(self):
-        # Case 6 (pure half): an archived-aged record + recent accesses scores strictly higher and climbs out
-        # of archived — the recency spike + frecency boost.
+        # Case 6 (pure half): an old record + recent accesses scores strictly higher and climbs out of the
+        # coldest tier — the recency spike + frecency boost. This is a RANKING move; neither tier hides a record.
         now = 10_000_000
         rec = {"ts": now - 35 * _DAY, "role": "lesson"}
         cold_score = score.score(rec, [], now)
@@ -92,8 +95,8 @@ class ScorerMathTests(unittest.TestCase):
         self.assertIn(score.tier(rec, [now, now, now], now), (score.HOT, score.WARM))
 
     def test_missing_or_bad_ts_is_treated_as_now_failsafe_toward_keeping(self):
-        # Case 10 (robustness): a missing / non-int / bool / future ts must never silently archive a record —
-        # it is scored as born-now -> hot.
+        # Case 10 (robustness): a missing / non-int / bool / future ts is scored as born-now -> hot, so a damaged
+        # moment never silently sinks a record to the bottom of every ranking.
         now = 10_000_000
         for bad in ({}, {"ts": None}, {"ts": "garbage"}, {"ts": True}, {"ts": now + 99 * _DAY}):
             self.assertEqual(score.tier(bad, [], now), score.HOT, bad)
@@ -130,7 +133,7 @@ class _Base(unittest.TestCase):
         return index.query(word).records
 
 
-class LedgerDemotionTests(_Base):
+class LedgerReinforcementTests(_Base):
     def test_record_access_appends_a_well_formed_marker(self):
         # Case 9.
         forget.record_access("the-target-id")
@@ -150,38 +153,32 @@ class LedgerDemotionTests(_Base):
         forget.record_access(None)
         self.assertEqual(list(ledger.iter_records()), [])
 
-    def test_an_archived_record_is_excluded_from_recall_but_stays_in_the_ledger(self):
-        # Case 7: recoverability — set aside from recall, still resident.
-        old = self._aged_episodic("the bridge tolls double on holidays", age_days=35)
-        ledger.append(old)
-        index.rebuild()
-        self.assertEqual(self._recall("bridge"), [])                  # excluded from recall
-        self.assertNotIn(old[records.RECORD_ID_KEY],
-                         [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
-        in_ledger = [r for r in ledger.iter_records()
-                     if r.get(records.RECORD_ID_KEY) == old[records.RECORD_ID_KEY]]
-        self.assertEqual(len(in_ledger), 1)                           # still in the ledger, recoverable
+    def test_a_record_nobody_has_used_in_a_year_is_still_recalled(self):
+        # The inversion. This used to assert the opposite: a 35-day-old note was scored into the archived tier
+        # and dropped from recall. That age-out is gone for every kind, so what has to hold now is that a note
+        # NEVER leaves search merely because time passed — at 35 days, and at more than a year.
+        for days, word in ((35, "bridge"), (400, "trebuchet")):
+            old = self._aged_episodic(f"the {word} tolls double on holidays", age_days=days)
+            ledger.append(old)
+            index.rebuild()
+            self.assertEqual(len(self._recall(word)), 1, f"a {days}-day-old note left recall")
+            self.assertIn(old[records.RECORD_ID_KEY],
+                          [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
 
-    def test_reinforcing_an_archived_record_restores_it_the_raw_read_leak_guard(self):
-        # Case 6: an archived-aged record, reinforced, returns to recall. This FAILS if `_access_index` reads
-        # `live_records` instead of the raw ledger (the markers would be filtered out, the accesses invisible,
-        # the record stuck archived) — so it pins the raw-read requirement.
-        old = self._aged_episodic("the equinox parade route changed", age_days=35)
-        old_id = old[records.RECORD_ID_KEY]
-        ledger.append(old)
-        index.rebuild()
-        self.assertEqual(self._recall("equinox"), [])                 # archived first
-        for _ in range(3):
-            forget.record_access(old_id)
-        index.rebuild()
-        restored = self._recall("equinox")
-        self.assertEqual(len(restored), 1)                            # back in recall
-        self.assertEqual(restored[0][records.RECORD_ID_KEY], old_id)
-        self.assertIn(old_id, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
+    def test_membership_does_not_depend_on_the_clock(self):
+        # The property the removal buys: `live_records` reads no clock at all, so the same ledger yields the
+        # same records whenever it is read. A time-dependent membership rule is exactly what silently expired
+        # the canonical record a month after it was said.
+        ledger.append(self._aged_episodic("the ferry runs on the hour", age_days=1))
+        ledger.append(self._aged_episodic("the drawbridge sticks in the cold", age_days=365))
+        ids = lambda: [r.get(records.RECORD_ID_KEY) for r in forget.live_records()]
+        self.assertEqual(len(ids()), 2)
+        self.assertEqual(ids(), ids())
 
-    def test_access_index_reads_markers_for_an_archived_record(self):
-        # Case 6 (direct): the access index keys by target id and includes markers for an archived record,
-        # because it reads the RAW ledger (live_records would have dropped both the record and its markers).
+    def test_access_index_reads_the_raw_ledger_the_leak_guard(self):
+        # The access index keys by target id and finds its markers because it reads the RAW ledger. It FAILS if
+        # it ever reads `live_records`, which drops every reinforcement marker as bookkeeping — the accesses
+        # would be invisible and every record would rank as though it had never been used.
         old = self._aged_episodic("solstice", age_days=40)
         old_id = old[records.RECORD_ID_KEY]
         ledger.append(old)
@@ -202,7 +199,7 @@ class LedgerDemotionTests(_Base):
             self.assertEqual(
                 [r for r in index.query(term).records if r.get("kind") == records.REINFORCEMENT_KIND], [])
 
-    def test_a_consolidated_marker_is_never_demoted(self):
+    def test_a_consolidated_marker_is_never_dropped_from_recall(self):
         # The structural `consolidated` marker stays always-live even when old (it carries
         # no recall text and is load-bearing for _closed_batches, which reads it raw).
         marker = consolidate._make_marker("s", "b")

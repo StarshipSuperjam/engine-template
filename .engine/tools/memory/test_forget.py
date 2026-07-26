@@ -145,16 +145,26 @@ class LiveRecordsTests(_Base):
         texts = [r.get("text") for r in forget.live_records()]
         self.assertEqual(texts, [], "a later chunk of an injected message must travel with its head")
 
-    def test_a_turn_is_never_aged_out_of_recall(self):
-        # The tier ratchet archives a never-reinforced role-less record at about 30 days, and a turn can never
-        # earn its way out (nothing reinforces what nothing could recall). Left in place, the transcript would be
-        # searchable for a month and silently invisible after. The sealed benchmark CANNOT catch this — its
-        # corpus is stamped relative to run time — so this is the test that has to.
-        old = capture._make_record("S", 0, "user", "an ancient quokka turn note")
-        old["ts"] = int(time.time()) - 400 * 86400        # far past every role's archival boundary
-        ledger.append(old)
+    def test_nothing_of_any_kind_is_ever_aged_out_of_recall(self):
+        # The tier ratchet used to archive a never-reinforced record at 26.7 days (`dead-end`) to 32.9
+        # (`decision`), and a captured turn could never earn its way out (nothing reinforces what nothing could
+        # recall). Exempting only the turn would have left the summaries carrying the decisions aging out from
+        # underneath the conversation, so the ratchet is gone for every kind — which is what this asserts, one
+        # record per role plus a role-less turn, all far past every boundary the ratchet ever had. The sealed
+        # benchmark CANNOT catch a regression here (its corpus is stamped relative to run time), so this must.
+        ancient = int(time.time()) - 400 * 86400
+        turn = capture._make_record("S", 0, "user", "an ancient quokka turn note")
+        turn["ts"] = ancient
+        ledger.append(turn)
+        for role in sorted(consolidate.ROLE_VOCABULARY):
+            rec = consolidate._make_episodic("S", {"role": role, "text": f"an ancient {role} note"}, "b")
+            rec.pop(records.BATCH_KEY, None)              # batchless: always live, never a crash orphan
+            rec["ts"] = ancient
+            ledger.append(rec)
         texts = [r.get("text") for r in forget.live_records()]
         self.assertIn("an ancient quokka turn note", texts)
+        for role in consolidate.ROLE_VOCABULARY:
+            self.assertIn(f"an ancient {role} note", texts, f"a {role} record aged out of recall")
 
     def test_the_orphan_stays_in_the_raw_ledger_recoverable(self):
         self._episodic("S", "orphan note", "batch-x")          # retired from recall...
@@ -418,13 +428,16 @@ _DAY = 86400
 
 
 class SetAsideReportTests(_Base):
-    """The set-aside report the boot readout relays: the two classes recall drops that the operator has a
-    handle on (demoted / summarised), never the crash-orphan class."""
+    """The set-aside report the boot readout relays: the ONE class recall drops that the operator has a handle
+    on (summarised), never the crash-orphan class. There used to be a second, reversible class — a note the
+    archived-tier ratchet aged out — and these tests pinned it; the ratchet is gone for every kind, so what they
+    pin now is that age alone sets nothing aside."""
 
-    def _demoted(self, text, *, age_days=35, session="D"):
-        """A never-reinforced episodic old enough to score into the archived tier -> demoted out of recall."""
+    def _aged(self, text, *, age_days=400, session="D"):
+        """A never-reinforced episodic far older than any threshold the retired ratchet used. Batchless, so it
+        is never a crash orphan either — it is simply an old note, and it must stay in recall."""
         rec = consolidate._make_episodic(session, {"role": "decision", "text": text}, "b")
-        rec.pop(records.BATCH_KEY, None)                 # batchless: never a crash orphan, only demoted by age
+        rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - age_days * _DAY
         ledger.append(rec)
         return rec[records.RECORD_ID_KEY]
@@ -444,14 +457,15 @@ class SetAsideReportTests(_Base):
         rollup.store_gist(session, [{"role": "lesson", "text": "rolled-up summary of the older notes",
                                      records.SOURCE_IDS_KEY: list(raw_ids)}])
 
-    def test_a_demoted_note_is_set_aside_and_reversible(self):
-        rid = self._demoted("an old decision nobody revisits")
+    def test_an_old_unused_note_is_not_set_aside_at_all(self):
+        # The inversion of what this class used to assert. A note nobody has come back to in over a year is
+        # still searchable, so it is not "set aside" and the readout must not name it — there is nothing to
+        # offer the operator a handle on.
+        rid = self._aged("an old decision nobody revisits")
         report = forget.set_aside()
-        row = next(r for r in report["rows"] if r["id"] == rid)
-        self.assertEqual(row["reason"], forget.SET_ASIDE_DEMOTED)
-        self.assertTrue(row["reversible"])            # a demoted note CAN be brought back
-        self.assertIsNone(row["since"])               # there is no demotion event; the reader never invents one
-        self.assertEqual(report["totals"]["demoted"], 1)
+        self.assertEqual(report["rows"], [])
+        self.assertEqual(report["totals"], {"summarised": 0})
+        self.assertIn(rid, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
 
     def test_a_summarised_raw_is_set_aside_and_not_reversible(self):
         raws = self._raws(3)
@@ -478,12 +492,12 @@ class SetAsideReportTests(_Base):
         self.assertEqual(report["identity"], [])       # neither class is set-aside for the operator
 
     def test_markers_and_turn_deltas_never_appear(self):
-        self._demoted("an aged decision")               # one real set-aside row to prove the report is non-empty
+        self._summarise(self._raws(1))                  # one real set-aside row to prove the report is non-empty
         ledger.append(capture._make_record("S", 0, "user", "a raw turn note"))   # ambient turn-delta
         forget.record_access("whatever")                # a reinforcement marker
         report = forget.set_aside()
-        kinds_shaped = {r["reason"] for r in report["rows"]}
-        self.assertLessEqual(kinds_shaped, {forget.SET_ASIDE_DEMOTED, forget.SET_ASIDE_SUMMARISED})
+        self.assertTrue(report["rows"])
+        self.assertEqual({r["reason"] for r in report["rows"]}, {forget.SET_ASIDE_SUMMARISED})
         self.assertTrue(all(r["text"] not in ("a raw turn note",) for r in report["rows"]))
 
     def test_set_aside_and_live_records_partition_the_recall_eligible_population(self):
@@ -493,8 +507,8 @@ class SetAsideReportTests(_Base):
         # set_aside miss — a record recall hides that the readout fails to classify — cannot hide in the leftover;
         # it breaks the partition. This is what makes the test a real net for a future live_records exclusion.
         # Compact partway so the check runs against the folded (matured-store) form, not just fresh markers.
-        live = self._demoted("a fresh live note", age_days=0, session="L")
-        demoted = self._demoted("demoted note")
+        live = self._aged("a fresh live note", age_days=0, session="L")
+        old_but_live = self._aged("an old note nobody revisits", session="L2")
         raws = self._raws(2, session="R")
         self._summarise(raws, session="R")
         ledger.append(consolidate._make_episodic("O", {"role": "decision", "text": "orphan"}, "orphan-batch"))
@@ -518,7 +532,7 @@ class SetAsideReportTests(_Base):
         self.assertEqual(live_ids & orphan_ids, set())           # an orphan is not live either
         self.assertEqual(live_ids | aside_ids | orphan_ids, all_content)   # exact, complete partition
         self.assertIn(live, live_ids)
-        self.assertIn(demoted, aside_ids)
+        self.assertIn(old_but_live, live_ids)                    # age alone never moves a note to the aside set
         self.assertLessEqual(set(raws), aside_ids)               # summarised raws set aside even after compaction
         self.assertTrue(orphan_ids)                              # the orphan is in the excluded set, not lost
 
@@ -536,29 +550,28 @@ class SetAsideReportTests(_Base):
             self.assertIn(rid, rows, "a summarised raw vanished from the readout after compaction")
             self.assertEqual(rows[rid]["reason"], forget.SET_ASIDE_SUMMARISED)
             self.assertFalse(rows[rid]["reversible"])            # never a false bring-back offer post-compaction
-        self.assertEqual(report["totals"], {"demoted": 0, "summarised": 2})
+        self.assertEqual(report["totals"], {"summarised": 2})
 
-    def test_every_reversible_row_actually_round_trips_through_restore(self):
-        # The honesty contract: any row the readout marks reversible MUST come back when restored. Builds an aged
-        # demoted note, an aged summarised raw, and an aged crash-orphan, compacts, and proves each reversible=True
-        # row restores to recall while no non-reversible/excluded record is offered as reversible.
-        demoted = self._demoted("aged demoted note")
-        raws = self._raws(1, age_days=40)                        # aged so it would score archived if mislabelled
+    def test_no_row_is_ever_offered_as_reversible(self):
+        # The honesty contract, and it is now absolute: the only thing that sets a note aside is a summary
+        # written over it, and there is no un-fold. Nothing in the readout may claim otherwise — which is why
+        # the restore that once backed `reversible=True` was removed with the class it reversed rather than
+        # left in place returning False.
+        self._aged("an old note nobody revisits")
+        raws = self._raws(2, age_days=40)
         self._summarise(raws)
         ledger.append(consolidate._make_episodic("O", {"role": "decision", "text": "aged orphan"}, "orphan-b"))
         compact.compact()
-        for row in forget.set_aside()["rows"]:
-            if row["reversible"]:
-                self.assertTrue(forget.restore_to_recall(row["id"]),
-                                f"a row marked reversible did not restore: {row['id']}")
-        self.assertTrue(forget.restore_to_recall(demoted) or True)   # the demoted note is the genuine reversible one
+        rows = forget.set_aside()["rows"]
+        self.assertTrue(rows)
+        self.assertEqual([r["reversible"] for r in rows], [False] * len(rows))
+        self.assertFalse(hasattr(forget, "restore_to_recall"))
 
     def test_totals_count_the_full_population_while_rows_respect_the_limit(self):
-        for i in range(5):
-            self._demoted(f"aged note {i}", session=f"S{i}")
+        self._summarise(self._raws(5))
         report = forget.set_aside(limit=2)
         self.assertEqual(len(report["rows"]), 2)                 # the sample is bounded
-        self.assertEqual(report["totals"]["demoted"], 5)         # the total is the whole population
+        self.assertEqual(report["totals"]["summarised"], 5)      # the total is the whole population
         self.assertEqual(len(report["identity"]), 5)             # identity is the whole population, not the sample
 
     def test_ordering_survives_a_damaged_timestamp(self):
@@ -588,21 +601,9 @@ class SetAsideReportTests(_Base):
 
 
 class SetAsideHandleTests(_Base):
-    def _demoted(self, text, *, age_days=35, session="D"):
-        rec = consolidate._make_episodic(session, {"role": "decision", "text": text}, "b")
-        rec.pop(records.BATCH_KEY, None)
-        rec["ts"] = int(time.time()) - age_days * _DAY
-        ledger.append(rec)
-        return rec[records.RECORD_ID_KEY]
-
-    def test_restore_brings_a_demoted_note_back_into_recall(self):
-        rid = self._demoted("bring me back")
-        self.assertNotIn(rid, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
-        self.assertTrue(forget.restore_to_recall(rid))
-        self.assertIn(rid, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
-        self.assertTrue(forget.restore_to_recall(rid))           # idempotent — a second call is still True
-
-    def test_restore_on_a_summarised_raw_is_false_and_it_stays_out(self):
+    def test_a_folded_raw_stays_out_of_recall_and_its_wording_stays_readable(self):
+        # The only handle a set-aside note has, now that the reversible class is gone: the summary stands in for
+        # it in search, and its original wording is still there to be read word-for-word.
         rec = consolidate._make_episodic("S", {"role": "decision", "text": "raw folded away word1"}, "b")
         rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - 25 * _DAY
@@ -610,19 +611,14 @@ class SetAsideHandleTests(_Base):
         raw_id = rec[records.RECORD_ID_KEY]
         rollup.store_gist("S", [{"role": "lesson", "text": "the summary",
                                  records.SOURCE_IDS_KEY: [raw_id]}])
-        self.assertFalse(forget.restore_to_recall(raw_id))       # supersession is orthogonal to usage — no un-fold
         self.assertNotIn(raw_id, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
-
-    def test_restore_on_a_blank_or_unknown_id_is_false_and_writes_nothing(self):
-        before = sum(1 for _ in ledger.iter_records())
-        self.assertFalse(forget.restore_to_recall(""))
-        self.assertFalse(forget.restore_to_recall("no-such-id"))
-        # an unknown id records an access marker (harmless bookkeeping) but never a delete/rewrite; a blank id is a
-        # pure no-op. The load-bearing guarantee is only that neither raises and neither loses a record:
-        self.assertGreaterEqual(sum(1 for _ in ledger.iter_records()), before)
+        self.assertEqual(forget.recorded_text(raw_id)["text"], "raw folded away word1")
 
     def test_recorded_text_returns_the_exact_wording_and_does_not_reinforce(self):
-        rid = self._demoted("the exact original wording")
+        rec = consolidate._make_episodic("S", {"role": "decision", "text": "the exact original wording"}, "b")
+        rec.pop(records.BATCH_KEY, None)
+        ledger.append(rec)
+        rid = rec[records.RECORD_ID_KEY]
         before = sum(1 for r in ledger.iter_records() if r.get("kind") == records.REINFORCEMENT_KIND)
         got = forget.recorded_text(rid)
         self.assertEqual(got["text"], "the exact original wording")

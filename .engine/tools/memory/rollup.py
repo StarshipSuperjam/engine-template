@@ -228,7 +228,7 @@ def _make_gist(session_id: str, rec: dict, batch: str) -> dict:
 
 def _make_superseded_marker(raw_id: str, gist_id: str, batch: str) -> dict:
     """A per-raw supersession marker: this raw episode's content now lives in `gist_id`. Carries no recall text
-    (pure bookkeeping — `forget._is_demoted` drops it from recall, `index` keeps its uuid-hex `target`/
+    (pure bookkeeping — `forget._is_bookkeeping` drops it from recall, `index` keeps its uuid-hex `target`/
     `superseded_by` out of the body). INERT until its `batch` is closed by a `rolled-up` marker."""
     from memory import capture  # lazy
     return {

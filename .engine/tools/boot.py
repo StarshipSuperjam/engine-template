@@ -760,7 +760,7 @@ def _set_aside_recall(read=None) -> "dict | None":
         report = (read or _forget.set_aside)()
         rows = [r for r in report.get("rows", [])
                 if isinstance(r.get("id"), str) and r.get("id") and isinstance(r.get("text"), str) and r["text"].strip()]
-        return {"rows": rows, "totals": report.get("totals", {"demoted": 0, "summarised": 0}),
+        return {"rows": rows, "totals": report.get("totals", {"summarised": 0}),
                 "identity": report.get("identity", [])}
     except Exception:  # noqa: BLE001 — the readout is orientation context; its loss never breaks the pack
         return None
@@ -840,7 +840,7 @@ def render_recalled_decisions(entries: list | None) -> list:
     return out
 
 
-_SET_ASIDE_SHOW = 3    # how many most-recent notes of each class the readout names inline; the true total is
+_SET_ASIDE_SHOW = 3    # how many most-recent notes the readout names inline; the true total is
 #                        always stated, and "ask me to list them all" reaches the rest — so the block stays a
 #                        brief orientation cue, never a wall (a long-lived store sets aside many notes).
 
@@ -864,17 +864,18 @@ def _set_aside_snippet(text) -> str:
 
 def render_set_aside(sa: "dict | None") -> list:
     """The operator-facing readout of what memory has set aside from recall, so a quiet loss of the operator's
-    own notes never goes unseen. Two things it can name, each with an honest handle:
-      * notes set aside because nothing has come back to them in a while — offered to bring back (a real,
-        mechanical restore); and
-      * notes folded into a shorter summary — offered to show in their original wording (there is no un-fold;
-        the summary stands in for them, and the readout never pretends otherwise).
-    Nothing is ever deleted by either; the readout says so. Permanent erasure is NOT shown here — it is not a
-    boot event and rides the audits digest instead.
+    own notes never goes unseen. One thing it names, with an honest handle: notes folded into a shorter summary,
+    offered to show in their original wording. There is no un-fold — the summary stands in for them, and the
+    readout never pretends otherwise. Nothing is ever deleted; the readout says so. Permanent erasure is NOT
+    shown here — it is not a boot event and rides the audits digest instead.
+
+    There used to be a second class, notes set aside because nothing had come back to them in a while, offered
+    to bring back. That was the archived-tier age-out, which is gone for every record kind (forget.py), so a
+    note is now only ever set aside by a roll-up that folded it — never by time passing.
 
     Bounded: a few most-recent notes plus the true total, so it never grows into noise. Repetition across
     sessions is handled by the caller (the same collapse machinery the pushed alarms use): `collapsed` renders
-    one terse line that still carries both offers; `newly` names how many were set aside since the operator
+    one terse line that still carries the offer; `newly` names how many were set aside since the operator
     last saw this. [] when there is nothing set aside (a fresh or tidy project, or an unread store) — no block,
     never an empty heading.
 
@@ -882,55 +883,30 @@ def render_set_aside(sa: "dict | None") -> list:
     (the id is the machine binding the AI uses behind the scenes, never shown)."""
     if not sa:
         return []
-    rows = sa.get("rows") or []
-    totals = sa.get("totals") or {}
-    demoted_total, summarised_total = totals.get("demoted", 0), totals.get("summarised", 0)
-    total = demoted_total + summarised_total
+    rows = [r for r in (sa.get("rows") or []) if r.get("reason") == "summarised"]
+    total = (sa.get("totals") or {}).get("summarised", 0)
     if total == 0:
         return []
 
-    # Each offer names ONLY a class that is actually set aside: the terse form must never invite the operator to
-    # "bring back" a note when the only thing set aside is a summarised one (which cannot be brought back), nor
-    # offer to "show the original wording" when nothing is summarised.
-    offers = []
-    if demoted_total:
-        offers.append("bring one back into search")
-    if summarised_total:
-        offers.append("show you the original wording of one")
-    offer_sentence = "You can ask me to " + " or ".join(offers) + " whenever you like." if offers else ""
-
+    offer = "You can ask me to show you the original wording of one whenever you like."
     if sa.get("collapsed"):
-        bits = []
-        if demoted_total:
-            bits.append(f"{_n_notes(demoted_total)} set aside because nothing's come back to them")
-        if summarised_total:
-            bits.append(f"{_n_notes(summarised_total)} folded into a shorter summary"
-                        if summarised_total == 1 else f"{summarised_total} notes folded into shorter summaries")
+        folded = (f"{_n_notes(total)} folded into a shorter summary" if total == 1
+                  else f"{total} notes folded into shorter summaries")
         return ["### Notes I've set aside",
-                f"Still {', and '.join(bits)} (unchanged since last session). Nothing was deleted — they're all "
-                f"still saved. {offer_sentence}", ""]
+                f"Still {folded} (unchanged since last session). Nothing was deleted — they're all still saved. "
+                f"{offer}", ""]
 
     newly = sa.get("newly")
     lead = f"I've set aside {_n_notes(total)} from what I search"
     if isinstance(newly, int) and newly > 0:
         lead += f" — {newly} more since you last saw this"
-    # "still saved", NOT "fully recoverable": a demoted note comes all the way back, but a summarised one can
-    # only be shown in its original wording, never returned to search — the per-class bullets carry that.
-    out = ["### Notes I've set aside", f"{lead}. Nothing was deleted — every one is still saved."]
-
-    demoted_rows = [r for r in rows if r.get("reason") == "demoted"]
-    summarised_rows = [r for r in rows if r.get("reason") == "summarised"]
-    if demoted_rows:
-        out.append(f"- Set aside because nothing's come back to them in a while ({demoted_total} in total). "
-                   "Name any one and I'll bring it back into search. Most recent:")
-        for r in demoted_rows[:_SET_ASIDE_SHOW]:
-            out.append(f"  - {_set_aside_snippet(r.get('text'))}")
-    if summarised_rows:
-        out.append(f"- Folded into a shorter summary ({summarised_total} in total). The summary is what I "
-                   "search now; the originals are kept word-for-word, and I can show you the exact wording of "
-                   "any of them. Most recent:")
-        for r in summarised_rows[:_SET_ASIDE_SHOW]:
-            out.append(f"  - {_set_aside_snippet(r.get('text'))}")
+    # "still saved", NOT "fully recoverable": a folded note can only be shown in its original wording, never
+    # returned to search — the bullet below carries that distinction rather than the lead overstating it.
+    out = ["### Notes I've set aside", f"{lead}. Nothing was deleted — every one is still saved.",
+           "- Folded into a shorter summary. The summary is what I search now; the originals are kept "
+           "word-for-word, and I can show you the exact wording of any of them. Most recent:"]
+    for r in rows[:_SET_ASIDE_SHOW]:
+        out.append(f"  - {_set_aside_snippet(r.get('text'))}")
     out.append("Ask me to list them all whenever you like.")
     out.append("")
     return out

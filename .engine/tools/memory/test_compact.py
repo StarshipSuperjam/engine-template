@@ -223,15 +223,18 @@ class NeverDropsRecallContentTests(_Base):
         self.assertNotIn(orphan_id, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])  # still retired
         self.assertIn(records.MARKER_KIND, self._kinds())                                 # the marker survived too
 
-    def test_an_archived_record_survives_the_rewrite(self):
-        # The fold runs over the RAW ledger, not live_records — so an archived (recall-excluded) record's row is
-        # NEVER silently dropped. (Folding over live_records would lose it: a true content loss.)
-        archived = self._episodic("the buried gantry note", age_days=40, role="lesson")
-        aid = archived[records.RECORD_ID_KEY]
-        self.assertEqual(score.tier(archived, ()), score.ARCHIVED)
-        self.assertNotIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])  # excluded from recall
+    def test_a_long_unused_record_survives_the_rewrite_and_stays_in_recall(self):
+        # This used to assert the opposite half: a record scored into the archived tier was excluded from recall,
+        # and the point was that the fold reads the RAW ledger so it kept the row anyway. The age-out is gone, so
+        # what has to hold now is stronger — the coldest-scoring record is BOTH still recalled and still resident
+        # after the rewrite, and compaction must not quietly reintroduce an age-based drop of its own.
+        old = self._episodic("the buried gantry note", age_days=40, role="lesson")
+        aid = old[records.RECORD_ID_KEY]
+        self.assertEqual(score.tier(old, ()), score.ARCHIVED)   # the tier still computes — it just hides nothing
+        self.assertIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
         compact.compact()
-        self.assertEqual(len(self._by_id(aid)), 1)             # but still resident in the ledger
+        self.assertEqual(len(self._by_id(aid)), 1)             # still resident in the ledger
+        self.assertIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
 
 
 class WatermarkSurvivesCompactionTests(_Base):
@@ -355,22 +358,34 @@ class Layer2ErasureTests(_Base):
 
 
 class SearchBodyTests(_Base):
-    def test_the_carried_tier_word_is_not_searchable(self):
-        # The carried `tier` is a STRING ("hot"/"cold"/"archived") on every compacted record — it MUST stay out
-        # of the search body, else a query for one of those words would spuriously surface every compacted
-        # record. The note's own text contains no tier word, so a hit on "hot"/"archived" could only be the
-        # leaked field.
-        e = self._episodic("the riverside survey note")               # no tier word in the text
+    def test_compaction_no_longer_stamps_a_tier(self):
+        # The three carried snapshot fields are read back by the scorer; the carried tier never was. It was
+        # stamped for legibility while a tier decided whether a record still surfaced — nothing does now, so
+        # writing it would leave a label that reads as if it did ("archived" looks like hidden).
+        e = self._episodic("the riverside survey note")
         rid = e[records.RECORD_ID_KEY]
         for _ in range(3):
             forget.record_access(rid)
         compact.compact()
         comp = self._by_id(rid)[0]
-        self.assertIn(records.TIER_KEY, comp)                         # it DID get a carried tier...
+        self.assertIn(records.FRECENCY_SNAPSHOT_KEY, comp)            # the fields the scorer reads are still folded
+        self.assertIn(records.SNAPSHOT_TS_KEY, comp)
+        self.assertIn(records.LAST_ACCESS_TS_KEY, comp)
+        self.assertNotIn(records.TIER_KEY, comp)
+
+    def test_a_tier_carried_by_an_older_engine_is_not_searchable(self):
+        # A deployed repo that upgrades brings records an older engine compacted, and those DO carry a `tier`
+        # string ("hot"/"cold"/"archived"). It must stay out of the search body, else a query for one of those
+        # words would surface every such record. The note's own text contains no tier word, so a hit could only
+        # be the leaked field. This is the reason `records.TIER_KEY` still exists at all.
+        legacy = consolidate._make_episodic("S", {"role": "decision", "text": "the riverside survey note"}, "b")
+        legacy.pop(records.BATCH_KEY, None)                           # batchless: always live
+        legacy[records.TIER_KEY] = score.ARCHIVED
+        ledger.append(legacy)
         index.rebuild()
         for word in (records.TIER_KEY, score.HOT, score.WARM, score.COLD, score.ARCHIVED):
             self.assertEqual(index.query(word).records, [], f"the carried {word!r} leaked into search")
-        self.assertEqual(len(index.query("riverside").records), 1)    # ...but its real words are still findable
+        self.assertEqual(len(index.query("riverside").records), 1)    # its real words are still findable
 
 
 class GenerationTests(_Base):
