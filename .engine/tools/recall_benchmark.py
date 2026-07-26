@@ -30,11 +30,11 @@ Shape (settled with the maintainer + the thorough plan gate):
   `nothing-relevant` class succeeds on PURE top-k emptiness — no salience threshold (that would be the
   post-hoc dial the freeze forbids).
 
-- **Deterministic + reproducible.** Scoring uses `force_scan=True` — the machine-independent pure-Python
-  ranking path (the FTS5 fast path can differ in top-k membership across environments); membership@k sidesteps
-  the frecency tiebreak. Corpus timestamps are stamped RELATIVE to run time (records "born" minutes ago, well
-  under the shortest role-weighted archival boundary), so no record drifts out of recall between runs and the
-  baseline reproduces exactly.
+- **Deterministic + reproducible.** Scoring uses `force_scan=True` — the pure-Python ranking path, which
+  needs no FTS5 module and so reproduces on any machine; membership@k sidesteps the frecency tiebreak. Corpus
+  timestamps are stamped RELATIVE to run time, which no longer guards against anything ageing out of recall
+  (nothing does) but still keeps the frecency tiebreak identical between runs, so the baseline reproduces
+  exactly.
 
 - **A tamper-evident freeze.** `seal.json` pins a `sha256` over the corpus + questions, plus the numeric pass
   bar and the recorded old-path baseline; `verify_seal` (and a test) fail loudly if any sealed byte changes.
@@ -82,12 +82,15 @@ _AGE = "age_seconds"                           # corpus template field: stamped 
 # What "the old path" MEANS, sealed alongside the number it produced. The seal hashes the corpus, the
 # questions, the bar and the baseline — it hashes no code, so without this the definition of the baseline could
 # drift while the number stayed reassuringly at 0.49. That matters because the curation-removal slice strips
-# supersession, demotion and reinforcement ranking from the same shared reader, with every incentive to keep
-# the number steady. Changing this string is a deliberate re-seal, which is what the seal's own note already
+# supersession and reinforcement ranking from the same shared reader, with every incentive to keep the number
+# steady. Changing this string is a deliberate re-seal, which is what the seal's own note already
 # claims is true of the baseline.
-FROZEN_OLD_PATH = ("captured conversation (`turn-delta`) excluded by kind; crash-orphan retirement, "
-                   "closed-batch supersession and archival demotion applied; forced scan path; no limit "
-                   "passed into the search call, so the exclusion is applied BEFORE any cap")
+FROZEN_OLD_PATH = ("the captured conversation (`turn-delta`) is ABSENT FROM THE SEARCHED CORPUS — the old-path "
+                   "cabinet is materialized without those records, so they are missing from the ranking's own "
+                   "corpus statistics and not merely filtered out of its results; forced scan path; no limit. "
+                   "The committed corpus carries no unclosed batch and no supersession marker, so the "
+                   "crash-orphan and roll-up exclusions `live_records` also applies are structurally inert on "
+                   "it (a test pins that), and no archival age-out exists in the engine to apply.")
 
 BAR = {
     "recall_at_k": K,
@@ -151,35 +154,27 @@ def score_question(ranked, question, id_to_session, k=K):
 
 # --- The injected producers ----------------------------------------------------------------------------
 
-def _frozen_old_path(records_in, limit=None):
-    """Reconstruct what the OLD path could see, from an UNLIMITED ranked list: drop the captured conversation,
-    then truncate. The baseline was measured when every `turn-delta` was excluded from retrieval by kind; once
-    the conversation became recall content, a producer calling `index.search` plainly would score a different
-    number and the sealed 0.49 would stop reproducing — and re-sealing would fold this slice's own gain into the
-    baseline the new path has to BEAT, destroying the anti-gaming lock.
+def curated_only(corpus):
+    """The corpus as the OLD path saw it — with the captured conversation removed ENTIRELY, not filtered out of
+    the results afterwards.
 
-    Exact, not approximate, and only on the forced-scan path this harness uses: relevance there is
-    `math.log1p(tf)` computed per record with no corpus statistics, `_usage_of` reads no corpus statistics
-    either, and the `ordinal` tiebreak is monotone in ledger position — so removing candidates leaves the
-    survivors' order untouched.
-
-    ORDER MATTERS: filter, THEN truncate. Filtering a list that was already capped cannot recover a curated hit
-    that a conversation fragment displaced inside the cap, so a producer that passes `limit` into the search
-    call must pass it HERE instead. `_EXPANSION_LIMIT` is exactly such a caller.
-
-    `FROZEN_OLD_PATH` in the seal names this exclusion set, so changing the definition of "the old path" is a
-    deliberate re-seal rather than a quiet edit to unsealed code."""
-    kept = [r for r in records_in if r.get("kind") != records.AMBIENT_CAPTURE_KIND]
-    return kept if limit is None else kept[:limit]
+    An earlier version of this did post-filter the ranked list, and argued the two were equivalent because the
+    scan path's relevance was a per-record `log1p(tf)` that read no corpus statistics. That argument is gone:
+    the scan now computes the same bm25 the FTS5 index does, and bm25 weighs every document against the corpus
+    it sits in (document count, average length, per-term document frequency). Removing records from the RESULTS
+    of a ranking computed over a corpus that still contained them is no longer the same thing as ranking a
+    corpus that never had them. Building the cabinet without them is exact under any ranking law, which is the
+    point — the definition of "the old path" must not need re-arguing every time the ranking changes."""
+    return [r for r in corpus if r.get("kind") != records.AMBIENT_CAPTURE_KIND]
 
 
 def synthetic_producer(ledger_file, index_file):
-    """Old-path producer over a throwaway synthetic cabinet: the side-effect-free `index.search`, forced onto
-    the machine-independent scan path so the baseline reproduces across environments, with the frozen old-path
-    exclusion reapplied on the way out (see `_frozen_old_path`)."""
+    """Old-path producer over a throwaway synthetic cabinet built by `curated_only`: the side-effect-free
+    `index.search`, forced onto the machine-independent scan path so the baseline reproduces across
+    environments. No filtering of its own — the cabinet it reads IS the old path's searched set."""
     def _run(question_text):
-        return _frozen_old_path(index.search(question_text, force_scan=True,
-                                             ledger_file=ledger_file, index_file=index_file).records)
+        return index.search(question_text, force_scan=True,
+                            ledger_file=ledger_file, index_file=index_file).records
     return _run
 
 
@@ -197,13 +192,20 @@ def real_local_producer(*, raw_visible=False):
     """Producer over the maintainer's REAL local ledger — read-only (`index.search` never writes), for the
     private `--real-local` external-validity probe. Its output is printed, never committed.
 
-    Defaults to the FROZEN OLD PATH so the probe keeps measuring what it was defined to measure; pass
-    `raw_visible=True` for the other arm of the comparison. Without that default this would have become a
-    new-path measurement while still labelled the old-path probe — and running it is a stated precondition on
-    the curation-removal gate."""
+    Defaults to the old-path arm so the probe keeps measuring what it was defined to measure; pass
+    `raw_visible=True` for the other arm. Without that default this would have become a new-path measurement
+    while still labelled the old-path probe — and running it is a stated precondition on the curation-removal
+    gate.
+
+    Here the old-path arm is a post-filter on the results, NOT the exact reconstruction the sealed synthetic
+    baseline uses (`curated_only`): rebuilding a ~29 MB store without its conversation for a private read is
+    not worth the cost, and this probe produces no scored number to protect — it is an UNSCORED, human-judged
+    reading of what the maintainer's own memory returns. Stated so the difference is never mistaken for the
+    sealed definition."""
     def _run(question_text):
         found = index.search(question_text, force_scan=True).records
-        return found if raw_visible else _frozen_old_path(found)
+        return found if raw_visible else [r for r in found
+                                          if r.get("kind") != records.AMBIENT_CAPTURE_KIND]
     return _run
 
 
@@ -240,8 +242,8 @@ def load_questions(path=QUESTIONS_PATH):
 
 def materialize(corpus, cabinet_dir, now):
     """Stamp every record `ts = now - age_seconds` and write a throwaway ledger + rebuilt index in
-    `cabinet_dir`. Relative stamping keeps every record recent, so none drifts across the archival boundary
-    between runs. The index is rebuilt so the cabinet is a complete stand-in store, but the canonical scoring
+    `cabinet_dir`. Relative stamping keeps every record the same age on every run, so the frecency tiebreak
+    lands identically. The index is rebuilt so the cabinet is a complete stand-in store, but the canonical scoring
     path uses `force_scan=True` (machine-independent), so the FTS5 index is not the path the baseline depends
     on. Returns (ledger_path, index_path)."""
     lpath = os.path.join(cabinet_dir, "ledger.ndjson")
@@ -411,13 +413,14 @@ def expanded_producer(ledger_file, index_file):
     def _run(question_text):
         pooled, seen = [], set()
         for phrase in expand_query(question_text):
-            # Search UNLIMITED, apply the frozen old-path exclusion, and only then take the per-phrase cap.
-            # Passing `limit` into the search call would truncate first, so a conversation fragment could
-            # displace a curated hit inside the top-10 and no later filter could bring it back — silently
-            # moving a number this project has already reported and reasoned from.
-            found = index.search(phrase, force_scan=True,
+            # The per-phrase cap is passed into the search itself, which is safe here BECAUSE the cabinet this
+            # reads was built by `curated_only`: there is no conversation in it to displace a curated hit
+            # inside the top-10. An earlier version searched unlimited and post-filtered for exactly that
+            # reason; removing the records from the corpus instead removes the hazard rather than working
+            # around it.
+            found = index.search(phrase, force_scan=True, limit=_EXPANSION_LIMIT,
                                  ledger_file=ledger_file, index_file=index_file).records
-            for record in _frozen_old_path(found, limit=_EXPANSION_LIMIT):
+            for record in found:
                 rid = record.get(_ID)
                 if rid in seen:
                     continue
@@ -433,7 +436,7 @@ def run_expanded():
     corpus = load_corpus()
     questions = load_questions()
     with tempfile.TemporaryDirectory(prefix="recall-benchmark-exp-") as cabinet:
-        lpath, ipath = materialize(corpus, cabinet, now)
+        lpath, ipath = materialize(curated_only(corpus), cabinet, now)
         rows = evaluate(corpus, questions, expanded_producer(lpath, ipath))
     return summarize(rows), rows
 
@@ -443,13 +446,13 @@ def run_synthetic():
     (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing).
 
     Timestamps are stamped relative to the real current time (see `materialize`) — deliberately NOT injectable,
-    because `index.search` reads real wall-clock internally, so a past `now` here would archive every record out
-    of recall and the sanity gate would (loudly) report a broken cabinet."""
+    because `index.search` reads the real wall clock internally for its frecency tiebreak, so a past `now` here
+    would rank against one clock what was stamped against another."""
     now = int(time.time())
     corpus = load_corpus()
     questions = load_questions()
     with tempfile.TemporaryDirectory(prefix="recall-benchmark-") as cabinet:
-        lpath, ipath = materialize(corpus, cabinet, now)
+        lpath, ipath = materialize(curated_only(corpus), cabinet, now)
         rows = evaluate(corpus, questions, synthetic_producer(lpath, ipath))
     # Sanity gate (so a broken cabinet can't inflate the nothing-relevant class into false confidence):
     # at least one known-answer question whose answer is curated (old-path-reachable) must actually retrieve.
@@ -673,9 +676,11 @@ def _demo() -> int:
         {"qid": "q-gist", "content_type": "plain", "vocab": "original", "answer_locus": "curated",
          "question": "flumox retries", "expected_sessions": ["d-s3"]},
     ]
-    id_to_session = {r[_ID]: r.get(_SESSION) for r in corpus}
+    id_to_session = {r[_ID]: r.get(_SESSION) for r in corpus}   # the FULL corpus: the scorer must still trace ids
     with tempfile.TemporaryDirectory(prefix="recall-benchmark-demo-") as cabinet:
-        lpath, ipath = materialize(corpus, cabinet, now)
+        # The old path's cabinet is built WITHOUT the conversation (`curated_only`), which is what makes the
+        # raw-only question below a genuine miss rather than one arranged by a post-filter.
+        lpath, ipath = materialize(curated_only(corpus), cabinet, now)
         producer = synthetic_producer(lpath, ipath)
         results = {q["qid"]: producer(q["question"]) for q in questions}
 

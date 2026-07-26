@@ -76,9 +76,20 @@ _TEMP_PREFIX = ".compact-"          # the in-dir swap temp; NEVER the canonical 
 _TEMP_SUFFIX = ".ndjson"
 
 
-_COMPACT_WASTE_THRESHOLD = 64   # build-spec leaf (uncalibrated, recorded): the auto-trigger compacts only once
-#                                 this many foldable markers have piled up. Failure direction is "nothing lost"
-#                                 — a too-high value just defers a tidy. The value is an uncalibrated default.
+_COMPACT_WASTE_THRESHOLD = 64   # build-spec leaf: the auto-trigger compacts only once this many foldable markers
+#                                 have piled up. Failure direction is "nothing lost" — a too-high value just
+#                                 defers a tidy.
+#
+#                                 Left at 64, now with the cadence MEASURED rather than assumed. Making the
+#                                 conversation searchable raised how often this fires, because recall reinforces
+#                                 every record it returns and the recall workflow runs several searches per
+#                                 question: one triggered recall at the capped default (6 searches x 10 records)
+#                                 leaves the waste at 60, so the trigger comes round about every other one.
+#                                 Measured against a copy of a real 28.9 MB / 26.8 K-record store, one firing
+#                                 costs 1.8 s to fold and swap plus 1.3 s to rebuild the index. That runs from
+#                                 `consolidate`'s session-close sweep, not from anything the operator is waiting
+#                                 on, and raising the threshold would only make each firing bigger for the same
+#                                 total work — so the number stays where it is.
 
 
 class _InjectedCrash(Exception):
@@ -173,7 +184,12 @@ def _fold_record(record, access_index: dict, t0: int):
     folded[records.FRECENCY_SNAPSHOT_KEY] = snap
     folded[records.SNAPSHOT_TS_KEY] = t0
     folded[records.LAST_ACCESS_TS_KEY] = last
-    folded[records.TIER_KEY] = score.tier(record, accesses, t0)   # snapshot-time tier (legibility; recomputed on read)
+    # The snapshot-time TIER is deliberately NOT written. The three fields above are read back by `score.score`,
+    # which resumes the frecency recurrence from them; the tier never was — it was stamped for legibility, on
+    # the reasoning that a human reading the ledger could see why a record had stopped surfacing. No record stops
+    # surfacing for its tier any more, so the field would name a scale that decides nothing while reading as if
+    # it did ("archived" looks like hidden). A record an older engine compacted still carries one; that is why
+    # `records.TIER_KEY` still exists and why `index._NON_BODY_KEYS` still keeps it out of the search body.
     return folded
 
 
@@ -423,7 +439,8 @@ _DEMO_KEEP2_TEXT = "Decided the ferry timetable moves to a 20-minute cadence in 
 _DEMO_USED_TIMES = 4              # how many "used it" notes pile up behind the kept note
 _DEMO_SET_ASIDE_TEXT = "Lesson: the old gantry crane jammed below freezing — never run it under 0C."
 _DEMO_SET_ASIDE_WORD = "gantry"
-_DEMO_SET_ASIDE_AGE_DAYS = 40    # untouched this long -> set aside (hidden from search), but never deleted
+_DEMO_SET_ASIDE_SUMMARY = "Summary: cold-weather rules for the yard machinery."
+_DEMO_SET_ASIDE_AGE_DAYS = 40    # old enough to be worth folding into a summary; age alone never hides a note
 _DEMO_DUP_TEXT = "Decided the festival route skips the drawbridge this year."
 _DEMO_DUP_WORD = "festival"
 _DEMO_DAY = 86400
@@ -462,10 +479,17 @@ def _in_cabinet(record_id: str) -> int:
     return sum(1 for r in _all_records() if r.get(records.RECORD_ID_KEY) == record_id)
 
 
+# Plain-language names for the freshness tiers — what the operator sees instead of hot/warm/cold/archived. None
+# of them hides a note: the age-out that once dropped an `archived` record from search is gone, so the coldest
+# label says "long unused" and nothing more.
+_FRESHNESS = {score.HOT: "fresh", score.WARM: "getting stale", score.COLD: "stale",
+              score.ARCHIVED: "long unused"}
+
+
 def _freshness(record: dict) -> str:
     """The plain-language freshness of `record`, scored against its real (post-tidy) state + the real clock."""
     accesses = forget._access_index(_ledger_path()).get(record.get(records.RECORD_ID_KEY), ())
-    return forget._FRESHNESS[score.tier(record, accesses)]
+    return _FRESHNESS[score.tier(record, accesses)]
 
 
 def _scratch_copies(data_dir: str) -> int:
@@ -605,9 +629,16 @@ def _demo_body(data_dir: str) -> bool:
     # --- PART 3 ------------------------------------------------------------------------------------------
     print("\nPART 3 — nothing is erased: a set-aside note and a recovered duplicate both survive the rewrite")
     print("-" * 88)
+    # A note is set aside from search when a SUMMARY is written over it — never merely by going unused, which
+    # is why this plants a real roll-up rather than an old note. That is also the harder case for the rewrite:
+    # compaction folds the supersession onto the note and prunes the marker that recorded it, so "still hidden
+    # afterwards" is a genuine property to check rather than a restatement of the note's age.
+    from memory import rollup                       # lazy: rollup imports forget/score, not needed at load
     aside = _make_episodic(_DEMO_SET_ASIDE_TEXT, age_days=_DEMO_SET_ASIDE_AGE_DAYS, role="lesson")
     aside_id = aside[records.RECORD_ID_KEY]
     ledger.append(aside)
+    rollup.store_gist(_DEMO_SESSION, [{"role": "lesson", "text": _DEMO_SET_ASIDE_SUMMARY,
+                                       records.SOURCE_IDS_KEY: [aside_id]}])
     dup = _make_episodic(_DEMO_DUP_TEXT, age_days=0, batchless=False)   # a crashed-pass orphan (batch never closed)
     dup_id = dup[records.RECORD_ID_KEY]
     ledger.append(dup)
@@ -619,7 +650,7 @@ def _demo_body(data_dir: str) -> bool:
     dup_in = _in_cabinet(dup_id)
     aside_hidden_after = _recall_count(_DEMO_SET_ASIDE_WORD) == 0
     dup_retired_after = dup_id not in {r.get(records.RECORD_ID_KEY) for r in forget.live_records()}
-    print(f"  a note set aside from search (unused ~{_DEMO_SET_ASIDE_AGE_DAYS} days): \"{_snippet(_DEMO_SET_ASIDE_TEXT)}\"")
+    print(f"  a note a summary was written over: \"{_snippet(_DEMO_SET_ASIDE_TEXT)}\"")
     print(f"    still in the cabinet after the rewrite: {aside_in}    still hidden from search: {'yes' if aside_hidden_after else 'NO'}")
     print(f"  a recovered duplicate (a save that didn't finish): \"{_snippet(_DEMO_DUP_TEXT)}\"")
     print(f"    still in the cabinet after the rewrite: {dup_in}    still kept out of recall: {'yes' if dup_retired_after else 'NO'}")

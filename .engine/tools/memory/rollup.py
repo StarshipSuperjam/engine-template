@@ -32,7 +32,7 @@ session-groups to judge — a hook cannot think, so it cannot ride a non-AI hook
 list names — `Stop`, `PreCompact`, `SessionStart`): that handler injects ONE combined background directive — the
 consolidation backlog and, via `rollup_directive`, the roll-up backlog — so the operator's first turn is never
 split by two competing asks. On a young ledger there are still no old, low-frecency episodes, so the sweep finds no
-candidates and the directive stays silent. The selection floors (COLD tier; grouping — a cross-session
+candidates and the directive stays silent. The selection floors (COLD tier or colder; grouping — a cross-session
 shared-topic-tag cluster, then the coarse per-session group; ≥3 per group; episodics only) are build-spec leaves
 recorded with the maintainer.
 
@@ -59,8 +59,12 @@ from memory import forget, ledger, records, score  # noqa: E402
 
 # --- Build-spec leaves (the roll-up selection floors) -----------------------------------------------------
 # A candidate is a raw EPISODIC (not a gist — the link is single-hop raw→gist, not recursive
-# meta-gist), not already superseded, that scores into the COLD tier (≈16–30 days untouched — "old +
-# low-frecency", not yet ARCHIVED, which the scorer already index-excludes). The eligible pool is then pre-grouped by a
+# meta-gist), not already superseded, that has cooled to COLD OR BEYOND (≈16 days untouched and older — "old +
+# low-frecency"). It used to be COLD exactly, on the reasoning that a record past that band had already been
+# excluded from recall by the archived tier, so there was nothing left to fold. That age-out is gone: an old
+# record stays searchable forever now, so an equality test would have given this pass a ~14-day window to catch
+# each record and made everything older permanently unfoldable — narrowing the one mechanism that bounds how
+# many summaries accumulate, silently, as a side effect of a change about retrieval. The eligible pool is then pre-grouped by a
 # "related" signal for the AI to judge WITHIN each group, in a fixed PRECEDENCE so each candidate lands in exactly
 # ONE group (disjoint source_ids per pass): (1) a cross-session SHARED-TOPIC-TAG cluster (`tag:<tag>`, #235 — the
 # richer relatedness signal), then (2) the coarse per-session group (the original floor, the fallback for untagged
@@ -88,9 +92,9 @@ class _InjectedCrash(Exception):
 # --- Detecting candidates (the selection leaf) ------------------------------------------------------------
 
 def _eligible_cold_episodics(*, cwd=None, now: "int | None" = None) -> list:
-    """The flat pool of raw EPISODIC records eligible for roll-up: COLD-tier (`score.tier`), not already
-    superseded, not a crashed-pass orphan, carrying a real `session_id`. Computed once (one ledger scan) and
-    shared by the grouping passes below."""
+    """The flat pool of raw EPISODIC records eligible for roll-up: cooled to COLD or beyond (`score.tier`), not
+    already superseded, not a crashed-pass orphan, carrying a real `session_id`. Computed once (one ledger scan)
+    and shared by the grouping passes below. "Or beyond" is load-bearing — see the selection-floor note above."""
     src = ledger.ledger_path(cwd)
     now = int(time.time()) if now is None else now
     access_index = forget._access_index(src)
@@ -107,7 +111,7 @@ def _eligible_cold_episodics(*, cwd=None, now: "int | None" = None) -> list:
         if forget._is_retired(record, closed):          # a crashed-pass orphan — already out of recall
             continue
         accesses = access_index.get(rid, ())
-        if score.tier(record, accesses, now) != score.COLD:
+        if score.tier(record, accesses, now) not in (score.COLD, score.ARCHIVED):
             continue
         sid = record.get("session_id")
         if not isinstance(sid, str) or not sid:
@@ -228,7 +232,7 @@ def _make_gist(session_id: str, rec: dict, batch: str) -> dict:
 
 def _make_superseded_marker(raw_id: str, gist_id: str, batch: str) -> dict:
     """A per-raw supersession marker: this raw episode's content now lives in `gist_id`. Carries no recall text
-    (pure bookkeeping — `forget._is_demoted` drops it from recall, `index` keeps its uuid-hex `target`/
+    (pure bookkeeping — `forget._is_bookkeeping` drops it from recall, `index` keeps its uuid-hex `target`/
     `superseded_by` out of the body). INERT until its `batch` is closed by a `rolled-up` marker."""
     from memory import capture  # lazy
     return {

@@ -180,29 +180,18 @@ def test_read(*, transport=None) -> dict:
 # committed-files-only run. It reaches the memory by reading THIS backup — a pure read that changes nothing.
 # Memory OWNS this projection (the audit is a downstream consumer that may not widen the mechanism): the
 # durable-belief SELECTION is single-sourced here against memory's own record vocabulary (`records`) and its own
-# recall authority (`forget.live_records` — the ONE place that retires orphaned / superseded / archived records),
-# so a future memory change to what counts as "live" updates one place and the audit's view follows. The audit
+# recall authority (`forget.live_records` — the ONE place that retires orphaned / superseded records, and the
+# bookkeeping markers), so a future memory change to what counts as "live" updates one place and the audit's
+# view follows. The audit
 # side (audit_digest) owns only the audit-context rendering + the disclosure wording, never these semantics.
-
-def _ts_to_epoch(iso) -> "int | None":
-    """The manifest's backup `timestamp` (an ISO `%Y-%m-%dT%H:%M:%SZ` string) as an epoch int, or None. Used as
-    the `now` the live-set is scored against, so the beliefs are tiered AS OF the backup moment (a point-in-time
-    read), not the audit run time — honest for an older backup."""
-    import calendar
-    if not isinstance(iso, str):
-        return None
-    try:
-        return calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ"))
-    except (ValueError, OverflowError):
-        return None
-
 
 def read_saved_memory(*, transport=None) -> dict:
     """Fetch the backed-up memory and project it to the durable SAVED BELIEFS the self-audit reviews — a pure
     read that changes nothing. Returns {ok, error, beliefs, as_of}: on success `beliefs` is a list of plain
     projections (newest-first) `{text, kind, role, recorded_ts, last_access_ts}` covering ONLY the live durable
-    beliefs (episodic summaries + gists; markers, orphans, superseded raws, and archived records are dropped by
-    memory's own `forget.live_records`), and `as_of` is the backup timestamp (ISO, or None). On any failure
+    beliefs (episodic summaries + gists; markers, orphans and superseded raws are dropped by memory's own
+    `forget.live_records`), and `as_of` is the backup timestamp (ISO, or None). Nothing is dropped for AGE — the
+    projection is the whole live durable set, however old, which is what the audit's staleness review wants. On any failure
     `beliefs`/`as_of` are None and `error` is `fetch_snapshot`'s code ({not-configured, no-token, unreachable,
     no-backup-data, namespace-missing, corrupt}) so the caller discloses the gap honestly. Never raises."""
     snap = fetch_snapshot(transport=transport)
@@ -210,17 +199,18 @@ def read_saved_memory(*, transport=None) -> dict:
         return {"ok": False, "error": snap.get("error"), "beliefs": None, "as_of": None}
     as_of = (snap.get("manifest") or {}).get("timestamp")
     try:
-        beliefs = _project_beliefs(snap["ledger_bytes"], now=_ts_to_epoch(as_of))
+        beliefs = _project_beliefs(snap["ledger_bytes"])
     except Exception:  # noqa: BLE001 — a decode/projection fault degrades to a clean "couldn't read", never a raise
         return {"ok": False, "error": "corrupt", "beliefs": None, "as_of": None}
     return {"ok": True, "error": None, "beliefs": beliefs, "as_of": as_of if isinstance(as_of, str) else None}
 
 
-def _project_beliefs(ledger_bytes: bytes, *, now: "int | None") -> list:
+def _project_beliefs(ledger_bytes: bytes) -> list:
     """Decode the backed-up ledger bytes (a temp sibling, never the live ledger) and return the durable saved
     beliefs newest-first. `forget.live_records` is memory's own recall authority — it drops the provenance
-    markers, the crashed-pass orphans, the gist-superseded raws, AND the archived tier — so we reimplement none
-    of that; we only keep the human-content kinds (episodic + gist) and project the few fields the audit reads."""
+    markers, the crashed-pass orphans and the gist-superseded raws — so we reimplement none of that; we only
+    keep the human-content kinds (episodic + gist) and project the few fields the audit reads. It takes no
+    clock: membership stopped depending on one when the archived-tier age-out was removed."""
     import tempfile
     from memory import forget                    # lazy: forget pulls score/index — keep it off the module-load path
     from memory import records as rec
@@ -228,7 +218,7 @@ def _project_beliefs(ledger_bytes: bytes, *, now: "int | None") -> list:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(ledger_bytes)
-        live = list(forget.live_records(path=tmp, now=now))
+        live = list(forget.live_records(path=tmp))
     finally:
         _quiet_remove(tmp)
     durable = []

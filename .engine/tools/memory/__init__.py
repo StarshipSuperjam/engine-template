@@ -14,7 +14,7 @@ ledger`` / ``from memory import index``.
 Shipped: the ledger (``memory.ledger``), the derived index + plain-scan fallback (``memory.index``),
 turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), AI-judged episodic consolidation —
 the closed role vocabulary + the abandoned-session ``SessionStart`` sweep (``memory.consolidate``), active
-forgetting (Layer 1): logical retirement + scored demotion (``memory.forget``), crash-safe ledger compaction
+forgetting (Layer 1): logical retirement (``memory.forget``), crash-safe ledger compaction
 (``memory.compact``), gist roll-up (``memory.rollup``), the public search interface + MCP server, the
 backup/restore vault with its resurrection-surfacing (``memory.backup_vault`` / ``memory.restore_vault``),
 the pre-migration backup seam the module manager consumes (``memory.snapshot_for_migration``) and the

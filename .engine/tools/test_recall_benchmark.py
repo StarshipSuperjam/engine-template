@@ -323,17 +323,31 @@ class FrozenOldPathTests(unittest.TestCase):
                             "with the conversation reachable the score must MOVE — if it does not, the "
                             "old-path filter is not what is producing the sealed number")
 
-    def test_the_filter_runs_before_any_cap(self):
-        # Order is the whole correctness argument: filtering a list that was already truncated cannot recover a
-        # curated hit a conversation fragment displaced inside the cap. `expanded_producer` passes a per-phrase
-        # cap, so it is the caller this protects.
-        turn = {"kind": records.AMBIENT_CAPTURE_KIND, "text": "a captured turn"}
-        curated = {"kind": "episodic", "text": "a summary"}
-        ranked = [turn, turn, curated]
-        self.assertEqual(rb._frozen_old_path(ranked, limit=2), [curated],
-                         "the curated hit must survive a cap of 2 — filter first, then truncate")
+    def test_the_conversation_is_absent_from_the_searched_corpus_not_filtered_from_results(self):
+        # The definition has to survive a change to the RANKING, not just to the membership rule. bm25 weighs a
+        # document against the corpus around it, so dropping records from the RESULTS of a ranking computed with
+        # them present is not the same measurement as ranking a corpus that never had them. `curated_only`
+        # removes them from the searched set, which is exact under any ranking law.
+        corpus = rb.load_corpus()
+        kept = rb.curated_only(corpus)
+        self.assertTrue(any(r.get("kind") == records.AMBIENT_CAPTURE_KIND for r in corpus),
+                        "the corpus must actually contain conversation, or this proves nothing")
+        self.assertEqual([r for r in kept if r.get("kind") == records.AMBIENT_CAPTURE_KIND], [])
+        self.assertEqual(len(kept) + sum(1 for r in corpus if r.get("kind") == records.AMBIENT_CAPTURE_KIND),
+                         len(corpus))                       # nothing else was dropped along the way
 
-    def test_the_real_local_probe_defaults_to_the_frozen_old_path(self):
+    def test_the_other_exclusions_the_sealed_definition_names_are_structurally_inert(self):
+        # `FROZEN_OLD_PATH` says `live_records`' crash-orphan and roll-up exclusions cannot affect this corpus.
+        # That is a claim about the SEALED bytes, so it is checkable rather than a reassurance: the corpus
+        # carries no batch to be orphaned and no supersession to fold. Without this the string would be naming
+        # protections nothing enforces — the exact drift the frozen-old-path field exists to prevent.
+        corpus = rb.load_corpus()
+        self.assertEqual([r for r in corpus if r.get(records.BATCH_KEY)], [])
+        self.assertEqual([r for r in corpus if r.get(records.SUPERSEDED_BY_KEY)], [])
+        marker_kinds = {records.MARKER_KIND, records.SUPERSEDED_KIND, records.ROLLUP_KIND}
+        self.assertEqual({r.get("kind") for r in corpus} & marker_kinds, set())
+
+    def test_the_real_local_probe_defaults_to_the_old_path_arm(self):
         # Running this probe is a stated precondition on the curation-removal gate. Left unfiltered it would
         # have become a NEW-path measurement while still labelled the old-path probe.
         import inspect

@@ -1,5 +1,4 @@
-"""forget.py — the engine's active forgetting: Layer-1 logical retirement + scored demotion over the memory
-ledger.
+"""forget.py — the engine's active forgetting: Layer-1 logical retirement over the memory ledger.
 
 Active forgetting is **two-layered**. This module is **Layer 1** — *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost**: a forgotten record is
@@ -21,15 +20,21 @@ so the fast and slow lookups retire identically (the parity law, index.py). `ind
 membership predicate when capture adds a turn to an already-built index, so the incremental path cannot admit
 what a full rebuild would drop. stdlib-only.
 
-**Scored demotion tiers**. A record is reinforced each time it is recalled — an append-only
-`reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds a record's
-reinforcements into a **frecency x role-weight x recency** score and a tier (hot -> warm -> cold -> archived);
-`live_records` additionally drops the **archived** ones from recall (still resident + recoverable in the
-ledger — demotion never deletes), and drops the reinforcement markers themselves (pure derivation fuel, never
-recall results). Tier is **derived on read**, never persisted — like the crash-duplicate retirement, the state is re-derived
-from the ledger each rebuild, so it survives a throwaway-index rebuild. The live caller that appends a marker
-on recall is **the search server**; this module ships the marker kind, the `record_access` appender, and the
-operator demo (the `demote` verb) — with no live caller, the engine's own young ledger demotes nothing yet.
+**Reinforcement, and the age-out that used to ride on it**. A record is reinforced each time it is recalled — an
+append-only `reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds those
+reinforcements into a **frecency x role-weight x recency** score, which RANKS what recall returns (index.py's
+usage tiebreak) and which `rollup.py` reads to pick cold summaries to fold.
+
+It no longer decides MEMBERSHIP. `live_records` used to drop whatever that score put in the **archived** tier,
+which retired a never-reinforced record at somewhere between 26 and 33 days depending on its role. That is gone,
+for every kind. Two reasons, and the second is why the exemption could not stay narrow: the canonical record is
+now the conversation (eADR-0038), and a captured turn can never earn its way out of an age-out — nothing
+reinforces what nothing could recall — so the ratchet would have made the transcript searchable for its first
+month and silently invisible after; and exempting only the conversation would have left the summaries that carry
+the decisions aging out from underneath it, which is the worse half of the same mechanism, not a safer one. What
+`live_records` still drops is the reinforcement markers themselves (pure derivation fuel, never recall results).
+The live caller that appends a marker on recall is **the search server**; this module ships the marker kind and
+the `record_access` appender. eADR-0038's end state has no tiered demotion at all.
 
 The **logical retirement of gist-rolled-up episodes**. A deferred AI-judged pass (`rollup.py`)
 consolidates old, low-frecency EPISODIC summaries of one session into a compact GIST and supersedes the raws — a
@@ -59,14 +64,15 @@ import time
 
 # Make the package parent (.engine/tools) importable so `from memory import ledger` resolves even when this
 # file is run directly as the demo script. Imported as `memory.forget`, the parent is already on sys.path, so
-# this is a guarded no-op. Module-level imports stay limited to the cycle-free set `ledger` + `records` +
-# `score` (each imports nothing that reaches back to `forget`): `index` imports THIS module for the fold, so
-# importing `index`/`consolidate`/`capture` here would cycle — the demo + the appender import them lazily.
+# this is a guarded no-op. Module-level imports stay limited to the cycle-free set `ledger` + `records` (neither
+# imports anything that reaches back to `forget`): `index` imports THIS module for the fold, so importing
+# `index`/`consolidate`/`capture` here would cycle — the demos import them lazily. `score` is no longer imported
+# at all: with the archived-tier age-out gone, nothing here scores a record.
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records, score  # noqa: E402
+from memory import ledger, records  # noqa: E402
 
 
 def _closed_batches(src: str) -> set:
@@ -98,9 +104,9 @@ def _superseded_by_map(src: str, closed_rollup: set) -> dict:
     """Map each raw episode's id -> the gist id that superseded it, from `superseded` markers whose roll-up
     `batch` is CLOSED. One pass over the **RAW** ledger — `ledger.iter_records`, NOT
     `live_records` — exactly as `_closed_batches`/`_access_index` read markers raw: a `superseded` marker is
-    itself dropped from recall (`_is_demoted`), and an aged-out one would score archived and drop too, so
-    deriving the supersession off the filtered stream would let an old marker silently un-hide its raw. A marker
-    in an un-closed (crashed-pass) batch is INERT and never enters the map — the load-bearing crash-safety:
+    itself dropped from recall (`_is_bookkeeping`), so deriving the supersession off the filtered stream would
+    find no markers at all and silently un-hide every folded raw. A marker in an un-closed (crashed-pass)
+    batch is INERT and never enters the map — the load-bearing crash-safety:
     a raw is hidden only once its gist's pass completed. Skips malformed entries (a fallen line never costs the
     records after it)."""
     out: dict = {}
@@ -120,9 +126,9 @@ def _superseded_by_map(src: str, closed_rollup: set) -> dict:
 def _access_index(src: str) -> dict:
     """Map each reinforced record's id -> the wall-clock `ts` of every `reinforcement` marker that names it. One pass over the **RAW** ledger — `ledger.iter_records`, NOT `live_records` — exactly as
     `_closed_batches` reads markers raw. This is load-bearing: a `reinforcement` marker is itself dropped by
-    `live_records` (it is never a recall result), and a marker for an already-*archived* record would be
-    dropped with it — so scoring off the filtered stream would hide the very accesses that should keep or
-    restore that record, and an archived record could never climb back. The scorer must see ALL reinforcements.
+    `live_records` (it is never a recall result), so scoring off the filtered stream would find no accesses at
+    all and every record would rank as if it had never been used. Nothing about RETENTION rides on this any
+    more — the scorer's readers are index.py's usage tiebreak and rollup.py's candidate selection.
     Skips malformed entries (a fallen line never costs the records after it)."""
     index: dict = {}
     for record in ledger.iter_records(path=src):
@@ -180,38 +186,23 @@ def _is_superseded(record, superseded_ids: set) -> bool:
     return isinstance(rid, str) and bool(rid) and rid in superseded_ids
 
 
-def _is_demoted(record, access_index: dict, now: int) -> bool:
-    """True iff recall should NOT surface `record` for a demotion reason:
-      * a `reinforcement` marker — pure derivation fuel for the scorer, never itself a recall result; or
-      * a record scored into the **archived** tier (frecency x role-weight x recency, score.py) — excluded
-        from the hot index, but it stays resident + fully recoverable in the ledger (demotion never deletes).
-    `consolidated` markers are NEVER demoted here — they are structural (carry no recall text) and stay
-    always-live, unchanged from the crash-duplicate retirement. The gist roll-up markers (`superseded` + `rolled-up`) ARE
-    dropped from recall here like `reinforcement`: pure bookkeeping (no recall text), never a recall result.
-    Episodics and gists are scored by their own reinforcements (`access_index[id]`, empty for an un-reinforced
-    record — born hot from its `ts`); a gist is recall content and demotes like an episodic. The
-    `operator-adjudicated-erasure` marker is likewise dropped from recall (pure content-free bookkeeping — it
-    authorises erasing its target, it is never itself a recall result).
+def _is_bookkeeping(record) -> bool:
+    """True iff `record` is machinery rather than something recall should ever return. Four marker kinds carry no
+    recall text and exist only to be read BY the readers: `reinforcement` (derivation fuel for the scorer), the
+    two gist roll-up markers (`superseded` + `rolled-up`), and `operator-adjudicated-erasure` (it authorises
+    erasing its target; it is not itself a memory). `consolidated` markers stay live — they are structural and
+    the crash-duplicate retirement reads them in place. Everything else is content.
 
-    A CAPTURED CONVERSATION TURN IS NEVER DEMOTED BY AGE. The ratchet scores from reinforcement, and a turn has
-    none by construction — nothing reinforces what nothing could recall — so a never-reinforced role-less record
-    crosses into `archived` at about 30 days. Left in place that would make the transcript searchable for its
-    first month and silently invisible after, which is not an archive. The tier ratchet is a curation-layer
-    device and the canonical record is not the curated layer (eADR-0038, whose end state has no tiered demotion
-    at all); this exempts the one class that provably cannot earn its way out. The exemption is deliberately
-    narrow HERE — removing the ratchet outright, for every kind, is its own change with its own operator-facing
-    fallout (the set-aside readout's demoted class and the `restore` verb both rest on it)."""
+    NO RECORD IS DROPPED HERE FOR BEING OLD. This predicate used to end by scoring the record and dropping
+    whatever landed in the archived tier, which retired a never-reinforced record at 26.7 days (`dead-end`) to
+    32.9 (`decision`). The age-out is gone for every kind — see the module docstring for why the conversation
+    could not earn its way out of it and why exempting only the conversation would have been the worse half.
+    `score` still ranks (index.py) and still selects roll-up candidates (rollup.py); it decides nothing about
+    what recall can reach."""
     if not isinstance(record, dict):
         return False
-    kind = record.get("kind")
-    if kind in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND, records.ROLLUP_KIND, records.ERASURE_KIND):
-        return True
-    if kind == records.MARKER_KIND:
-        return False
-    if kind == records.AMBIENT_CAPTURE_KIND:
-        return False
-    access_ts = access_index.get(record.get(records.RECORD_ID_KEY), ())
-    return score.tier(record, access_ts, now) == score.ARCHIVED
+    return record.get("kind") in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND,
+                                  records.ROLLUP_KIND, records.ERASURE_KIND)
 
 
 def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:
@@ -309,7 +300,7 @@ def _is_excluded_capture(record, injected_keys: "set | None" = None) -> bool:
     return False
 
 
-def live_records(path: "str | None" = None, *, now: "int | None" = None):
+def live_records(path: "str | None" = None):
     """Yield the ledger records recall should surface.
 
     Recall surfaces the CONVERSATION and the curated layer over it. A genuine `turn-delta` — the `Stop`-appended
@@ -323,29 +314,28 @@ def live_records(path: "str | None" = None, *, now: "int | None" = None):
     kind is an episodic-shaped recall record and stays surfaced. A future kind that is fuel rather than content
     must be added to `_is_excluded_capture` to stay out of recall.
 
-    The four pre-existing exclusions still trim a record that is retired or demoted: (a) an episodic a crashed
-    consolidation pass orphaned (logical retirement); (b) a reinforcement marker / a record scored into the
-    archived tier (scored demotion — which a captured turn is now exempt from, see `_is_demoted`); (c) a raw
-    episode a COMPLETED gist roll-up superseded, a crashed roll-up's orphaned gist, and the roll-up markers.
-    A dropped record stays in the ledger, fully recoverable; this generator just doesn't surface it.
+    The remaining exclusions trim a record that is machinery or superseded: (a) an episodic a crashed
+    consolidation pass orphaned (logical retirement); (b) a bookkeeping marker, which is never a recall result
+    (`_is_bookkeeping`); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's orphaned
+    gist, and the roll-up markers. A dropped record stays in the ledger, fully recoverable; this generator just
+    doesn't surface it. NOTHING IS DROPPED FOR BEING OLD — the archived-tier age-out that used to sit here is
+    gone for every kind (module docstring), and with it the `now` this took: membership no longer depends on
+    the clock at all, so the same ledger yields the same records whenever it is read.
 
     Cheap sequential passes over the RAW ledger (never the filtered stream): the consolidation + roll-up closed
-    sets, the supersession map, and the reinforcement access index; then stream, dropping a record if ANY exclusion
-    fires (they OR together — any one reason hides it). `now` is resolved once so every record in one rebuild scores
-    against a single clock. Mutates nothing — never writes, never deletes."""
+    sets and the supersession map; then stream, dropping a record if ANY exclusion fires (they OR together — any
+    one reason hides it). Mutates nothing — never writes, never deletes."""
     src = ledger.ledger_path() if path is None else path
     closed = _closed_batches(src)
     closed_rollup = _closed_rollup_batches(src)
     superseded = set(_superseded_by_map(src, closed_rollup))
-    access_index = _access_index(src)
     injected_keys = _injected_message_keys(src)
-    now = int(time.time()) if now is None else now
     for record in ledger.iter_records(path=src):
         if (not _is_excluded_capture(record, injected_keys)
                 and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)
-                and not _is_demoted(record, access_index, now)):
+                and not _is_bookkeeping(record)):
             yield record
 
 
@@ -466,44 +456,43 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
 
 # --- the set-aside report: what recall no longer surfaces but the operator has a handle on --------------------
 
-# The two classes recall drops that the operator can act on, kept as data so the readout's wording can never
+# The one class recall drops that the operator can act on, kept as data so the readout's wording can never
 # promise more than the mechanism delivers:
-SET_ASIDE_DEMOTED = "demoted"        # nothing has come back to it in a while; recording an access brings it back
 SET_ASIDE_SUMMARISED = "summarised"  # a completed roll-up folded it into a summary; there is NO way to un-fold it,
 #                                      only to read its original wording back (recall's stand-in is the summary)
 _SET_ASIDE_LIMIT = 20                 # matches index's recent-decisions cap: a bounded newest-first sample, never the
 #                                      whole population (the report also carries the full count + id set)
 
 
-def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int = _SET_ASIDE_LIMIT) -> dict:
+def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> dict:
     """What `live_records` drops from recall for a reason the operator has a handle on — a READ-ONLY report the
     boot readout relays. Mutates NOTHING: every record named here is still resident and fully recoverable in the
     one ledger; recall just doesn't surface it. Returns
-        {"rows": [...bounded newest-first...], "totals": {"demoted": int, "summarised": int},
+        {"rows": [...bounded newest-first...], "totals": {"summarised": int},
          "identity": [every set-aside id, sorted — the FULL population, independent of `limit`]}
     so a render can tell "there is none of this" apart from "there is, and it did not all fit", and a caller
     watching for change compares the full id set, not the bounded sample.
 
-    Two classes only, and NOT the union of every `live_records` exclusion:
-      * DEMOTED — a content record scored into the archived tier (unused for long enough). Its reversal is real
-        and mechanical: `restore_to_recall` records an access and it is searchable again.
-      * SUMMARISED — a raw episode a COMPLETED roll-up folded into a gist. There is no un-fold: the supersession
-        is orthogonal to the usage score, so recording an access can never bring it back; the honest handle is
-        `recorded_text`, which reads its original wording. Carried with `reversible=False` so the readout never
-        offers to bring one back.
+    ONE class, and NOT the union of every `live_records` exclusion — SUMMARISED: a raw episode a COMPLETED
+    roll-up folded into a gist. There is no un-fold, so the honest handle is `recorded_text`, which reads its
+    original wording; the row carries `reversible=False` so the readout never offers to bring one back.
+
+    There used to be a second, reversible class — a record the archived-tier ratchet aged out of recall, which
+    recording an access brought straight back. The ratchet is gone (module docstring), so that class no longer
+    exists and neither does the restore that reversed it. Nothing about this report is time-dependent any more.
+
     A crash-orphaned record (a consolidation or roll-up that did not finish) is DELIBERATELY excluded: it is a
     duplicate the good copy already replaces, not something the operator lost, so an "undo" would only re-admit a
     duplicate into search. `duplicates()` reports that class for the maintainer digest instead.
 
-    Row: {id, reason, text, role, ts, since, reversible, stands_in}. `since` is when a summary folded a raw in
-    (the supersession marker's ts), or None for a demoted record — there is no event that marks a demotion, and
-    this reader never invents one. Excludes ambient turn-deltas and every bookkeeping marker (nothing without
-    role+text), and any record with no stable id or no usable text. Ordering mirrors index.recent_decisions: a
-    TOTAL sort key, so a record with a damaged ts sorts last instead of raising. Degrades to an empty report on
-    ANY read fault — an unreadable store costs the readout, never the pack, and boot surfaces an unreadable store
-    through its own memory-offline notice, never from here."""
+    Row: {id, reason, text, role, ts, since, reversible, stands_in}. `since` is when the summary folded the raw
+    in (the supersession marker's ts), or None once a compaction has pruned that marker — no fold event survives
+    the fold, and this reader never invents one. Excludes ambient turn-deltas and every bookkeeping marker
+    (nothing without role+text), and any record with no stable id or no usable text. Ordering mirrors
+    index.recent_decisions: a TOTAL sort key, so a record with a damaged ts sorts last instead of raising.
+    Degrades to an empty report on ANY read fault — an unreadable store costs the readout, never the pack, and
+    boot surfaces an unreadable store through its own memory-offline notice, never from here."""
     src = ledger.ledger_path() if path is None else path
-    now = int(time.time()) if now is None else now
     try:
         closed = _closed_batches(src)
         closed_rollup = _closed_rollup_batches(src)
@@ -526,10 +515,9 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
             ts = record.get("ts")
             if isinstance(raw_id, str) and raw_id and isinstance(gist_id, str) and gist_id:
                 superseded_at[raw_id] = (gist_id, ts if isinstance(ts, int) and not isinstance(ts, bool) else None)
-        access_index = _access_index(src)
 
         rows: list = []
-        demoted = summarised = 0
+        summarised = 0
         for record in ledger.iter_records(path=src):
             if not isinstance(record, dict):
                 continue
@@ -541,19 +529,14 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
                 continue
             if _is_retired(record, closed) or _is_gist_orphan(record, closed_rollup):
                 continue                                   # a crash-orphan duplicate is not a loss — never shown
-            if _is_superseded(record, superseded_ids):     # marker OR the carried field: survives compaction
-                folded = superseded_at.get(rid)
-                gist_id = folded[0] if folded else record.get(records.SUPERSEDED_BY_KEY)
-                since = folded[1] if folded else None      # no fold event survives compaction -> unknown
-                reason, reversible, stands_in = SET_ASIDE_SUMMARISED, False, gist_id
-                summarised += 1
-            elif _is_demoted(record, access_index, now):   # a content record scored into the archived tier
-                reason, reversible, stands_in, since = SET_ASIDE_DEMOTED, True, None, None
-                demoted += 1
-            else:
+            if not _is_superseded(record, superseded_ids):  # marker OR the carried field: survives compaction
                 continue                                   # still surfaced by recall — not set aside
-            rows.append({"id": rid, "reason": reason, "text": text, "role": record.get("role"),
-                         "ts": record.get("ts"), "since": since, "reversible": reversible, "stands_in": stands_in})
+            folded = superseded_at.get(rid)
+            gist_id = folded[0] if folded else record.get(records.SUPERSEDED_BY_KEY)
+            since = folded[1] if folded else None           # no fold event survives compaction -> unknown
+            summarised += 1
+            rows.append({"id": rid, "reason": SET_ASIDE_SUMMARISED, "text": text, "role": record.get("role"),
+                         "ts": record.get("ts"), "since": since, "reversible": False, "stands_in": gist_id})
 
         def _order(row):
             # A TOTAL key (index.recent_decisions' guard): a non-numeric moment sorts into the unusable bucket
@@ -564,31 +547,14 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
 
         rows.sort(key=_order, reverse=True)
         identity = sorted(r["id"] for r in rows)
-        return {"rows": rows[:limit], "totals": {"demoted": demoted, "summarised": summarised}, "identity": identity}
+        return {"rows": rows[:limit], "totals": {"summarised": summarised}, "identity": identity}
     except Exception:  # noqa: BLE001 — an unreadable/degraded store costs the readout, never the session
-        return {"rows": [], "totals": {"demoted": 0, "summarised": 0}, "identity": []}
-
-
-def restore_to_recall(record_id: str, *, path: "str | None" = None, now: "int | None" = None) -> bool:
-    """Bring a DEMOTED record back into recall by recording an access — the operator's "bring that back". Returns
-    the RE-DERIVED truth, never an assertion: True iff the record is in recall AFTER the append (so a record recall
-    already surfaces returns True — it is searchable, which is what was asked). False (never a lie) on an unknown
-    id and — importantly — on a SUMMARISED raw: a completed roll-up's supersession is orthogonal to the usage
-    score, so an access can never un-fold it, and this returns False rather than pretend it worked. APPENDS ONLY —
-    no delete, no rewrite (the Layer-1 no-erasure invariant a source-scan test pins). Never raises: a fault leaves
-    recall exactly as it was."""
-    if not isinstance(record_id, str) or not record_id:
-        return False
-    try:
-        record_access(record_id, path=path, now=now)
-        return any(r.get(records.RECORD_ID_KEY) == record_id for r in live_records(path, now=now))
-    except Exception:  # noqa: BLE001 — a fault must never convert a best-effort restore into a raised error
-        return False
+        return {"rows": [], "totals": {"summarised": 0}, "identity": []}
 
 
 def recorded_text(record_id: str, *, path: "str | None" = None) -> "dict | None":
     """The full recorded wording of ONE record by its stable id, read straight from the ledger — the "show me
-    the exact wording" handle for a record recall no longer surfaces (a summarised raw, a demoted note). Reads
+    the exact wording" handle for a record recall no longer surfaces (a summarised raw). Reads
     the RAW ledger on purpose, bypassing the recall filter: keeping every set-aside record recoverable word-for-
     word is the guarantee that makes this forgetting reversible in the first place. SIDE-EFFECT-FREE — records
     no access, so merely looking at a set-aside note never silently re-ranks what recall surfaces. Returns the
@@ -857,179 +823,22 @@ def _demo_identity_body() -> bool:
     return every_tagged and different and tag_private and stable
 
 
-# --- Operator demonstration: scored demotion tiers ---------------------------------------------
-# A THROWAWAY-cabinet walkthrough for "active forgetting": a note left unused for weeks is set aside from
-# search but stays in the cabinet (recoverable), and using it again brings it straight back. It runs the REAL
-# factories + record_access + rebuild + recall and reads the cabinet back, so every claim is recognizable words
-# on screen — and prints only plain-language labels (never "tier"/"frecency"/"reinforcement"). Vary the notes
-# and the ages near the top and re-run:
-#     uv run --directory .engine --frozen -- python tools/memory/forget.py demote
-_DEMO_DEMOTE_SESSION = "session-orchard"
-_DEMO_FRESH_TEXT = "Decided the orchard layout ships with the apple rows first."
-_DEMO_OLD_TEXT = "Lesson: the midnight cron double-ran — never schedule it at 00:00. DO-NOT-LOSE-THIS."
-_DEMO_FRESH_WORD = "apple"
-_DEMO_OLD_WORD = "midnight"
-_DEMO_OLD_AGE_DAYS = 35          # ~2.5 half-lives untouched -> set aside (archived)
-_DEMO_REINFORCE_TIMES = 3
-_DEMO_DAY = 86400
-
-# Plain-language names for the freshness tiers — what the operator sees instead of hot/warm/cold/archived.
-_FRESHNESS = {score.HOT: "fresh", score.WARM: "getting stale", score.COLD: "stale",
-              score.ARCHIVED: "set aside (hidden from search)"}
-
-
-def _days(n: int) -> str:
-    """'1 day' / '35 days' — keep the screen grammatical if the operator varies the age."""
-    return f"{n} day" if n == 1 else f"{n} days"
-
-
-def _make_demo_episodic(role: str, text: str, age_days: int) -> dict:
-    """A real episodic through the live factory, made BATCHLESS (so it is always-live — never mistaken for a
-    crashed-pass orphan) and back-dated by `age_days` so the demo can age it without sleeping."""
-    from memory import consolidate  # lazy (consolidate -> index -> forget would cycle at module load)
-    rec = consolidate._make_episodic(_DEMO_DEMOTE_SESSION, {"role": role, "text": text}, "demo-batch")
-    rec.pop(records.BATCH_KEY, None)
-    rec["ts"] = int(time.time()) - age_days * _DEMO_DAY
-    return rec
-
-
-def _demo_recall_count(word: str) -> int:
-    from memory import index  # lazy
-    return len(index.query(word).records)
-
-
-def _demo_in_cabinet(record_id: str) -> int:
-    """How many records carrying `record_id` are physically in the ledger (the recoverability proof)."""
-    return sum(1 for r in ledger.iter_records(path=ledger.ledger_path())
-               if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == record_id)
-
-
-def _demo_freshness(record: dict) -> str:
-    """The plain-language freshness of `record`, scored against its real accesses + the real wall clock."""
-    accesses = _access_index(ledger.ledger_path()).get(record.get(records.RECORD_ID_KEY), ())
-    return _FRESHNESS[score.tier(record, accesses)]
-
-
-def _demo_demote() -> int:
-    import tempfile
-
-    print("=" * 80)
-    print("MEMORY — setting an unused note aside from search without losing it, and bringing it back (practice)")
-    print("=" * 80)
-    with tempfile.TemporaryDirectory() as tmp:
-        os.environ["ENGINE_MEMORY_DIR"] = tmp          # the throwaway cabinet
-        try:
-            ok = _demo_demote_body()
-        finally:
-            os.environ.pop("ENGINE_MEMORY_DIR", None)
-
-    print("\n" + "-" * 80)
-    print(f"What this just proved: a note nobody had used in ~{_days(_DEMO_OLD_AGE_DAYS)} was SET ASIDE from search but")
-    print("stayed in the cabinet (read back above: 1 record), and ONE use brought it straight back — reversible, on screen.")
-    print("On your real data, nothing changes yet: the engine doesn't record when you use a note (that trigger")
-    print("ships in a later step), so today this only runs in this practice demo on the old note it invents — the")
-    print("machinery is here, the live trigger comes later. NOTHING is ever erased here: setting-aside is")
-    print("hide-from-search only; permanently erasing a record is a SEPARATE step you approve later by merging a")
-    print("single-purpose pull request (and applying the `guardrail-ack` safety label) — never this. That was a")
-    print("PRACTICE cabinet, thrown away when the demo ended; like all memory, private, local, and deletable.")
-    print("Vary it: edit the notes and the age near the top of this file and re-run.")
-    return 0 if ok else 1
-
-
-def _demo_demote_body() -> bool:
-    print("\nPART 1 — a fresh note is found in search")
-    print("-" * 80)
-    fresh = _make_demo_episodic("decision", _DEMO_FRESH_TEXT, age_days=0)
-    ledger.append(fresh)
-    _demo_rebuild()
-    fresh_hits = _demo_recall_count(_DEMO_FRESH_WORD)
-    print(f'  a note from today: "{_snippet(_DEMO_FRESH_TEXT)}"')
-    print(f'  search "{_DEMO_FRESH_WORD}" -> found {fresh_hits}    freshness: {_demo_freshness(fresh)}')
-    part1 = fresh_hits == 1
-    print(f"  => {'a fresh note is in search.' if part1 else '!!! a fresh note was not found'}")
-
-    print(f"\nPART 2 — a note unused for ~{_days(_DEMO_OLD_AGE_DAYS)} is SET ASIDE from search, but stays in the cabinet")
-    print("-" * 80)
-    old = _make_demo_episodic("lesson", _DEMO_OLD_TEXT, age_days=_DEMO_OLD_AGE_DAYS)
-    old_id = old[records.RECORD_ID_KEY]
-    ledger.append(old)
-    _demo_rebuild()
-    old_hits = _demo_recall_count(_DEMO_OLD_WORD)
-    in_cab = _demo_in_cabinet(old_id)
-    print(f'  a note nobody has used in ~{_days(_DEMO_OLD_AGE_DAYS)}: "{_snippet(_DEMO_OLD_TEXT)}"')
-    print(f'  search "{_DEMO_OLD_WORD}" -> found {old_hits}    freshness: {_demo_freshness(old)}')
-    print(f"  still in the cabinet: {in_cab} record(s)  (hidden from search, NOT deleted)")
-    part2 = old_hits == 0 and in_cab == 1
-    print(f"  => {'set aside from search, still in the cabinet (recoverable).' if part2 else '!!! the old note was lost or still searchable'}")
-
-    print("\nPART 3 — using it again brings it straight back")
-    print("-" * 80)
-    for _ in range(_DEMO_REINFORCE_TIMES):
-        record_access(old_id)
-    _demo_rebuild()
-    back_hits = _demo_recall_count(_DEMO_OLD_WORD)
-    print(f"  used the old note {_DEMO_REINFORCE_TIMES} times (this is what searching your memory now does for you automatically)")
-    print(f'  search "{_DEMO_OLD_WORD}" -> found {back_hits}    freshness: {_demo_freshness(old)}')
-    part3 = back_hits == 1
-    print(f"  => {'using it restored it to search — nothing was ever deleted.' if part3 else '!!! using it did not restore the note'}")
-
-    print('\nPART 4 — the private "when you used it" notes never show up in search')
-    print("-" * 80)
-    from memory import index  # lazy
-    surfaced = index.query(_DEMO_OLD_WORD).records + index.query(old_id).records
-    leaked = [r for r in surfaced if isinstance(r, dict) and r.get("kind") == records.REINFORCEMENT_KIND]
-    print("  searched for the note's words AND for its private name-tag;")
-    print(f'  "when you used it" notes returned by search: {len(leaked)}')
-    part4 = len(leaked) == 0
-    print(f"  => {'the usage notes are private bookkeeping, never search results.' if part4 else '!!! a usage note leaked into search'}")
-
-    return part1 and part2 and part3 and part4
-
-
 def _print_set_aside(path: "str | None" = None) -> int:
     """The `set-aside` CLI verb: an operator-legible list of what recall has set aside and how to act on each —
-    the words the AI matches against when the operator says "bring back the one about X". Never a record id."""
+    the words the AI matches against when the operator says "show me the one about X". Never a record id."""
     report = set_aside(path)
-    rows, totals = report["rows"], report["totals"]
+    rows, total = report["rows"], report["totals"]["summarised"]
     if not rows:
         print("Nothing set aside — recall is surfacing every saved note.")
         return 0
-    shown, total = len(rows), totals["demoted"] + totals["summarised"]
+    shown = len(rows)
     noun = "note" if total == 1 else "notes"
     print(f"{total} {noun} set aside from recall (nothing deleted — all still saved)"
           + (f"; the {shown} most recent:" if shown < total else ":"))
     for row in rows:
-        if row["reason"] == SET_ASIDE_DEMOTED:
-            print(f"  - set aside (nothing's come back to it in a while): {_snippet(row['text'])}")
-            print(f"      -> ask to bring this back and it's searchable again  [{row['id']}]")
-        else:
-            print(f"  - folded into a shorter summary: {_snippet(row['text'])}")
-            print(f"      -> the summary stands in now; ask to see this one's exact wording  [{row['id']}]")
+        print(f"  - folded into a shorter summary: {_snippet(row['text'])}")
+        print(f"      -> the summary stands in now; ask to see this one's exact wording  [{row['id']}]")
     return 0
-
-
-def _run_restore(argv: list) -> int:
-    """The `restore <id>` CLI verb: bring a demoted note back into recall by its stable id (the id the
-    `set-aside` list prints in brackets). Reports the re-derived truth — a summarised note reports plainly that
-    there is no un-fold, only its original wording to read."""
-    if not argv:
-        print("usage: forget.py restore <record-id>", file=sys.stderr)
-        return 2
-    record_id = argv[0]
-    if restore_to_recall(record_id):
-        print("Brought back into recall — it's searchable again.")
-        return 0
-    if recorded_text(record_id) is not None:
-        print("This one was folded into a summary, so there's nothing to bring back — the summary stands in for "
-              "it. Its original wording is still saved; ask to see it.")
-        return 0
-    print("No set-aside note with that id — nothing changed.", file=sys.stderr)
-    return 1
-
-
-def _demo_rebuild() -> None:
-    from memory import index  # lazy
-    index.rebuild()
 
 
 def main(argv: list) -> int:
@@ -1038,15 +847,11 @@ def main(argv: list) -> int:
         return _print_duplicates()
     if cmd == "set-aside":
         return _print_set_aside()
-    if cmd == "restore":
-        return _run_restore(argv[1:])
     if cmd == "demo":
         return _demo()
     if cmd == "identity":
         return _demo_identity()
-    if cmd == "demote":
-        return _demo_demote()
-    print(f"usage: forget.py [duplicates|set-aside|restore <id>|demo|identity|demote]\nunknown command {cmd!r}",
+    print(f"usage: forget.py [duplicates|set-aside|demo|identity]\nunknown command {cmd!r}",
           file=sys.stderr)
     return 2
 

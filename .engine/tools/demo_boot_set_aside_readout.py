@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of boot's reversible-forgetting readout — what memory has set aside from recall.
+"""Operator-runnable demo of boot's set-aside readout — what memory has set aside from recall.
 
-It answers, in plain words, a question a non-engineer can't read code to verify: *the engine quietly stops
-searching notes that have gone unused, and folds old ones into summaries — does it TELL me when it does, never
-delete anything, and actually bring a note back when I ask?*
+It answers, in plain words, a question a non-engineer can't read code to verify: *the engine folds old notes
+into summaries — does it TELL me when it does, never delete anything, and can I still get the original words
+back? And does it quietly stop searching a note just because I haven't used it in a while?*
 
-It runs the REAL logic end-to-end — memory's own `forget.set_aside` / `restore_to_recall` / `recorded_text`,
-and boot's own `render_set_aside` + `_relay_lines` collapse — in an ISOLATED temp store and temp boot cache
-(via env overrides), so it never touches your real memory and needs no network, no token, no edits. Only the
-boundary is faked: the other status signals a live boot would have read alongside the set-aside report.
+That last question used to have the opposite answer. A note nobody had come back to was set aside from search
+after about a month, and asking for it brought it back. That age-out is gone for every kind of note, so the
+only thing that sets a note aside now is a summary being written over it — which this demo shows, and which is
+never reversible, so the readout must never pretend otherwise.
+
+It runs the REAL logic end-to-end — memory's own `forget.set_aside` / `recorded_text`, and boot's own
+`render_set_aside` + `_relay_lines` collapse — in an ISOLATED temp store and temp boot cache (via env
+overrides), so it never touches your real memory and needs no network, no token, no edits. Only the boundary is
+faked: the other status signals a live boot would have read alongside the set-aside report.
 
 It shows, and CHECKS (so this demo can FAIL — it is a falsification, not a showcase):
   * QUIET WHEN TIDY — three fresh notes set nothing aside; the readout renders nothing (why it is invisible on
     a young project);
-  * SET ASIDE, NOT LOST — an old, unused note is set aside; the readout names it, says nothing was deleted,
-    offers to bring it back, and shows no internal id;
-  * ANTI-HABITUATION — seen again unchanged, it collapses to one terse line that STILL offers the handles;
+  * AGE ALONE SETS NOTHING ASIDE — a note untouched for months is still searchable, and still not in the
+    readout;
+  * SET ASIDE, NOT LOST — a note folded into a summary is set aside; the readout names it, says nothing was
+    deleted, offers its original wording, and shows no internal id;
+  * ANTI-HABITUATION — seen again unchanged, it collapses to one terse line that STILL offers the handle;
   * WHAT CHANGED — a second note going aside relays full again, naming how many are new since last seen;
-  * A REAL UNDO — bringing a demoted note back makes it searchable again (proven by re-reading recall);
-  * PER-CLASS HONESTY — a note folded into a summary is offered "show the original wording", NEVER "bring it
-    back" (there is no un-fold), and its original words are still recoverable;
+  * THE HONEST HANDLE — a folded note is out of search and stays out (there is no un-fold), yet its original
+    words are still recoverable exactly as they were written;
   * NOTHING ERASED — the store's record count only ever grows across the whole run.
 
 Vary it yourself: change the ages or counts below and re-run.
@@ -38,15 +44,28 @@ import boot_alarm_ledger   # noqa: E402
 from memory import consolidate, forget, ledger, records, rollup  # noqa: E402
 
 _DAY = 86400
+_ANCIENT_DAYS = 400        # far past every threshold the retired age-out ever used
 
 
-def _fresh_note(text, *, age_days, session):
-    """Append one batchless episodic (never a crash orphan — only demoted by age) at a chosen age."""
+def _note(text, *, age_days, session):
+    """Append one batchless episodic (never a crash orphan) at a chosen age."""
     rec = consolidate._make_episodic(session, {"role": "decision", "text": text}, "b")
     rec.pop(records.BATCH_KEY, None)
     rec["ts"] = int(time.time()) - age_days * _DAY
     ledger.append(rec)
     return rec[records.RECORD_ID_KEY]
+
+
+def _fold_into_summary(session, raw_id, summary_text):
+    """Write a real roll-up summary over one note — the one thing that sets a note aside from search."""
+    rollup.store_gist(session, [{"role": "lesson", "text": summary_text,
+                                 records.SOURCE_IDS_KEY: [raw_id]}])
+
+
+def _shown(block):
+    """What the operator would actually see — the rendered block, or a plain sentence when there is none. An
+    empty Python list on screen is not evidence a non-engineer can read."""
+    return "\n" + "\n".join(block) if block else "nothing — no block at all"
 
 
 def _record_count():
@@ -88,23 +107,37 @@ def main() -> int:
 
         print("=== Quiet when tidy — three fresh notes set nothing aside ===")
         for i in range(3):
-            _fresh_note(f"a fresh decision {i}", age_days=0, session=f"F{i}")
+            _note(f"a fresh decision {i}", age_days=0, session=f"F{i}")
         block = boot.render_set_aside(forget.set_aside())
-        print(f"  readout: {block!r}\n")
+        print(f"  what the session start would show: {_shown(block)}\n")
         if block != []:
             failures.append("a young store with only fresh notes must render NO set-aside block")
 
-        print("=== Set aside, not lost — an old unused note ===")
-        demoted = _fresh_note("the sourdough starter is fed daily at 8am", age_days=40, session="D1")
+        print(f"=== Age alone sets nothing aside — a note untouched for {_ANCIENT_DAYS} days ===")
+        ancient = _note("the sourdough starter is fed daily at 8am", age_days=_ANCIENT_DAYS, session="A1")
+        still_searchable = _in_recall(ancient)
+        still_quiet = boot.render_set_aside(forget.set_aside())
+        print(f"  a note nobody has touched in over a year is still searchable: {still_searchable}")
+        print(f"  what the session start would show: {_shown(still_quiet)}\n")
+        if not still_searchable:
+            failures.append("a note must never leave search just because time passed")
+        if still_quiet != []:
+            failures.append("an old note is not set aside, so it must not appear in the readout")
+
+        print("=== Set aside, not lost — a note folded into a summary ===")
+        folded = _note("raw note: the oven runs 15C hot on the fan setting", age_days=25, session="R1")
+        _fold_into_summary("R1", folded, "kitchen quirks summary")
         first = _relayed_readout(forget.set_aside())
         text = "\n".join(first)
         print(text + "\n")
         low = text.lower()
         if "nothing was deleted" not in low:
             failures.append("the readout must say nothing was deleted")
-        if "bring it back into search" not in low:
-            failures.append("a demoted note must offer the bring-back handle")
-        if demoted in text:
+        if "exact wording" not in low:
+            failures.append("a folded note must offer the show-the-original-wording handle")
+        if "bring" in low and "back" in low:
+            failures.append("the readout must never offer to bring a folded note back — there is no un-fold")
+        if folded in text:
             failures.append("the internal record id must never reach the operator readout")
         if "forgot" in low or "deleted the" in low:
             failures.append("the readout must never claim a note was forgotten/deleted")
@@ -115,40 +148,25 @@ def main() -> int:
         print("\n".join(second) + "\n")
         if "unchanged since last session" not in text2:
             failures.append("an unchanged readout must collapse to the terse 'unchanged' line")
-        if "bring one back" not in text2:             # the terse form STILL carries the offer
-            failures.append("the collapsed readout must still carry the bring-back offer")
+        if "original wording" not in text2:          # the terse form STILL carries the offer
+            failures.append("the collapsed readout must still carry the show-the-wording offer")
 
         print("=== What changed — a second note goes aside ===")
-        _fresh_note("early idea: try a rye levain", age_days=40, session="D2")
+        second_folded = _note("early idea: try a rye levain", age_days=25, session="R2")
+        _fold_into_summary("R2", second_folded, "bread experiments summary")
         third = _relayed_readout(forget.set_aside())
         text3 = "\n".join(third).lower()
         print("\n".join(third) + "\n")
         if "since you last saw this" not in text3:
             failures.append("a newly set-aside note must relay full and name what changed since last seen")
 
-        print("=== A real undo — bring the demoted note back ===")
-        was_out = not _in_recall(demoted)
-        brought_back = forget.restore_to_recall(demoted)
-        now_in = _in_recall(demoted)
-        print(f"  was out of recall: {was_out}; restore returned: {brought_back}; back in recall: {now_in}\n")
-        if not (was_out and brought_back and now_in):
-            failures.append("a demoted note must be out of recall, then brought back into it by restore")
-
-        print("=== Per-class honesty — a note folded into a summary ===")
-        raw = _fresh_note("raw note: the oven runs 15C hot on the fan setting", age_days=25, session="R1")
-        rollup.store_gist("R1", [{"role": "lesson", "text": "kitchen quirks summary",
-                                  records.SOURCE_IDS_KEY: [raw]}])
-        summ = _relayed_readout(forget.set_aside())
-        stext = "\n".join(summ).lower()
-        print("\n".join(summ) + "\n")
-        cannot_undo = forget.restore_to_recall(raw)                     # must be False — no un-fold exists
-        original = forget.recorded_text(raw)                            # but the wording is still recoverable
-        print(f"  restore of a folded note returned: {cannot_undo}")
+        print("=== The honest handle — out of search, but not lost ===")
+        out_of_recall = not _in_recall(folded)
+        original = forget.recorded_text(folded)      # the wording is still recoverable, word for word
+        print(f"  the folded note is out of search: {out_of_recall}")
         print(f"  its original wording is still readable: {(original or {}).get('text')!r}\n")
-        if "exact wording" not in stext:
-            failures.append("a summarised note must offer to show its original wording")
-        if cannot_undo:
-            failures.append("a summarised (folded) note must NOT be restorable — there is no un-fold")
+        if not out_of_recall:
+            failures.append("a folded note must be out of recall — the summary is what search returns now")
         if not original or "oven runs 15C hot" not in original.get("text", ""):
             failures.append("a folded note's original wording must still be recoverable word-for-word")
 
@@ -166,8 +184,8 @@ def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("All checks passed: quiet when tidy, set-aside-not-lost with a real undo, anti-habituation collapse, "
-          "per-class honesty (show vs bring-back), and nothing ever erased.")
+    print("All checks passed: quiet when tidy, age alone sets nothing aside, set-aside-not-lost with the "
+          "original wording still readable, anti-habituation collapse, and nothing ever erased.")
     return 0
 
 

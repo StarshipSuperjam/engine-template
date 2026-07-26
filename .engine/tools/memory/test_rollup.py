@@ -10,8 +10,8 @@ and pin the load-bearing invariants:
   * the compact fold — a CLOSED-batch supersession folds into the raw's carried `superseded_by` and prunes the
     marker, while an UN-closed (crashed-pass) supersession is NEVER folded (the key recall-loss guard) — and the
     gist↔raw link is recoverable and idempotent across re-compaction;
-  * recall content is NEVER dropped (the gist + every raw survive the rewrite; a superseded-AND-archived raw is
-    excluded for both reasons and still survives);
+  * recall content is NEVER dropped (the gist + every raw survive the rewrite; an old folded raw is hidden by
+    its supersession ALONE — age hides nothing — and still survives);
   * the carried uuid-hex link fields never leak into search; the store is idempotent + lock-guarded; and rollup.py
     stays append-only (no erasure token).
 """
@@ -262,19 +262,24 @@ class NeverDropsRecallContentTests(_Base):
         for rid in raws:
             self.assertIn(rid, after)
 
-    def test_a_superseded_and_archived_raw_is_excluded_for_both_reasons_and_survives(self):
+    def test_supersession_is_what_hides_an_old_folded_raw_not_its_age(self):
+        # This used to assert TWO independent exclusion reasons — the raw was both superseded and scored into
+        # the archived tier. The age-out is gone, so supersession is the only one left, and the test is worth
+        # more for it: an old raw stays hidden ONLY because a summary stands in for it, and that has to survive
+        # the compaction fold that prunes the marker recording it.
         raw = self._episodic("an old set-aside note word0", age_days=40)[records.RECORD_ID_KEY]
+        control = self._episodic("an equally old note nobody folded word7", age_days=40)[records.RECORD_ID_KEY]
         self._rollup([raw])
         now = int(time.time())
-        # archived (demotion) AND superseded — two independent exclusion reasons
         rec = [r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == raw][0]
-        self.assertEqual(score.tier(rec, (), now), score.ARCHIVED)
+        self.assertEqual(score.tier(rec, (), now), score.ARCHIVED)   # the tier still computes; it hides nothing
         self.assertNotIn(raw, self._live_ids())
+        self.assertIn(control, self._live_ids(), "the same age, unfolded, is still recalled")
         compact.compact()
         rec = [r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == raw][0]
-        self.assertEqual(score.tier(rec, (), now), score.ARCHIVED, "demotion survives the fold")
         self.assertTrue(rec.get(records.SUPERSEDED_BY_KEY), "supersession survives the fold")
         self.assertNotIn(raw, self._live_ids())
+        self.assertIn(control, self._live_ids())
         self.assertEqual(self._on_file(raw), 1, "and the raw is never erased")
 
 
@@ -304,15 +309,18 @@ class IdempotencyTests(_Base):
 
 
 class GistLifecycleTests(_Base):
-    def test_a_live_gist_is_recall_visible_and_demotes_like_an_episodic(self):
+    def test_a_gist_is_recall_content_and_stays_so_however_old_it_gets(self):
+        # The name used to promise a recall claim and then only compare two tier strings, which after the
+        # age-out's removal decide nothing. It checks recall now, on both a fresh gist and an ancient one — a
+        # gist IS the standing-in summary, so it going quiet with age would lose the raw AND its stand-in.
         self._rollup(self._raws(3))
         gist = [r for r in ledger.iter_records()
                 if isinstance(r, dict) and r.get("kind") == records.GIST_KIND][0]
         self.assertIn(gist[records.RECORD_ID_KEY], self._live_ids())
-        now = int(time.time())
-        self.assertEqual(score.tier(gist, (), now), score.HOT, "a fresh gist is born hot")
-        aged = dict(gist, ts=now - 40 * _DAY)
-        self.assertEqual(score.tier(aged, (), now), score.ARCHIVED, "an old, unused gist demotes like an episodic")
+        ancient = dict(gist, ts=int(time.time()) - 400 * _DAY)
+        ancient[records.RECORD_ID_KEY] = "ancient-gist"
+        ledger.append(ancient)
+        self.assertIn("ancient-gist", self._live_ids(), "a gist must never age out of recall")
 
     def test_an_orphan_gist_from_a_crashed_rollup_is_retired(self):
         with self.assertRaises(rollup._InjectedCrash):
@@ -378,6 +386,18 @@ class DetectTests(_Base):
         self.assertIn("S", groups)
         self.assertEqual({r[records.RECORD_ID_KEY] for r in groups["S"]}, set(cold))
         self.assertNotIn("T", groups)
+
+    def test_a_note_far_past_the_cold_window_is_still_a_candidate(self):
+        # The selection floor is "cooled to COLD or beyond", not "exactly COLD". It was an equality test while
+        # the archived tier meant a record had already left recall — there was nothing left to fold. Removing
+        # that age-out turned the same equality test into a ~14-day window: a note older than about a month
+        # would stay searchable forever AND become permanently unfoldable, quietly narrowing the one mechanism
+        # that bounds how many summaries accumulate.
+        old = self._raws(3, age_days=400, session_id="S")
+        rec = [r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == old[0]][0]
+        self.assertEqual(score.tier(rec, (), int(time.time())), score.ARCHIVED)   # well past COLD
+        groups = rollup.detect_rollup_candidates()
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in groups.get("S", [])}, set(old))
 
     def test_an_already_rolled_up_raw_is_not_re_detected(self):
         raws = self._raws(3, age_days=25)
