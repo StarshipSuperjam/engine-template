@@ -165,15 +165,15 @@ class LedgerReinforcementTests(_Base):
             self.assertIn(old[records.RECORD_ID_KEY],
                           [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
 
-    def test_membership_does_not_depend_on_the_clock(self):
-        # The property the removal buys: `live_records` reads no clock at all, so the same ledger yields the
-        # same records whenever it is read. A time-dependent membership rule is exactly what silently expired
-        # the canonical record a month after it was said.
+    def test_membership_takes_no_clock_at_all(self):
+        # The property the removal buys, asserted where it can actually fail: `live_records` no longer ACCEPTS a
+        # clock, so no caller can make membership depend on one. Comparing two calls a microsecond apart would
+        # have been decorative — a deterministic generator cannot disagree with itself.
+        import inspect
+        self.assertNotIn("now", inspect.signature(forget.live_records).parameters)
         ledger.append(self._aged_episodic("the ferry runs on the hour", age_days=1))
         ledger.append(self._aged_episodic("the drawbridge sticks in the cold", age_days=365))
-        ids = lambda: [r.get(records.RECORD_ID_KEY) for r in forget.live_records()]
-        self.assertEqual(len(ids()), 2)
-        self.assertEqual(ids(), ids())
+        self.assertEqual(len(list(forget.live_records())), 2)
 
     def test_access_index_reads_the_raw_ledger_the_leak_guard(self):
         # The access index keys by target id and finds its markers because it reads the RAW ledger. It FAILS if

@@ -439,7 +439,8 @@ _DEMO_KEEP2_TEXT = "Decided the ferry timetable moves to a 20-minute cadence in 
 _DEMO_USED_TIMES = 4              # how many "used it" notes pile up behind the kept note
 _DEMO_SET_ASIDE_TEXT = "Lesson: the old gantry crane jammed below freezing — never run it under 0C."
 _DEMO_SET_ASIDE_WORD = "gantry"
-_DEMO_SET_ASIDE_AGE_DAYS = 40    # untouched this long -> set aside (hidden from search), but never deleted
+_DEMO_SET_ASIDE_SUMMARY = "Summary: cold-weather rules for the yard machinery."
+_DEMO_SET_ASIDE_AGE_DAYS = 40    # old enough to be worth folding into a summary; age alone never hides a note
 _DEMO_DUP_TEXT = "Decided the festival route skips the drawbridge this year."
 _DEMO_DUP_WORD = "festival"
 _DEMO_DAY = 86400
@@ -628,9 +629,16 @@ def _demo_body(data_dir: str) -> bool:
     # --- PART 3 ------------------------------------------------------------------------------------------
     print("\nPART 3 — nothing is erased: a set-aside note and a recovered duplicate both survive the rewrite")
     print("-" * 88)
+    # A note is set aside from search when a SUMMARY is written over it — never merely by going unused, which
+    # is why this plants a real roll-up rather than an old note. That is also the harder case for the rewrite:
+    # compaction folds the supersession onto the note and prunes the marker that recorded it, so "still hidden
+    # afterwards" is a genuine property to check rather than a restatement of the note's age.
+    from memory import rollup                       # lazy: rollup imports forget/score, not needed at load
     aside = _make_episodic(_DEMO_SET_ASIDE_TEXT, age_days=_DEMO_SET_ASIDE_AGE_DAYS, role="lesson")
     aside_id = aside[records.RECORD_ID_KEY]
     ledger.append(aside)
+    rollup.store_gist(_DEMO_SESSION, [{"role": "lesson", "text": _DEMO_SET_ASIDE_SUMMARY,
+                                       records.SOURCE_IDS_KEY: [aside_id]}])
     dup = _make_episodic(_DEMO_DUP_TEXT, age_days=0, batchless=False)   # a crashed-pass orphan (batch never closed)
     dup_id = dup[records.RECORD_ID_KEY]
     ledger.append(dup)
@@ -642,7 +650,7 @@ def _demo_body(data_dir: str) -> bool:
     dup_in = _in_cabinet(dup_id)
     aside_hidden_after = _recall_count(_DEMO_SET_ASIDE_WORD) == 0
     dup_retired_after = dup_id not in {r.get(records.RECORD_ID_KEY) for r in forget.live_records()}
-    print(f"  a note set aside from search (unused ~{_DEMO_SET_ASIDE_AGE_DAYS} days): \"{_snippet(_DEMO_SET_ASIDE_TEXT)}\"")
+    print(f"  a note a summary was written over: \"{_snippet(_DEMO_SET_ASIDE_TEXT)}\"")
     print(f"    still in the cabinet after the rewrite: {aside_in}    still hidden from search: {'yes' if aside_hidden_after else 'NO'}")
     print(f"  a recovered duplicate (a save that didn't finish): \"{_snippet(_DEMO_DUP_TEXT)}\"")
     print(f"    still in the cabinet after the rewrite: {dup_in}    still kept out of recall: {'yes' if dup_retired_after else 'NO'}")

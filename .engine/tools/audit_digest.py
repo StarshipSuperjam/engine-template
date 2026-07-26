@@ -418,8 +418,17 @@ def render_prior_digests(repo: str, token: str, *, limit: int = PRIOR_DIGESTS_DE
 # (On the public template the committed pointer is the unconfigured placeholder, so this always degrades to the
 # not-configured disclosure with no network; the live read fires only in a repo configured with vault access.)
 
-# A generous total-character bound on the rendered beliefs — saved notes are short (~a few hundred chars each)
-# and a mature store holds ~hundreds, so this sits far above any real store and only guards a pathological case.
+# A total-character bound on the rendered beliefs. It was written as a guard on a pathological case, on the
+# reasoning that "a mature store holds ~hundreds" of short notes and so would sit far below it. Measured against
+# a real store, that reasoning does not hold: 752 live durable beliefs carrying 674 KB of text, more than ten
+# times this bound. It was already exceeded before the archived-tier age-out was removed (only one belief in
+# that store scored archived), so the age-out was never what kept it under — but nothing reclaims a belief now,
+# so the gap only widens.
+#
+# Two consequences the next reader should not have to rediscover. The truncation is newest-first, so what it
+# drops is the OLDEST beliefs — which is the opposite of what a review of STALE saved memory wants to see. And
+# raising the number is not obviously the fix: the audit persona has a context budget of its own. Naming the
+# right bound belongs with the curation-removal work, which is where the store's growth is addressed.
 SAVED_MEMORY_MAX_CHARS = 64 * 1024
 
 # Persona-facing disclosure markers — instructions, in plain words, for when the saved memory could not be read.

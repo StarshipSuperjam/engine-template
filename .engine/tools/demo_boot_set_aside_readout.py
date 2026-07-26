@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of boot's reversible-forgetting readout — what memory has set aside from recall.
+"""Operator-runnable demo of boot's set-aside readout — what memory has set aside from recall.
 
 It answers, in plain words, a question a non-engineer can't read code to verify: *the engine folds old notes
 into summaries — does it TELL me when it does, never delete anything, and can I still get the original words
@@ -62,6 +62,12 @@ def _fold_into_summary(session, raw_id, summary_text):
                                  records.SOURCE_IDS_KEY: [raw_id]}])
 
 
+def _shown(block):
+    """What the operator would actually see — the rendered block, or a plain sentence when there is none. An
+    empty Python list on screen is not evidence a non-engineer can read."""
+    return "\n" + "\n".join(block) if block else "nothing — no block at all"
+
+
 def _record_count():
     return sum(1 for _ in ledger.iter_records())
 
@@ -103,7 +109,7 @@ def main() -> int:
         for i in range(3):
             _note(f"a fresh decision {i}", age_days=0, session=f"F{i}")
         block = boot.render_set_aside(forget.set_aside())
-        print(f"  readout: {block!r}\n")
+        print(f"  what the session start would show: {_shown(block)}\n")
         if block != []:
             failures.append("a young store with only fresh notes must render NO set-aside block")
 
@@ -112,7 +118,7 @@ def main() -> int:
         still_searchable = _in_recall(ancient)
         still_quiet = boot.render_set_aside(forget.set_aside())
         print(f"  a note nobody has touched in over a year is still searchable: {still_searchable}")
-        print(f"  readout: {still_quiet!r}\n")
+        print(f"  what the session start would show: {_shown(still_quiet)}\n")
         if not still_searchable:
             failures.append("a note must never leave search just because time passed")
         if still_quiet != []:

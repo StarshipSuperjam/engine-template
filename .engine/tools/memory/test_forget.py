@@ -564,8 +564,12 @@ class SetAsideReportTests(_Base):
         compact.compact()
         rows = forget.set_aside()["rows"]
         self.assertTrue(rows)
-        self.assertEqual([r["reversible"] for r in rows], [False] * len(rows))
+        # The load-bearing half: the restore that once backed `reversible=True` is GONE, so nothing could
+        # honour such a row even if one appeared. (The field itself is a literal `False` in `set_aside`, so
+        # asserting on it alone would be a tautology — it is checked here only to keep the readout's contract
+        # explicit.)
         self.assertFalse(hasattr(forget, "restore_to_recall"))
+        self.assertEqual([r["reversible"] for r in rows], [False] * len(rows))
 
     def test_totals_count_the_full_population_while_rows_respect_the_limit(self):
         self._summarise(self._raws(5))

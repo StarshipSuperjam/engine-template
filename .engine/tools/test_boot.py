@@ -1858,7 +1858,7 @@ class TestOffMainSurfacing(unittest.TestCase):
 
 
 class TestSetAsideReadout(unittest.TestCase):
-    """#413 — the reversible-forgetting readout. Boot renders what memory has set aside from recall, with one
+    """#413 — the set-aside readout. Boot renders what memory has set aside from recall, with one
     honest handle: a show-the-wording offer for a note a summary was written over. There used to be a second
     class — a note the archived-tier age-out had retired, offered back — and these tests pinned the two-handle
     wording; the age-out is gone for every record kind, so a note is now only ever set aside by a roll-up, and
@@ -1934,7 +1934,8 @@ class TestSetAsideReadout(unittest.TestCase):
         block = boot.render_set_aside(sa)
         shown = [ln for ln in block if ln.strip().startswith("- folded note")]
         self.assertLessEqual(len(shown), boot._SET_ASIDE_SHOW)                 # bounded inline sample
-        self.assertTrue(any("40 " in ln for ln in block))                      # true total still stated
+        self.assertTrue(any("40 notes" in ln for ln in block),                 # true total still stated
+                        f"the full population must be named, not just the sample: {block}")
 
 
 class TestSetAsideCollapseThreading(unittest.TestCase):

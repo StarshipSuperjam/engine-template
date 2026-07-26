@@ -143,11 +143,11 @@ THROUGH_SEQ_KEY = "through_seq"     # on the `consolidated` marker (#446): the p
 # (index._NON_BODY_KEYS): a uuid's hex fragments are real words, exactly the `session_id`/`batch` problem.
 RECORD_ID_KEY = "id"
 
-# The reinforcement (access) marker (scored demotion). An append-only ledger record minted each time
-# a record is RECALLED: it names, by the reinforced record's stable id, that the record was used. `forget.score`
-# folds these into a frecency × role-weight × recency score, demoting an old, unused record in tiers
-# (hot → warm → cold → archived); `archived` is excluded from recall but stays resident + recoverable in the
-# ledger. A reinforcement marker is pure derivation fuel — non-content provenance — so it carries no `text`/
+# The reinforcement (access) marker. An append-only ledger record minted each time a record is RECALLED: it
+# names, by the reinforced record's stable id, that the record was used. `score` folds these into a
+# frecency × role-weight × recency value on a four-step scale (hot → warm → cold → archived). That value RANKS
+# recall results and picks roll-up candidates; it decides nothing about what recall can reach, and no step of
+# the scale hides a record. A reinforcement marker is pure derivation fuel — non-content provenance — so it carries no `text`/
 # `session_id`; `index` keeps its `target` (a uuid hex, the `id`/`batch` problem) OUT of the search body
 # (index._NON_BODY_KEYS), and `forget.live_records` drops the marker itself from recall. The live caller that
 # appends it on recall is the search server; this change ships the kind + the appender + the demo only.

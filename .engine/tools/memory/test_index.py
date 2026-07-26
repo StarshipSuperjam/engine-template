@@ -434,9 +434,11 @@ class RankingParityTests(IndexTestCase):
         out += [{"body": f"unrelated note {i} about retries"} for i in range(60)]
         return out
 
+    def _search(self, text, **kw):
+        return index.search(text, ledger_file=self.ledger, index_file=self.index, **kw)
+
     def _ranked_bodies(self, text, **kw):
-        return [r["body"] for r in index.search(text, ledger_file=self.ledger, index_file=self.index,
-                                                **kw).records]
+        return [r["body"] for r in self._search(text, **kw).records]
 
     def test_the_two_paths_rank_identically(self):
         self.file(*self._corpus())
@@ -446,6 +448,24 @@ class RankingParityTests(IndexTestCase):
             scan = self._ranked_bodies(query_text, force_scan=True)
             self.assertTrue(fast, query_text)
             self.assertEqual(fast, scan, f"the two paths ordered {query_text!r} differently")
+
+    def test_a_repeated_query_word_counts_once_on_both_paths(self):
+        # Every other test here uses distinct query words, which is exactly how this got past the first round.
+        # The fast path hands its terms to fts5 as a MATCH expression and fts5 sums a repeated term's
+        # contribution once per occurrence, so "cache cache" scored a record at double the plain scan's figure —
+        # the same record, two different relevance numbers, and a wide enough gap moved records across
+        # relevance buckets and reordered the answer.
+        self.file(*self._corpus())
+        self.rebuild()
+        single = self._search("cache", limit=3)
+        for repeated in ("cache cache", "cache cache cache"):
+            for kw in ({}, {"force_scan": True}):
+                got = self._search(repeated, limit=3, **kw)
+                self.assertEqual([r["body"] for r in got.records], [r["body"] for r in single.records],
+                                 f"{repeated!r} answered differently from {'cache'!r} ({kw})")
+                self.assertAlmostEqual(got.records[0][records.SCORE_KEY],
+                                       single.records[0][records.SCORE_KEY], places=9,
+                                       msg=f"a repeated word changed the relevance ({kw})")
 
     def test_a_bounded_query_returns_the_same_records_on_both_paths(self):
         # The case that actually reaches the model: the recall workflow caps every expansion, so a divergence in
@@ -468,6 +488,18 @@ class RankingParityTests(IndexTestCase):
             self.assertEqual(self._ranked_bodies("cache", **kw)[0], tight["body"],
                              f"a padded fragment outranked an equally-specific tight note ({kw})")
 
+    def test_an_unlimited_query_over_many_matches_stays_on_the_fast_path(self):
+        # The re-read of the surviving records is CHUNKED because an unlimited query keeps every match, and one
+        # SQL placeholder per match runs into SQLite's per-statement parameter cap. Over the cap the driver
+        # raises an error that `_ranked`'s broken-index guard swallows — so a perfectly healthy index would have
+        # dropped through to the full plain-Python scan, silently and many times slower.
+        cap = sqlite3.connect(":memory:").getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+        self.file(*({records.RECORD_ID_KEY: f"r{i}", "body": "quokka note"} for i in range(cap + 200)))
+        self.rebuild()
+        got = self._search("quokka")                          # no limit: every match survives to the re-read
+        self.assertEqual(len(got.records), cap + 200)
+        self.assertFalse(got.degraded, "a healthy index fell through to the scan — the re-read hit the cap")
+
     def test_the_scores_match_fts5s_own_bm25(self):
         # Not "close enough" — the scan reproduces fts5's bm25 exactly, epsilon-floored idf included, which is
         # what makes the order identical rather than merely similar.
@@ -475,6 +507,8 @@ class RankingParityTests(IndexTestCase):
         self.rebuild()
         fast = index.search("cache", ledger_file=self.ledger, index_file=self.index).records
         scan = index.search("cache", ledger_file=self.ledger, index_file=self.index, force_scan=True).records
+        self.assertEqual(len(fast), len(scan))            # zip() would otherwise pass on a matching prefix
+        self.assertTrue(fast)
         for a, b in zip(fast, scan):
             self.assertAlmostEqual(a[records.SCORE_KEY], b[records.SCORE_KEY], places=9)
 
@@ -633,6 +667,53 @@ class IndexFreshnessAndExtendTests(IndexTestCase):
         stale = index.query("quokka", ledger_file=self.ledger, index_file=self.index)
         self.assertTrue(stale.records, "recall must still ANSWER — availability holds, latency does not")
         self.assertTrue(stale.degraded, "an old-shape index must degrade to the scan, never answer confidently")
+
+    # One record of every kind and every exclusion case, with the set recall should surface pinned beside it.
+    # The point is the COUPLING, not the coverage: the version leg above only protects an operator's existing
+    # index if somebody remembers to bump the version when membership moves, and twice now in this subsystem
+    # somebody did not. (The first time was caught in review; the second shipped as far as a cold audit — a
+    # change removed the archived-tier age-out, which is squarely a membership change, and left the version
+    # alone, so an index built by the previous release answered `degraded=False` with the wrong set.) This
+    # fixture turns "remember to bump it" into a failing test, and it is anchored on BEHAVIOUR rather than on
+    # the source of the predicates, so editing a comment cannot trip it.
+    _MEMBERSHIP_FIXTURE = [
+        {records.RECORD_ID_KEY: "turn", "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "S", "seq": 0,
+         "speaker": "user", "text": "a genuine turn", "tags": ["transcript"]},
+        {records.RECORD_ID_KEY: "injected", "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "S", "seq": 1,
+         "speaker": "user", "text": "<task-notification>x</task-notification>",
+         "tags": ["transcript", records.INJECTED_TAG]},
+        {records.RECORD_ID_KEY: "ancient", "kind": records.EPISODIC_KIND, "session_id": "S", "role": "dead-end",
+         "ts": 1, "text": "an episodic older than any threshold the retired age-out used", "tags": ["episodic"]},
+        {records.RECORD_ID_KEY: "batchless", "kind": records.EPISODIC_KIND, "session_id": "S",
+         "role": "decision", "text": "a batchless episodic", "tags": ["episodic"]},
+        {records.RECORD_ID_KEY: "orphan", "kind": records.EPISODIC_KIND, "session_id": "S", "role": "decision",
+         "text": "a crashed pass's orphan", "tags": ["episodic"], records.BATCH_KEY: "never-closed"},
+        {records.RECORD_ID_KEY: "closed", "kind": records.EPISODIC_KIND, "session_id": "S", "role": "decision",
+         "text": "a completed pass's episodic", "tags": ["episodic"], records.BATCH_KEY: "b-done"},
+        {records.RECORD_ID_KEY: "marker", "kind": records.MARKER_KIND, "session_id": "S",
+         records.BATCH_KEY: "b-done"},
+        {records.RECORD_ID_KEY: "folded", "kind": records.EPISODIC_KIND, "session_id": "S", "role": "decision",
+         "text": "a raw a summary was written over", "tags": ["episodic"],
+         records.SUPERSEDED_BY_KEY: "thegist"},
+        {records.RECORD_ID_KEY: "thegist", "kind": records.GIST_KIND, "session_id": "tag:x", "role": "lesson",
+         "text": "the summary standing in for it", "tags": ["gist"]},
+        {records.RECORD_ID_KEY: "reinforce", "kind": records.REINFORCEMENT_KIND, records.TARGET_KEY: "closed"},
+        {records.RECORD_ID_KEY: "supersede", "kind": records.SUPERSEDED_KIND, records.TARGET_KEY: "folded",
+         records.SUPERSEDED_BY_KEY: "thegist", records.BATCH_KEY: "r-open"},
+        {records.RECORD_ID_KEY: "rolledup", "kind": records.ROLLUP_KIND, records.BATCH_KEY: "r-other"},
+        {records.RECORD_ID_KEY: "erasure", "kind": records.ERASURE_KIND, records.TARGET_KEY: "gone"},
+    ]
+    _MEMBERSHIP_EXPECTED = {"turn", "ancient", "batchless", "closed", "marker", "thegist"}
+
+    def test_a_change_to_membership_must_bump_the_index_schema_version(self):
+        self.file(*self._MEMBERSHIP_FIXTURE)
+        surfaced = {r.get(records.RECORD_ID_KEY) for r in forget.live_records(self.ledger)}
+        self.assertEqual(
+            surfaced, self._MEMBERSHIP_EXPECTED,
+            "what recall surfaces has changed. That is a membership change, so an index an operator's previous "
+            "release already built now holds the wrong set while still stamping as current — bump "
+            "index.INDEX_SCHEMA_VERSION (and add its line to the history above it) in the SAME change, then "
+            "update this fixture.")
 
     def test_extend_admits_a_genuine_turn_and_refuses_everything_else(self):
         # extend is the only thing keeping the fast path current between rebuilds, and it is public. Its

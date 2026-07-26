@@ -30,11 +30,11 @@ Shape (settled with the maintainer + the thorough plan gate):
   `nothing-relevant` class succeeds on PURE top-k emptiness — no salience threshold (that would be the
   post-hoc dial the freeze forbids).
 
-- **Deterministic + reproducible.** Scoring uses `force_scan=True` — the machine-independent pure-Python
-  ranking path (the FTS5 fast path can differ in top-k membership across environments); membership@k sidesteps
-  the frecency tiebreak. Corpus timestamps are stamped RELATIVE to run time (records "born" minutes ago, well
-  under the shortest role-weighted archival boundary), so no record drifts out of recall between runs and the
-  baseline reproduces exactly.
+- **Deterministic + reproducible.** Scoring uses `force_scan=True` — the pure-Python ranking path, which
+  needs no FTS5 module and so reproduces on any machine; membership@k sidesteps the frecency tiebreak. Corpus
+  timestamps are stamped RELATIVE to run time, which no longer guards against anything ageing out of recall
+  (nothing does) but still keeps the frecency tiebreak identical between runs, so the baseline reproduces
+  exactly.
 
 - **A tamper-evident freeze.** `seal.json` pins a `sha256` over the corpus + questions, plus the numeric pass
   bar and the recorded old-path baseline; `verify_seal` (and a test) fail loudly if any sealed byte changes.
@@ -82,8 +82,8 @@ _AGE = "age_seconds"                           # corpus template field: stamped 
 # What "the old path" MEANS, sealed alongside the number it produced. The seal hashes the corpus, the
 # questions, the bar and the baseline — it hashes no code, so without this the definition of the baseline could
 # drift while the number stayed reassuringly at 0.49. That matters because the curation-removal slice strips
-# supersession, demotion and reinforcement ranking from the same shared reader, with every incentive to keep
-# the number steady. Changing this string is a deliberate re-seal, which is what the seal's own note already
+# supersession and reinforcement ranking from the same shared reader, with every incentive to keep the number
+# steady. Changing this string is a deliberate re-seal, which is what the seal's own note already
 # claims is true of the baseline.
 FROZEN_OLD_PATH = ("the captured conversation (`turn-delta`) is ABSENT FROM THE SEARCHED CORPUS — the old-path "
                    "cabinet is materialized without those records, so they are missing from the ranking's own "
@@ -242,8 +242,8 @@ def load_questions(path=QUESTIONS_PATH):
 
 def materialize(corpus, cabinet_dir, now):
     """Stamp every record `ts = now - age_seconds` and write a throwaway ledger + rebuilt index in
-    `cabinet_dir`. Relative stamping keeps every record recent, so none drifts across the archival boundary
-    between runs. The index is rebuilt so the cabinet is a complete stand-in store, but the canonical scoring
+    `cabinet_dir`. Relative stamping keeps every record the same age on every run, so the frecency tiebreak
+    lands identically. The index is rebuilt so the cabinet is a complete stand-in store, but the canonical scoring
     path uses `force_scan=True` (machine-independent), so the FTS5 index is not the path the baseline depends
     on. Returns (ledger_path, index_path)."""
     lpath = os.path.join(cabinet_dir, "ledger.ndjson")
@@ -446,8 +446,8 @@ def run_synthetic():
     (summary, rows). Raises if the cabinet is broken (a positive question that should retrieve gets nothing).
 
     Timestamps are stamped relative to the real current time (see `materialize`) — deliberately NOT injectable,
-    because `index.search` reads real wall-clock internally, so a past `now` here would archive every record out
-    of recall and the sanity gate would (loudly) report a broken cabinet."""
+    because `index.search` reads the real wall clock internally for its frecency tiebreak, so a past `now` here
+    would rank against one clock what was stamped against another."""
     now = int(time.time())
     corpus = load_corpus()
     questions = load_questions()

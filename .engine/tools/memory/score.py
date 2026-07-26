@@ -89,7 +89,8 @@ def _decay(delta: float) -> float:
 def _coerce_ts(value, fallback: int) -> int:
     """A usable timestamp from a record field, or `fallback`. bool is excluded (it subclasses int); a
     missing/non-numeric value falls back — for a record's birth that means 'treat as now' (fail-safe toward
-    KEEPING: born-now -> hot -> stays in recall, never silently aged into archival). A NON-FINITE float
+    VISIBILITY: born-now -> hot -> ranks high, so a damaged moment never buries a record at the bottom of every
+    result and never makes it look like a roll-up candidate). A NON-FINITE float
     (NaN/inf — only reachable on an out-of-band corrupted ledger line, since the engine never writes one) also
     falls back rather than crashing `int(value)`, so one bad line never costs recall of the records around it
     (the ledger's line-resilience law, upheld here for every timestamp field, incl. the carried compaction ones)."""
@@ -104,8 +105,8 @@ def _coerce_ts(value, fallback: int) -> int:
 
 def frecency(birth_ts: int, access_ts, now: int) -> float:
     """Frequency-and-recency of *reinforcement*: the decayed sum over a record's birth (an implicit first
-    reinforcement — without it a never-accessed record would score 0 and archive immediately) plus every
-    access. Rewards accumulated, repeated recall.
+    reinforcement — without it a never-accessed record would score 0 and sit at the bottom of the scale from
+    birth) plus every access. Rewards accumulated, repeated recall.
 
     Recurrence on the carried snapshot (what compaction relies on): exponential decay is separable,
     `decay(now - e) = decay(now - t) * decay(t - e)`, so for any split time `t`
@@ -188,8 +189,9 @@ def _effective(record, access_ts, now: int):
 
 
 def score(record, access_ts, now: "int | None" = None) -> float:
-    """The demotion score frecency x role-weight x recency for `record`, given the timestamps of the accesses
-    that name it (already collected from the ledger by `forget._access_index`). Snapshot-aware: a
+    """The freshness score frecency x role-weight x recency for `record`, given the timestamps of the accesses
+    that name it (already collected from the ledger by `forget._access_index`). It ranks and it selects roll-up
+    candidates; it excludes nothing from recall. Snapshot-aware: a
     compacted record resumes the recurrence from its carried snapshot, an un-compacted one scores from birth —
     the same value either way. `now` defaults to wall-clock."""
     now = int(time.time()) if now is None else now

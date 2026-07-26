@@ -52,7 +52,7 @@ fixed RELAY over signals the substrates already detected — boot computes no ne
 the operator-toned dashboard alone (PURE — no I/O; it renders gathered signals as DATA), reused by the status
 verb (the "two renderings of the same data"). The present-marker's ABSENCE from the AI's opening is how the
 floor tells the operator boot did not ground (the double-fault check). The modes stance line renders now that
-modes exists; memory's reversible-forgetting readout renders whenever memory has set anything aside
+modes exists; memory's set-aside readout renders whenever memory has set anything aside
 from recall, and is simply absent when nothing is set aside — a young store that has forgotten nothing yet
 shows no block, no genesis-only scaffolding.
 
@@ -889,22 +889,25 @@ def render_set_aside(sa: "dict | None") -> list:
         return []
 
     offer = "You can ask me to show you the original wording of one whenever you like."
+    # One class, so this reads as two plain sentences rather than a labelled category. A bullet naming the kind
+    # earned its keep while there were two kinds to tell apart; with one it only restates the line above it and
+    # asks the reader to navigate a taxonomy with a single member.
     if sa.get("collapsed"):
-        folded = (f"{_n_notes(total)} folded into a shorter summary" if total == 1
-                  else f"{total} notes folded into shorter summaries")
+        standing = "a shorter summary standing in for it" if total == 1 else "shorter summaries standing in for them"
+        kept = "it's" if total == 1 else "they're"
         return ["### Notes I've set aside",
-                f"Still {folded} (unchanged since last session). Nothing was deleted — they're all still saved. "
-                f"{offer}", ""]
+                f"Still {_n_notes(total)} with {standing} (unchanged since last session). Nothing was deleted "
+                f"— {kept} still saved. {offer}", ""]
 
     newly = sa.get("newly")
-    lead = f"I've set aside {_n_notes(total)} from what I search"
+    lead = f"I've written a shorter summary over {_n_notes(total)}, so the summary is what I search now"
     if isinstance(newly, int) and newly > 0:
         lead += f" — {newly} more since you last saw this"
     # "still saved", NOT "fully recoverable": a folded note can only be shown in its original wording, never
-    # returned to search — the bullet below carries that distinction rather than the lead overstating it.
-    out = ["### Notes I've set aside", f"{lead}. Nothing was deleted — every one is still saved.",
-           "- Folded into a shorter summary. The summary is what I search now; the originals are kept "
-           "word-for-word, and I can show you the exact wording of any of them. Most recent:"]
+    # returned to search — the second sentence carries that distinction rather than the lead overstating it.
+    out = ["### Notes I've set aside",
+           f"{lead}. Nothing was deleted — the originals are kept word-for-word, and I can show you the exact "
+           "wording of any of them. Most recent:"]
     for r in rows[:_SET_ASIDE_SHOW]:
         out.append(f"  - {_set_aside_snippet(r.get('text'))}")
     out.append("Ask me to list them all whenever you like.")
@@ -1341,8 +1344,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         fast_search_unavailable = _lh_fast.detect_fast_search_unavailable()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         fast_search_unavailable = False
-    # The reversible-forgetting readout (#413), RELAYED from memory's own read: what recall has set aside
-    # (notes gone quiet, notes folded into summaries) that the operator has a handle on. None means "not read"
+    # The set-aside readout (#413), RELAYED from memory's own read: the notes a summary was written over —
+    # the one class recall drops that the operator has a handle on. None means "not read"
     # (an unreadable store — surfaced by recall_offline above, never as a false "nothing set aside"); a report
     # means "read". Read-only; boot owns the wording, memory owns the mechanism.
     set_aside = _set_aside_recall()
@@ -1452,7 +1455,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         # the slower-search signal: True iff there is saved memory AND this machine has no full-text search,
         # so every search reads the whole store (recall still answers — the latency axis, not availability)
         "fast_search_unavailable": fast_search_unavailable,
-        # the reversible-forgetting readout (#413): what recall has set aside (demoted / summarised) with the
+        # the set-aside readout (#413): what recall has set aside (a note a summary was written
+        # over — the only class left, now that nothing is set aside by age) with the
         # full count + id set, or None when the store was not read (never a false "nothing set aside")
         "set_aside": set_aside,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
@@ -2089,7 +2093,7 @@ def render_dashboard(s: dict) -> str:
     # merges or whether it simply is not showing them, and this render must not guess between the two.
     out.extend(f"- {line}" for line in s["shipped"])
 
-    # The reversible-forgetting readout (#413): what memory has set aside from recall, with a handle per note.
+    # The set-aside readout (#413): what memory has set aside from recall, with a handle per note.
     # render_set_aside returns [] when there is nothing set aside or the store was not read — no block then.
     set_aside_block = render_set_aside(s.get("set_aside"))
     if set_aside_block:
@@ -2338,7 +2342,7 @@ def _relay_lines(s: dict) -> list:
     behind_value = _behind_value(s)
     if behind_value is not None:
         eligible.append({"key": "checkout_drift", "value": behind_value})
-    # The reversible-forgetting readout rides this SAME decide() call (#413), exactly like off_main: it is not a
+    # The set-aside readout rides this SAME decide() call (#413), exactly like off_main: it is not a
     # pushed governance alarm (it has no relay line here — it renders only in the dashboard), but its collapse
     # must use the same ledger pass. A second decide() would clobber the keys this one writes.
     set_aside_value = _set_aside_value(s)

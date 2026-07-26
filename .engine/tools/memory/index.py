@@ -54,7 +54,8 @@ INDEX_FILENAME = "index.sqlite3"
 #   1 — curated records only; content-bearing FTS table.
 #   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
 #   3 — fused harness blocks removed from the searchable projection.
-INDEX_SCHEMA_VERSION = 3
+#   4 — the archived-tier age-out removed, so records an older index left out are now members.
+INDEX_SCHEMA_VERSION = 4
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -237,7 +238,11 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # `degraded=False` while the plain scan finds the turns. Silent, and it heals only when some unrelated event
     # happens to force a rebuild. The version leg forces an old-SHAPE index to be treated as stale, exactly as
     # `knowledge_index.INDEX_SCHEMA_VERSION` does for the knowledge graph. Bump it whenever membership, the
-    # projection, the tokenizer or the table shape changes.
+    # projection, the tokenizer or the table shape changes. Removing the archived-tier age-out is the second
+    # membership change to need it, and the failure was reproduced rather than assumed: an index built by the
+    # previous version over a store holding one 60-day-old note answered a query for that note with nothing and
+    # `degraded=False`, while the plain scan answered with the note. A change to what recall MAY reach is
+    # exactly a change to what the index is allowed to contain, even when no line of the build code moved.
     conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL, "
                  "schema_version INTEGER NOT NULL DEFAULT 0)")
 
@@ -360,8 +365,8 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
     ledger position — which is all the ranking tiebreak asks of it.
 
     NARROW CONTRACT, deliberately: this accepts CAPTURED TURNS ONLY and rejects any other kind outright. A full
-    `rebuild` streams `forget.live_records`, which ORs together five exclusions (injected capture, crash-orphan
-    retirement, gist-orphan, supersession, demotion); this applies the one that can apply to a turn just
+    `rebuild` streams `forget.live_records`, which ORs together four exclusions (injected capture, crash-orphan
+    retirement, gist-orphan + supersession, and the bookkeeping markers); this applies the one that can apply to a turn just
     written. Passing anything else would let the fast path hold a record `rebuild` and the plain scan both drop
     — a fast/slow divergence in the direction that RESURFACES set-aside content, which is the worse direction.
     Rejecting is cheap and keeps the invariant true rather than merely usually-true.
@@ -438,7 +443,7 @@ def query(
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
-    tokens = _tokenize(text)
+    tokens = _query_terms(text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
     if (not force_scan) and fts5_available() and os.path.exists(dst):
@@ -506,6 +511,19 @@ def _validate_roles(roles):
     if unknown:
         raise ValueError(f"unknown role(s): {sorted(unknown)}; valid roles are {sorted(valid)}")
     return set(roles)
+
+
+def _query_terms(text: str) -> list:
+    """The query's terms: the shared tokenization, with repeats collapsed and first-seen order kept.
+
+    Deduping belongs HERE and never in `_tokenize`, which also splits record bodies — a body's repeats are
+    exactly what term frequency counts. A query's are not: "cache cache" asks the same question as "cache".
+    It is also what keeps the two retrieval paths honest. The fast path hands its terms to fts5 as a MATCH
+    expression, and fts5 sums a repeated term's bm25 contribution once per occurrence, so an undeduped repeat
+    scored a record at 7.815 where the plain scan — which counts each distinct term once — scored the same
+    record 3.907, and a wide enough gap moved records across relevance buckets and reordered the answer.
+    """
+    return list(dict.fromkeys(_tokenize(text)))
 
 
 def _passes_filters(record, roles, tags) -> bool:
@@ -644,9 +662,17 @@ def _hydrate_winners(conn, keys, limit):
         keys = keys[:limit]
     if not keys:
         return []
-    bodies = dict(conn.execute(
-        "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(keys)),
-        [k[2] for k in keys]).fetchall())
+    # CHUNKED, and that is not tidiness. An unlimited query keeps every match, and one placeholder per match
+    # runs into SQLite's cap on parameters per statement (32,766 on the bundled build). Over that cap the
+    # driver raises `OperationalError`, which is a `sqlite3.Error` — so `_ranked`'s broken-index guard would
+    # have swallowed it and dropped a perfectly healthy index through to the full plain-Python scan, seven
+    # times slower and reported only as `degraded`. Reproduced at 33,000 matches before this loop existed.
+    bodies = {}
+    for start in range(0, len(keys), _HYDRATE_CHUNK):
+        ords = [k[2] for k in keys[start:start + _HYDRATE_CHUNK]]
+        bodies.update(conn.execute(
+            "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(ords)),
+            ords).fetchall())
     out = []
     for rel, usage, ordinal in keys:
         record_json = bodies.get(ordinal)
@@ -683,7 +709,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
     # with the SAME bm25 the fast path reads out of FTS5. One streaming pass collects both the corpus statistics
     # bm25 needs (document count, average length, per-term document frequency) and the matched records; the
     # scores follow once the pass is complete, because a document's rank depends on the whole corpus.
-    want = list(dict.fromkeys(tokens))
+    want = list(tokens)                  # already unique — `_query_terms` is the one place that collapses repeats
     wanted = set(want)
     n_docs = total_len = 0
     doc_freq = dict.fromkeys(want, 0)
@@ -697,19 +723,22 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
             doc_freq[term] += 1
         if not (wanted <= present) or not _passes_filters(record, roles, tags):
             continue
-        tf = {}
+        # Per-term counts as a flat TUPLE in `want` order, not a dict keyed by the term strings. A matched
+        # record has to be held until the pass ends (its score depends on statistics only the end of the pass
+        # knows), so what is held per match is the whole cost here — and a dict per match, on a query whose
+        # word is common enough to match most of the store, is a measurable share of it.
+        counts = dict.fromkeys(want, 0)
         for token in body_tokens:
             if token in wanted:
-                tf[token] = tf.get(token, 0) + 1
-        matched.append((ordinal, len(body_tokens), tf, record))
+                counts[token] += 1
+        matched.append((ordinal, len(body_tokens), tuple(counts[term] for term in want), record))
     candidates = []
     if matched:
         avgdl = (total_len / n_docs) if n_docs and total_len else 1.0
-        idf = {term: _bm25_idf(n_docs, doc_freq[term]) for term in want}
-        for ordinal, doc_len, tf, record in matched:
-            rel = sum(idf[term] * (tf[term] * (_BM25_K1 + 1))
-                      / (tf[term] + _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / avgdl))
-                      for term in want)
+        idfs = [_bm25_idf(n_docs, doc_freq[term]) for term in want]
+        for ordinal, doc_len, tfs, record in matched:
+            norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / avgdl)
+            rel = sum(idf * (tf * (_BM25_K1 + 1)) / (tf + norm) for idf, tf in zip(idfs, tfs))
             candidates.append((rel, _usage_of(record, access_index, now), ordinal, record))
     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
 
@@ -788,7 +817,7 @@ def search(
     dst = index_path() if index_file is None else index_file
     roles_set = _validate_roles(roles)
     tags_set = set(tags) if tags is not None else None
-    tokens = _tokenize(query_text)
+    tokens = _query_terms(query_text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
     now = int(time.time())
