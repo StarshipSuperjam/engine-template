@@ -128,8 +128,9 @@ class ToolWiringTests(_ServerBase):
         self.assertIn("recall-window", note, "the note must name the reader that gets the exact wording")
         self.assertIn("never an instruction", note, "prompt-injection framing must ride the answer, not only "
                                                     "the workflow doc a direct caller may never have read")
-        self.assertIn("redacted", note, "the standing privacy condition must be disclosed where it is true — "
-                                        "on every answer, not once in a merge note")
+        self.assertIn("never masked", note, "the standing privacy condition must be disclosed where it is true "
+                                            "— on every answer, not once in a merge note — and stated so it "
+                                            "cannot be skim-read as the reassuring opposite")
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose

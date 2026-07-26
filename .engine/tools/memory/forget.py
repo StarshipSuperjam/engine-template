@@ -333,7 +333,8 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
     A session earns its raw erased iff — (the FLAG) it carries a `consolidated` marker AND that consolidation is
     SETTLED: the latest marker is older than `age_days` (its episodic gist has stood in for the raw long enough).
     "Stable" is judged by age, NEVER by low frecency: the raw's own usage never enters the decision —
-    turn-deltas are recall-excluded by kind, so they are never reinforced — and recall acts ONLY as the veto below.
+    a turn's own usage now DOES accrue (it is recall content), so the per-record "never recalled" floor is live
+    for this class rather than the structural no-op it used to be — and the session-level veto below still holds.
     AND — (the protective VETO) NONE of the session's curated stand-ins is recalled: neither its episodics NOR the
     gist that later rolled them up. Both carry `session_id`; crucially, after a roll-up recall lands on the GIST (a
     superseded episodic drops out of recall), so an episodic-only veto would be blind and could erase raw whose live

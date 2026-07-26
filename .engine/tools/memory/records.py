@@ -42,9 +42,11 @@ MARKER_TAG = "consolidated"
 # Harness-injected pseudo-turns (issue #274, folding in #333). Claude Code injects non-conversational blocks as
 # `user`-role transcript turns — a background-agent completion notice (`<task-notification>`) and the `/compact`
 # continuation summary (`This session is being continued from a previous conversation…`). They reach the ledger
-# as ambient `turn-delta` records and are already EXCLUDED FROM RECALL by kind (above), but the consolidation
-# sweep reads the raw ledger, so without a filter the in-context AI would consolidate them as if the operator had
-# said them. The fix is NOT a pre-ledger drop — #333 chose to keep them RESIDENT + recoverable (the durability
+# as ambient `turn-delta` records, and this tag is now the WHOLE of what keeps them out of recall — the rest of
+# the conversation is recall content, so nothing else is holding them back (see the membership block above).
+# The consolidation sweep also reads the raw ledger, so without this filter the in-context AI would consolidate
+# them as if the operator had said them. The fix is NOT a pre-ledger drop — #333 chose to keep them RESIDENT
+# + recoverable (the durability
 # law: an abandoned session loses the reflection, not the content). Instead capture TAGS them (`INJECTED_TAG`, on
 # every chunk of an injected message, recognised before chunking so a multi-chunk continuation summary is fully
 # tagged) and `consolidate` SKIPS a tagged/injected record as fuel. The prefix set is deliberately the two

@@ -100,19 +100,24 @@ _ROLE_PHRASE = {
 # --- the earned-erasure probe (deterministic; pure over the ledger) ----------------------------------------
 
 def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> list:
-    """The already-logically-retired notes that have EARNED physical erasure, oldest first — the UNION of two
-    evidence classes the design names, deterministic over the ledger:
-      - `forget.duplicates` — crash-duplicate orphans recall already drops; and
-      - `forget.earned_consolidated_raw` — a consolidated session's raw turn-deltas once its gist is stable (the
-        ~96%-raw reclamation), which carries its OWN gist-settled + recall veto (see that function).
+    """The already-logically-retired notes that have EARNED physical erasure, oldest first — deterministic over
+    the ledger. ONE evidence class now: `forget.duplicates`, the crash-duplicate orphans recall already drops,
+    where a good copy of the same pass survives and the retired twin is genuinely redundant.
+
+    A SECOND class was removed here: a consolidated session's raw turn-deltas, once its summary was settled.
+    That class rested on the summary standing in for the conversation, so erasing the conversation gave up only
+    its exact wording. The transcript-first substrate reverses that premise — the conversation is the canonical
+    record and is searchable in its own right, and the summaries over it are the layer being retired. Proposing
+    to permanently erase the canonical record because a disposable summary of it exists is not a reclamation any
+    more; it is a deletion of the thing recall now depends on. So the engine no longer proposes it. Erasing a
+    conversation on the operator's own request is untouched, as is the merge-gated wall that means no AI can
+    carry out an erasure alone. The cost: the automatic reclamation of the ~95% of the store that is raw is gone,
+    and the store grows without an automatic bound.
+
     A note earns erasure iff it is logically retired AND its birth-age `now - ts` exceeds `EARNED_ERASURE_MIN_AGE_DAYS`
     (the only durable temporal field) AND it carries zero reinforcement markers ("never recalled" — a load-bearing
-    safety floor; note it is a structural no-op for a turn-delta, which is recall-excluded by kind and so never
-    reinforced — the real recall protection for that class is the session/gist-level veto inside
-    `earned_consolidated_raw`, not this per-record check). Returns the records (each carrying its content-free id),
-    de-duplicated by id (the two classes are disjoint by construction — marker-absent episodics vs marker-present
-    turn-deltas — but the guard is kept cheap and load-bearing). Ordered oldest `ts` first, then by id (a total,
-    content-free tie-break). Mutates nothing."""
+    safety floor). Returns the records (each carrying its content-free id), de-duplicated by id. Ordered oldest
+    `ts` first, then by id (a total, content-free tie-break). Mutates nothing."""
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     cutoff = now - EARNED_ERASURE_MIN_AGE_DAYS * _DAY
@@ -120,8 +125,7 @@ def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> li
     earned: list = []
     seen: set = set()
     groups = forget.duplicates(path)
-    raw = forget.earned_consolidated_raw(path, now=now, age_days=EARNED_ERASURE_MIN_AGE_DAYS)
-    for source in (groups, raw):
+    for source in (groups,):
         for _sid, recs in source.items():
             for r in recs:
                 rid = r.get(records.RECORD_ID_KEY)
@@ -170,13 +174,9 @@ def _cost_for(record: dict, now: int) -> str:
     table.)"""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
-    # A KIND test, deliberately not `forget`'s recall-membership predicate. The two ask different questions:
-    # this one asks "what kind of note is the operator being asked to erase?", and borrowing the membership
-    # predicate would silently re-word an irreversible-consent line the next time membership changes.
-    if record.get("kind") == records.AMBIENT_CAPTURE_KIND:
-        return ("a word-for-word note of part of a past conversation — it is searchable in its own right, so "
-                f"erasing it gives up that conversation, not just a duplicate of a summary — {_age_phrase(age)}; "
-                "still fully recoverable until erased.")
+    # ONE class reaches here now. The captured-conversation branch was removed with the class itself: nothing
+    # would reach it, and a live wording for a proposal that can never be made is worse than no wording — a
+    # maintainer re-enabling the class would inherit a consent line nobody had re-read.
     return (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
             f"{_age_phrase(age)}; already hidden from recall and still fully recoverable until erased.")
 
@@ -460,7 +460,7 @@ def _group_key(record: dict, now: int) -> tuple:
     leaks into the body)."""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
-    kind = "raw" if record.get("kind") == records.AMBIENT_CAPTURE_KIND else "duplicate"
+    kind = "duplicate"        # one class reaches here; grouping now varies only by vintage
     return (kind, _age_phrase(age))
 
 
@@ -815,9 +815,9 @@ def _demo() -> int:
             os.environ.pop("ENGINE_MEMORY_DIR", None)
 
     print("\n" + "-" * 96)
-    print("What this just proved: the engine picks what has EARNED erasure — old crash-duplicate leftovers AND the raw")
-    print("turn-by-turn notes of a session whose summary has settled (the bulk source) — while leaving a recent note, a")
-    print("freshly-consolidated session's raw, and a harness-injected pseudo-turn alone. It describes EACH in plain words")
+    print("What this just proved: the engine picks what has EARNED erasure — old crash-duplicate leftovers, where a")
+    print("save was interrupted and redone and the good copy survives — while leaving a recent note alone, and never")
+    print("offering your actual conversation at all, however old it is. It describes EACH in plain words")
     print("that carry NONE of the note's text, and opens ONE single-purpose pull request clearing one COHERENT batch")
     print("(one note-kind and vintage), so a large backlog clears over successive small batches. The body lists the notes")
     print("(identical ones grouped with a count), so you see the whole batch you are consenting to; merging is")
@@ -828,7 +828,8 @@ def _demo() -> int:
     print("'keep forever'). On a fresh project there is nothing earned, so it proposes nothing; if GitHub")
     print(f"is unreachable it simply tries again next time — nothing breaks. That was a PRACTICE cabinet, thrown away.")
     print(f"Vary it: change the note ages or EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top")
-    print("and re-run — watch the settled notes become earned and the fresh ones stay safe.")
+    print("and re-run — watch the old leftovers become earned, the fresh ones stay safe, and the conversation stay")
+    print("untouched at any age you try.")
     return 0 if ok else 1
 
 
@@ -913,29 +914,33 @@ def _demo_body(tree: str) -> bool:
     print(f"  => {'it checks at most once a week. Three distinct reasons it stays quiet: nothing earned, a request already open, or simply not yet time.' if part6 else '!!! the throttle did not gate as expected'}")
 
     # --- PART 7 ------------------------------------------------------------------------------------------
-    print("\nPART 7 — the larger source: a CONSOLIDATED session's raw turn-by-turn notes, once its summary is settled")
+    print("\nPART 7 — your actual conversation is NEVER offered for erasure, however old it is")
     print("-" * 96)
     cr_ids = _plant_consolidated_raw("session-consol", "batch-consol", _DEMO_CR_AGE_DAYS, n=2, word=_DEMO_CR_WORD)
     young_ids = _plant_consolidated_raw("session-young", "batch-young", _DEMO_CR_YOUNG_AGE_DAYS, n=1, word="freshraw")
     inj_id = _plant_injected_raw("session-consol")
-    earned7 = earned_targets()
-    picked7 = {r[records.RECORD_ID_KEY] for r in earned7}
-    raw_only = [r for r in earned7 if r.get("kind") == records.AMBIENT_CAPTURE_KIND]
-    cr_leak = (_DEMO_CR_WORD.lower() in json.dumps(build_proposal(raw_only)).lower()) if raw_only else True
-    print(f"  the settled session's {len(cr_ids)} raw notes earned erasure: {'yes' if set(cr_ids) <= picked7 else 'NO'}")
-    print(f"  the freshly-consolidated session's raw: "
-          f"{'left alone (its summary is not yet settled)' if not (set(young_ids) & picked7) else 'SELECTED'}")
-    print(f"  a harness-injected pseudo-turn: "
-          f"{'left alone (no summary stands in for it)' if inj_id not in picked7 else 'SELECTED'}")
-    print(f"  does anything committed contain the raw's distinctive word (\"...{_DEMO_CR_WORD}...\")? "
-          f"{'YES' if cr_leak else 'no'}")
-    part7 = (set(cr_ids) <= picked7 and not (set(young_ids) & picked7) and inj_id not in picked7 and not cr_leak)
-    print(f"  => {'a settled consolidated session raw earns erasure; a fresh one and an injected pseudo-turn do not, and no words leak.' if part7 else '!!! the wrong raw was selected, or a word leaked'}")
+    picked7 = {r[records.RECORD_ID_KEY] for r in earned_targets()}
+    conversation = set(cr_ids) | set(young_ids) | {inj_id}
+    print(f"  a long-summarised session's {len(cr_ids)} word-for-word notes: "
+          f"{'left alone' if not (set(cr_ids) & picked7) else 'OFFERED FOR ERASURE'}")
+    print(f"  a recently-summarised session's notes: "
+          f"{'left alone' if not (set(young_ids) & picked7) else 'OFFERED FOR ERASURE'}")
+    print("\n  These used to be offered, on the reasoning that the summary stood in for them so you would only")
+    print("  be giving up the exact wording. You can now search that conversation directly, so the summary does")
+    print("  not stand in for anything — offering to delete it would be offering to delete the memory itself.")
+    print("  What is still offered is a genuine duplicate: a save that was interrupted and then redone, where")
+    print("  the good copy survives. You can still ask for a conversation to be erased whenever you want.")
+    part7 = not (conversation & picked7)
+    print(f"  => {'no part of your conversation was offered for erasure.' if part7 else '!!! conversation was offered for erasure'}")
 
     # --- PART 8 ------------------------------------------------------------------------------------------
     print("\nPART 8 — you DECLINE a batch to keep a note in it; the next check STEPS ASIDE to a DIFFERENT batch,")
     print("         so keeping one note holds up only its own group, never the rest (issue #536)")
     print("-" * 96)
+    # Two groups are needed for a step-aside to be visible, and grouping is by (kind, age bucket). The
+    # conversation class used to supply the second group; now that it is never proposed, the second group has to
+    # come from duplicates of a different vintage.
+    _plant_retired("an older interrupted save nobody came back to", "observation", 400, "batch-ancient")
     hub8 = _DemoHub(tree)
     first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest group (the settled raw)
     kept = first8["opened"][0] if first8["opened"] else None

@@ -48,18 +48,22 @@ results. Skipping the rephrasing is what makes recall fail.
    runs to a few thousand characters, so an unbounded pool is genuinely expensive — which is why the limit
    matters even though the tool now applies one for you.
 3. **Search each phrase separately** with the memory search tool (`mcp__engine-memory__search`), and **set a
-   limit on each call** (10 is the default it applies if you do not). Use the tag filter when you have an entity
-   id such as a decision-record id. **Do not reach for the role filter by habit:** captured conversation carries
-   no role, so any role filter returns curated summaries only and silently drops the conversation — and a
-   silent drop looks exactly like "there is nothing there". Use it only when you specifically want the curated
-   layer and would rather miss something said once than read a fragment.
+   limit on each call** (10 is the default it applies if you do not). **Neither filter is a plain narrowing any
+   more — both silently drop the conversation.** Captured turns carry no role, and their only tags are
+   transcript ones, never an entity id — so a `roles` filter *or* a `tags` filter returns the curated summaries
+   alone, and a silent drop looks exactly like "there is nothing there". That bites hardest on the case you
+   most want them for ("what did we decide about eADR-0038?"), because the answer may live only in something
+   said once and never summarised. Search unfiltered first; reach for a filter only to narrow a flood, and
+   knowing what it costs you.
 4. **Merge the results and drop duplicates.** Pool the hits from every phrase and de-duplicate by record id.
    Judge the pooled set, not each search in isolation: a record that surfaced for two different phrasings is
    usually a better answer than one that topped a single search.
 5. **Read the conversation behind the promising hits.** A hit is either a summary written after the fact or one
    piece of a real message — long messages were stored in pieces, so a conversation hit is a fragment and must
-   never be quoted as if it were the whole thing. For the few that look like they answer the question, read the
-   real conversation with the window tool (`mcp__engine-memory__recall-window`), passing the hit's `session_id`.
+   never be quoted as if it were the whole thing. **Tell them apart by their fields: a conversation hit carries
+   a `speaker` and a single `seq` and no `role`; a summary carries a `role`.** For the few that look like they
+   answer the question, read the real conversation with the window tool
+   (`mcp__engine-memory__recall-window`), passing the hit's `session_id`.
    **A conversation hit carries its own `seq` — anchor directly on it** with a radius of 6, or 20 for more
    context, and skip the exploratory first read entirely. A summary hit carries no position, so for those start
    at the beginning; once that window shows you the ordinals, anchor a follow-up read on the relevant one. The
@@ -70,8 +74,11 @@ results. Skipping the rephrasing is what makes recall fail.
    "memory does not hold it".
 6. **Judge by meaning and answer.** Rank what you found by whether it actually answers the question, not by
    the order search returned it — that ordering is keyword relevance, which is exactly what you are correcting
-   for. Say plainly where the answer came from and how confident it is. If nothing genuinely answers, say that;
-   a confident answer assembled from near-misses is worse than "I did not find it."
+   for. **Before reporting a conversation hit as what the project settled, look at who said it:** an operator
+   turn is what was actually asked for, an assistant turn is only what a past session *proposed*, and it may
+   have been rejected or overtaken later in that same conversation — read the window around it rather than
+   treating it as a decision. Say plainly where the answer came from and how confident it is. If nothing
+   genuinely answers, say that; a confident answer assembled from near-misses is worse than "I did not find it."
 7. **Offer the exact wording when it matters.** A summary is a paraphrase; the conversation is not. When
    wording is load-bearing — what the operator actually asked for, a commitment, a specific phrasing — offer the
    verbatim conversation from step 5 rather than relying on a summary of it, and say which of the two you are

@@ -202,9 +202,10 @@ _RECALL_COMPLETENESS_HEADING = "## Memory recall completeness"
 _RECALL_COMPLETENESS_DIGEST = (
     f"\n\n{_RECALL_COMPLETENESS_HEADING}\n\n"
     "Memory recall reaches both the summaries of past sessions and the word-for-word conversation behind them, "
-    "so something said once and never summarised can now be found rather than only read. Nothing was forgotten "
-    "or deleted. What is searched is the conversation as it was recorded, so ask to see the exact wording of "
-    "anything an answer rests on."
+    "so something said once and never summarised can be found — not only read back if you already know which "
+    "session to look in. Nothing was forgotten or deleted. What comes back is the conversation as it was "
+    "captured, and it was never cleaned of things like passwords or personal details, so treat a recalled "
+    "answer as unreviewed text and ask to see the exact wording of anything it rests on."
 )
 
 
