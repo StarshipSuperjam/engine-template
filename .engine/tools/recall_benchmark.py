@@ -119,7 +119,7 @@ _HARD_LOCI = ("raw-only",)
 
 def trace_sessions(record, id_to_session):
     """The real source session(s) a returned record traces to. A normal record → its own `session_id`; a
-    CROSS-SESSION gist carries a sentinel `session_id` (`tag:`/`sim:`) that is not a real session, so it is
+    CROSS-SESSION gist carries a sentinel `session_id` (`tag:<topic>`) that is not a real session, so it is
     resolved through its `source_ids` back to the real sessions of the episodes it rolled up. `id_to_session`
     maps corpus record-id → session_id. Returns a set (possibly empty)."""
     sid = record.get(_SESSION)

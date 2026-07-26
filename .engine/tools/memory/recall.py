@@ -154,6 +154,77 @@ def session_turns(session_id: str, *, path: "str | None" = None) -> list:
     return out
 
 
+CARD_TEXT_CHARS = 150       # how much of a turn a card quotes — enough to recognise the thread, never to replace it
+DEFAULT_CARDS = 4           # how many past sessions a cold start is shown by default
+
+
+def _card_excerpt(text) -> str:
+    """One turn's opening, flattened to a single line and cut to `CARD_TEXT_CHARS`. A card is a HANDLE, not a
+    summary: it exists so a reader recognises which past session this was and can go read it. Cutting at a word
+    boundary keeps it legible; the ellipsis says plainly that there is more."""
+    if not isinstance(text, str):
+        return ""
+    flat = " ".join(records.mark_harness_spans(text).split())
+    if len(flat) <= CARD_TEXT_CHARS:
+        return flat
+    cut = flat[:CARD_TEXT_CHARS]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > CARD_TEXT_CHARS // 2 else cut).rstrip() + "…"
+
+
+def session_cards(*, limit: int = DEFAULT_CARDS, path: "str | None" = None) -> list:
+    """The most recent past sessions, one deterministic card each, newest first.
+
+    A card is what a COLD session needs and search cannot give it: search answers "what do we know about X?",
+    which only helps once you already know to ask about X. On the first turn of a new session nobody knows that
+    yet, so this asks the question a cold reader actually has — "what was I just doing?" — and answers it from
+    the conversation itself.
+
+    DERIVED, never stored: a pure function of the ledger, recomputed on every read. Nothing is written, no new
+    record kind exists, and a card can never drift from the conversation it describes (eADR-0019's read-time
+    join, and the reason this is not a sixth store). Each card carries `session_id`, `started`/`ended` epochs,
+    the genuine turn `count`, and short excerpts of the FIRST and LAST things the OPERATOR asked — the two turns
+    that place a session: the first names what it was for, the last names what was in flight when it stopped,
+    which is exactly what "where did I leave off" means. Both are deliberately the operator's own words. The
+    assistant's closing turn was tried and rejected: an answer is quoted from its OPENING, so what comes back is
+    the start of a reply rather than the outcome of one — it reads as mid-thought and orients nobody.
+
+    ONE pass over the raw ledger (measured at ~0.1s over 27,000 records), not `live_records`: the ranked stream
+    is not the point here and this must see the conversation as captured. Only genuine turns count, so a
+    `/compact` continuation summary can never be reported as something the operator asked. Chunked messages
+    contribute their FIRST chunk (lowest `seq`), which is where a message's opening actually lives. A session
+    with no usable timestamp is skipped rather than sorted arbitrarily."""
+    src = ledger.ledger_path() if path is None else path
+    by_session: dict = {}
+    for record in ledger.iter_records(path=src):
+        if not is_genuine_turn(record):
+            continue
+        sid = record.get("session_id")
+        if not isinstance(sid, str) or not sid:
+            continue
+        ts, seq = record.get("ts"), _seq_of(record)
+        card = by_session.setdefault(sid, {"session_id": sid, "started": None, "ended": None, "count": 0,
+                                           "first_ask": "", "last_ask": "", "_first": None, "_last": None})
+        card["count"] += 1
+        if isinstance(ts, int) and not isinstance(ts, bool):
+            card["started"] = ts if card["started"] is None else min(card["started"], ts)
+            card["ended"] = ts if card["ended"] is None else max(card["ended"], ts)
+        if seq is None or record.get("speaker") != "user":
+            continue          # counted, but only the operator's own turns are ever quoted, and only ordinalled ones
+        if card["_first"] is None or seq < card["_first"]:
+            card["_first"], card["first_ask"] = seq, _card_excerpt(record.get("text"))
+        if card["_last"] is None or seq > card["_last"]:
+            card["_last"], card["last_ask"] = seq, _card_excerpt(record.get("text"))
+    cards = [c for c in by_session.values() if c["ended"] is not None]
+    cards.sort(key=lambda c: (c["ended"], c["session_id"]), reverse=True)
+    for card in cards:
+        if card["_first"] == card["_last"]:
+            card["last_ask"] = ""         # a one-request session: the first ask IS the last, so do not repeat it
+        card.pop("_first", None)
+        card.pop("_last", None)
+    return cards[:limit] if isinstance(limit, int) and limit > 0 else cards
+
+
 def _join_chunks(turns: list) -> list:
     """Rejoin the chunks of each message into one readable turn. Capture splits a >4KB message into several
     records sharing ONE `seq` and speaker; here they concatenate in the order they were appended. Returns
@@ -212,7 +283,7 @@ def _fit_budget(turns: list):
 
 def resolve_sessions(session_id: str, *, path: "str | None" = None) -> list:
     """The REAL sessions a window id names. Normally that is the id itself — but a summary folded from several
-    sessions carries a cluster key (`tag:…` / `sim:…`) that is not a session at all, and its own provenance is
+    sessions carries a cluster key (`tag:…`) that is not a session at all, and its own provenance is
     a list of RECORD ids, not session ids. Resolving it means following those record ids back to the episodes
     they fold and reading the session off each.
 

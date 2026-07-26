@@ -4,7 +4,7 @@ Active forgetting's first move: a perpetual project cannot only accumulate. A se
 AI-judged maintenance pass **consolidates old, related, low-frecency EPISODIC summaries into a compact GIST and
 logically retires the raw episodes** — the SECOND-order consolidation (episode→gist), exactly parallel to
 the first-order (delta→episode). "Related" is pre-grouped for the AI by a cross-session shared-topic-tag
-cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:`/`sim:`
+cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:<topic>`
 cluster key as its `session_id` (its real-session provenance lives in `source_ids`). This module is **Layer 1**: *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost** — a retired raw is excluded from
 recall but stays resident + fully recoverable in the one ledger (physical erasure is Layer-2, audit-gated).

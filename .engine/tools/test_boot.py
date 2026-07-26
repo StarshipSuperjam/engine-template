@@ -12,6 +12,7 @@ leg now validates modes' real explore-write-gate member.
 """
 from __future__ import annotations
 
+import datetime
 import io
 import json
 import os
@@ -1855,6 +1856,57 @@ class TestOffMainSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["off_main"], self._OFF_MAIN)       # relayed verbatim
         self.assertIsNone(failed["off_main"])                      # a detector failure degrades to None
+
+
+class TestWhereWeLeftOff(unittest.TestCase):
+    """The cold-start orientation block. Search only helps a session that already knows what to ask; the first
+    turn of a new session does not, so boot shows the last few sessions in the operator's own words. Boot
+    RELAYS — memory derives the cards — so these tests pin the wording and the silences, never the derivation."""
+
+    def _card(self, **over):
+        card = {"session_id": "s1", "started": 1_700_000_000, "ended": 1_700_000_000, "count": 12,
+                "first_ask": "make the exporter idempotent", "last_ask": "ship it"}
+        card.update(over)
+        return card
+
+    def test_no_block_on_a_fresh_or_unread_store(self):
+        self.assertEqual(boot.render_recent_sessions([]), [])
+        self.assertEqual(boot.render_recent_sessions([{}, None]), [],
+                         "a card with nothing quotable must not produce an empty heading")
+
+    def test_it_shows_the_operators_own_words_and_offers_to_open_them(self):
+        block = "\n".join(boot.render_recent_sessions([self._card()]))
+        self.assertIn("make the exporter idempotent", block)
+        self.assertIn("ship it", block)
+        self.assertIn("12 messages", block)
+        self.assertIn("Your own words", block, "the block must say whose words these are")
+        self.assertIn("read it back", block, "the reader needs the handle to go deeper")
+
+    def test_a_single_request_session_is_not_shown_twice(self):
+        block = "\n".join(boot.render_recent_sessions([self._card(last_ask="")]))
+        self.assertIn("Started with:", block)
+        self.assertNotIn("Last asked:", block)
+
+    def test_one_message_reads_as_singular(self):
+        block = "\n".join(boot.render_recent_sessions([self._card(count=1)]))
+        self.assertIn("(1 message)", block)
+
+    def test_a_missing_moment_never_renders_a_fabricated_date(self):
+        block = "\n".join(boot.render_recent_sessions([self._card(ended=None)]))
+        self.assertIn("an earlier session", block)
+
+    def test_a_future_timestamp_reads_as_today_not_a_negative_age(self):
+        # Clock skew must never produce "-1 days ago" in front of the operator.
+        future = datetime.datetime.now(datetime.timezone.utc).timestamp() + 86_400
+        block = "\n".join(boot.render_recent_sessions([self._card(ended=future)]))
+        self.assertIn("today", block)
+        self.assertNotIn("days ago", block, "a future moment must clamp to today, never a negative age")
+
+    def test_the_relay_degrades_to_nothing_when_memory_cannot_be_read(self):
+        def boom():
+            raise RuntimeError("store unreadable")
+        self.assertEqual(boot._recent_sessions_recall(read=boom), [],
+                         "an unreadable store costs this readout, never the briefing")
 
 
 class TestSetAsideReadout(unittest.TestCase):

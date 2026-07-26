@@ -5808,7 +5808,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:083b489cee9803b9c39972e92c19f83daa31de4b37bc904aa00a68395f64ad6a",
+        "fingerprint": "sha256:c7f290ac6291355b1e4f9b91809f999f1b1949ffe8e7a03a7e6ad0a7061c8cf3",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:be5c8ab37b5df7a189c8d1177332d83d3c23687218864b24b43ada14b2b7189e",
+        "fingerprint": "sha256:d50cfcb58bfc418944051b56199ad4b6bd49999097da68c83a9206b014ae0c2e",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8001,7 +8001,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:7861aec5c58b49550a78b4ab33ba4a8f73ea388427a556cb20019ca588f0cab5",
+        "fingerprint": "sha256:c5d8b8c0d824802809d50148b0c2c6b0dbed73af621cdca8b195390b12ba021e",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -8171,7 +8171,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:1255da235f3d662073cd88a6c87b97e7465c07ee8d0d1d7e0c2903733f569fa7",
+        "fingerprint": "sha256:84847aaeb6403e558051624fac8e28706160786000fb3b4db002fba9ae51c5a8",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -8664,7 +8664,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:3f40f17ad4578b79d3f446ceb36542245eff8a2803831ed826f83490a6cd9f03",
+        "fingerprint": "sha256:18ff24110e9a44c08ddad75f8764ab887527b719284de313dfece429de09ff7f",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9990,7 +9990,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:7e1be446047fb793858fe0eb7a8feb3c9d6be35a1ec596039b53bf492334a730",
+        "fingerprint": "sha256:52e239abb13ac65fd8d543e0c3ed8e5679e121cf1075bee464b77afa2d469d02",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",
