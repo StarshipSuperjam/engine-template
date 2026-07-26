@@ -14,6 +14,7 @@ already imports `index`, defining them here — a leaf that imports nothing from
 stdlib-only; imports nothing from `memory`.
 """
 
+import re
 import uuid
 
 # Record kinds (the `kind` field). These are the shared kinds the reflection and forgetting layers
@@ -52,7 +53,9 @@ MARKER_TAG = "consolidated"
 # tagged) and `consolidate` SKIPS a tagged/injected record as fuel. The prefix set is deliberately the two
 # DISTINCTIVE, ground-truthed standalone sentinels: each is the WHOLE injected message (never fused with a real
 # prompt, confirmed against the live ledger), so a start-anchored match cannot eat conversation. `<system-reminder>`
-# is deliberately EXCLUDED — it fuses with a human prompt in the same turn, so dropping it would lose real content.
+# is deliberately EXCLUDED from this set — it fuses with a human prompt in the same turn, so dropping the whole
+# record would lose real content. It is handled instead by `mark_harness_spans` below, which removes just the
+# block wherever the text is indexed or shown.
 INJECTED_TAG = "injected"               # the tag capture stamps on every chunk of a harness-injected pseudo-turn
 _INJECTED_PSEUDO_TURN_PREFIXES = (
     "<task-notification>",                                              # background-agent completion notice
@@ -65,6 +68,39 @@ def is_injected_pseudo_turn_text(text) -> bool:
     message IS the block), so a genuine turn that merely mentions a marker mid-sentence is never matched. Used at
     CAPTURE, on the whole message before chunking, so every chunk of an injected message is tagged uniformly."""
     return isinstance(text, str) and text.strip().startswith(_INJECTED_PSEUDO_TURN_PREFIXES)
+
+
+# A harness-inserted block that arrives FUSED into the same turn as a real prompt. Unlike the standalone
+# pseudo-turns above, it cannot be excluded record-wise without losing the operator's own words alongside it —
+# which is why it was deliberately left out of the injected set. That was harmless while captured conversation
+# was unsearchable. It is not harmless now: such a turn is keyword-findable and carries `speaker: "user"`, so a
+# reader is told the operator said something the engine inserted. Measured on the maintainer's store when this
+# was found, 2 user turns carry a complete block — and in one, 420 of 456 characters were the block.
+#
+# The fix is presentational, never destructive: the stored bytes are untouched (the ledger is the canonical
+# record and this is not erasure), and the span is replaced by a visible marker wherever the text is INDEXED or
+# SHOWN. So the harness half is not searchable and is never quoted as speech, while the operator's own words in
+# the same turn survive intact.
+_HARNESS_SPAN = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+HARNESS_SPAN_MARKER = "[engine-inserted note removed]"
+
+
+def mark_harness_spans(text):
+    """`text` with every fused harness block replaced by `HARNESS_SPAN_MARKER`. Returns the input unchanged for
+    a non-string or when no block is present. Idempotent — the marker matches no pattern — and it never raises:
+    a reader that fails here would be worse than one that under-marks.
+
+    HONEST BOUND: it matches a COMPLETE block within ONE record. An opening tag with no close in the same
+    record is left alone, which is right for the common case (an assistant quoting the tag while discussing it —
+    real content) and is a residual for the rare one (a block split across the chunk boundary, whose halves land
+    in different records). Verified on the maintainer's store after this landed: no complete block is searchable
+    any more, and every remaining occurrence is an unclosed tag."""
+    if not isinstance(text, str) or "<system-reminder>" not in text:
+        return text
+    try:
+        return _HARNESS_SPAN.sub(HARNESS_SPAN_MARKER, text)
+    except Exception:  # noqa: BLE001 — presentation must never break a read
+        return text
 
 
 def is_injected_record(record) -> bool:

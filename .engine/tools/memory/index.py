@@ -53,7 +53,8 @@ INDEX_FILENAME = "index.sqlite3"
 # shape) — a generation bump cannot signal any of those, because generation tracks the ledger, not the rules.
 #   1 — curated records only; content-bearing FTS table.
 #   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
-INDEX_SCHEMA_VERSION = 2
+#   3 — fused harness blocks removed from the searchable projection.
+INDEX_SCHEMA_VERSION = 3
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -145,14 +146,18 @@ def _record_text(record) -> str:
 
     Gathers the record's string leaf values and joins them, EXCLUDING the top-level envelope-metadata keys
     in `_NON_BODY_KEYS` (the locked tags-not-in-the-FTS-body law, plus the capture-record provenance fields
-    that are not content). Otherwise shape-agnostic; the reflection step finalizes the projection against
-    the full record shape.
+    that are not content), and replacing any fused harness block with a marker (`records.mark_harness_spans`)
+    so engine-inserted text is never searchable as the operator's words. Otherwise shape-agnostic; the
+    reflection step finalizes the projection against the full record shape.
     """
     parts: list = []
 
     def walk(value) -> None:
         if isinstance(value, str):
-            parts.append(value)
+            # A fused harness block is not content: it arrives inside a real turn, marked as spoken by the
+            # operator, and indexing it would make engine-inserted text keyword-findable under their name.
+            # Removed from the SEARCHABLE projection only — the stored record keeps every byte.
+            parts.append(records.mark_harness_spans(value))
         elif isinstance(value, dict):
             for v in value.values():
                 walk(v)

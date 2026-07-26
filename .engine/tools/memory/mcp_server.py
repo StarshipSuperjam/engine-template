@@ -78,7 +78,23 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
     result = index.search(query, roles=roles, tags=tags,
                           limit=_DEFAULT_LIMIT if limit is None else limit)
     _reinforce_on_recall(result.records)
+    # A captured turn can be part the operator's words and part a harness block the engine fused into the same
+    # message — and the record is marked as spoken by the operator either way. Handing that back whole tells a
+    # reader the operator said something the engine inserted, and this answer is the one place a model reads a
+    # turn attributed by speaker. Marked on a SHALLOW COPY: the ledger keeps every byte, and this changes only
+    # what is shown.
+    result.records = [_without_harness_spans(r) for r in result.records]
     return result
+
+
+def _without_harness_spans(record):
+    text = record.get("text") if isinstance(record, dict) else None
+    marked = records.mark_harness_spans(text)
+    if marked is text:
+        return record
+    shown = dict(record)
+    shown["text"] = marked
+    return shown
 
 
 # Operator-facing note carried in the recall answer itself, alongside the results, so the assistant relays it to

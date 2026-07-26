@@ -164,7 +164,10 @@ def _join_chunks(turns: list) -> list:
     for record in turns:
         seq = _seq_of(record)
         speaker = record.get("speaker") if isinstance(record.get("speaker"), str) else "unknown"
-        text = record.get("text") if isinstance(record.get("text"), str) else ""
+        # A fused harness block is marked out here, at the one place a window turns stored records into
+        # readable turns. The record is attributed by speaker, so showing the block whole would present
+        # engine-inserted text as something the operator said. The ledger keeps every byte.
+        text = records.mark_harness_spans(record.get("text")) if isinstance(record.get("text"), str) else ""
         previous = joined[-1] if joined else None
         # Merge ONLY a genuine continuation chunk: the same message means the SAME PRESENT ordinal and the
         # same speaker. A record with no usable ordinal never merges — its identity is unknown, and guessing
