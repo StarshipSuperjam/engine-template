@@ -5808,7 +5808,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:b51c85186d825e32084c1a24d1b4d157c6660353c766a96ef754305acf9f1a23",
+        "fingerprint": "sha256:261eaf9cac5d8865dc78fcaec39aaf4274f19e3ccf616d0460c130127e0d24e3",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7066,7 +7066,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:bb4e7d5529e6c8896b7c83821b8857a649deacfd232d3cfab3d2619038c2cfcc",
+        "fingerprint": "sha256:4bc28fe980dfe29d68fb00a9a0ecc1750d3e961728f9a7fe4b5f1ff25b55d1dc",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -7984,7 +7984,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:78d4a20d6ca08df9b59fa42b23d8acdf03b1b81b2ba21821c6bb61b8e20b625b",
+        "fingerprint": "sha256:0b31ab8c95e457cf96be5ac607fe708d3e64aaedc985d896ce089e054b2408e6",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -9990,7 +9990,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:d4d80f561f7c33e766bb80b47932b47684fc08958fc303fc9024ccb275d321ff",
+        "fingerprint": "sha256:3c9fcfca31d88f76a017a13a0fd46d2d53065c8be5e5fa4a88267e471158fe4d",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",

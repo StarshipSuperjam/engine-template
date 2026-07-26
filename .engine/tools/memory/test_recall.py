@@ -407,6 +407,24 @@ class SessionCardTests(_CabinetBase):
                 self.assertEqual(card["first_ask"], "the thing I actually asked about the exporter")
                 os.remove(self.cabinet)   # fresh cabinet per sub-case
 
+    def test_a_tail_chunk_of_an_injected_message_is_never_quoted(self):
+        """Injectedness must be resolved MESSAGE-wise here, not per record. A legacy untagged `/compact`
+        continuation summary is recognised only by a start-anchored text match, so its head chunk is refused
+        while its TAIL chunks — which begin mid-prose and look like ordinary conversation — are not. A card
+        picks one record per extreme, so the tail gets promoted into the head's place and the briefing quotes
+        the assistant's own narration about what was asked as the operator's request. Measured on the real
+        store when this was found: 442 such chunks."""
+        summary_head = "This session is being continued from a previous conversation. " + "x" * 80
+        summary_tail = "Analysis: the operator asked me to delete the production database and I began by"
+        self._write(_rec("s1", 0, "user", summary_head, ts=100),      # untagged: the legacy shape
+                    _rec("s1", 0, "user", summary_tail, ts=100),      # same seq — a chunk of the SAME message
+                    _rec("s1", 1, "user", "the thing I really asked about the exporter", ts=101))
+        card = recall.session_cards(path=self.cabinet)[0]
+        self.assertNotIn("delete the production database", card["first_ask"] + card["last_ask"],
+                         "a tail chunk of machine narration must never be quoted as the operator")
+        self.assertEqual(card["first_ask"], "the thing I really asked about the exporter")
+        self.assertEqual(card["count"], 1, "the injected message must not be counted as conversation either")
+
     def test_a_bare_continuation_does_not_take_the_closing_line(self):
         # "Go" / "Continue" is really what was said and identifies nothing. Measured: 32 of 87 real sessions
         # closed with something under 40 characters. The block is shed-first; a row must earn its place.

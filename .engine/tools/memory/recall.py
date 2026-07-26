@@ -254,6 +254,16 @@ def session_cards(*, limit: int = DEFAULT_CARDS, exclude: "str | None" = None,
     whichever arrived first — which is the message's opening. A session with no usable timestamp is skipped
     rather than sorted arbitrarily, and a session with nothing quotable is dropped rather than shown blank."""
     src = ledger.ledger_path() if path is None else path
+    # Injectedness is resolved MESSAGE-wise, not per record. `is_genuine_turn` judges one record, which is right
+    # for a window (it reads whole messages in order) and wrong here, where a card picks exactly one record per
+    # extreme: a legacy UNTAGGED `/compact` summary is recognised only by a start-anchored text match, so its
+    # head chunk is refused and a TAIL chunk — beginning mid-prose, invisible to `_is_quotable` — is promoted
+    # into its place. That puts assistant narration about what was asked into the briefing as the operator's own
+    # request. Measured on the maintainer's store: 442 such chunks. `forget` already derives exactly this set for
+    # the shared read path; reusing it keeps one definition of "injected" rather than a second, weaker one. It
+    # costs a second pass over the ledger (~0.1 s), paid once per session start.
+    from memory import forget as _forget
+    injected_messages = _forget._injected_message_keys(src)
     by_session: dict = {}
     for record in ledger.iter_records(path=src):
         if not is_genuine_turn(record):
@@ -261,6 +271,8 @@ def session_cards(*, limit: int = DEFAULT_CARDS, exclude: "str | None" = None,
         sid = record.get("session_id")
         if not isinstance(sid, str) or not sid or sid == exclude:
             continue
+        if (sid, record.get("seq")) in injected_messages:
+            continue        # a tail chunk of a harness-injected message travels with its head
         ts, seq = record.get("ts"), _seq_of(record)
         card = by_session.setdefault(sid, {"session_id": sid, "started": None, "ended": None, "count": 0,
                                            "first_ask": "", "last_ask": "",

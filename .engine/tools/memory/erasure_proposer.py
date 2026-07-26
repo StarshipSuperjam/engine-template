@@ -118,15 +118,21 @@ def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> li
     (the only durable temporal field). Returns the records (each carrying its content-free id), de-duplicated by id.
     Ordered oldest `ts` first, then by id (a total, content-free tie-break). Mutates nothing.
 
-    A note also has to carry zero reinforcement markers ("never recalled"). Two honest limits on what that check
-    is worth, so nobody mistakes it for the protection that matters. It cannot fire in the current design: a
-    crash-orphan is excluded from `live_records` from the moment it is written — `store_episodic` appends the
-    episodics, then the closing marker, then rebuilds, so the orphan window never reaches the index — and nothing
-    re-closes its batch afterwards, so no search can ever have returned one. And it is blind after a compaction
-    anyway, because compaction prunes reinforcement markers into a carried snapshot this does not read. It is kept
-    as a cheap belt-and-braces guard against a future class that IS recallable, not because it is load-bearing
-    today. The floor that actually holds is the one below it: the operator merges the erasure pull request, or
-    nothing is erased."""
+    A note also has to carry zero reinforcement markers ("never recalled"). KEEP THIS CHECK. Two limits on how
+    much it can be relied on, stated so nobody argues it away again:
+
+    It cannot fire via the ORDINARY crash-orphan path. `store_episodic` appends the episodics, then the closing
+    marker, then rebuilds, so an orphan is excluded from `live_records` from the moment it is written and no
+    search can ever have returned one. But `_is_retired` is DERIVED — "an episodic whose batch no `consolidated`
+    marker closes" — so a completed pass whose closing marker line is later lost to corruption (a modelled
+    condition: `ledger.read` counts malformed lines and boot surfaces them) retroactively reclassifies a
+    previously-live, previously-RECALLED episodic as a crash-orphan. That is the case this check exists for, and
+    it is why "it can never fire" is the wrong reading.
+
+    And it is already blind on any compacted store, because compaction folds reinforcement markers into a
+    carried snapshot `_access_index` does not read. So it is a genuine but PARTIAL guard, not the protection
+    that matters. The floor that actually holds is the one below it: the operator merges the erasure pull
+    request, or nothing is erased."""
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     cutoff = now - EARNED_ERASURE_MIN_AGE_DAYS * _DAY
