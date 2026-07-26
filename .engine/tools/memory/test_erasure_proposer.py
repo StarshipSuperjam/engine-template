@@ -72,8 +72,9 @@ class _Base(unittest.TestCase):
 
     def _consolidated_raw(self, *, n=2, age_days=60, session="Scr", batch="bcr", text="a consolidated raw note"):
         """Plant a SETTLED consolidated session: an episodic + its closing marker (both aged `age_days`) and `n` raw
-        turn-deltas captured just before the marker. Returns the turn-delta ids (the consolidated-raw erasure
-        targets that `earned_consolidated_raw` yields once the gist is stable)."""
+        turn-deltas captured just before the marker. Returns the turn-delta ids. The proposer must NOT offer these
+        for erasure: the conversation is the canonical record, and a summary standing in for it is not a reason to
+        delete it (`earned_targets`)."""
         m_ts = int(time.time()) - age_days * _DAY
         ep = consolidate._make_episodic(session, {"role": "decision", "text": "a summary stands in"}, batch)
         ep["ts"] = m_ts

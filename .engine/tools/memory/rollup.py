@@ -1,10 +1,10 @@
 """rollup.py — gist roll-up: AI-judged second-order consolidation of old episodes (memory substrate).
 
-Active forgetting's first move: a perpetual project cannot only accumulate. A deferred,
+Active forgetting's first move: a perpetual project cannot only accumulate. A separate,
 AI-judged maintenance pass **consolidates old, related, low-frecency EPISODIC summaries into a compact GIST and
 logically retires the raw episodes** — the SECOND-order consolidation (episode→gist), exactly parallel to
 the first-order (delta→episode). "Related" is pre-grouped for the AI by a cross-session shared-topic-tag
-cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:`/`sim:`
+cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:<topic>`
 cluster key as its `session_id` (its real-session provenance lives in `source_ids`). This module is **Layer 1**: *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost** — a retired raw is excluded from
 recall but stays resident + fully recoverable in the one ledger (physical erasure is Layer-2, audit-gated).
@@ -70,8 +70,7 @@ from memory import forget, ledger, records, score  # noqa: E402
 # richer relatedness signal), then (2) the coarse per-session group (the original floor, the fallback for untagged
 # notes). A group needs >= _MIN_GROUP raws (a "gist" of one raw is a rename); a cross-session cluster must
 # additionally span >= _TAG_MIN_SESSIONS distinct real sessions (else it is just a per-session group in disguise).
-# All recorded with the maintainer. (A lexical-similarity cluster — `sim:<id8>` — slots between (1) and (2) in
-# a later pass.)
+# All recorded with the maintainer.
 _MIN_GROUP = 3
 _TAG_MIN_SESSIONS = 2     # a cross-session tag cluster must span >= this many real sessions to count as cross-session
 _MAX_DIRECTIVE_IDS = 8    # cap the directive's id enumeration (mirrors consolidate._MAX_DIRECTIVE_IDS)

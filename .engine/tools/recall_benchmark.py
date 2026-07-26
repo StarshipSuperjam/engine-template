@@ -119,7 +119,7 @@ _HARD_LOCI = ("raw-only",)
 
 def trace_sessions(record, id_to_session):
     """The real source session(s) a returned record traces to. A normal record → its own `session_id`; a
-    CROSS-SESSION gist carries a sentinel `session_id` (`tag:`/`sim:`) that is not a real session, so it is
+    CROSS-SESSION gist carries a sentinel `session_id` (`tag:<topic>`) that is not a real session, so it is
     resolved through its `source_ids` back to the real sessions of the episodes it rolled up. `id_to_session`
     maps corpus record-id → session_id. Returns a set (possibly empty)."""
     sid = record.get(_SESSION)
@@ -367,8 +367,12 @@ def verify_seal():
 # said the map was fitted to this corpus rather than general, so it was deleted rather than defended. What
 # remains needs no fairness argument: decomposition cannot be tuned toward answers it has no vocabulary for.
 #
-# WHAT THIS NUMBER IS. A genuine floor for the rephrasing step — the value of merely splitting the question,
-# with zero understanding. A model rephrasing in context has vocabulary this does not and should beat it.
+# WHAT THIS NUMBER IS — and what it is NOT. It is a ZERO-KNOWLEDGE BASELINE for the rephrasing step: the value
+# of merely splitting the question, with no vocabulary of any kind, so nothing about it can be aimed at the
+# planted answers. It is NOT a floor, and must not be called one: a floor would mean the real workflow cannot
+# score lower, and nothing establishes that — a model rephrasing in context has vocabulary this does not, but it
+# can also produce phrases that match less. Report it as evidence of DIRECTION with that limit stated wherever
+# it appears; the value of the real workflow is decided by the human-judged pass, not inferred from here.
 
 _EXPANSION_LIMIT = 10        # per-phrase cap — the operation doc's rule (search is unbounded by default)
 _MAX_PHRASES = 8             # bound the fan-out so the stand-in stays a search strategy, not a store dump
@@ -580,11 +584,13 @@ def cmd_expanded():
     print("  searching each finds %d — and the questions that should correctly find NOTHING are unchanged,"
           % para_new)
     print("  so the gain is retrieval rather than a wider net catching noise.")
-    print("\n  This is a genuine FLOOR for the rephrasing step: it is pure mechanism — splitting on word")
-    print("  boundaries, with no synonyms, no thesaurus and no vocabulary of any kind, so nothing about it")
-    print("  can be aimed at the planted answers. The real workflow gives this step to the session's model,")
-    print("  which understands the question and should do better. What it does NOT measure is whether the")
-    print("  results are judged well once found — that is the human-judged half, at the removal gate.")
+    print("\n  This is a ZERO-KNOWLEDGE BASELINE for the rephrasing step, not a floor: it is pure mechanism —")
+    print("  splitting on word boundaries, with no synonyms, no thesaurus and no vocabulary of any kind, so")
+    print("  nothing about it can be aimed at the planted answers. The real workflow gives this step to the")
+    print("  session's model, which has vocabulary this does not — but it can also produce phrases that match")
+    print("  less, so this is evidence of DIRECTION and never a bound on what the workflow scores. What it")
+    print("  does NOT measure is whether the results are judged well once found — that is the human-judged")
+    print("  half, at the removal gate.")
     if new["nothing_relevant"]["correct"] < old["nothing_relevant"]["correct"]:
         print("\n  ! Searching more ways cost accuracy on questions that SHOULD find nothing — a real regression.")
         return 1

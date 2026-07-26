@@ -1,9 +1,9 @@
 """erasure_proposer.py — the Layer-2 erasure EMITTER (memory substrate).
 
-This is the memory substrate's single irreversible act: physically erasing a remembered note. An earlier step built
-the enactment core (`compact.enact_erasure`, the sole append-only minter, shipped inert); a later step built the
-cross-session OBSERVER (`erasure_observer`), which turns a *merged single-purpose erasure pull request* into the
-gated marker. THIS module is the PRODUCER that closes the loop: a deterministic probe over the engine's
+This is the memory substrate's single irreversible act: physically erasing a remembered note. Three parts carry it:
+the enactment core (`compact.enact_erasure`, the sole append-only minter, and `compact` itself, the sole executor of
+physical removal); the cross-session OBSERVER (`erasure_observer`), which turns a *merged single-purpose erasure pull
+request* into the gated marker; and THIS module, the PRODUCER that closes the loop — a deterministic probe over the engine's
 already-logically-retired notes selects one that has **earned erasure**, writes the content-free proposal at the
 observer's fixed path, and AUTO-OPENS a single-purpose pull request labelled `engine-erasure` for the operator to
 merge. After this: a local self-review -> an auto-opened erasure PR -> the operator merges -> a later session's
@@ -115,29 +115,42 @@ def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> li
     and the store grows without an automatic bound.
 
     A note earns erasure iff it is logically retired AND its birth-age `now - ts` exceeds `EARNED_ERASURE_MIN_AGE_DAYS`
-    (the only durable temporal field) AND it carries zero reinforcement markers ("never recalled" — a load-bearing
-    safety floor). Returns the records (each carrying its content-free id), de-duplicated by id. Ordered oldest
-    `ts` first, then by id (a total, content-free tie-break). Mutates nothing."""
+    (the only durable temporal field). Returns the records (each carrying its content-free id), de-duplicated by id.
+    Ordered oldest `ts` first, then by id (a total, content-free tie-break). Mutates nothing.
+
+    A note also has to carry zero reinforcement markers ("never recalled"). KEEP THIS CHECK. Two limits on how
+    much it can be relied on, stated so nobody argues it away again:
+
+    It cannot fire via the ORDINARY crash-orphan path. `store_episodic` appends the episodics, then the closing
+    marker, then rebuilds, so an orphan is excluded from `live_records` from the moment it is written and no
+    search can ever have returned one. But `_is_retired` is DERIVED — "an episodic whose batch no `consolidated`
+    marker closes" — so a completed pass whose closing marker line is later lost to corruption (a modelled
+    condition: `ledger.read` counts malformed lines and boot surfaces them) retroactively reclassifies a
+    previously-live, previously-RECALLED episodic as a crash-orphan. That is the case this check exists for, and
+    it is why "it can never fire" is the wrong reading.
+
+    And it is already blind on any compacted store, because compaction folds reinforcement markers into a
+    carried snapshot `_access_index` does not read. So it is a genuine but PARTIAL guard, not the protection
+    that matters. The floor that actually holds is the one below it: the operator merges the erasure pull
+    request, or nothing is erased."""
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     cutoff = now - EARNED_ERASURE_MIN_AGE_DAYS * _DAY
     access = forget._access_index(src)
     earned: list = []
     seen: set = set()
-    groups = forget.duplicates(path)
-    for source in (groups,):
-        for _sid, recs in source.items():
-            for r in recs:
-                rid = r.get(records.RECORD_ID_KEY)
-                ts = r.get("ts")
-                if not observer._is_record_id(rid) or rid in seen:
-                    continue
-                if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
-                    continue                   # too fresh (or no usable birth time) -> not yet earned
-                if access.get(rid):
-                    continue                   # ever recalled -> the safety floor refuses to propose erasing it
-                seen.add(rid)
-                earned.append(r)
+    for _sid, recs in forget.duplicates(path).items():
+        for r in recs:
+            rid = r.get(records.RECORD_ID_KEY)
+            ts = r.get("ts")
+            if not observer._is_record_id(rid) or rid in seen:
+                continue
+            if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
+                continue                   # too fresh (or no usable birth time) -> not yet earned
+            if access.get(rid):
+                continue                   # ever recalled -> refuse to propose erasing it
+            seen.add(rid)
+            earned.append(r)
     earned.sort(key=lambda r: (r["ts"], r[records.RECORD_ID_KEY]))
     return earned
 
@@ -165,13 +178,10 @@ def _age_phrase(seconds: int) -> str:
 
 
 def _cost_for(record: dict, now: int) -> str:
-    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's kind + a coarse age
-    bucket (+ role, for a duplicate), never the note's `text`/`session_id`/`tags`. Dispatches by kind: a
-    consolidated session's raw turn-by-turn note reads differently from a crash-duplicate, and — the one consent
-    fact this class turns on — names that erasing gives up the verbatim original wording while the curated summary
-    stays (the disclosure floor held until this merge). Shared by `build_proposal` (the committed grammar) and
-    `_print_candidates` (the local list). (A third evidence class should turn this if/else into a {kind: builder}
-    table.)"""
+    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's role + a coarse age
+    bucket, never the note's `text`/`session_id`/`tags`. ONE evidence class reaches here (the crash-duplicate
+    orphan), so there is no dispatch: every line describes a summary a crashed save left behind, of which a good
+    copy survives. Shared by `build_proposal` (the committed grammar) and `_print_candidates` (the local list)."""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
     # ONE class reaches here now. The captured-conversation branch was removed with the class itself: nothing
@@ -394,10 +404,9 @@ def _pr_title(n: int) -> str:
 
 def _collapse(costs: list) -> list:
     """Collapse identical cost lines into "{k} notes — {line}" rows (ordered by first appearance), each with its
-    count stated explicitly (never a bare total). A bulk consolidated-raw batch — whose role-less line varies only
-    by the coarse age bucket — reads as a few per-vintage rows instead of thousands of near-identical lines; a
-    crash-duplicate batch (lines vary by role + age) stays one line per note (count 1), preserving the per-note
-    enumeration. Reads ONLY the content-free `costs` — no session id / record id / text — so the committed
+    count stated explicitly (never a bare total). Lines vary by role + age, so in practice a crash-duplicate batch
+    stays one line per note (count 1) and the per-note enumeration is preserved; the collapse is what keeps a
+    batch of near-identical lines legible if one ever arises." Reads ONLY the content-free `costs` — no session id / record id / text — so the committed
     `targets`/`costs` stay 1:1 and no grouping key ever leaks into the rendered body."""
     order: list = []
     counts: dict = {}
@@ -414,8 +423,8 @@ def _pr_body(proposal: dict) -> str:
     the body names each note's plain-language cost — the operator sees WHAT they consent to erase, never a bare count.
     Identical lines collapse to a per-vintage "{k} notes — {line}" row (see `_collapse`), so a bulk raw batch stays
     legible while a crash-duplicate batch stays one-line-per-note. It is all-or-nothing and stated as such: merge-all
-    or keep-all, no per-note pick; and closing keeps every note FOR NOW — a decline is "not this time", so the engine
-    may offer these notes again at a later review, until the operator erases them (a close still never erases). Renders
+    or keep-all, no per-note pick; and closing keeps every note — a decline is "not this time", so the engine may
+    offer these notes again at a later review, until the operator erases them (a close still never erases). Renders
     from `costs` (which `write_proposal` pins one-to-one with the committed `targets`), so the list read is exactly the
     list erased. Raises on an empty batch (the caller never reaches it with none)."""
     costs = proposal.get("costs") or []
@@ -453,8 +462,8 @@ def _pr_body(proposal: dict) -> str:
 # --- the coherent-batch selector (issue #536: small homogeneous batches, a keeper blocks only its group) ----
 
 def _group_key(record: dict, now: int) -> tuple:
-    """A content-free homogeneity key for batching: the note's KIND (a consolidated-raw turn-delta vs a
-    crash-duplicate) plus its coarse vintage bucket (the SAME `_age_phrase` the cost line uses). Notes
+    """A content-free homogeneity key for batching: the note's kind (one class reaches here) plus its coarse
+    vintage bucket (the SAME `_age_phrase` the cost line uses), so grouping varies by vintage. Notes"
     that share a key form one coherent batch. Built only from kind + birth-age — never the note's
     text/session/tags — and never written to the committed proposal (mirrors `_collapse`: no grouping key
     leaks into the body)."""
@@ -605,8 +614,8 @@ def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
         again = "that note"
         them = "it"
     else:
-        # Kind-agnostic on purpose: a batch may mix crash-duplicates and consolidated raw; the per-note kind + cost
-        # is in the pull-request body. "Set aside as safe to remove" is true of both classes (both logically retired).
+        # Kind-agnostic wording: the per-note detail is in the pull-request body, and "set aside as safe to remove"
+        # is true of anything that reaches here (every candidate is already logically retired from recall).
         scope = f"{note_count} old notes it had set aside as safe to remove (each described in the pull request)"
         keep = "every note stays exactly where it is"
         again = "those notes"
@@ -717,8 +726,9 @@ def _plant_retired(text: str, role: str, age_days: int, batch: str) -> str:
 
 def _plant_consolidated_raw(session: str, batch: str, age_days: int, *, n: int, word: str) -> list:
     """Plant a SETTLED consolidated session: an episodic summary + its closing marker (both aged `age_days`) plus `n`
-    raw turn-deltas captured just before it. The summary stands in for the raw; once the consolidation is settled, the
-    raw earns erasure. Returns the turn-delta ids."""
+    raw turn-deltas captured just before it. This is a NEGATIVE fixture: the conversation is the canonical record,
+    so however settled its summary, the proposer must never offer the raw turns for erasure. Returns the
+    turn-delta ids."""
     from memory import consolidate
     m_ts = int(time.time()) - age_days * _DAY
     ep = consolidate._make_episodic(session, {"role": "decision", "text": "a settled summary"}, batch)
@@ -942,7 +952,7 @@ def _demo_body(tree: str) -> bool:
     # come from duplicates of a different vintage.
     _plant_retired("an older interrupted save nobody came back to", "observation", 400, "batch-ancient")
     hub8 = _DemoHub(tree)
-    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest group (the settled raw)
+    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest duplicate group
     kept = first8["opened"][0] if first8["opened"] else None
     if kept is not None:
         hub8.close(kept)                                  # the operator closes it WITHOUT merging — keep this batch

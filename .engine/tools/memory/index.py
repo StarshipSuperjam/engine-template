@@ -12,8 +12,11 @@ loses nothing (`rebuild()` reconstructs it), and backup is still "copy the ledge
 Leaf discipline: this module DETECTS the FTS5-absent / slow-path condition and RETURNS it to the caller; it
 never renders operator-facing prose (boot does that). It writes no telemetry and logs no findings.
 
-This module builds the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Ranked, filtered recall is `search` (BM25 best-first reinforced by usage; role/tag filters), implementing the
-`search.json` contract and exposed by the engine-memory MCP server (`mcp_server.py`). `query` stays UNRANKED for the
+This module builds the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Ranked, filtered recall is `search` (BM25 best-first reinforced by usage; role/tag filters) — the RANKING ENGINE
+beneath the `search.json` contract, not the conforming implementation of it. The engine-memory MCP server
+(`mcp_server.py`) is what conforms: it supplies the default bound the contract requires on an omitted `limit`
+(this library leaves it unbounded, which only a caller passing its own ceiling can rely on) and it is the
+declared fallback handle. `query` stays UNRANKED for the
 rebuild/scan callers. Nothing queries this index per prompt: the boot-owned `scent.py` UserPromptSubmit hook
 pushes a constant cue asking the model to run the recall workflow, and every query here is one the model then
 makes deliberately. The closed record shape + role vocabulary come from the reflection step.
@@ -438,8 +441,8 @@ def query(
 ) -> QueryResult:
     """Recall the records matching `text` — every query word must appear (implicit AND). Uses the fast lookup
     when this machine has FTS5 and the index exists; otherwise the slow backup scan over the ledger. Both paths
-    apply the SAME tokenizer, so they return the same set of records. UNRANKED (ledger order);
-    ranking is a later concern.
+    apply the SAME tokenizer, so they return the same set of records. UNRANKED (ledger order) on purpose — this
+    is the membership primitive the rebuild/scan callers need; ranked recall is `search`.
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file

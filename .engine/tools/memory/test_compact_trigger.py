@@ -94,6 +94,61 @@ class GateTests(_Base):
         report = compact.maybe_compact()
         self.assertEqual(report["status"], "ok")
         self.assertGreater(ledger.generation(), gen_before)            # it actually compacted
+
+    def test_a_merged_erasure_is_carried_out_on_a_ledger_with_no_foldable_waste(self):
+        """Consent honoured but not executed is its own defect. Physical removal happens ONLY inside `compact`,
+        and the waste gate used to sit in front of it unconditionally — so an erasure the operator had already
+        merged waited for ~64 units of UNRELATED bookkeeping to pile up before it was carried out, with nothing
+        surfacing that it had not happened. A pending erasure now fires the pass on its own account."""
+        keep = self._episodic("a note that stays", age_days=0)
+        doomed = self._episodic("the note the operator asked to erase", age_days=0)
+        target = doomed[records.RECORD_ID_KEY]
+        index.rebuild()
+        compact.enact_erasure(target, "merge-sha-abc")                 # the merge-gated marker (the only minter)
+
+        self.assertEqual(compact.reclaimable_waste(), 0)               # nothing foldable: the old gate would skip
+        self.assertFalse(compact.should_compact())
+        self.assertEqual(compact.pending_erasures(), 1)
+
+        report = compact.maybe_compact()
+        self.assertEqual(report["status"], "ok")                       # it fired anyway
+        ids = {r.get(records.RECORD_ID_KEY) for r in ledger.iter_records() if isinstance(r, dict)}
+        self.assertNotIn(target, ids)                                  # the erasure was actually carried out
+        self.assertIn(keep[records.RECORD_ID_KEY], ids)                # and nothing else went with it
+
+    def test_a_marker_naming_another_marker_cannot_rewrite_the_ledger_forever(self):
+        """The adversarial termination case. `compact` REFUSES to remove an erasure marker — that refusal is what
+        makes the tombstone durable — so if the gate counted a marker as an erasable record, a marker naming
+        another marker's id would read as pending on every pass and rewrite the whole ledger, indefinitely, on a
+        ledger with nothing to do. The read-side validity floor promises such a marker is INERT; this proves the
+        new trigger keeps that promise."""
+        doomed = self._episodic("erase me", age_days=0)
+        index.rebuild()
+        compact.enact_erasure(doomed[records.RECORD_ID_KEY], "merge-sha-abc")
+        marker_id = next(r[records.RECORD_ID_KEY] for r in ledger.iter_records()
+                         if isinstance(r, dict) and r.get("kind") == records.ERASURE_KIND)
+        compact.enact_erasure(marker_id, "merge-sha-def")     # a marker targeting a marker
+
+        self.assertEqual(compact.maybe_compact()["status"], "ok")   # the genuine erasure is carried out
+        self.assertEqual(compact.pending_erasures(), 0,
+                         "a marker can never be erased, so it must never count as pending work")
+        gen_before = ledger.generation()
+        self.assertEqual(compact.maybe_compact()["status"], "skipped")
+        self.assertEqual(ledger.generation(), gen_before)            # and the gate has come to rest
+
+    def test_an_already_enacted_erasure_does_not_keep_firing_the_gate(self):
+        """`compact` keeps the marker as an idempotency tombstone after removing its target. Counting markers
+        rather than still-resident targets would make that tombstone re-fire a full rewrite every session,
+        forever, on a ledger with nothing to do."""
+        doomed = self._episodic("erase me", age_days=0)
+        index.rebuild()
+        compact.enact_erasure(doomed[records.RECORD_ID_KEY], "merge-sha-abc")
+        self.assertEqual(compact.maybe_compact()["status"], "ok")      # first pass carries it out
+
+        self.assertEqual(compact.pending_erasures(), 0)                # the tombstone is not pending work
+        gen_before = ledger.generation()
+        self.assertEqual(compact.maybe_compact()["status"], "skipped")
+        self.assertEqual(ledger.generation(), gen_before)              # and nothing was rewritten
         self.assertEqual(compact.reclaimable_waste(), 0)               # and the waste was folded away
 
     def test_unclosed_supersessions_never_trip_the_gate(self):

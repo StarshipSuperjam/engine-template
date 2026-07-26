@@ -20,9 +20,8 @@ and backup is "copy this file". So this file's integrity is a law, not a leaf:
     `json.dumps` escapes any newline inside the data, so the trailing "\n" is unambiguous.
 
 This module's scope: the read/write primitives only. They are RECORD-AGNOSTIC — they store and return any
-JSON-serializable dict; the closed memory *record shape* (the role vocabulary) and the per-record
-ledger-version envelope are a later step's job (a hard forward-owe: that step fixes the record shape,
-and because the ledger ships EMPTY there are no real records to retrofit before then).
+JSON-serializable dict. The closed memory *record shape* (the role vocabulary) and the per-record
+ledger-version envelope belong to `records.py`, not here; this module never inspects what it is handed.
 
 This module is a leaf: it never logs findings or writes telemetry of its own. It RETURNS its
 read-health report to the caller; surfacing degraded recall is boot/telemetry's job.
@@ -46,9 +45,12 @@ try:
 except ImportError:  # pragma: no cover - the engine targets POSIX; degrade rather than crash.
     _HAVE_FCNTL = False
 
-# The on-disk framing version (newline-terminated NDJSON). This is the *format* version; the
-# record-SHAPE version (what a future migration routes on) is established with the record schema
-# in a later step. Exposed so the backup snapshot-manifest has a legible version source.
+# The on-disk framing version (newline-terminated NDJSON) — the FILE format, not the record shape. This is the
+# version a restore routes a migration on: `restore_vault` compares the backup manifest's recorded version
+# against this one and asks `ledger_migrations` for the chain between them. Exposed so the backup
+# snapshot-manifest has a legible version source. (Each record also carries its own `v` shape stamp, written by
+# every producer; nothing reads it while only one record shape has ever existed — it is what would let a reader
+# tell two shapes apart if a second ever landed.)
 LEDGER_FORMAT_VERSION = 1
 
 ENV_DIR = "ENGINE_MEMORY_DIR"
@@ -136,7 +138,7 @@ def append(record: dict, *, path: str | None = None) -> None:
     that was complete JSON but lost only its terminating newline is thereby recovered; a truly
     half-written fragment stays invalid JSON and is still read back as malformed, never resurrected.)
 
-    `record` may be any JSON-serializable dict (record shape is a later step's concern).
+    `record` may be any JSON-serializable dict (record shape is `records.py`'s concern, never this module's).
     """
     target = path or ledger_path()
     parent = os.path.dirname(target)

@@ -3,9 +3,9 @@
 Active forgetting is **two-layered**. This module is **Layer 1** — *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost**: a forgotten record is
 excluded from recall but stays **resident and fully recoverable in the one canonical ledger**. (Layer 2 —
-irreversible physical erasure, gated on the operator's merge of a single-purpose erasure PR — is a later
-slice; this module deliberately has **no** erasure / ledger-delete code path, a build-conformance invariant a
-test pins.)
+irreversible physical erasure, gated on the operator's merge of a single-purpose erasure PR — lives in
+`compact.py` with `erasure_proposer.py` / `erasure_observer.py`; this module deliberately has **no** erasure /
+ledger-delete code path, a build-conformance invariant a test pins.)
 
 The **logical retirement of crash-duplicate consolidations**. When a consolidation pass
 crashes after its episodic summaries are appended but before its `consolidated` marker lands (consolidate.py),
@@ -36,7 +36,7 @@ the decisions aging out from underneath it, which is the worse half of the same 
 The live caller that appends a marker on recall is **the search server**; this module ships the marker kind and
 the `record_access` appender. eADR-0038's end state has no tiered demotion at all.
 
-The **logical retirement of gist-rolled-up episodes**. A deferred AI-judged pass (`rollup.py`)
+The **logical retirement of gist-rolled-up episodes**. A separate AI-judged pass (`rollup.py`)
 consolidates old, low-frecency EPISODIC summaries of one session into a compact GIST and supersedes the raws — a
 per-raw `superseded` marker (records.py) names the raw by its stable id and the gist by `superseded_by`, under a
 roll-up `batch` closed by a `rolled-up` marker. `live_records` retires a raw whose supersession's batch is CLOSED
@@ -50,9 +50,9 @@ not here; this module hosts its operator demo (the `identity` verb). Ledger comp
 that folds the reinforcement markers into a carried frecency snapshot AND a closed-batch supersession into a carried
 `superseded_by` field — lives in `compact.py` (it needs the atomic file-replace primitive the
 Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is the separate, gated path. `record_access` (the reinforcement appender) is held under the shared single-writer lock so a
-compaction swap can never race it. Perf forward-owe: the access-index and supersession passes add O(ledger) passes to `live_records` (the access
-index over the reinforcement markers; the supersession passes over the markers); the compaction — folding those
-markers into carried fields — is the designed retirement of that cost.
+compaction swap can never race it. Cost: the access-index and supersession passes add O(ledger) passes to
+`live_records` (the access index over the reinforcement markers; the supersession passes over the markers).
+Compaction is what bounds that — it folds those markers into carried fields, so the passes stay cheap.
 """
 
 from __future__ import annotations
@@ -350,107 +350,6 @@ def duplicates(path: "str | None" = None) -> dict:
         if _is_retired(record, closed):
             sid = record.get("session_id") or "(unknown session)"
             out.setdefault(sid, []).append(record)
-    return out
-
-
-def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = None, age_days: int) -> dict:
-    """The consolidated sessions' raw `turn-delta` capture that has EARNED physical erasure — the evidence class the
-    design names "a consolidated record's raw once its gist is stable". Grouped
-    by session id, mirroring `duplicates` so the erasure proposer can union the two classes into one batch. A
-    READ-ONLY report; mutates nothing, and the yielded raw stays resident + fully recoverable until an
-    operator-merged erasure carries it out (Layer 2).
-
-    A session earns its raw erased iff — (the FLAG) it carries a `consolidated` marker AND that consolidation is
-    SETTLED: the latest marker is older than `age_days` (its episodic gist has stood in for the raw long enough).
-    "Stable" is judged by age, NEVER by low frecency: the raw's own usage never enters the decision —
-    a turn's own usage now DOES accrue (it is recall content), so the per-record "never recalled" floor is live
-    for this class rather than the structural no-op it used to be — and the session-level veto below still holds.
-    AND — (the protective VETO) NONE of the session's curated stand-ins is recalled: neither its episodics NOR the
-    gist that later rolled them up. Both carry `session_id`; crucially, after a roll-up recall lands on the GIST (a
-    superseded episodic drops out of recall), so an episodic-only veto would be blind and could erase raw whose live
-    stand-in is in active use. A session with a marker but NO curated stand-in is skipped (no gist -> never erase).
-    A CROSS-SESSION gist (a `tag:`/`sim:` cluster, #235) carries a sentinel `session_id`, not a real one, so it is
-    credited to EACH real session named by its `source_ids` — the veto stays whole for every session that fed it.
-
-    Yields only the turn-deltas that are (a) NOT harness-injected pseudo-turns — those are withheld from
-    consolidation, so no gist stands in for them (Capture; the injected-skip path) — and (b) captured no later than
-    that marker (`ts <= marker_ts`): only fuel actually consolidated by the pass, never a delta appended afterward
-    that has no stand-in. Disjoint from `duplicates` by construction: that class yields marker-ABSENT episodics,
-    this yields marker-PRESENT turn-deltas — different kinds, so no record can appear in both (even in a session that
-    has both a completed pass and a crash-orphan)."""
-    src = ledger.ledger_path() if path is None else path
-    now = int(time.time()) if now is None else now
-    cutoff = now - age_days * 86400
-    access = _access_index(src)
-    session_markers: dict = {}    # session_id -> [(ts, batch)] for every `consolidated` marker (folded to the clock below)
-    reflected_batches: set = set()  # batch ids that produced an EPISODIC — a pass that actually stood a gist in
-    marker_ts: dict = {}          # session_id -> latest REFLECTING marker ts (the gist-stability clock; see below)
-    curated: dict = {}            # session_id -> [curated stand-in ids: episodics + the gist that rolls them up]
-    deltas: dict = {}             # session_id -> [that session's raw turn-delta records]
-    id_to_session: dict = {}      # record id -> real session_id (episodics/gists), to resolve cross-session gists
-    cross_gists: list = []        # (gist_id, source_ids) for gists keyed to a cross-session cluster sentinel (#235)
-    for record in ledger.iter_records(path=src):
-        if not isinstance(record, dict):
-            continue
-        sid = record.get("session_id")
-        if not sid:
-            continue
-        kind = record.get("kind")
-        if kind == records.MARKER_KIND:
-            ts = record.get("ts")
-            if isinstance(ts, int) and not isinstance(ts, bool):
-                session_markers.setdefault(sid, []).append((ts, record.get(records.BATCH_KEY)))
-        elif kind in (records.EPISODIC_KIND, records.GIST_KIND):
-            rid = record.get(records.RECORD_ID_KEY)
-            if kind == records.EPISODIC_KIND:
-                batch = record.get(records.BATCH_KEY)
-                if isinstance(batch, str) and batch:
-                    reflected_batches.add(batch)     # this pass produced a gist stand-in for its fuel
-            if rid:
-                id_to_session[rid] = sid
-                if kind == records.GIST_KIND and records.is_cross_session_sentinel(sid):
-                    # A cross-session gist (`tag:`/`sim:` sentinel) has no single real session — defer its credit
-                    # to the erasure veto until after the scan, when every source raw's real session is known.
-                    cross_gists.append((rid, record.get(records.SOURCE_IDS_KEY) or ()))
-                else:
-                    curated.setdefault(sid, []).append(rid)
-        elif kind == records.AMBIENT_CAPTURE_KIND:
-            deltas.setdefault(sid, []).append(record)
-    # The gist-stability clock is the latest marker that ACTUALLY REFLECTED — its batch produced an episodic. An
-    # incremental "examined, nothing to summarize" termination marker (#446) advances the consolidation watermark
-    # but writes NO episodic, so its later ts must NOT pull the erasure boundary forward over a genuine tail that
-    # has no gist standing in for it (that would erase un-reflected content — a content-loss the durability law
-    # forbids). A batch-LESS marker (pre-#446 legacy) is treated as reflecting: it predates the empty-termination
-    # path, so it always carried a summary.
-    for sid, entries in session_markers.items():
-        reflecting = [ts for ts, batch in entries
-                      if not (isinstance(batch, str) and batch) or batch in reflected_batches]
-        if reflecting:
-            marker_ts[sid] = max(reflecting)
-    # Credit each cross-session gist as a live stand-in for EVERY real session that fed it (#235): after a roll-up,
-    # recall lands on the gist, so an episodic-only veto keyed to the sentinel would leave a contributing session's
-    # raw turn-deltas erasure-eligible while their content is alive in an actively-recalled gist. Resolving the
-    # gist's source_ids back to their real sessions keeps the protective veto whole for each of them.
-    for gist_id, source_ids in cross_gists:
-        for src_id in source_ids:
-            real_sid = id_to_session.get(src_id)
-            if real_sid and gist_id not in curated.setdefault(real_sid, []):
-                curated[real_sid].append(gist_id)
-    out: dict = {}
-    for sid, m_ts in marker_ts.items():
-        stand_ins = curated.get(sid, ())
-        if not stand_ins:
-            continue                                   # a marker but no curated stand-in -> no gist -> never erase
-        if m_ts > cutoff:
-            continue                                   # consolidation not settled yet -> gist not stable -> keep
-        if any(access.get(rid) for rid in stand_ins):
-            continue                                   # a live stand-in (episodic OR its roll-up gist) is recalled
-        earned = [d for d in deltas.get(sid, ())
-                  if not records.is_injected_record(d)                 # injected pseudo-turns have no gist stand-in
-                  and isinstance(d.get("ts"), int) and not isinstance(d.get("ts"), bool)
-                  and d["ts"] <= m_ts]                                 # only fuel actually consolidated by the pass
-        if earned:
-            out[sid] = earned
     return out
 
 

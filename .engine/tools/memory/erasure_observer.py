@@ -1,10 +1,10 @@
 """erasure_observer.py — the cross-session Layer-2 erasure OBSERVER (memory substrate).
 
-This is the memory substrate's single irreversible act: physically erasing a remembered note. An earlier step built
-the enactment core — a content-free `operator-adjudicated-erasure` marker, a gated removal inside `compact()`, and
-`compact.enact_erasure(target_id, merge_sha)` (the SOLE minter, append-only) — and shipped it INERT (no live caller).
-THIS module is the live caller: at SessionStart it turns a *merged single-purpose erasure pull request* into that
-marker, so the next compaction removes the named note.
+This is the memory substrate's single irreversible act: physically erasing a remembered note. The enactment core is
+a content-free `operator-adjudicated-erasure` marker, a gated removal inside `compact()`, and
+`compact.enact_erasure(target_id, merge_sha)` (the SOLE minter, append-only). THIS module is that minter's one live
+caller: at SessionStart it turns a *merged single-purpose erasure pull request* into the marker, so the next
+compaction removes the named note.
 
 The consent gate is the locked law: erasure happens ONLY because the operator merged a single-purpose
 erasure PR — *the merge event only*; a merely-closed (declined / auto-resolved) Issue or PR NEVER erases. So the

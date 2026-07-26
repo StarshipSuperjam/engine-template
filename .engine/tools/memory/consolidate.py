@@ -20,8 +20,7 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     chore no longer floods the operator's chat (#280). The ONE exception: if the backlog has grown past
     `_BACKLOG_ALARM_THRESHOLD` (a sign the tidy has stalled), the MAIN loop itself surfaces ONE plain line (a
     COUNT, never the id codes) so a silent failure can't hide. The directive stays prompt — done THIS session,
-    not deferred forever (the passivity that left 21 sessions untidied is gone) — and always subordinate to the
-    operator's request.
+    never carried forward indefinitely — and always subordinate to the operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate subsumes the normal path — the previous session is "no longer live with no
     marker" shortly after it ends. The lease heartbeat (#396) is what tells "no longer live" from a still-
@@ -156,8 +155,8 @@ def read_deltas(session_id: str, *, after_seq: int = _NO_WATERMARK, cwd=None) ->
 def _marker_watermark(m_ts, through_seq, genuine) -> int:
     """One marker's watermark in seq-space. When it carries a `through_seq` (written now, #446), that IS the
     watermark. A LEGACY marker (pre-#446) has none — project its `ts` boundary into seq-space as the max
-    genuine seq captured no later than the marker (`ts <= marker.ts`), the same correlation
-    `forget.earned_consolidated_raw` uses. This keeps the model on ONE axis (seq) and, crucially, means a
+    genuine seq captured no later than the marker (`ts <= marker.ts`). This keeps the model on ONE axis (seq)
+    and, crucially, means a
     pre-#446 ledger is NOT re-consolidated wholesale on rollout — a legacy-tidied session projects to the seq
     it was actually tidied through, not to the never-consolidated sentinel (which would re-summarize its whole
     history into duplicates)."""
@@ -425,8 +424,8 @@ def _consolidation_directive(pending: list) -> str:
         "the thread is ABOUT (a subsystem, feature, file area, or concept, e.g. `rollup`, `erasure`, "
         "`backup`), plus any decision record it names verbatim, kept in its canonical case so two notes about the "
         "same decision share a tag — an engine decision id like `eADR-0031`, or a product ADR id like "
-        "`docs/adr/0007-slug` (whatever id your project's ADRs carry). These tags are what a later pass uses to "
-        "relate notes ACROSS sessions; they are NOT "
+        "`docs/adr/0007-slug` (whatever id your project's ADRs carry). These tags are what the roll-up pass uses "
+        "to relate notes ACROSS sessions; they are NOT "
         "the label. Prefer stable nouns you would reuse across sessions over one-off phrases, keep the whole "
         "list to at most 8 tags, and omit the list rather than invent a tag. "
         "If the operator explicitly asked to remember something (\"remember X\", \"always do Y\"), the "
@@ -483,14 +482,17 @@ def _pre_compact_handler(payload) -> dict:
     """PreCompact CANNOT reach the in-context AI (the shipped runtime: a hook never makes the model generate;
     PreCompact's only lever is blocking compaction), so AI consolidation stays on the SessionStart sweep. But
     DETERMINISTIC ledger compaction is exactly the cheap pre-compaction housekeeping this hook CAN do — it rides
-    the "tolerable moment, never the hot path" the design names for the expensive step and, IF
-    enough reclaimable waste has piled up, folds-and-prunes it. `maybe_compact` is fail-open (never
+    the "tolerable moment, never the hot path" the design names for the expensive step. It folds-and-prunes
+    when enough reclaimable waste has piled up, AND — regardless of waste — carries out any erasure the
+    operator has already merged, so an approved deletion never waits on unrelated housekeeping.
+    `maybe_compact` is fail-open (never
     raises); the compaction it rides folds Layer-1 bookkeeping AND physically removes any record an
     `operator-adjudicated-erasure` marker targets (Layer-2) — and the sole minter, `compact.enact_erasure`, is now
     fired only by the cross-session erasure observer, and only for a target the operator authorised by merging a
     single-purpose `engine-erasure` PR, so absent such a merge it still erases nothing. This handler ALWAYS proceeds — PreCompact must never block the squash."""
     from memory import compact   # lazy: keep compaction's import graph off the SessionStart load path
-    compact.maybe_compact()       # gated on reclaimable waste; report dropped (a leaf renders no prose); fail-open
+    compact.maybe_compact()       # waste gate OR a pending merged erasure; report dropped (a leaf renders no
+                                  # prose); fail-open
     return hooks.proceed()
 
 
