@@ -65,6 +65,9 @@ decisions behind; nothing is left dangling.
 - **Full capability every PR.** Each PR drives the slice it touches to its full agreed capability; a deferral is
   an explicitly recorded decision (a tracked issue or a logged carve-out), never a quiet stub — measured by the
   capability delivered, not by effort or count.
+- **A deferral is written where the work is.** Work genuinely owed to the code is recorded at the site with the
+  engine's marker, never as prose a later slice can only find by luck; a decision *not* to build is a carve-out
+  in the pull-request body instead. `engine_todo.py list` enumerates every outstanding one. Grammar: `eADR-0039`.
 - Every change is a **pull request against protected `main`**; **validator-green before merge** (`validators-core`).
 - **Plan-first, one step at a time**; each step re-grounded from merged disk before the next.
 - **A deliverable-gate cold review on every non-trivial PR**, plus an **operator-runnable behavioral demo** for

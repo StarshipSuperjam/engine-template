@@ -335,10 +335,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertNotIn("agent", provides, "core provides no persona, so it declares no agent group")
         self.assertIn(".claude/skills/engine-parts/SKILL.md", provides.get("skill", []))
 
-    def test_check_corpus_split_core_two_guards_validators_core_forty(self):
+    def test_check_corpus_split_core_two_guards_validators_core_owns_the_rest(self):
         # The locked engine/corpus boundary:
         # core ships the validation engine and owns ZERO rules EXCEPT the two frozen-named guards;
-        # the self-validation corpus is validators-core's (40 rules: the disposition-issue-resolution check
+        # the self-validation corpus is validators-core's (60 rules: the disposition-issue-resolution check
         # (engine-template #292 — confirms a PR's cited follow-up issues resolve to real
         # engine-labeled issues, the first non-offline meta-check unit) atop the read-only-persona write-lock
         # guard (this change — every read-only review/audit persona must block the file-writing
@@ -419,6 +419,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
             ".engine/check/engine-manifest.json",
+            ".engine/check/engine-todo-form.json",
             ".engine/check/first-run-assets.json",
             ".engine/check/first-run-reference-closure.json",
             ".engine/check/hard-check-bite.json",
@@ -452,7 +453,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 59 corpus rules")
+        ], "validators-core owns exactly the 60 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])

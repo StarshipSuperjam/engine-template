@@ -62,8 +62,10 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    tightly-coupled work; *parallel workers*, each in its own isolated worktree returning mechanical work
    product (not commits), when the work is loosely-coupled and decomposable and holding the whole result
    while generating it would lose grounding; *time-distributed routine* for large decomposable bulk work
-   (Notes). Delegation buys cohesion under context pressure, not speed. **Iterate with scoped test runs,
-   not the full suite.** While implementing, run just the test module(s) covering what you touched by
+   (Notes). Delegation buys cohesion under context pressure, not speed. **Clear the deferred-work markers in
+   what you touch.** Run `engine_todo.py list` before building in an area: each marker is work owed to that
+   code, so clear what this change covers, and record a concern for any you cannot — the turn-close gate then
+   holds until each has a disposition. **Iterate with scoped test runs, not the full suite.** While implementing, run just the test module(s) covering what you touched by
    narrowing the discovery pattern — `uv run --directory .engine --frozen -- python -m unittest discover
    -s tools -p 'test_<name>.py' -b` finishes in seconds. The full suite stays the pre-submission gate
    (step 6), run once when the work is ready — serial (the proven command), and runnable in the background
@@ -363,6 +365,13 @@ explicitly recorded decision (a tracked issue or a logged carve-out), never a qu
 unwired, and a change is measured by the capability it delivers, not by effort or count. The pre-submission
 spec-conformance and divergence-hunter passes flag an under-build as a divergence; this is the intent the
 builder holds *before* that catch. This is the full statement; the conduct floor carries its terse form.
+
+**Write a deferral where the work is, not in prose.** Work genuinely owed to the code is recorded at the site
+with the engine's marker: the token `ENGINE-TODO` then a colon (or a parenthesised issue number and a colon),
+then what is not built and what the code does instead. It is read as the first thing after a comment leader or
+first on its line, so a trailing note and a docstring both work — and naming the form inline in backticks does
+not create one. No issue is required: a tracked issue is the escalation for a marker nobody clears, never the
+price of recording one. A decision *not* to build is a carve-out in the pull-request body instead (`eADR-0039`).
 
 **Ground-truth load-bearing claims first-hand.** Before resting a gate, an escalation, or a merge consent on a
 claim, verify it against the source yourself: read the locked or settled specification directly rather than a
