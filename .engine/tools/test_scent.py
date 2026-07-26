@@ -116,8 +116,17 @@ class CueContentTests(unittest.TestCase):
           - the verbatim-recoverable property, which replaced its retired completeness disclosure.
         """
         doc = validate.read(scent._OPERATION_FILE)
+        # Scoped to the PURPOSE section, not the whole document. Whole-document matching is why the first
+        # version of this test was nearly vacuous: five of its six phrases already appeared somewhere in the
+        # narrow runbook it was written to reject — "already" in the title line, "preference" in an unrelated
+        # role list — so a rewrite that re-narrowed the entry condition while leaving a phrase in a footnote
+        # would still pass. The entry condition is what the cue delegates, so that is what is pinned.
+        purpose = doc.split("## Purpose", 1)[-1].split("\n## ", 1)[0]
         for shape in ("already", "tried and rejected", "preference"):
-            self.assertIn(shape, doc, f"the runbook dropped the {shape!r} trigger the cue delegates to it")
+            self.assertIn(shape, purpose,
+                          f"the runbook's entry condition dropped the {shape!r} trigger the cue delegates")
+        self.assertIn("points forwards", purpose,
+                      "the runbook must be entered on a request that names no past, or the cue leads nowhere")
         self.assertIn("outrank", doc, "the canonical-outranks-memory property (the retired verify clause)")
         self.assertIn("exact wording", doc, "the verbatim-recoverable property (the retired completeness note)")
         self.assertIn("never instruction", doc, "recalled conversation must be framed as data, not directions")
@@ -221,15 +230,36 @@ class NearZeroHotPathTests(unittest.TestCase):
         does not name is invisible to source inspection, so the subprocess runs with TMPDIR pointed at an empty
         directory and the law becomes "that directory is still empty afterwards".
         """
+        # The watched surface is deliberately BOTH the temp dir and the whole engine tree. Watching only the
+        # temp dir defends the place the OLD dedup store happened to live, not the place a new one would: a
+        # helper writing `.engine/state/scent_seen.json` is a declared surface class in this codebase and is
+        # exactly where such a store would land. Snapshot everything and compare.
         probe = (
             "import json, os, sys\n"
             f"sys.path.insert(0, {os.path.dirname(os.path.abspath(scent.__file__))!r})\n"
-            "import scent\n"
+            "import tempfile\n"
+            "import scent, validate\n"
+            # Records each file's SIZE, not just its name. Watching names alone misses the realistic shape of
+            # the regression: a store at a path that already exists (an earlier test in this same run, or a
+            # previous session) is APPENDED to, creating nothing new and leaving a name-only diff empty.
+            "def snap():\n"
+            "    seen = {}\n"
+            "    for root in (tempfile.gettempdir(), validate.ENGINE_DIR):\n"
+            "        for base, _dirs, files in os.walk(root):\n"
+            "            for f in files:\n"
+            "                p = os.path.join(base, f)\n"
+            "                try:\n"
+            "                    seen[p] = os.path.getsize(p)\n"
+            "                except OSError:\n"
+            "                    pass\n"
+            "    return seen\n"
+            "before = snap()\n"
             "scent.handler({'prompt': 'should we use a nightly cron job?', 'session_id': 's'})\n"
             "scent.handler({'prompt': 'a different prompt entirely', 'session_id': 's'})\n"
-            "import tempfile\n"
-            "print(json.dumps({'imported': 'memory' in sys.modules,\n"
-            "                  'tmp': sorted(os.listdir(tempfile.gettempdir()))}))\n"
+            "scent.handler({'prompt': 'should we use a nightly cron job?', 'session_id': 't'})\n"
+            "after = snap()\n"
+            "touched = [p for p, size in after.items() if before.get(p) != size]\n"
+            "print(json.dumps({'imported': 'memory' in sys.modules, 'created': sorted(touched)}))\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             env = {**os.environ, "TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
@@ -238,7 +268,8 @@ class NearZeroHotPathTests(unittest.TestCase):
         result = _json.loads(out.strip().splitlines()[-1])
         self.assertFalse(result["imported"],
                          "the hot path imported the memory package; find_spec must only LOCATE it")
-        self.assertEqual(result["tmp"], [],
+        created = [p for p in result["created"] if not p.endswith((".pyc", ".pyo"))]
+        self.assertEqual(created, [],
                          "the hot path wrote session state; this seam keeps none (a dedup store would make "
                          "the reflex fire once and stop)")
 

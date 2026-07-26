@@ -183,18 +183,23 @@ class TheMigrationTests(_Overrides):
             self.assertNotIn(jargon, entry["description"].lower(),
                              "the description is shown to the operator in the upgrade's pull request")
 
-    def test_the_declared_version_is_the_one_the_release_cut_will_assign(self):
-        # A migration keyed to a version the cut never produces is silently skipped forever. The cut bumps a
-        # package that GAINED a migration by at least a minor (release_cut._migration_accumulation_violations),
-        # so the key must be core's current version bumped one minor — and core's own version must NOT have
-        # been hand-bumped, or the cut would compute its floor from the bumped number and bump again.
-        import release_cut
+    def test_a_deployment_upgrading_past_the_key_actually_RUNS_the_migration(self):
+        # A migration keyed to a version nothing reaches is silently skipped forever, so the key has to be
+        # checked — but as a DURABLE property, not as a snapshot of today's version numbers. Asserting "the key
+        # equals core's version bumped one minor" holds only until the release cut writes that bumped version
+        # into the manifest, at which point the assertion recomputes against the NEW version, demands a further
+        # bump, and fails — turning the guard on the upgrade into the thing that blocks the release shipping it.
+        # What is true forever is the behaviour: replay the real selector for a deployment sitting on any
+        # version below the key, and the migration must be chosen.
+        import module_manager
         with open(os.path.join(validate.ENGINE_DIR, "modules", "core", "manifest.json"),
                   encoding="utf-8") as fh:
             core = json.load(fh)
-        expected = release_cut._bump_at_least(core["version"], "minor")
-        self.assertIn(expected, core["migrations"],
-                      f"core {core['version']} + a new migration means the cut assigns {expected}")
+        key = next(iter(core["migrations"]))
+        selected = module_manager.select_migrations({"core": "0.1.0"}, {"core": key}, [core])
+        self.assertEqual([(s["module_id"], s["version"]) for s in selected], [("core", key)])
+        # ...and an upgrade that has already passed it does not run it twice.
+        self.assertEqual(module_manager.select_migrations({"core": key}, {"core": key}, [core]), [])
 
 
 class TheOneStepClearTests(_Overrides):
@@ -221,6 +226,37 @@ class TheOneStepClearTests(_Overrides):
         self.assertFalse(result["ok"])
         self.assertIn("still one of the engine's settings", result["message"])
         self.assertEqual(self.read()["attention"]["debt_blocking_threshold"], 4, "nothing was removed")
+
+    def test_forget_does_not_discard_a_setting_it_could_not_parse(self):
+        # The reader this used to go through drops any policy slice that is not a plain object — correct for a
+        # reader (degrade to the defaults rather than strand a boot), destructive for a writer. This path is
+        # reached precisely when someone has hand-edited the file, which is how a malformed slice gets there.
+        self.write({"attention": {_RETIRED_KEY: 0.9}, "triage-threshold": "3"})
+        self.assertTrue(tune.drop_override("attention", _RETIRED_KEY, path=self.path))
+        after = self.read()
+        self.assertEqual(after["triage-threshold"], "3", "an unparseable neighbour was erased")
+        self.assertNotIn("attention", after)
+
+    def test_forget_REFUSES_an_unknown_group_rather_than_clearing_anything(self):
+        # Fails CLOSED on doubt: an unreadable policy yields no defaults, which would otherwise make every key
+        # under it look retired — and with --no-pr that write lands with no review behind it.
+        self.write({"nosuchpolicy": {"anything": 1}})
+        result = tune.forget_value("nosuchpolicy", "anything", override_path=self.path,
+                                   opener=None, open_pr=False)
+        self.assertFalse(result["ok"])
+        self.assertIn("don't have a group of settings", result["message"])
+        self.assertEqual(self.read(), {"nosuchpolicy": {"anything": 1}}, "nothing was cleared")
+
+    def test_forget_DOES_clear_a_fixed_safety_setting_because_set_refuses_it_too(self):
+        # A structural key still exists, so the live-setting refusal would catch it — but `set` refuses it as
+        # well, leaving a saved value that can never apply, keeps failing the check, and has no way out but
+        # hand-editing the file. That is the dead end this verb exists to close, so this one clears.
+        structural = sorted(tune.structural_keys("attention"))[0]
+        self.write({"attention": {structural: 1}})
+        result = tune.forget_value("attention", structural, override_path=self.path,
+                                   opener=None, open_pr=False)
+        self.assertTrue(result["ok"], result["message"])
+        self.assertFalse(os.path.exists(self.path))
 
     def test_forget_says_so_when_there_is_nothing_saved_to_clear(self):
         self.write({"attention": {"debt_blocking_threshold": 4}})

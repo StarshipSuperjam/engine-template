@@ -34,8 +34,9 @@ the engine rather than discover it. An update normally removes the entry itself;
 `uv run --directory .engine -- python tools/tune.py forget <group> <setting>`. It prepares the removal as a
 pull request exactly like any other change. Tell the operator **why** it was retired (the command prints the
 reason when the engine has one recorded) and that clearing it changes nothing about how the engine behaves —
-the value was already being ignored. The command refuses to clear a setting that still exists, and says so;
-that is a `set`, not a clear.
+the value was already being ignored. The command refuses to clear a setting that is still adjustable, and says
+so — that is a `set`, not a clear. It *will* clear a saved value for one of the fixed safety settings, which
+`set` also refuses: that value can never apply, so leaving it would keep failing the check with no way out.
 
 ## Done when
 

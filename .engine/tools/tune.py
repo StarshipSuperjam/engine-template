@@ -133,9 +133,23 @@ def write_override(policy_id: str, key: str, value, *, path: str = OVERRIDES_PAT
 def drop_override(policy_id: str, key: str, *, path: str = OVERRIDES_PATH) -> bool:
     """Remove one saved setting, preserving every other. True when something was removed, False when there was
     nothing to remove. An emptied policy slice is dropped too, so a committed file is never left holding a
-    meaningless `{}`; a file left with no settings at all is removed rather than committed empty."""
-    data = operator_overrides.load(path)
-    if key not in data.get(policy_id, {}):
+    meaningless `{}`; a file left with no settings at all is removed rather than committed empty.
+
+    Reads the file RAW rather than through `operator_overrides.load`. That reader deliberately drops any policy
+    slice that is not a plain object — the right call for a *reader*, which must degrade to the shipped defaults
+    rather than strand a boot. But writing back what it returned would silently erase the dropped slices, and
+    this path is reached precisely when someone has been hand-editing the file (the stale-setting finding used
+    to tell them to). A clearing verb that quietly discards the settings it could not parse is worse than the
+    stale entry it was invoking to remove.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return False
+    except Exception:  # noqa: BLE001 — an unparseable file is the operator's to fix; never rewrite it blind
+        return False
+    if not isinstance(data, dict) or not isinstance(data.get(policy_id), dict) or key not in data[policy_id]:
         return False
     del data[policy_id][key]
     if not data[policy_id]:
@@ -146,9 +160,11 @@ def drop_override(policy_id: str, key: str, *, path: str = OVERRIDES_PATH) -> bo
         except OSError:
             pass
         return True
-    with open(path, "w", encoding="utf-8") as fh:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, sort_keys=True)
         fh.write("\n")
+    os.replace(tmp, path)   # atomic: a failed write never leaves the operator's settings truncated
     return True
 
 
@@ -233,10 +249,20 @@ def forget_value(policy_id: str, key: str, *, override_path: str = OVERRIDES_PAT
     REFUSES to remove a setting that still exists, and says so: a live setting is changed with `set`, and a
     verb that could silently delete a working choice is a different and more dangerous thing than this one.
     """
-    if key in default_values(policy_id):
+    if not os.path.isfile(_policy_path(policy_id)):
+        # FAIL CLOSED on doubt. `default_values` returns {} for a policy it cannot read, which would otherwise
+        # make every key under an unrecognised group look retired and clear it — and with `--no-pr` that write
+        # happens with no review behind it.
+        return {"ok": False, "pr": None,
+                "message": (f"I don't have a group of settings called “{policy_id}”, so I can't tell whether "
+                            f"“{key}” was retired or mistyped. Nothing was changed.")}
+    if key in default_values(policy_id) and key not in structural_keys(policy_id):
         return {"ok": False, "pr": None,
                 "message": (f"“{key}” is still one of the engine's settings, so there is nothing to clear. To "
                             f"change it, use `set {policy_id} {key} <number>`.")}
+    # A STRUCTURAL key is deliberately NOT refused. It still exists, but it is fixed — `set` refuses it too, so
+    # refusing here as well would leave a saved value that can never apply, keeps failing the saved-settings
+    # check, and has no way out but hand-editing the file: the exact dead end this verb exists to close.
     reason = operator_overrides.retirement_reason(policy_id, key)
     if not drop_override(policy_id, key, path=override_path):
         return {"ok": False, "pr": None,

@@ -49,9 +49,14 @@ def migrate(context) -> dict:
     if not slice_:
         del data[_POLICY]          # an emptied slice would linger as a meaningless {} in a committed file
     try:
-        with open(path, "w", encoding="utf-8") as fh:
+        # Write a sibling and rename over the original, so the claim above ("never empties it") is true even
+        # when the write dies partway: opening the real path for writing truncates it FIRST, which would leave
+        # the operator's settings empty on a full disk or an interrupt while reporting them untouched.
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, sort_keys=True)
             fh.write("\n")
+        os.replace(tmp, path)
     except Exception:  # noqa: BLE001 — a failed write leaves the original in place; the check still explains it
         return {"changed": False, "reason": "the saved settings file could not be written — left untouched"}
     return {"changed": True, "reason": "removed the retired per-prompt hint strength setting"}
