@@ -7253,7 +7253,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:3ae49131f99bf0128392639db69dc46a68e871414e4c638e1381a2e55cc2eba8",
+        "fingerprint": "sha256:704ec46a85809669336edd1e6054c26d63e9685bc482c3cedea0e1c68cf292bf",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7559,7 +7559,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:17c0be2cb28b8d99a40373fad971d254e124e99339aa31b83af02a75374a33e5",
+        "fingerprint": "sha256:c17d010708cab6c67164c60ee8a3b82ee4de0719a621ab6a5894e51544b658ef",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -9174,7 +9174,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:a17dc0a85be80242e02af38552c661bf09fa23adf08def0e0cbef9f11e45c50b",
+        "fingerprint": "sha256:bcf5ee33e3b6d31e35b8ecd5ba16142e97b1412738bc5f85add621a1a7bdfad8",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
@@ -9327,7 +9327,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:5e5978e1c10796ef78a2c09e5a00afb7dda03ce12c77590bdc20f6f50ebc4fbc",
+        "fingerprint": "sha256:1744b059b900a93bf1346101b60b36793e58093d57ed8fb57f6f64d8562ab25b",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -9616,7 +9616,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:ab8d245c8648addd3018ba3eb022b3e22196095a458bd2d05861f0a56422c851",
+        "fingerprint": "sha256:9614651c116a69d86392e64d288951aec22b039e25cd368f74137c0efb51bf4a",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",

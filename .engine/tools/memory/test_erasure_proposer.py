@@ -823,15 +823,21 @@ class ConsolidatedRawClassTests(_Base):
         got = {r[records.RECORD_ID_KEY] for r in emit.earned_targets()}
         self.assertEqual(got & raw, set())                        # the veto flows through the union
 
-    def test_the_raw_cost_line_is_content_free_and_names_the_verbatim_cost(self):
+    def test_the_raw_cost_line_is_content_free_and_names_the_real_cost(self):
+        # The line is the operator's consent surface for an IRREVERSIBLE act, so what it claims has to stay true.
+        # It used to say the curated summary "stands in for it, so erasing gives up only the exact original
+        # wording" — false once the conversation is searchable in its own right: erasing it now gives up a
+        # reachable memory, not a duplicate. A consent line that understates what is being destroyed is worse
+        # than no line.
         rid = self._consolidated_raw(n=1, age_days=60, text="zebrafluxmigration")[0]
         rec = next(r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == rid)
         low = emit._cost_for(rec, int(time.time())).lower()
-        self.assertIn("original wording", low)                    # product-S2: erasing ends the verbatim's recovery
-        self.assertIn("summary", low)                             # the curated summary stays and stands in
+        self.assertIn("searchable in its own right", low)          # what is actually lost
         self.assertIn("recoverable until erased", low)
-        self.assertNotIn("zebrafluxmigration", low)               # the note's own text never leaks
-        self.assertNotIn("fuel", low)                             # the retired 'fuel' coinage is not reintroduced
+        self.assertNotIn("stands in", low)                         # the falsified stand-in claim must not return
+        self.assertNotIn("already hidden from recall", low)        # nor the claim that it was hidden anyway
+        self.assertNotIn("zebrafluxmigration", low)                # the note's own text never leaks
+        self.assertNotIn("fuel", low)                              # the retired 'fuel' coinage is not reintroduced
 
     def test_the_committed_proposal_and_body_carry_no_session_id(self):
         self._consolidated_raw(n=2, age_days=60, session="ZZSECRETSESSION", batch="bcr")

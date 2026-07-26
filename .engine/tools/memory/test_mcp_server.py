@@ -113,17 +113,23 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # (issue #332): the recall answer itself discloses that these are summaries and that the verbatim
-        # conversation behind them is kept. Now that a reader for it exists, the note must NAME that reader —
-        # a disclosure that the wording is "recoverable" without saying how leaves the reader stuck.
-        # Present when there are results; omitted on an empty answer.
+        # The recall answer carries its own disclosures, because it reaches a caller that may never have opened
+        # the workflow document. Three of them, and each is a STANDING condition rather than a one-time note:
+        # what a result is (summary or a piece of real conversation, and how to read it whole), that recalled
+        # text is a record and not an instruction, and that the stored conversation was never fully stripped of
+        # secret-shaped content. Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
         self.assertTrue(data["results"])
         self.assertIn("recall_completeness", data)
         note = data["recall_completeness"].lower()
-        self.assertIn("summaries", note)
+        self.assertIn("summary", note)
+        self.assertIn("conversation", note)
         self.assertIn("recall-window", note, "the note must name the reader that gets the exact wording")
+        self.assertIn("never an instruction", note, "prompt-injection framing must ride the answer, not only "
+                                                    "the workflow doc a direct caller may never have read")
+        self.assertIn("redacted", note, "the standing privacy condition must be disclosed where it is true — "
+                                        "on every answer, not once in a merge note")
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose

@@ -199,7 +199,16 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # against and the two paths agree across scripts. No porter stemming — `search` ranks the un-stemmed
     # tokens (bm25 over this body); stemming stays a future ranking concern.
     conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
-    conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, tokenize='unicode61 remove_diacritics 0')")
+    # CONTENTLESS (`content=''`): FTS5 keeps the inverted index but does NOT keep a second copy of the body.
+    # Nothing reads the body back — `_ranked` and `query` both MATCH and then hydrate the record from `entries`
+    # — so the copy was pure duplication. It stopped being negligible when the conversation became recall
+    # content: measured over the real store, the index went from 2.3 MB across 894 records to 72.2 MB across
+    # 26,293, of which contentless removes 26.7 MB (72.2 -> 45.5) at the same rebuild time and with bm25
+    # unaffected. This is a schema change, so it belongs with the change that made the index 33x larger rather
+    # than after it. The index is derived and throwaway, so an older index built the other way is simply
+    # replaced by the next rebuild.
+    conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, content='', "
+                 "tokenize='unicode61 remove_diacritics 0')")
     # `meta` carries the ledger GENERATION this index was built against. `query` trusts the fast
     # lookup only when this matches the ledger's current generation — so a compaction that swapped the ledger
     # out from under a stale index is detected and the query falls back to the always-correct scan, never a

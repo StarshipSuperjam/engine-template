@@ -367,16 +367,21 @@ class ProjectionTests(IndexTestCase):
     def test_indexed_body_equals_the_shared_tokenization(self):
         # The fast path indexes exactly the tokens of _record_text(record) — the same tokens the scan path
         # matches against — so the two paths cannot silently desync on the projection or the tokenizer.
+        # Asserted through BEHAVIOUR rather than by reading the stored body back: the FTS table is contentless
+        # (`content=''`), so it keeps the inverted index and no second copy of the text. Behaviour is the better
+        # assertion anyway — it holds whatever the storage shape is, and it is what the parity law actually
+        # claims. Each record's own projected tokens must MATCH it on the fast path, and only it.
         records = [{"body": "first narrative", "title": "a title"}, {"note": "nested", "extra": ["deep", "words"]}]
         self.file(*records)
         self.rebuild()
-        conn = sqlite3.connect(self.index)
-        try:
-            for ordinal, record in enumerate(records):
-                body = conn.execute("SELECT body FROM entries_fts WHERE rowid = ?", (ordinal,)).fetchone()[0]
-                self.assertEqual(body, " ".join(index._tokenize(index._record_text(record))))
-        finally:
-            conn.close()
+        for record in records:
+            for token in index._tokenize(index._record_text(record)):
+                fast = index.query(token, index_file=self.index, ledger_file=self.ledger).records
+                scan = index.query(token, force_scan=True, index_file=self.index, ledger_file=self.ledger).records
+                self.assertIn(record, fast, "a projected token must retrieve its own record on the fast path")
+                self.assertEqual([json.dumps(r, sort_keys=True) for r in fast],
+                                 [json.dumps(r, sort_keys=True) for r in scan],
+                                 "the fast and slow paths must return the same set for token %r" % token)
 
     def test_non_dict_records_index_and_agree_across_paths(self):
         # The ledger is record-agnostic: a top-level string or list record must index and match on both paths.
