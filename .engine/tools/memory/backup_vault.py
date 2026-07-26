@@ -1397,8 +1397,8 @@ class _FakeVault:
 
 def _demo_plant(text: str) -> None:
     """Append one real note to the throwaway ledger so the backup has content to copy. A curated `episodic`
-    record (recall-eligible): ambient turn-deltas are not recall content (#332), so planting an
-    episodic keeps a demo/test that shows the restored note is searchable truthful."""
+    record: a restore preview lists the curated kinds only, so planting an episodic keeps a demo/test that
+    shows the restored note is searchable aligned with what that preview actually returns."""
     ledger.append({"kind": records.EPISODIC_KIND, "role": "observation", "text": text, "ts": int(time.time())})
 
 

@@ -249,7 +249,35 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
         capture._release_lock(lock_fd)
 
 
-def _is_excluded_capture(record) -> bool:
+def _injected_message_keys(src: str) -> set:
+    """The `(session_id, seq)` of every captured MESSAGE that is a harness-injected pseudo-turn.
+
+    Why a message-level pass is needed. Capture splits a message over the chunk size into several records that
+    share one `seq`, and `records.is_injected_record` recognises a pseudo-turn two ways: the durable tag, which
+    capture stamps on EVERY chunk, and — back-compat for records captured before tagging existed — a
+    START-ANCHORED text match, which by construction can only ever match the FIRST chunk. So for any untagged
+    legacy `/compact` continuation summary, chunks two onward match neither arm.
+
+    That was inert while the whole kind was excluded from recall. It is not inert now: those tail chunks would
+    be surfaced as ordinary conversation, and a continuation summary contains a section headed "All user
+    messages" — so recall could hand back a machine's paraphrase of what was asked for, attributed to the
+    operator. Measured on the maintainer's own store when this was found: 442 such chunks across 16 sessions.
+
+    One cheap sequential pass, keyed on the pair every chunk of one message shares, so the tail travels with the
+    head. A record missing either field cannot be grouped and is judged on its own."""
+    keys = set()
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict) or record.get("kind") != records.AMBIENT_CAPTURE_KIND:
+            continue
+        if not records.is_injected_record(record):
+            continue
+        sid, seq = record.get("session_id"), record.get("seq")
+        if isinstance(sid, str) and sid and isinstance(seq, int) and not isinstance(seq, bool):
+            keys.add((sid, seq))
+    return keys
+
+
+def _is_excluded_capture(record, injected_keys: "set | None" = None) -> bool:
     """True iff `record` is captured conversation recall must NOT surface — a harness-injected pseudo-turn (a
     `/compact` continuation summary, a `task-notification` block). The single recall-membership discriminator
     for the capture layer; recall drops it on every path via `live_records`.
@@ -264,10 +292,21 @@ def _is_excluded_capture(record) -> bool:
 
     Asks a MEMBERSHIP question, not a kind question. A caller that needs "is this a captured turn?" tests
     `record.get("kind") == records.AMBIENT_CAPTURE_KIND` itself — borrowing this predicate for that would break
-    silently the next time membership changes."""
-    return (isinstance(record, dict)
-            and record.get("kind") == records.AMBIENT_CAPTURE_KIND
-            and records.is_injected_record(record))
+    silently the next time membership changes.
+
+    `injected_keys` (from `_injected_message_keys`) carries the MESSAGE-level verdict, so a later chunk of an
+    untagged legacy pseudo-turn is excluded along with the first — see that function for why the per-record
+    test alone is not enough. Omitting it judges each record alone, which is correct only where every chunk is
+    known to be tagged (the freshly-captured turn `index.extend` receives)."""
+    if not (isinstance(record, dict) and record.get("kind") == records.AMBIENT_CAPTURE_KIND):
+        return False
+    if records.is_injected_record(record):
+        return True
+    if injected_keys:
+        sid, seq = record.get("session_id"), record.get("seq")
+        if isinstance(sid, str) and isinstance(seq, int) and not isinstance(seq, bool):
+            return (sid, seq) in injected_keys
+    return False
 
 
 def live_records(path: "str | None" = None, *, now: "int | None" = None):
@@ -299,9 +338,10 @@ def live_records(path: "str | None" = None, *, now: "int | None" = None):
     closed_rollup = _closed_rollup_batches(src)
     superseded = set(_superseded_by_map(src, closed_rollup))
     access_index = _access_index(src)
+    injected_keys = _injected_message_keys(src)
     now = int(time.time()) if now is None else now
     for record in ledger.iter_records(path=src):
-        if (not _is_excluded_capture(record)
+        if (not _is_excluded_capture(record, injected_keys)
                 and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)

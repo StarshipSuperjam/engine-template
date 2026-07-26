@@ -62,7 +62,9 @@ DEFAULT_ROLE_WEIGHT = 1.00
 
 # Tier names + the score thresholds on the product. A fresh record scores 1.0 * role * 1.0 >= 0.70 -> hot; a
 # never-reinforced default-role record (score = decay(age)**2) ages hot (<= ~7 d) -> warm (~7-16 d) ->
-# cold (~16-30 d) -> archived (> ~30 d). Only `archived` is excluded from recall.
+# cold (~16-30 d) -> archived (> ~30 d). Only `archived` is excluded from recall — and a CAPTURED TURN is
+# exempt from that exclusion (forget._is_demoted): it scores from reinforcement and has none by construction,
+# so the ratchet would expire the canonical record about a month after it was said.
 HOT = "hot"
 WARM = "warm"
 COLD = "cold"
@@ -206,7 +208,7 @@ def mint_snapshot(record, access_ts, now: "int | None" = None):
 
 def tier(record, access_ts, now: "int | None" = None) -> str:
     """The freshness tier of `record`: HOT / WARM / COLD / ARCHIVED. Only ARCHIVED changes recall
-    (it is excluded from `live_records`); the finer hot/warm/cold deprioritization rides the search ranking."""
+    (it is excluded from `live_records`, except for a captured turn — see `forget._is_demoted`); the finer hot/warm/cold deprioritization rides the search ranking."""
     now = int(time.time()) if now is None else now
     s = score(record, access_ts, now)
     if s >= HOT_THRESHOLD:

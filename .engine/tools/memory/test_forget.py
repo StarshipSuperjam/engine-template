@@ -129,6 +129,22 @@ class LiveRecordsTests(_Base):
         self.assertEqual([r.get("text") for r in consolidate.read_deltas("S")],
                          ["a quokka turn note"])                      # sweep input intact (orthogonality)
 
+    def test_every_chunk_of_a_legacy_injected_message_is_excluded_not_just_the_first(self):
+        # Capture splits a long message into several records sharing one `seq`. For a message captured BEFORE
+        # injected-tagging existed, the only recogniser is a start-anchored text match — which by construction
+        # matches the FIRST chunk alone. That was inert while the whole kind was excluded from recall; now the
+        # tail chunks would be surfaced as ordinary conversation, and a `/compact` summary contains a section
+        # headed "All user messages" — so recall could return a machine's paraphrase of what was asked for, as
+        # if the operator had said it. Measured on the real store when this was found: 442 such chunks.
+        head = capture._make_record("S", 4, "user", "This session is being continued from a previous conversation")
+        tail = capture._make_record("S", 4, "user", "6. All user messages:\n   - deploy the thing")
+        for r in (head, tail):
+            r.pop("tags", None)                       # legacy shape: captured before tagging existed
+        ledger.append(head)
+        ledger.append(tail)
+        texts = [r.get("text") for r in forget.live_records()]
+        self.assertEqual(texts, [], "a later chunk of an injected message must travel with its head")
+
     def test_a_turn_is_never_aged_out_of_recall(self):
         # The tier ratchet archives a never-reinforced role-less record at about 30 days, and a turn can never
         # earn its way out (nothing reinforces what nothing could recall). Left in place, the transcript would be

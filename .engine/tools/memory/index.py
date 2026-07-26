@@ -48,6 +48,12 @@ if _PARENT not in sys.path:
 from memory import forget, ledger, records, score  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
+# The index's own shape version, stamped into `meta` and checked on every read. Bump it whenever what the
+# index is allowed to CONTAIN changes (membership), or how it is built changes (projection, tokenizer, table
+# shape) — a generation bump cannot signal any of those, because generation tracks the ledger, not the rules.
+#   1 — curated records only; content-bearing FTS table.
+#   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
+INDEX_SCHEMA_VERSION = 2
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -203,9 +209,13 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # CONTENTLESS (`content=''`): FTS5 keeps the inverted index but does NOT keep a second copy of the body.
     # Nothing reads the body back — `_ranked` and `query` both MATCH and then hydrate the record from `entries`
     # — so the copy was pure duplication. It stopped being negligible when the conversation became recall
-    # content: measured over the real store, the index went from 2.3 MB across 894 records to 72.2 MB across
-    # 26,293, of which contentless removes 26.7 MB (72.2 -> 45.5) at the same rebuild time and with bm25
-    # unaffected. This is a schema change, so it belongs with the change that made the index 33x larger rather
+    # content: measured through this very `rebuild` over the maintainer's real store, the index went from 894
+    # records / 2.3 MB to 21,507 / 20.5 MB, where the same pipeline keeping a second copy of the text costs
+    # ~31 MB — so contentless saves roughly a third, at the same rebuild time (1.8 s) and with bm25 unaffected
+    # (FTS5 still keeps the per-document lengths bm25 normalises by). An earlier figure in this comment claimed
+    # 72.2 -> 45.5 MB; that was measured with the injected-pseudo-turn exclusion switched off and overstated
+    # both the size and the saving. This is a schema change, so it belongs with the change that made the index
+    # an order of magnitude larger rather
     # than after it. The index is derived and throwaway, so an older index built the other way is simply
     # replaced by the next rebuild.
     conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, content='', "
@@ -214,7 +224,42 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # lookup only when this matches the ledger's current generation — so a compaction that swapped the ledger
     # out from under a stale index is detected and the query falls back to the always-correct scan, never a
     # stale fast answer (a full index rebuild gated on a monotonic ledger-generation stamp).
-    conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL)")
+    # `meta` carries BOTH the ledger generation this index was built against AND the index's own SCHEMA
+    # VERSION. The generation leg alone is not enough, and the gap is not theoretical: generation moves only on
+    # compaction, so a change to what the index is allowed to CONTAIN leaves an existing index stamped current
+    # while holding the wrong set. That is exactly what admitting captured conversation did — an index built
+    # before it holds no conversation at all, matches on generation, and `_ranked` answers from it reporting
+    # `degraded=False` while the plain scan finds the turns. Silent, and it heals only when some unrelated event
+    # happens to force a rebuild. The version leg forces an old-SHAPE index to be treated as stale, exactly as
+    # `knowledge_index.INDEX_SCHEMA_VERSION` does for the knowledge graph. Bump it whenever membership, the
+    # projection, the tokenizer or the table shape changes.
+    conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL, "
+                 "schema_version INTEGER NOT NULL DEFAULT 0)")
+
+
+def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
+    """True iff the fast index may be trusted for `src`: its stamped ledger generation matches the ledger's
+    CURRENT generation AND its stamped schema version matches this module's. Both legs are load-bearing and
+    they catch different failures — the generation leg catches a compaction that swapped the ledger out from
+    under the index; the schema leg catches an index built when the rules about what belongs in it were
+    different, which no generation bump would ever signal. A missing or unreadable stamp reads as stale, so an
+    index built before this stamp existed falls back to the always-correct scan rather than answering
+    confidently from the wrong set."""
+    return (_index_schema_version(conn) == INDEX_SCHEMA_VERSION
+            and _index_generation(conn) == ledger.generation(for_path=src))
+
+
+def _index_schema_version(conn: sqlite3.Connection) -> int:
+    """The index's own schema version, or -1 when absent/unreadable — including the pre-stamp shape, whose
+    `meta` table has no such column, so the SELECT raises and this returns the never-matching -1."""
+    try:
+        row = conn.execute("SELECT schema_version FROM meta WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return -1
+    if not row:
+        return -1
+    val = row[0]
+    return val if isinstance(val, int) and not isinstance(val, bool) else -1
 
 
 def _index_generation(conn: sqlite3.Connection) -> int:
@@ -277,8 +322,8 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
             # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
             # store's generation.
-            conn.execute("INSERT INTO meta (rowid, generation) VALUES (1, ?)",
-                         (ledger.generation(for_path=src),))
+            conn.execute("INSERT INTO meta (rowid, generation, schema_version) VALUES (1, ?, ?)",
+                         (ledger.generation(for_path=src), INDEX_SCHEMA_VERSION))
             conn.commit()
         finally:
             conn.close()
@@ -307,8 +352,14 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
     before querying.
 
     Appends at the next free ordinal. Ledger order is append-only, so a row added here keeps `ord` monotone in
-    ledger position — which is all the ranking tiebreak asks of it. Applies the SAME membership filter and the
-    SAME tokenizer a full `rebuild` applies, so an incrementally-extended index holds what a rebuilt one would.
+    ledger position — which is all the ranking tiebreak asks of it.
+
+    NARROW CONTRACT, deliberately: this accepts CAPTURED TURNS ONLY and rejects any other kind outright. A full
+    `rebuild` streams `forget.live_records`, which ORs together five exclusions (injected capture, crash-orphan
+    retirement, gist-orphan, supersession, demotion); this applies the one that can apply to a turn just
+    written. Passing anything else would let the fast path hold a record `rebuild` and the plain scan both drop
+    — a fast/slow divergence in the direction that RESURFACES set-aside content, which is the worse direction.
+    Rejecting is cheap and keeps the invariant true rather than merely usually-true.
 
     BEST-EFFORT BY CONTRACT: every failure path returns 0 and leaves the index untouched, because the caller is
     end-of-turn capture and ambient capture must never gate a turn's close. A skipped extend is self-healing —
@@ -325,11 +376,13 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
     try:
         conn = sqlite3.connect(dst)
         try:
-            if _index_generation(conn) != ledger.generation(for_path=src):
+            if not _index_is_current(conn, src):
                 return 0
             row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
             ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
             for record in new_records:
+                if not isinstance(record, dict) or record.get("kind") != records.AMBIENT_CAPTURE_KIND:
+                    continue          # the narrow contract: captured turns only (see the docstring)
                 if forget._is_excluded_capture(record):
                     continue
                 tokens = _tokenize(_record_text(record))
@@ -404,7 +457,7 @@ def query(
                 # it like a missing index and fall through to the always-correct scan over the CURRENT ledger,
                 # never a stale fast answer. The stamp is read from the same `conn`; the ledger generation from
                 # the queried ledger file's own sidecar.
-                if _index_generation(conn) == ledger.generation(for_path=src):
+                if _index_is_current(conn, src):
                     rows = conn.execute(sql, params).fetchall()
                     records = [json.loads(row[0]) for row in rows]
                     return QueryResult(records=records, degraded=False)
@@ -508,7 +561,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
         try:
             conn = sqlite3.connect(dst)
             try:
-                if _index_generation(conn) == ledger.generation(for_path=src):
+                if _index_is_current(conn, src):
                     rows = conn.execute(sql, [match]).fetchall()
                     candidates = []
                     for ordinal, record_json, relevance in rows:

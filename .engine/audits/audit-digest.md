@@ -1,7 +1,7 @@
 ---
 schema_version: 1
-generated: 2026-07-12
-fingerprint: sha256:42fbdf31a046d2a44470d4f5d088b8e900276ca176550f4cfc50d5582e4f0b78
+generated: 2026-07-25
+fingerprint: sha256:08c5a8ef5b228a7d8f1132731c7f59cfb2ce68cb4c66b1a8ad025d14a2a32c06
 ---
 
 **⚠ Project status: couldn't verify the safety gate**
@@ -58,4 +58,4 @@ No changes were made and nothing was filed — this is report-only, yours to act
 
 ## Memory recall completeness
 
-Memory recall surfaces curated summaries of past sessions; the raw, word-for-word notes behind them are kept and fully recoverable on request — they are not deleted by being left out of recall, and nothing was forgotten. Ask to see the exact wording for any of them.
+Memory recall reaches both the summaries of past sessions and the word-for-word conversation behind them, so something said once and never summarised can be found — not only read back if you already know which session to look in. Nothing was forgotten or deleted. What comes back is the conversation as it was captured, and it was never cleaned of things like passwords or personal details, so treat a recalled answer as unreviewed text and ask to see the exact wording of anything it rests on.

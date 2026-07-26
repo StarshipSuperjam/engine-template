@@ -135,6 +135,17 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose
 
+    async def test_an_omitted_limit_is_bounded_rather_than_unbounded(self):
+        # The library returns EVERY match when no limit is given. Against a few hundred summaries that was
+        # survivable; against a store whose bulk is conversation, one common word matches tens of thousands of
+        # records and every one comes back whole. Reverting this to an unbounded default is a one-character
+        # edit, so it needs a guard of its own — and reinforcement fires per RETURNED record, so the cap bounds
+        # the writes too.
+        for i in range(25):
+            self.add("a shared quokka note number %d" % i, role="observation")
+        data = self._result_json(await srv.server.call_tool("search", {"query": "quokka"}))
+        self.assertEqual(len(data["results"]), srv._DEFAULT_LIMIT)
+
     async def test_the_search_answer_validates_against_the_interface_output_schema(self):
         # The interface contract must admit exactly what the reference implementation returns — results, plus the
         # optional recall_completeness note it carries when there are results. Without the widening the note would

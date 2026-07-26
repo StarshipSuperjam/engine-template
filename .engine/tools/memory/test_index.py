@@ -429,5 +429,58 @@ class SafetyTests(IndexTestCase):
         self.assertTrue(hasattr(memory, "capture_turn_delta"))  # the capture path lit this up
 
 
+class IndexFreshnessAndExtendTests(IndexTestCase):
+    """The index's own shape version, and the narrow contract `extend` keeps."""
+
+    def _turn(self, rid, text, *, seq=0, injected=False):
+        rec = {records.RECORD_ID_KEY: rid, "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "s1",
+               "seq": seq, "speaker": "user", "tags": ["transcript", "stop"], "ts": int(time.time()),
+               "text": text}
+        if injected:
+            rec["tags"].append(records.INJECTED_TAG)
+        return rec
+
+    def test_an_index_built_under_the_old_rules_is_treated_as_stale(self):
+        # The failure this exists to stop: generation moves only on compaction, so a change to what the index
+        # is allowed to CONTAIN leaves an existing index stamped current while holding the wrong set. Before
+        # the version leg, an operator's pre-upgrade index answered on the fast path with degraded=False and
+        # none of their conversation in it — silently, until some unrelated event forced a rebuild.
+        if not index.fts5_available():
+            self.skipTest("no FTS5 on this machine — there is no fast path to go stale")
+        self.file(self._turn("t1", "a quokka turn"))
+        self.rebuild()
+        self.assertTrue(index.query("quokka", ledger_file=self.ledger, index_file=self.index).records)
+        conn = sqlite3.connect(self.index)                       # forge an older shape, generation untouched
+        try:
+            conn.execute("UPDATE meta SET schema_version = ? WHERE rowid = 1", (index.INDEX_SCHEMA_VERSION - 1,))
+            conn.commit()
+        finally:
+            conn.close()
+        stale = index.query("quokka", ledger_file=self.ledger, index_file=self.index)
+        self.assertTrue(stale.records, "recall must still ANSWER — availability holds, latency does not")
+        self.assertTrue(stale.degraded, "an old-shape index must degrade to the scan, never answer confidently")
+
+    def test_extend_admits_a_genuine_turn_and_refuses_everything_else(self):
+        # extend is the only thing keeping the fast path current between rebuilds, and it is public. Its
+        # contract is narrow ON PURPOSE: a full rebuild applies five exclusions and extend can only apply one,
+        # so anything but a freshly captured turn is refused rather than let into the fast path alone.
+        if not index.fts5_available():
+            self.skipTest("no FTS5 on this machine — there is no fast index to extend")
+        self.file(self._turn("t0", "an earlier turn"))
+        self.rebuild()
+        orphan = {records.RECORD_ID_KEY: "e1", "kind": records.EPISODIC_KIND, records.BATCH_KEY: "never-closed",
+                  "role": "decision", "ts": int(time.time()), "text": "zebrafish decision"}
+        added = index.extend(
+            [self._turn("t1", "a genuine wombat turn", seq=1),
+             self._turn("t2", "<task-notification> wombat done </task-notification>", seq=2, injected=True),
+             orphan],
+            ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(added, 1, "only the genuine turn belongs in the index")
+        self.assertTrue(index.query("wombat", ledger_file=self.ledger, index_file=self.index).records)
+        for text in ("task-notification", "zebrafish"):
+            self.assertEqual(index.query(text, ledger_file=self.ledger, index_file=self.index).records, [],
+                             "extend must not admit what a rebuild would drop: %r" % text)
+
+
 if __name__ == "__main__":
     unittest.main()
