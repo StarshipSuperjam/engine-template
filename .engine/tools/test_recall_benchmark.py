@@ -299,5 +299,46 @@ class QueryDecompositionTests(unittest.TestCase):
                          seal["old_path_baseline"]["overall_known"]["recall_at_k"])
 
 
+class FrozenOldPathTests(unittest.TestCase):
+    """The old path is now a RECONSTRUCTION — the conversation is recall content, so a producer calling
+    `index.search` plainly no longer reproduces the baseline. These pin the reconstruction so it cannot rot into
+    a filter that quietly does nothing while 0.49 keeps printing."""
+
+    def test_the_definition_is_sealed_not_just_the_number(self):
+        # The seal hashes the corpus, the questions, the bar and the baseline — it hashes NO code. Without this
+        # field the MEANING of "the old path" could drift while the number stayed reassuringly steady, which is
+        # exactly the pressure the curation-removal slice will be under.
+        seal, problems = rb.verify_seal()
+        self.assertEqual(problems, [])
+        self.assertEqual(seal.get("frozen_old_path"), rb.FROZEN_OLD_PATH)
+
+    def test_the_exclusion_is_load_bearing(self):
+        # If removing the filter left the baseline at 0.49, the filter would be decorative and a future edit
+        # could gut it without any test noticing. The corpus holds only three conversation records, so this
+        # asserts the reconstruction is doing REAL work on this specific committed set.
+        sealed = rb.verify_seal()[0]["old_path_baseline"]["overall_known"]["recall_at_k"]
+        self.assertEqual(rb.run_synthetic()[0]["overall_known"]["recall_at_k"], sealed)
+        unfiltered = rb.run_raw_visible()[0]["overall_known"]["recall_at_k"]
+        self.assertNotEqual(unfiltered, sealed,
+                            "with the conversation reachable the score must MOVE — if it does not, the "
+                            "old-path filter is not what is producing the sealed number")
+
+    def test_the_filter_runs_before_any_cap(self):
+        # Order is the whole correctness argument: filtering a list that was already truncated cannot recover a
+        # curated hit a conversation fragment displaced inside the cap. `expanded_producer` passes a per-phrase
+        # cap, so it is the caller this protects.
+        turn = {"kind": records.AMBIENT_CAPTURE_KIND, "text": "a captured turn"}
+        curated = {"kind": "episodic", "text": "a summary"}
+        ranked = [turn, turn, curated]
+        self.assertEqual(rb._frozen_old_path(ranked, limit=2), [curated],
+                         "the curated hit must survive a cap of 2 — filter first, then truncate")
+
+    def test_the_real_local_probe_defaults_to_the_frozen_old_path(self):
+        # Running this probe is a stated precondition on the curation-removal gate. Left unfiltered it would
+        # have become a NEW-path measurement while still labelled the old-path probe.
+        import inspect
+        self.assertIs(inspect.signature(rb.real_local_producer).parameters["raw_visible"].default, False)
+
+
 if __name__ == "__main__":
     unittest.main()

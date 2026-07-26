@@ -8001,7 +8001,7 @@
       },
       "slug": "recall_benchmark",
       "source": {
-        "fingerprint": "sha256:d46ba3ff3838ef2e85b7f4e4e85bed73dda4eacaea712935ee0ad7afd8b31c4a",
+        "fingerprint": "sha256:42ca1267053eb87df9dd7f78f3397c0f4dc470a876593c7298d4e23364b4fce7",
         "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
@@ -10007,7 +10007,7 @@
       },
       "slug": "test_recall_benchmark",
       "source": {
-        "fingerprint": "sha256:5535b5f3eed2ae67d59cd696e6f425de0262e847a440d451955aa923bebe5c37",
+        "fingerprint": "sha256:a4b4c8943e7ee4d82eee9ff1209f21b5eb747a44a1346deb7484502a6fe16baa",
         "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
