@@ -7066,7 +7066,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:00eb03c7ec1dcb02d76c9433bc6b82af516d9ccbe0f20517d8dcdb122abb7682",
+        "fingerprint": "sha256:842d893da52b30191ec54d0b5f7f8f8f43eaa3cd34cea8ab1e1e857747ea8847",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -7134,7 +7134,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:8048a816af571126a2e9f7ebbb72453cc2b09fef7450625b7777f432541cbda3",
+        "fingerprint": "sha256:80ec76cb939ec6ff4d7868902f7ceb5b54cc8cbef186f4c1c84ce08c54c6d1cd",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -9225,7 +9225,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:97e770289446fc68d8d8bdeefd5f9afab3e8e21704ae848b7f44e4a0a6830e7e",
+        "fingerprint": "sha256:bbac834a0e07d1867b173844e61635049f9052af3295ab866b5b9d5144647eee",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",

@@ -170,10 +170,13 @@ def _cost_for(record: dict, now: int) -> str:
     table.)"""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
-    if forget._is_ambient_capture(record):
-        return ("a raw turn-by-turn note the engine saved while working, now summarised — the curated summary stays "
-                f"and stands in for it, so erasing gives up only the exact original wording — {_age_phrase(age)}; "
-                "already hidden from recall and still fully recoverable until erased.")
+    # A KIND test, deliberately not `forget`'s recall-membership predicate. The two ask different questions:
+    # this one asks "what kind of note is the operator being asked to erase?", and borrowing the membership
+    # predicate would silently re-word an irreversible-consent line the next time membership changes.
+    if record.get("kind") == records.AMBIENT_CAPTURE_KIND:
+        return ("a word-for-word note of part of a past conversation — it is searchable in its own right, so "
+                f"erasing it gives up that conversation, not just a duplicate of a summary — {_age_phrase(age)}; "
+                "still fully recoverable until erased.")
     return (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
             f"{_age_phrase(age)}; already hidden from recall and still fully recoverable until erased.")
 
@@ -457,7 +460,7 @@ def _group_key(record: dict, now: int) -> tuple:
     leaks into the body)."""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
-    kind = "raw" if forget._is_ambient_capture(record) else "duplicate"
+    kind = "raw" if record.get("kind") == records.AMBIENT_CAPTURE_KIND else "duplicate"
     return (kind, _age_phrase(age))
 
 

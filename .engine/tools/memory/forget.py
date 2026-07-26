@@ -186,16 +186,27 @@ def _is_demoted(record, access_index: dict, now: int) -> bool:
     `consolidated` markers are NEVER demoted here — they are structural (carry no recall text) and stay
     always-live, unchanged from the crash-duplicate retirement. The gist roll-up markers (`superseded` + `rolled-up`) ARE
     dropped from recall here like `reinforcement`: pure bookkeeping (no recall text), never a recall result.
-    Everything else (turn-deltas, episodics, gists) is scored by its own reinforcements (`access_index[id]`,
-    empty for an un-reinforced record — born hot from its `ts`); a gist is recall content and demotes like an
-    episodic. The `operator-adjudicated-erasure` marker is likewise dropped from recall (pure
-    content-free bookkeeping — it authorises erasing its target, it is never itself a recall result)."""
+    Episodics and gists are scored by their own reinforcements (`access_index[id]`, empty for an un-reinforced
+    record — born hot from its `ts`); a gist is recall content and demotes like an episodic. The
+    `operator-adjudicated-erasure` marker is likewise dropped from recall (pure content-free bookkeeping — it
+    authorises erasing its target, it is never itself a recall result).
+
+    A CAPTURED CONVERSATION TURN IS NEVER DEMOTED BY AGE. The ratchet scores from reinforcement, and a turn has
+    none by construction — nothing reinforces what nothing could recall — so a never-reinforced role-less record
+    crosses into `archived` at about 30 days. Left in place that would make the transcript searchable for its
+    first month and silently invisible after, which is not an archive. The tier ratchet is a curation-layer
+    device and the canonical record is not the curated layer (eADR-0038, whose end state has no tiered demotion
+    at all); this exempts the one class that provably cannot earn its way out. The exemption is deliberately
+    narrow HERE — removing the ratchet outright, for every kind, is its own change with its own operator-facing
+    fallout (the set-aside readout's demoted class and the `restore` verb both rest on it)."""
     if not isinstance(record, dict):
         return False
     kind = record.get("kind")
     if kind in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND, records.ROLLUP_KIND, records.ERASURE_KIND):
         return True
     if kind == records.MARKER_KIND:
+        return False
+    if kind == records.AMBIENT_CAPTURE_KIND:
         return False
     access_ts = access_index.get(record.get(records.RECORD_ID_KEY), ())
     return score.tier(record, access_ts, now) == score.ARCHIVED
@@ -236,31 +247,46 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
         capture._release_lock(lock_fd)
 
 
-def _is_ambient_capture(record) -> bool:
-    """True iff `record` is an ambient `turn-delta` capture — the role-less, `Stop`-appended verbatim that is fuel
-    for consolidation and the abandoned-session sweep, never recall content (issue #332). The single
-    recall-membership discriminator; recall drops it on every path via `live_records`."""
-    return isinstance(record, dict) and record.get("kind") == records.AMBIENT_CAPTURE_KIND
+def _is_excluded_capture(record) -> bool:
+    """True iff `record` is captured conversation recall must NOT surface — a harness-injected pseudo-turn (a
+    `/compact` continuation summary, a `task-notification` block). The single recall-membership discriminator
+    for the capture layer; recall drops it on every path via `live_records`.
+
+    GENUINE turns are recall content (eADR-0038: the exact conversation is the canonical record, and the curated
+    summaries over it are the disposable layer). This predicate is deliberately NOT a kind test: the earlier
+    verdict excluded the whole `turn-delta` kind because verbatim raw crowded paraphrased summaries out of every
+    recall, and the answer then was to hide the canonical record. The transcript-first contract reverses that —
+    what stays out is only text the operator never said. `records.is_injected_record` is the shared definition
+    (the consolidation sweep skips the same records as fuel, and the transcript-window reader leaves them out of
+    a window), so machine scaffolding can never be presented as the operator's own words on any path.
+
+    Asks a MEMBERSHIP question, not a kind question. A caller that needs "is this a captured turn?" tests
+    `record.get("kind") == records.AMBIENT_CAPTURE_KIND` itself — borrowing this predicate for that would break
+    silently the next time membership changes."""
+    return (isinstance(record, dict)
+            and record.get("kind") == records.AMBIENT_CAPTURE_KIND
+            and records.is_injected_record(record))
 
 
 def live_records(path: "str | None" = None, *, now: "int | None" = None):
     """Yield the ledger records recall should surface.
 
-    Recall surfaces the curated layer, NOT ambient capture (issue #332): a `turn-delta` is the
-    role-less, `Stop`-appended verbatim — fuel for consolidation and the abandoned-session sweep, NEVER recall
-    content. `_is_ambient_capture` drops it here, on the ONE shared read path the fast (FTS5) and slow (scan)
-    lookups both consume, so the exclusion holds identically on every path — including the degraded plain scan the
-    #332 verdict singles out. The discriminator is the record's `kind`, re-derived on every read / index rebuild:
-    no per-record marker, no carried bit, so membership survives compaction for free and edits no ledger line in
-    place. (A targeted exclusion of the ambient kind, not a curated-kind allowlist: a record carrying a `role` +
-    `text` but no explicit kind is an episodic-shaped recall record and stays surfaced — only the named ambient
-    kind is fuel. A future *ambient* kind must be added to `_is_ambient_capture` to stay out of recall.)
+    Recall surfaces the CONVERSATION and the curated layer over it. A genuine `turn-delta` — the `Stop`-appended
+    verbatim of what was actually said — is recall content, because the transcript is the canonical record and
+    the summaries above it are the disposable layer (eADR-0038). Only a harness-injected pseudo-turn is dropped,
+    by `_is_excluded_capture`, on the ONE shared read path the fast (FTS5) and slow (scan) lookups both consume,
+    so membership holds identically on every path. It is re-derived on every read / index rebuild: no per-record
+    marker, no carried bit, so membership survives compaction for free and edits no ledger line in place.
+
+    The exclusion is targeted, not a curated-kind allowlist: a record carrying a `role` + `text` but no explicit
+    kind is an episodic-shaped recall record and stays surfaced. A future kind that is fuel rather than content
+    must be added to `_is_excluded_capture` to stay out of recall.
 
     The four pre-existing exclusions still trim a record that is retired or demoted: (a) an episodic a crashed
     consolidation pass orphaned (logical retirement); (b) a reinforcement marker / a record scored into the
-    archived tier (scored demotion); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's
-    orphaned gist, and the roll-up markers (gist roll-up). A dropped record stays in the ledger, fully
-    recoverable; this generator just doesn't surface it.
+    archived tier (scored demotion — which a captured turn is now exempt from, see `_is_demoted`); (c) a raw
+    episode a COMPLETED gist roll-up superseded, a crashed roll-up's orphaned gist, and the roll-up markers.
+    A dropped record stays in the ledger, fully recoverable; this generator just doesn't surface it.
 
     Cheap sequential passes over the RAW ledger (never the filtered stream): the consolidation + roll-up closed
     sets, the supersession map, and the reinforcement access index; then stream, dropping a record if ANY exclusion
@@ -273,7 +299,7 @@ def live_records(path: "str | None" = None, *, now: "int | None" = None):
     access_index = _access_index(src)
     now = int(time.time()) if now is None else now
     for record in ledger.iter_records(path=src):
-        if (not _is_ambient_capture(record)
+        if (not _is_excluded_capture(record)
                 and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)

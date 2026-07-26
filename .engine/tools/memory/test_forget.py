@@ -83,25 +83,41 @@ class LiveRecordsTests(_Base):
                        "tags": [], records.BATCH_KEY: ""})
         self.assertEqual(len(self._live_episodics()), 1)
 
-    def test_ambient_turn_deltas_are_excluded_but_markers_pass_through(self):
-        # Recall surfaces the curated layer, not ambient capture (#332): a raw turn-delta is fuel,
-        # never recall content, so live_records drops it; the structural `consolidated` marker still passes
-        # through (it carries no recall text, so it never surfaces as a hit, but it is not the ambient kind).
+    def test_genuine_turns_are_recall_content_and_markers_pass_through(self):
+        # The conversation IS the canonical record (eADR-0038), so a genuine turn-delta is recall content. This
+        # DELIBERATELY inverts the earlier verdict, which excluded the whole kind because verbatim raw crowded
+        # paraphrased summaries out of recall; the answer now is that the summaries are the disposable layer.
+        # The structural `consolidated` marker still passes through (it carries no recall text, so it never
+        # surfaces as a hit, but it is not bookkeeping the reader drops).
         ledger.append(capture._make_record("S", 0, "user", "a turn note"))   # turn-delta, no batch
         self._marker("S", "batch-x")                                          # a lone marker
         kinds = sorted({r.get("kind") for r in forget.live_records()})
-        self.assertNotIn(capture.RECORD_KIND, kinds)    # the ambient turn-delta is excluded from recall
+        self.assertIn(capture.RECORD_KIND, kinds)       # the genuine turn IS recall content now
         self.assertIn(records.MARKER_KIND, kinds)
 
-    def test_an_excluded_turn_delta_stays_in_the_raw_ledger_recoverable(self):
-        # exclusion is recall-only — the delta is never deleted (#332: recall-exclusion, not erasure)
-        ledger.append(capture._make_record("S", 0, "user", "a recoverable turn note"))
+    def test_a_harness_injected_pseudo_turn_is_still_excluded(self):
+        # The one thing that stays out: text the operator never said. Presenting a `/compact` continuation
+        # summary or a task notification as their own words is a correctness bug, not a cosmetic one — the same
+        # rule the consolidation sweep and the transcript-window reader already apply.
+        genuine = capture._make_record("S", 0, "user", "a genuine turn note")
+        injected = capture._make_record("S", 1, "user", "<task-notification> ignore me </task-notification>")
+        injected.setdefault("tags", []).append(records.INJECTED_TAG)
+        ledger.append(genuine)
+        ledger.append(injected)
+        texts = [r.get("text") for r in forget.live_records()]
+        self.assertIn("a genuine turn note", texts)
+        self.assertNotIn("<task-notification> ignore me </task-notification>", texts)
+
+    def test_an_excluded_pseudo_turn_stays_in_the_raw_ledger_recoverable(self):
+        # exclusion is recall-only — nothing is ever deleted by it (recall-exclusion, not erasure)
+        injected = capture._make_record("S", 0, "user", "This session is being continued from a previous conversation")
+        ledger.append(injected)
         self.assertEqual([r.get("kind") for r in ledger.iter_records()], [capture.RECORD_KIND])  # still resident
         self.assertEqual(list(forget.live_records()), [])                                         # just not surfaced
 
-    def test_delta_excluded_on_both_recall_paths_but_the_sweep_still_sees_it(self):
-        # The exclusion holds identically on the fast FTS5 path AND the degraded forced scan (#332 conformance #1),
-        # while the consolidation sweep reads the raw ledger UNFILTERED (#3), so the delta is still its input.
+    def test_a_turn_is_reachable_on_both_recall_paths_and_the_sweep_still_sees_it(self):
+        # Membership holds identically on the fast FTS5 path AND the degraded forced scan (the parity law),
+        # while the consolidation sweep reads the raw ledger UNFILTERED, so the delta is still its input too.
         ledger.append(capture._make_record("S", 0, "user", "a quokka turn note"))
         self._episodic("S", "the quokka decision", "batch-x")
         self._marker("S", "batch-x")                                  # close the batch -> the episodic is live
@@ -109,9 +125,20 @@ class LiveRecordsTests(_Base):
         for hits in (index.query("quokka").records, index.query("quokka", force_scan=True).records):
             kinds = {r.get("kind") for r in hits}
             self.assertIn(records.EPISODIC_KIND, kinds)               # the curated summary surfaces...
-            self.assertNotIn(capture.RECORD_KIND, kinds)              # ...the ambient delta does not, on either path
+            self.assertIn(capture.RECORD_KIND, kinds)                 # ...and so does the conversation itself
         self.assertEqual([r.get("text") for r in consolidate.read_deltas("S")],
                          ["a quokka turn note"])                      # sweep input intact (orthogonality)
+
+    def test_a_turn_is_never_aged_out_of_recall(self):
+        # The tier ratchet archives a never-reinforced role-less record at about 30 days, and a turn can never
+        # earn its way out (nothing reinforces what nothing could recall). Left in place, the transcript would be
+        # searchable for a month and silently invisible after. The sealed benchmark CANNOT catch this — its
+        # corpus is stamped relative to run time — so this is the test that has to.
+        old = capture._make_record("S", 0, "user", "an ancient quokka turn note")
+        old["ts"] = int(time.time()) - 400 * 86400        # far past every role's archival boundary
+        ledger.append(old)
+        texts = [r.get("text") for r in forget.live_records()]
+        self.assertIn("an ancient quokka turn note", texts)
 
     def test_the_orphan_stays_in_the_raw_ledger_recoverable(self):
         self._episodic("S", "orphan note", "batch-x")          # retired from recall...
