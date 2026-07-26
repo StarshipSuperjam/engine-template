@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:2f25e3a316095ad18531f19740a47fc7f612481beda72e2444d53f1c97ab6e09",
+        "fingerprint": "sha256:69196767ed166e1c23fb0a56553b2caf74c5e075d8ca93010e7214b2615e2ae3",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:8978d4f7b82bedeab49c6830ae9fe0a05c0ff17be950a5501bbeae9f228c2925",
+        "fingerprint": "sha256:f7ee871dc321fe7b14cb9547eca17bccf0d47c509406033e194b40d3fbc3469f",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -820,6 +820,7 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall"
         ]
@@ -883,6 +884,7 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall"
         ]
@@ -947,6 +949,7 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall"
         ]
@@ -1118,6 +1121,31 @@
       "source": {
         "fingerprint": "sha256:b6672ec2188f0090acd5e845da82496d8103938fbfc05389418d3008997c21f1",
         "path": ".engine/check/engine-manifest.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:engine-todo-form",
+      "kind": "custom/script",
+      "name": ".engine/check/engine-todo-form.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "engine-todo-form",
+      "source": {
+        "fingerprint": "sha256:eaaff70e66ac8573de9b3b86eb78f442480dc4c153be3f6a996344097f1b8f81",
+        "path": ".engine/check/engine-todo-form.json"
       },
       "status": "active",
       "suites": [
@@ -2350,7 +2378,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:ee9f4cc8aaeca728478e61c047c68d46d8a3ab3bf6b10ff7a02418a2908cf86c",
+        "fingerprint": "sha256:551db55f6b888950d301b7356cd216039891bc940f5b5f1a2a1b1b7cd4dcbea4",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -2510,7 +2538,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:18338b9fc789c180c3934b0ac517173111a656a8249e8ec8bcde4cb1c3f69a43",
+        "fingerprint": "sha256:d31ea7b7372319039f2600100d0b52e5118339a4a5e885ea085499f606509373",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3717,6 +3745,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0035-deferred-work-marker",
+      "name": ".engine/contracts/eADR-0035-deferred-work-marker.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0035-deferred-work-marker",
+      "source": {
+        "fingerprint": "sha256:53f3fc7cd638f8a10903871a06db03cb48cd98082694e6d95e8336aa3d5aa2e4",
+        "path": ".engine/contracts/eADR-0035-deferred-work-marker.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "contract:eADR-0037-upgrade-overwrite-disclosure",
       "name": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md",
       "owner": "core",
@@ -4055,7 +4103,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:cafc77d27321eb28f6bb1183c0a8f8661f82b22774d8b67f153fb85db8aeba63",
+        "fingerprint": "sha256:75819307c472058ac80ef1fbbad6bc2a3b193b310f739719667e95578d8af120",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4096,7 +4144,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:5996b8696bf52bd4e2743d3145ab5902764eb9528bc137f92a8360a6d9cd3bdf",
+        "fingerprint": "sha256:a0b02329ea6839d23a7f3c953474c55b7ab7297f306194eeffa2b7c7d2a555ce",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4216,7 +4264,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:f1526db4acc1c7e59dd67ee8c78745a7b2ec1f5588c0fdcbf9f070d907cda3ac",
+        "fingerprint": "sha256:ec98b3924c3164bddb889d5864f992ea23e0355128bfb76d9f31564f0082beea",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -7039,6 +7087,40 @@
       "type": "tool"
     },
     {
+      "id": "tool:engine_todo",
+      "name": ".engine/tools/engine_todo.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_todo",
+      "source": {
+        "fingerprint": "sha256:77da80eaccde1a4e5574f7b7a9031e7e40d19d5fa00b14014b8c432e27068314",
+        "path": ".engine/tools/engine_todo.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:engine_todo_form_check",
+      "name": ".engine/tools/engine_todo_form_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_todo_form_check",
+      "source": {
+        "fingerprint": "sha256:38016141080e656b5eeb1413de17445395e1f0673d90a64932058d460da1b79d",
+        "path": ".engine/tools/engine_todo_form_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:erasure_observer",
       "name": ".engine/tools/memory/erasure_observer.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9130,6 +9212,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_engine_todo",
+      "name": ".engine/tools/test_engine_todo.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_engine_todo",
+      "source": {
+        "fingerprint": "sha256:00d515b71e54488c39bc1c0d3bd20e0fefdafaec3e9798e9bfdca55ebe99934e",
+        "path": ".engine/tools/test_engine_todo.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_erase_enact",
       "name": ".engine/tools/memory/test_erase_enact.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9735,7 +9834,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:acfdc834838b609e5855cb89e5dc12acd7d0ce73e25d1bbb0eea9b4bb09df169",
+        "fingerprint": "sha256:f4483c45b3bdd21e732244260c15b75136226d1d386c3dee072871d9d427e552",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
