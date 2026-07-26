@@ -826,6 +826,7 @@ def _capture(payload, *, cwd) -> int:
             return 0
         ledger_file = ledger.ledger_path(cwd)
         appended = 0
+        fresh: list = []          # what landed this turn, for the incremental index extend below
         for offset, rec in enumerate(delta):
             text = _message_text(rec)
             if not text or not text.strip():
@@ -843,11 +844,21 @@ def _capture(payload, *, cwd) -> int:
             # (issue #274). The record still lands + stays recoverable; consolidation skips it as fuel.
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
-                ledger.append(_make_record(session_id, cursor + offset, speaker, chunk, injected=injected),
-                              path=ledger_file)
+                record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
+                ledger.append(record, path=ledger_file)
+                fresh.append(record)
                 appended += 1
         _write_cursor(data_dir, session_id, len(messages))
         _write_capture_status("captured", session_id)
+        # The conversation is recall content, and nothing else refreshes the fast index between full rebuilds
+        # (`ledger.append` does not move the generation stamp — only compaction does). Without this a turn would
+        # be in the ledger, absent from the index, and the index would still look CURRENT — so the fast path
+        # would answer without it and call itself healthy while the plain scan found it. Still inside the
+        # capture lock, so a compaction swap cannot race it. Best-effort by contract: `extend` swallows its own
+        # failures and returns 0, and the next full rebuild reconstructs from the ledger regardless.
+        if fresh:
+            from memory import index  # lazy: index -> forget -> capture, so a module-level import would cycle
+            index.extend(fresh, ledger_file=ledger_file, index_file=index.index_path(cwd))
         return appended
     finally:
         _release_lock(lock_fd)

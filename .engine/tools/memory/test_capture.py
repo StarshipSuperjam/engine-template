@@ -323,15 +323,34 @@ class ProjectionTests(CaptureTestCase):
         self.assertNotIn(str(rec["ts"]), body)        # ts (int) is skipped
         self.assertNotIn("transcript", body)          # top-level tags are excluded
 
-    def test_a_captured_turn_delta_is_not_recall_retrievable_at_all(self):
-        # Post-#332 the end-to-end consequence is stronger: an ambient turn-delta is NOT recall content, so neither
-        # its provenance NOR its words retrieve it — recall surfaces only the curated layer. (The provenance-from-body
-        # exclusion itself is asserted on the projected body in test_only_the_content_text_enters_the_search_body.)
+    def test_a_captured_turn_is_retrievable_without_any_rebuild(self):
+        # THE test that can fail if capture stops extending the index. Note what is deliberately absent: no
+        # `index.rebuild()`. Nothing else refreshes the index between full rebuilds, and `ledger.append` does not
+        # move the generation stamp — so if capture did not extend it, this turn would sit in the ledger while the
+        # index still looked CURRENT, and the fast path would answer without it and report itself healthy. The
+        # usual cabinet pattern rebuilds before querying and would sail past that.
+        # The setup is load-bearing and reproduces production: an index that ALREADY EXISTS (built by the last
+        # consolidation) and whose stamped generation still matches, because appending never moves it. Without a
+        # pre-existing index the fast path is skipped entirely and `query` falls back to the scan, which reads
+        # the ledger and finds the turn either way — so the assertion below would pass while the real fast path
+        # was broken. Checked: with `extend` stubbed out, this test fails.
+        if not index.fts5_available():
+            self.skipTest("no FTS5 on this machine — there is no fast path to go stale")
+        self.transcript("seed.jsonl", [_msg("user", "an earlier unrelated turn")])
+        capture.capture_turn_delta(self.payload(os.path.join(self.tmp, "seed.jsonl"), session_id="sess-seed"))
+        index.rebuild()                                            # the index is now current...
         self.transcript("s.jsonl", [_msg("user", "deploy the new pricing page")])
-        capture.capture_turn_delta(self.payload("%s" % os.path.join(self.tmp, "s.jsonl")))
-        self.assertEqual(index.query("user").records, [])          # provenance is not retrievable
-        self.assertEqual(index.query("pricing").records, [])       # and a raw delta's content is not recall content
-        self.assertTrue(any("pricing" in r.get("text", "") for r in self.records()))  # but it is resident, recoverable
+        capture.capture_turn_delta(self.payload(os.path.join(self.tmp, "s.jsonl"), session_id="sess-later"))
+        self.assertTrue(any("pricing" in r.get("text", "") for r in self.records()))  # resident in the ledger...
+        fast = index.query("pricing")                              # ...and reachable, with NO rebuild in between
+        self.assertTrue(fast.records, "the fast path missed a turn captured after the last rebuild")
+        self.assertFalse(fast.degraded, "this must be the fast path, not a fallback that masks the defect")
+        # Both retrieval paths must agree — the parity law. The scan reads the ledger directly, so a divergence
+        # here is precisely the "index says current but isn't" failure.
+        self.assertTrue(index.query("pricing", force_scan=True).records)
+        # Provenance is still NOT retrievable: `session_id`, `kind` and `speaker` stay out of the search body, so
+        # a search for "user" must not drag in every captured turn.
+        self.assertEqual(index.query("user").records, [])
 
 
 class CloseSeamTests(CaptureTestCase):

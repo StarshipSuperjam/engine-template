@@ -70,9 +70,11 @@ class RecentDecisionsTests(IndexTestCase):
                   self._rec("d", "lesson", ago=50))
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["c", "a"])
 
-    def test_the_ambient_verbatim_is_never_recall_content(self):
-        # A role-less `turn-delta` is the Stop-appended verbatim: fuel for consolidation, NEVER recall
-        # Reading through forget.live_records excludes it here exactly as it is from search.
+    def test_a_captured_turn_never_competes_for_the_decisions_partition(self):
+        # A captured turn IS recall content now and search reaches it — but this partition answers a different
+        # question ("what was decided lately?") and filters to the decision-bearing ROLES. A turn is role-less,
+        # so it is excluded HERE by the role filter, not by any membership rule. Worth pinning: the exclusion
+        # this reader relies on used to come for free from the shared read path, and no longer does.
         self.file(self._rec("keep", "decision", ago=300),
                   {records.RECORD_ID_KEY: "raw", "kind": "turn-delta", "ts": self._NOW, "text": "verbatim"})
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["keep"])

@@ -283,6 +283,61 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
     return report
 
 
+def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "str | None" = None) -> int:
+    """Add just-appended ledger records to the EXISTING fast index, returning how many rows were inserted.
+
+    Why this exists. Nothing else refreshes the index between full rebuilds, and `ledger.append` does not move
+    the generation stamp (only compaction does). Before the conversation became recall content that was
+    harmless: every record `live_records` yielded was written by a path that rebuilds afterwards, and captured
+    turns — the only records appended without one — were excluded by kind anyway. Now they are content, so
+    without this a captured turn sits in the ledger while the index does not hold it AND the generation still
+    MATCHES — so `query`/`search` would trust the fast path, return the stale set, and report `degraded=False`
+    while the plain scan found the turn. That is a silent fast/slow divergence, exactly what the parity law
+    forbids, and it would be invisible to any test built on the usual throwaway cabinet, because those rebuild
+    before querying.
+
+    Appends at the next free ordinal. Ledger order is append-only, so a row added here keeps `ord` monotone in
+    ledger position — which is all the ranking tiebreak asks of it. Applies the SAME membership filter and the
+    SAME tokenizer a full `rebuild` applies, so an incrementally-extended index holds what a rebuilt one would.
+
+    BEST-EFFORT BY CONTRACT: every failure path returns 0 and leaves the index untouched, because the caller is
+    end-of-turn capture and ambient capture must never gate a turn's close. A skipped extend is self-healing —
+    the next full rebuild (consolidation, roll-up, compaction, restore) reconstructs from the ledger, the one
+    source of truth. Declines silently when this machine has no FTS5, when no index exists yet, or when the
+    index's stamped generation no longer matches the ledger's: in that last case the index is already stale and
+    `query` is already falling back to the scan, so extending it would be writing into a file no reader trusts.
+    """
+    src = ledger.ledger_path() if ledger_file is None else ledger_file
+    dst = index_path() if index_file is None else index_file
+    if not new_records or not fts5_available() or not os.path.exists(dst):
+        return 0
+    inserted = 0
+    try:
+        conn = sqlite3.connect(dst)
+        try:
+            if _index_generation(conn) != ledger.generation(for_path=src):
+                return 0
+            row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
+            ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
+            for record in new_records:
+                if forget._is_excluded_capture(record):
+                    continue
+                tokens = _tokenize(_record_text(record))
+                conn.execute(
+                    "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
+                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":"))),
+                )
+                conn.execute("INSERT INTO entries_fts (rowid, body) VALUES (?, ?)", (ordinal, " ".join(tokens)))
+                ordinal += 1
+                inserted += 1
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — the index is derived and rebuildable; capture must never fail for it
+        return 0
+    return inserted
+
+
 def _scan(query_tokens: list, src: str, limit: "int | None") -> list:
     """The slow backup lookup: read the ledger straight through, tokenize each record the same way, and keep
     the records whose text contains EVERY query token. Always available (no FTS5 needed). This is the single
