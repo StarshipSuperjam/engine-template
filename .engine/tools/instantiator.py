@@ -107,6 +107,15 @@ _PRODUCT_PROMPT = (
     "template it maintains — tell me which project that is (its owner/name), and I'll record it, so every "
     "session knows where the work is headed."
 )
+# What each catalog `status` means at the choice moment, said in the menu itself. Plain `optional` carries no
+# mark: it is the shape the preface already describes, and marking every line would make the exceptions
+# invisible. The other two change what happens if the operator says nothing, so they are always stated.
+_STATUS_MARK = {
+    "optional": "",
+    "default-on": "  [included unless you say otherwise]",
+    "experimental": "  [not settled yet — include only if you want to try it]",
+}
+
 _DESELECT_PREFACE = (
     "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
     "are deleted, not just switched off. Wanting one later is a fresh request, not a checkbox you flip back."
@@ -425,10 +434,13 @@ def selectable(catalog_entries: list) -> dict:
     """The catalog's optional features grouped by their SDLC discipline, in the fixed category order, ready to
     present as choices. Only the catalog set is offered — the always-present essentials (the required spine)
     are never a choice. An entry whose category is unrecognized is grouped last under its own raw label
-    rather than dropped (degrade, never hide a real option). All entries are presented uniformly today; a
-    catalog `status` of `default-on` (added unless opted out) or `experimental` (opt-in) will want a distinct
-    default-state/label — `owes →` whoever first sets a catalog `status` other than plain `optional` (every
-    committed entry ships as plain `optional` today)."""
+    rather than dropped (degrade, never hide a real option).
+
+    An entry's catalog `status` decides how it is offered, and the menu says which so the operator is never
+    guessing what happens if they say nothing: plain `optional` is included only if chosen, `default-on` is
+    included unless they say otherwise, and `experimental` is opt-in and labelled as not yet settled. The
+    grouping and ordering are the same for all three — the status changes the label and the default, never
+    whether the choice is offered."""
     grouped: dict = {cat: [] for cat in _CATEGORY_ORDER}
     for entry in catalog_entries:
         grouped.setdefault(entry.get("category") or "Other", []).append(entry)
@@ -517,10 +529,13 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
                 # A command-bearing module leads with its command; a command-less one (no verb — fired by a
                 # gate, never typed) leads with its plain-language description, so the menu never shows a
                 # command-shaped token an operator can't actually type.
+                # The status decides the DEFAULT, so it is stated inline rather than left to be inferred from
+                # silence: an operator who says nothing must know what they have just agreed to.
+                mark = _STATUS_MARK.get(entry.get("status") or "optional", "")
                 if entry["verb"]:
-                    lines.append(f"    • {entry['verb']} — {entry['description']}")
+                    lines.append(f"    • {entry['verb']} — {entry['description']}{mark}")
                 else:
-                    lines.append(f"    • {entry['description']}")
+                    lines.append(f"    • {entry['description']}{mark}")
                 # Its dependency closure: any OTHER optional feature this one pulls in (required-spine deps
                 # are never surfaced — they are always present). Vacuous until an optional module depends on
                 # another optional one, but presented at the choice moment so the pull-in is never a surprise.
@@ -1597,17 +1612,6 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_restore_migration_routing.py",
     ".engine/tools/demo_operator_backlog.py",
     ".engine/tools/demo_control_plane_labels.py",
-    # The G2 memory-recall benchmark (#387): the labeled instrument + scorer that measures retrieval quality and
-    # gates the overhaul's irreversible curation-removal. It is maintainer-layer construction tooling — a
-    # generated repo ships an EMPTY ledger, so there is nothing to benchmark — and retires at first run (#387:
-    # "not a standing deployed check"). It lives at top-level tools/ (core-owned, like the other memory-touching
-    # construction demos), NOT in the tools/memory/ runtime package. test_recall_benchmark.py imports the
-    # retiring harness, so it retires in the SAME pass (else it survives and aborts a generated repo's first
-    # `unittest discover` at collection — the reference-closure invariant, as with the security-seed pair above).
-    # The synthetic corpus + labels live in the fixtures directory retired via _FIRST_RUN_ASSET_DIRS below. All
-    # mirrored in first-run-assets.json (parity-tested). Not a demo_*.py, so census-completeness does not list it.
-    ".engine/tools/recall_benchmark.py",
-    ".engine/tools/test_recall_benchmark.py",
     # #424 U13b — a KEEP disposition recorded on the census for memory_pointer_public_safety_check.py: it is
     # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
     # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring
@@ -1646,11 +1650,7 @@ _FIRST_RUN_ASSET_FILES = (
     "assets/engine_banner.jpg",
 )
 _FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
-                         os.path.join(".agents", "skills", "engine-setup"),
-                         # The G2 recall benchmark's synthetic corpus + labeled question set + seal (construction-
-                         # only; retires with recall_benchmark.py above). All under `.engine/`, so it is
-                         # engine-owned and needs no _SANCTIONED_NON_ENGINE_RETIRE_PATHS entry.
-                         os.path.join(".engine", "_fixtures", "recall-benchmark"))
+                         os.path.join(".agents", "skills", "engine-setup"))
 
 # Every retirement target must be engine-owned. The `.engine/` subtree is wholly the engine's, even on a
 # brownfield "add the engine to an existing project" arrival; `.claude/` and `.agents/` are NOT — there they

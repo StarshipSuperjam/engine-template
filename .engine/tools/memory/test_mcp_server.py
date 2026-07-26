@@ -67,9 +67,23 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 class ToolWiringTests(_ServerBase):
     async def test_tools_list_is_exactly_the_declared_operations(self):
         # The server answers search.json's operation set and nothing else — an undeclared tool would be a
-        # private detail a richer swap-in could silently drop, breaking any caller that relied on it.
+        # private detail no other conforming implementation would offer, breaking a caller that relied on it.
+        #
+        # TWO SHAPES ARE REAL, so both are asserted rather than whichever this checkout happens to be:
+        # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
+        # deployment without it offers the other two alone. Pinning one literal would silently stop covering
+        # the other configuration the moment this repository's own module set changed.
         names = {t.name for t in await srv.server.list_tools()}
-        self.assertEqual(names, {"search", "recall-window"})
+        expected = {"search", "recall-window"}
+        if srv._semantic_installed():
+            expected.add("recall-by-meaning")
+        self.assertEqual(names, expected)
+
+    async def test_the_meaning_operation_is_present_exactly_when_its_module_is(self):
+        # The honest-absence law: where the module is absent the tool is absent too, rather than present and
+        # answering with keyword results — which would be a lie about what the operation does.
+        names = {t.name for t in await srv.server.list_tools()}
+        self.assertEqual("recall-by-meaning" in names, srv._semantic_installed())
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so

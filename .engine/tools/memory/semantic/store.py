@@ -32,9 +32,17 @@ supports, to save time that is not being spent.
 import os
 import re
 import sqlite3
+import sys
 
-from memory import forget, index, ledger
-from memory.semantic import embed
+# Make the package parent (.engine/tools) importable so `from memory import …` resolves when this file is run
+# directly as a script (the demo). Imported as `memory.semantic.store`, the parent is already on sys.path, so
+# this is a guarded no-op. Three levels up rather than two: this package is nested inside `memory`.
+_PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PARENT not in sys.path:
+    sys.path.insert(0, _PARENT)
+
+from memory import forget, index, ledger  # noqa: E402
+from memory.semantic import embed  # noqa: E402
 
 STORE_FILENAME = "vectors.sqlite3"
 
@@ -55,13 +63,22 @@ MAX_PASSAGES = 24
 # block is widened to float at a time.
 SCORE_BLOCK = 8192
 
-# Below this closeness a passage is not a match, only the nearest thing present. Unlike the keyword path —
-# which returns nothing when a word is absent — every question has a nearest neighbour, so without a floor
-# "have we hit this before?" would always answer yes. Measured against this engine's own history: questions
-# with a real answer score above 0.42, an unrelated question peaks around 0.36. Set below the true answers
-# rather than above the noise, because the caller reads the passages and the score, and a near-miss it can
-# dismiss costs less than an answer it never sees.
-MIN_SIMILARITY = 0.40
+# The floor below which a passage is not offered at all. It cuts obvious noise; it does NOT decide relevance,
+# and no number could.
+#
+# THE SCORE RANKS, IT DOES NOT VERDICT — measured, not assumed. On real captured history a question whose
+# answer was genuinely present scored 0.478, while a deliberately irrelevant question about a broken coffee
+# machine still peaked at 0.402 by sharing the word "broken". Meanwhile a true zero-overlap paraphrase —
+# "did we consider running it on a timer" against "we ruled out a cron job and hooked the calendar" — scored
+# only 0.244, because sharing no vocabulary is exactly the case this exists for and exactly the case that
+# scores low. The relevant and irrelevant distributions therefore OVERLAP: any threshold high enough to
+# exclude the coffee machine also excludes the cron job.
+#
+# So the floor is set low, where plainly unrelated text sits (sourdough bread against an engine ledger scores
+# 0.077), and the judgement is left where it can actually be made: the caller receives the passage that
+# matched and the score, and reads it. That is not a shortcut — it is the same division of labour the rest of
+# recall uses, where meaning is supplied by the reading model rather than by the retrieval process.
+MIN_SIMILARITY = 0.15
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
@@ -276,3 +293,96 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
         matched.append(found[ordinal] if ordinal < len(found) else "")
     return {"records": records, "scores": scores_out, "passages": matched,
             "searched": len(usable), "embedded": reconciled["embedded"]}
+
+
+# --- Operator demonstration -------------------------------------------------------------------------------
+# A runnable proof, on a throwaway practice store in a temp folder — never the real one:
+#     uv run --directory .engine --frozen -- python tools/memory/semantic/store.py demo
+#
+# It plants a note whose wording deliberately shares nothing with the question that should find it, then
+# checks BOTH halves. Either half failing exits non-zero: if keyword search finds the note, the case was not
+# genuinely word-free and proves nothing; if meaning-based recall misses it, the capability does not work.
+
+_DEMO_NOTE = "We ruled out a cron job and hooked the calendar instead, so nothing polls on a schedule."
+_DEMO_QUESTION = "did we consider having it run automatically on a timer"
+_DEMO_UNRELATED = "sourdough bread proofs better with rye flour and a longer cold rest"
+
+
+def _demo() -> int:
+    import shutil
+    import tempfile
+    import time
+
+    from memory import index as _index
+    from memory import records as _records
+    from memory import recall as _recall
+
+    scratch = tempfile.mkdtemp(prefix="engine-semantic-demo-")
+    ledger_file = os.path.join(scratch, "ledger.ndjson")
+    index_file = os.path.join(scratch, "index.sqlite3")
+    store_file = os.path.join(scratch, "vectors.sqlite3")
+    # The same refusal the window reader carries: this writes and prints, so it must never touch the real store.
+    _recall.assert_not_live_store(scratch, ledger_file)
+
+    previous = os.environ.get("ENGINE_MEMORY_DIR")
+    os.environ["ENGINE_MEMORY_DIR"] = scratch
+    try:
+        print("Meaning-based recall — finding a note by what it means, not the words you use")
+        print("=" * 78)
+        print()
+        for text in (_DEMO_NOTE, _DEMO_UNRELATED):
+            ledger.append({_records.RECORD_ID_KEY: _records.new_record_id(), "ts": int(time.time()),
+                           "role": "decision", "tags": [], "text": text}, path=ledger_file)
+        _index.rebuild(ledger_file=ledger_file, index_file=index_file)
+        print(f'Saved into a practice store:\n  "{_DEMO_NOTE}"\n  "{_DEMO_UNRELATED}"')
+        print(f'\nThe question asked later:\n  "{_DEMO_QUESTION}"')
+        print("\nIt shares no words with the note — no 'cron', no 'calendar', no 'schedule'.")
+        print()
+
+        by_word = _index.search(_DEMO_QUESTION, ledger_file=ledger_file, index_file=index_file)
+        word_missed = not by_word.records
+        print(f"  looking it up by the WORDS in the question .......... "
+              f"{'found nothing' if word_missed else 'FOUND IT — the question was not word-free'}")
+
+        found = search(_DEMO_QUESTION, ledger_file=ledger_file, store_file=store_file)
+        hit = bool(found["records"]) and "cron job" in (found["records"][0].get("text") or "")
+        print(f"  looking it up by MEANING ............................ "
+              f"{'found the note' if hit else 'MISSED IT'}")
+        if hit:
+            print(f'      it returned the sentence that matched: "{found["passages"][0][:70]}…"')
+            print(f"      and how close it judged it: {found['scores'][0]:.3f}")
+
+        noise = search(_DEMO_UNRELATED.replace("sourdough", "focaccia"),
+                       ledger_file=ledger_file, store_file=store_file)
+        kept_out = all("cron job" not in (r.get("text") or "") for r in noise["records"])
+        print(f"  a question about baking does not drag in the note ... {'correct' if kept_out else 'WRONG'}")
+
+        ok = word_missed and hit and kept_out
+        print()
+        if ok:
+            print("What this changes for you: until now, asking about something recorded in different words")
+            print("found nothing at all — the lookup matched words, so a question phrased your way missed a")
+            print("note phrased another way. It can now also search by meaning, and it shows you the sentence")
+            print("that matched and how close it judged it, because closeness ranks results but does not")
+            print("prove them. Word-based lookup is unchanged and still the right tool for an exact phrase.")
+        else:
+            print("Meaning-based recall is NOT working as described above.")
+        return 0 if ok else 1
+    finally:
+        if previous is None:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+        else:
+            os.environ["ENGINE_MEMORY_DIR"] = previous
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def main(argv: list) -> int:
+    cmd = argv[0] if argv else "demo"
+    if cmd == "demo":
+        return _demo()
+    print("usage: store.py demo")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

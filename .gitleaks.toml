@@ -1,0 +1,23 @@
+# Secret-scan configuration for the committed gitleaks floor (.github/workflows/secret-scan.yml).
+#
+# The scan is advisory — it warns and never blocks a merge. That is exactly why it must not produce a
+# standing false alarm: a check that is always red is a check nobody reads, and the one real leak it exists
+# to catch would arrive alongside the noise and be ignored.
+#
+# This file extends the default rules rather than replacing them, so every built-in detection still runs.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+The vendored word table for meaning-based recall. It is a numeric lookup table plus the vocabulary it is
+keyed by — packed float data and tens of thousands of word-piece tokens — which is shaped like high-entropy
+text without being a credential. Its integrity is not taken on trust here: checksums.json records a sha256
+for each file and the loader refuses to run on a mismatch, which is a stronger guarantee than a secret scan
+of the same bytes would give.
+"""
+paths = [
+  '''\.engine/tools/memory/semantic/potion-retrieval-32m-int8\.npz$''',
+  '''\.engine/tools/memory/semantic/vocab\.txt$''',
+]

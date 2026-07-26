@@ -684,6 +684,38 @@ def _hydrate_winners(conn, keys, limit):
     return out
 
 
+def _heal_if_stale(src: str, dst: str) -> bool:
+    """Rebuild the index when it exists but no longer matches the code that reads it. Returns whether it did.
+
+    WHY THIS IS HERE. A stale index is not a crash — `_ranked` simply declines the fast path and answers from
+    the full-ledger scan, correctly but far more slowly, and it will keep doing so for as long as the index
+    stays stale. Nothing else brings it back on its own: the scheduled rebuilds all belong to the curation
+    lifecycle, so a store can sit on the slow path indefinitely with every answer still correct and nothing
+    saying why recall got slow. Measured on a real 29.7 MB store the difference was 1.15 s against 95 ms per
+    query, and the repair takes about a second.
+
+    Healing here rather than at a hook keeps it tied to the thing that actually notices: whoever reads is
+    whoever repairs, so this survives any change of what runs at session start. It costs one cheap staleness
+    read on a hot path and does real work only when the index is genuinely behind.
+
+    FAIL-SOFT AND SILENT ON FAILURE, deliberately: a rebuild that cannot run leaves the slow path in place,
+    which is the correct answer either way. Recall must not fail because a repair did.
+    """
+    if not fts5_available() or not os.path.exists(dst):
+        return False                      # no index to heal, or no fast path to heal it for
+    try:
+        conn = sqlite3.connect(dst)
+        try:
+            if _index_is_current(conn, src):
+                return False
+        finally:
+            conn.close()
+        rebuild(ledger_file=src, index_file=dst)
+        return True
+    except Exception:
+        return False
+
+
 def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
     """The shared ranked retrieval. Fast path: bm25 read from the FTS5 index (when present +
     generation-current); slow path: a full scan over the ledger computing THE SAME bm25 in plain Python. So the
@@ -692,6 +724,8 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
     (already relevance-ordered) matches once no unread row could reach the top `limit` — a bound on work, never
     on the answer; see `_fast_candidates`. Returns a QueryResult."""
     access_index = forget._access_index(src)
+    if not force_scan:
+        _heal_if_stale(src, dst)
     # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
     if (not force_scan) and fts5_available() and os.path.exists(dst):
         match = " ".join('"' + token + '"' for token in tokens)

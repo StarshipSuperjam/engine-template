@@ -1502,6 +1502,7 @@
           "module:design-review",
           "module:external-contribution",
           "module:github-projects-sync",
+          "module:memory-semantic-recall",
           "module:memory-substrate-sqlite-fts5",
           "module:migration-discipline",
           "module:product-design",
@@ -2778,7 +2779,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:1cef884ba5a007f018083903984aa150b92c8cc297c911f11f4f17245e928d3e",
+        "fingerprint": "sha256:e626f9c7e4b456df79935beb31d1f8235fc7116dc6e230510555457efbdf7035",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -3798,7 +3799,7 @@
       },
       "slug": "eADR-0038-memory-transcript-first-recall",
       "source": {
-        "fingerprint": "sha256:2a57b8fa4f0bea942b13e6ae72ca76118662e734da709f4b73cf99c7c6b1003b",
+        "fingerprint": "sha256:d1b8dedbae8a1ae3b4c0f9c8b348994c5768abb578a2c9712b03a62313aef650",
         "path": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md"
       },
       "status": "accepted",
@@ -3877,6 +3878,7 @@
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
       "operations": [
+        "recall-by-meaning",
         "recall-window",
         "search"
       ],
@@ -3891,7 +3893,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:99331a9ea166a53d714862ddceca76f74443337ffffe8284e79d0d6a28ab49a0",
+        "fingerprint": "sha256:3c8e169de21eb049226417dd241d756f1a1d2015fec3614d061a636a1105fc09",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4001,6 +4003,25 @@
       "status": "optional",
       "type": "module",
       "version": "0.2.0"
+    },
+    {
+      "id": "module:memory-semantic-recall",
+      "name": "memory-semantic-recall",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "depends_on": [
+          "module:core",
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "memory-semantic-recall",
+      "source": {
+        "fingerprint": "sha256:6a0620e7bd07b8ae95e028c8f7b79a25f9da2398f364b1d127139688724b64f4",
+        "path": ".engine/modules/memory-semantic-recall/manifest.json"
+      },
+      "status": "default-on",
+      "type": "module",
+      "version": "0.1.0"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -4424,7 +4445,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:a675ad64ac2246e3d6b2527d1ff29ee6a87a812f195d9fcb0ebf79abf9086043",
+        "fingerprint": "sha256:9ad78ec414a72712e43e59bc4eb6e4749adda6743b0a6e0f2268641da411cd07",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -5502,7 +5523,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:fd0648d9728ef8d66019212937701b108bfd55c7adc49622cc1b8d7bada87ec4",
+        "fingerprint": "sha256:c22bdce55c7ba4f9b66d96fcc3330f5fcf6641f2a42a563b282d483da0c7335b",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -5640,6 +5661,23 @@
       "status": "active",
       "title": "engine-upgrade",
       "type": "skill"
+    },
+    {
+      "id": "tool:NOTICE",
+      "name": ".engine/tools/memory/semantic/NOTICE.txt",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "NOTICE",
+      "source": {
+        "fingerprint": "sha256:200c21d2d8b3c3d37a2be4c7c029ac0bd7326f3198e477dfb193e9725a0f8dac",
+        "path": ".engine/tools/memory/semantic/NOTICE.txt"
+      },
+      "status": "active",
+      "type": "tool"
     },
     {
       "id": "tool:adr_form",
@@ -5977,6 +6015,23 @@
       "source": {
         "fingerprint": "sha256:79aef4da1797eae6067b474ad2b4d148303cec7fc949312fc72d08c482ec0adf",
         "path": ".engine/tools/checkout_health.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:checksums",
+      "name": ".engine/tools/memory/semantic/checksums.json",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "checksums",
+      "source": {
+        "fingerprint": "sha256:6e04c5e6d09d6019795e6d12d64892b9629e391d0bb1380fef7e578cb8ed0621",
+        "path": ".engine/tools/memory/semantic/checksums.json"
       },
       "status": "active",
       "type": "tool"
@@ -7053,6 +7108,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:embed",
+      "name": ".engine/tools/memory/semantic/embed.py",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "embed",
+      "source": {
+        "fingerprint": "sha256:220f58eded4fb8565118769710ef96f4e44877e1176d7f85b372d7d6c572ef04",
+        "path": ".engine/tools/memory/semantic/embed.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -7335,7 +7407,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:4e78566bad4a0fc32fe939f1441f87b855fd0df33b7855fd2e85054ab0a17e68",
+        "fingerprint": "sha256:afa4bbd76b81ef249d92093c40710485d3766a89cd251e04c59b5edc0e67cc86",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7352,7 +7424,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5e01221441f4f6a5f12b8a553b80d701e6b64c247edaccc5b806a967656f9dc5",
+        "fingerprint": "sha256:2f25e70472d94078e73d7fc628473350801d7721fa41133c1bccde26260c8dc5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7641,7 +7713,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:c17c1cf094378b73419f9de385cb57fb486f8eab0804f803192ae371c026d297",
+        "fingerprint": "sha256:0ca0c1293d9c497b89b915c84a870b01507b57b931f1d27c5b3e19e0a0fe5756",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7903,6 +7975,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:potion-retrieval-32m-int8",
+      "name": ".engine/tools/memory/semantic/potion-retrieval-32m-int8.npz",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "potion-retrieval-32m-int8",
+      "source": {
+        "fingerprint": "sha256:a082144d84c817d574d7f9d85151fcdbab0540a1a8f4e431e1da04e1fb1cbd47",
+        "path": ".engine/tools/memory/semantic/potion-retrieval-32m-int8.npz"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:pr_reconcile",
       "name": ".engine/tools/pr_reconcile.py",
       "owner": "core",
@@ -8066,25 +8155,8 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:0b31ab8c95e457cf96be5ac607fe708d3e64aaedc985d896ce089e054b2408e6",
+        "fingerprint": "sha256:5fdc84149d85625d29fdb9760f3f5f6bb77e25124c2a0cbd084f609254b34e36",
         "path": ".engine/tools/memory/recall.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:recall_benchmark",
-      "name": ".engine/tools/recall_benchmark.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "recall_benchmark",
-      "source": {
-        "fingerprint": "sha256:c5d8b8c0d824802809d50148b0c2c6b0dbed73af621cdca8b195390b12ba021e",
-        "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"
@@ -8396,6 +8468,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:semantic.__init__",
+      "name": ".engine/tools/memory/semantic/__init__.py",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "semantic.__init__",
+      "source": {
+        "fingerprint": "sha256:1dfc805eb2d92c7970cc1a286ff8d04c4386ac146dc1a4db4558a4c225dc0045",
+        "path": ".engine/tools/memory/semantic/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:skill_coherence_check",
       "name": ".engine/tools/skill_coherence_check.py",
       "owner": "core",
@@ -8459,6 +8548,23 @@
       "source": {
         "fingerprint": "sha256:a68330072b9b9f05ead9f79ed218389e938c8a0199cf468d8e6f441143ee06fe",
         "path": ".engine/tools/standing_situation.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:store",
+      "name": ".engine/tools/memory/semantic/store.py",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "store",
+      "source": {
+        "fingerprint": "sha256:18235ff1c4c9903ae0d8fe5e159e73215d609f352fd5aa4fed4b3cb59af694df",
+        "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
       "type": "tool"
@@ -9460,7 +9566,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:b2b69c41c882e7bf6265072311d72e14064301046faf4555dbb13ef07ace91cf",
+        "fingerprint": "sha256:867d8ab1d9b358440bef8c66beaad627130f238d7a32ce1baf93a68b79d9c189",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -9715,7 +9821,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:3cc0d34818a3cb2603f4a64babae19167fb527ab8151ca87f96597c7ba7e191a",
+        "fingerprint": "sha256:a75a7b20b2be09805940b498b26fa3ac273b584861d7329b2dc5935d3e982db8",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -9817,7 +9923,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:97bdf2aab2fe92b1e3fb5a2e3fb2adb0a42403b0269273996ec0bf0f16ff5272",
+        "fingerprint": "sha256:95b38feefb0b72866e67123015b3ca893c14a37d3fc66d8c8980e127702f72cd",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -10091,23 +10197,6 @@
       "source": {
         "fingerprint": "sha256:3c9fcfca31d88f76a017a13a0fd46d2d53065c8be5e5fa4a88267e471158fe4d",
         "path": ".engine/tools/memory/test_recall.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_recall_benchmark",
-      "name": ".engine/tools/test_recall_benchmark.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "test_recall_benchmark",
-      "source": {
-        "fingerprint": "sha256:1775ffd3d74f28e6c19d27fb1593a45b725ab90395777b93f12fc1791930976e",
-        "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"
@@ -10395,7 +10484,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:05920c1b65204dd10964ddd9f70eef45b6a891bd8799f90b58230211b5a6ccc5",
+        "fingerprint": "sha256:e17709e365bf603a8fda1bacf22fa59bce8768294c94cc63e4511171b4e41e13",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
@@ -10499,6 +10588,23 @@
       "source": {
         "fingerprint": "sha256:d9a4ba6c6ea479ca8e4ad386a4be4d35bdcc73d8749be42ee07083ad2701ddea",
         "path": ".engine/tools/test_self_review_setup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_semantic",
+      "name": ".engine/tools/memory/semantic/test_semantic.py",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "test_semantic",
+      "source": {
+        "fingerprint": "sha256:b8089d9661eeefa92b6cfa99ff3deb065f68e224f9fc11af94be8ef8765ba799",
+        "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
       "type": "tool"
@@ -10871,8 +10977,25 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:83cd7222278c09261a7595926ecb9b54c13e64ffff6b7278c096625cc0915ba3",
+        "fingerprint": "sha256:57a35c0986b8d50b72f22dcc276a8477aebf58da945300996d194ba6435c7e56",
         "path": ".engine/tools/validate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:vocab",
+      "name": ".engine/tools/memory/semantic/vocab.txt",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "vocab",
+      "source": {
+        "fingerprint": "sha256:4b3452e69455f96c6cfc1cdb212d3b7b1a3e9d2505ab6f61a50022f61467a6a3",
+        "path": ".engine/tools/memory/semantic/vocab.txt"
       },
       "status": "active",
       "type": "tool"
@@ -10907,6 +11030,23 @@
       "source": {
         "fingerprint": "sha256:f50f2c224ff9310eaadcaa600efc6157a52f042a1fe6c9b6b09a2cf9343cab49",
         "path": ".engine/tools/wiring.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:wordpiece",
+      "name": ".engine/tools/memory/semantic/wordpiece.py",
+      "owner": "memory-semantic-recall",
+      "predicates": {
+        "provided_by": [
+          "module:memory-semantic-recall"
+        ]
+      },
+      "slug": "wordpiece",
+      "source": {
+        "fingerprint": "sha256:ee77c9660ef5ce76a4cb1516043286644528d2959e1907949d8fb18812773a7d",
+        "path": ".engine/tools/memory/semantic/wordpiece.py"
       },
       "status": "active",
       "type": "tool"

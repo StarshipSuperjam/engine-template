@@ -7,7 +7,7 @@
       ".engine/tools/memory/semantic/*.py"
     ],
     "asset": [
-      ".engine/tools/memory/semantic/potion-base-2m-int8.npz",
+      ".engine/tools/memory/semantic/potion-retrieval-32m-int8.npz",
       ".engine/tools/memory/semantic/vocab.txt",
       ".engine/tools/memory/semantic/checksums.json",
       ".engine/tools/memory/semantic/NOTICE.txt"
