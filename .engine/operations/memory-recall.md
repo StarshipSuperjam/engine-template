@@ -18,8 +18,8 @@ before relying on your own recollection of this project, which does not survive 
 Memory offers two ways to look, and they answer different questions. **Keyword search** matches words: when a
 word is absent it returns nothing, which is exactly why an irrelevant question gets an empty answer rather
 than a plausible wrong one. **Meaning-based recall** finds records that say the same thing in different
-words, but it always has a nearest record, so it answers with how close each one is and leaves the judging to
-you. Neither replaces the other and nothing falls back between them — you choose, and on a question that
+words, but it always has a nearest record, so it answers with the passage that matched and leaves the judging
+to you — nearest is not the same as relevant. Neither replaces the other and nothing falls back between them — you choose, and on a question that
 matters you use both. Rephrasing the question several ways is still the step that does the real work on the
 keyword side, and skipping it is still what makes recall fail.
 
@@ -58,9 +58,10 @@ keyword side, and skipping it is still what makes recall fail.
 4. **Ask the same question by meaning** with `mcp__engine-memory__recall-by-meaning`, passing the question in
    ordinary words — not the short phrases, which are for keyword search. Do this whenever step 3 came back
    thin or empty, and always on the forwards-facing shape, where the wording is guaranteed not to match. Each
-   result carries a `passage` (the text that matched) and a `score`: **read the passage, do not trust the
-   rank.** Every question has a nearest record, so a low score with a passage that only shares a stray word is
-   a near-miss, not an answer. Then pool these hits with step 3's and de-duplicate by record id — judge the
+   result carries a `passage` — the text that actually matched — and **the passage is the only evidence you
+   get.** Results are ordered nearest-first, but nearest is not the same as relevant: every question has a
+   nearest record, so the top hit may share one stray word and nothing else. Read each passage before you
+   count it. Then pool these hits with step 3's and de-duplicate by record id — judge the
    pooled set, not each search in isolation, and a record that surfaced both by word and by meaning is the
    strongest signal available.
 5. **Read the conversation behind the promising hits.** A hit is either a summary written after the fact or one

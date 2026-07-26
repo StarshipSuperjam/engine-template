@@ -139,6 +139,12 @@ class PassageTests(unittest.TestCase):
     def test_empty_text_yields_no_passages(self):
         self.assertEqual(store.passages("   "), [])
 
+    def test_a_long_run_with_no_sentence_end_is_still_split(self):
+        """The cap has to be a cap. An un-split run averages into one blurred vector and IS the record."""
+        found = store.passages("a" * 15000)
+        self.assertGreater(len(found), 1)
+        self.assertLessEqual(max(len(p) for p in found), store.PASSAGE_CHARS)
+
     def test_one_enormous_record_cannot_flood_the_store(self):
         self.assertLessEqual(len(store.passages("Sentence here. " * 500)), store.MAX_PASSAGES)
 
@@ -190,6 +196,28 @@ class ErasureTests(_Cabinet):
             conn.close()
         self.assertEqual(held, 1)
 
+    def test_a_record_rewritten_under_the_same_id_is_re_embedded(self):
+        """Without this the old vectors answer for wording the record no longer contains, and the passage
+        recovered for the caller comes back EMPTY — removing the one piece of evidence the design rests on.
+        A ledger migration rewrites records in place, so this is a real path, not a hypothetical."""
+        import json
+
+        self._write("The kitchen renovation quote covers cupboards and countertops.")
+        before = self._search("cupboards and countertops")
+        self.assertTrue(before["records"])
+        self.assertTrue(before["passages"][0])
+
+        rows = [json.loads(line) for line in open(self.ledger, encoding="utf-8") if line.strip()]
+        rows[0]["text"] = "We ruled out a cron job and hooked the calendar instead."
+        with open(self.ledger, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
+
+        after = self._search("cupboards and countertops")
+        self.assertEqual(after["records"], [],
+                         "vectors must not outlive the text they were made from")
+        self.assertTrue(self._search("did we consider running it on a timer")["records"],
+                        "and the record must be findable by its NEW wording")
+
     def test_reconciling_twice_embeds_nothing_the_second_time(self):
         self._write("A settled decision about the release cut.")
         first = store.sync(ledger_file=self.ledger, store_file=self.vectors)
@@ -207,8 +235,9 @@ class StoreBehaviourTests(_Cabinet):
     def test_a_paraphrase_sharing_no_words_with_the_record_is_still_found(self):
         """The case the capability exists for, and the one a higher floor would silently cut.
 
-        Measured at 0.244 — below where an irrelevant near-miss can land on a large store, which is why the
-        score is returned for the caller to weigh rather than used as a verdict here.
+        Measured at 0.244 — below where an irrelevant near-miss can land on a large store. That overlap is
+        why nearness is never reported to a caller as though it were confidence; it only orders results and
+        applies the floor asserted by the sibling test.
         """
         self._write("We ruled out a cron job and hooked the calendar instead.")
         found = self._search("did we consider running it on a timer")

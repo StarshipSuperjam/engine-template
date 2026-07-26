@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "search",
   "title": "Memory recall",
-  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` and `recall-by-meaning` write nothing at all. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words, always has a nearest neighbour, and so returns closeness for the caller to judge; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` writes nothing at all and `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
   "status": "active",
   "operations": [
     {
@@ -142,7 +142,7 @@
     },
     {
       "name": "recall-by-meaning",
-      "description": "Find stored records whose meaning matches the question even when they share no words with it — the counterpart to the keyword operation, for when a question is a rephrasing of something the project has already been through. Every question has a nearest stored record, so this operation cannot answer \"nothing like that exists\" the way the keyword operation can: it returns how close each match is, and the exact passage that matched, and the caller reads the passage and decides. It reads only, and it surfaces exactly the records the keyword operation surfaces, so a memory the operator removed is absent from both. This operation is answered only where a semantic memory implementation is installed; a deployment without one offers the keyword and window operations alone, and a caller that finds it absent rephrases its wording and uses the keyword operation instead.",
+      "description": "Find stored records whose meaning matches the question even when they share no words with it — the counterpart to the keyword operation, for when a question is a rephrasing of something the project has already been through. Every question has a nearest stored record, so this operation cannot answer \"nothing like that exists\" the way the keyword operation can: it returns the nearest records in order with the exact passage that matched, and the caller reads the passage and decides. No closeness figure is reported: nearness orders one answer but does not track relevance, and a figure beside a result would be read as a confidence it cannot carry. It surfaces the records the keyword operation surfaces, except that a legacy record carrying no identifier cannot be tracked here and is skipped; a memory the operator removed is absent from both. It changes no stored record, but unlike the other two operations it is not inert: it brings its own derived vector store up to date before answering, which on a large store means real work the first time it is asked. This operation is answered only where a semantic memory implementation is installed; a deployment without one offers the keyword and window operations alone, and a caller that finds it absent rephrases its wording and uses the keyword operation instead.",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -170,7 +170,7 @@
         ],
         "properties": {
           "results": {
-            "description": "The matching records, closest first. Each is a record object whose shape is the memory substrate's own, carrying additionally how close the match was and the passage of the record that matched.",
+            "description": "The matching records, nearest first. Each is a record object whose shape is the memory substrate's own, carrying additionally the passage of the record that matched. Position means nearest, not most relevant — the passage is what a caller judges on.",
             "type": "array"
           },
           "passages_searched": {
@@ -179,6 +179,10 @@
           },
           "unavailable": {
             "description": "Present only when the operation could not run — the plain-language reason. Its presence means the empty result says nothing about what the project discussed.",
+            "type": "string"
+          },
+          "recall_completeness": {
+            "description": "The standing note about what a result is and how to treat it, present whenever results are returned. Same note the keyword operation carries.",
             "type": "string"
           }
         }

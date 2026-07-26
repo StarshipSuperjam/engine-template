@@ -236,6 +236,31 @@ class TestOptionalDependencyClosure(unittest.TestCase):
         self.assertIn("core", packages, "the required spine")
 
 
+    def test_a_default_on_module_is_kept_when_the_operator_says_nothing(self):
+        # The menu promises "included unless you say otherwise". This step is what has to honour it: keeping
+        # depended on the id being in the keep-list, so SILENCE deleted the module's files and the operator
+        # was told the opposite of what happened.
+        manifests = [
+            ("spine", {"id": "spine", "status": "required", "version": "1.0.0", "depends": {}}),
+            ("extra", {"id": "extra", "status": "optional", "version": "1.0.0", "depends": {}}),
+            ("onby", {"id": "onby", "status": "default-on", "version": "1.0.0", "depends": {}}),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            packages = inst.confirm([], "solo", root=d, engine_release="1.0.0",
+                                    manifests=manifests)["manifest"]["packages"]
+        self.assertIn("onby", packages, "silence must KEEP a default-on module")
+        self.assertIn("spine", packages, "the required spine is unconditional")
+        self.assertNotIn("extra", packages, "a plain optional module still has to be chosen")
+
+    def test_a_default_on_module_is_removed_when_the_operator_declines_it_by_name(self):
+        # The other half: "unless you say otherwise" has to have a way to say otherwise.
+        manifests = [("onby", {"id": "onby", "status": "default-on", "version": "1.0.0", "depends": {}})]
+        with tempfile.TemporaryDirectory() as d:
+            packages = inst.confirm([], "solo", root=d, engine_release="1.0.0",
+                                    declined_ids=["onby"], manifests=manifests)["manifest"]["packages"]
+        self.assertNotIn("onby", packages)
+
+
 class TestConfirm(unittest.TestCase):
     def test_writes_required_plus_kept_omitting_unkept(self):
         with tempfile.TemporaryDirectory() as d:

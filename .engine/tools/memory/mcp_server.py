@@ -12,9 +12,10 @@ window reads that message whole, in the order it happened, with its neighbours a
 
 The two ranked operations answer DIFFERENT questions and neither substitutes for the other. `search` matches
 words, so its empty answer means the words are absent — the property that makes an irrelevant question return
-nothing. `recall-by-meaning` always has a nearest neighbour, so it returns closeness and the matched passage
-and expects the caller to judge. A caller chooses; nothing here blends them or falls back from one to the
-other.
+nothing. `recall-by-meaning` always has a nearest neighbour, so it returns the matched passage, ordered nearest-first,
+and expects the caller to read it. No closeness figure is relayed: it ranks within one answer but does not
+track relevance, and a number beside a result is read as confidence whatever the surrounding words say. A
+caller chooses between the two; nothing here blends them or falls back from one to the other.
 On every hit it fires the live reinforcement that records the access (`forget.record_access`), so recall is
 self-reinforcing — the move reserved for "the search server" (records.py / forget.py). Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
@@ -152,7 +153,9 @@ _RECALL_COMPLETENESS_NOTE = (
         "summaries only. Returns narrative recall only, never structural fact (knowledge's job). Every result "
         "carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation hit ADDS `speaker` and `seq`, a "
         "summary ADDS `role` — that is how you tell them apart. Using a memory reinforces it, so what you rely "
-        "on stays easy to recall."
+        "on stays easy to recall. AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
+        "history on the subject: if `recall-by-meaning` is among your tools, ask it the same question in "
+        "ordinary words before concluding anything, because it reaches records that share no wording with you."
     ),
 )
 def search(query: str, roles: list[str] | None = None,
@@ -197,9 +200,14 @@ def _semantic_installed() -> bool:
     import importlib.util
 
     try:
-        return importlib.util.find_spec("memory.semantic") is not None
-    except (ImportError, ValueError):
+        spec = importlib.util.find_spec("memory.semantic.store")
+    except (ImportError, ValueError, ModuleNotFoundError):
         return False
+    # `origin` is None for a namespace package — which is exactly what an uninstall leaves behind, because
+    # removing a module deletes its files and not the directory that held them. Probing the package alone
+    # therefore said "installed" for an empty folder, and the tool registered and failed on first call. A real
+    # module file has an origin; an empty directory does not.
+    return spec is not None and spec.origin is not None
 
 
 if _semantic_installed():
@@ -212,12 +220,12 @@ if _semantic_installed():
             "when the question is a rephrasing — 'have we tried this?', 'did we rule this out?', 'is there a "
             "stated preference about this?'. Use `search` instead when you need an exact phrase or a known "
             "term: it matches words, so its empty answer genuinely means the words are absent. This one always "
-            "has a nearest neighbour, so it returns `score` (closeness, 0 to 1) and the `passage` that actually "
-            "matched — READ THE PASSAGE AND JUDGE IT. THE SCORE RANKS, IT DOES NOT DECIDE: measured on real "
-            "history, a genuinely relevant hit scored 0.478 while an irrelevant question still reached 0.402 on "
-            "one shared word, and a true reworded match scored only 0.244 precisely because it shared no "
-            "wording. So a high score is not proof and a low one is not a refusal — the passage is the "
-            "evidence. Each result also carries the record's `session_id`, so take a "
+            "has a nearest neighbour, so results are ordered nearest-first and each carries the `passage` that "
+            "matched. THE PASSAGE IS THE ONLY EVIDENCE — read it and decide. Nearness was measured against real "
+            "history and does NOT track relevance: an irrelevant question scored higher on one shared word than "
+            "a correct reworded match did, so no closeness figure is reported, because any such figure would be "
+            "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
+            "carries the record's `session_id`, so take a "
             "promising one to `recall-window` to read the conversation around it. Reads only; it changes "
             "nothing. Searches the same records `search` does, so an erased memory is absent here too."
         ),
@@ -232,9 +240,12 @@ if _semantic_installed():
             return {"results": [], "unavailable": reason}
         found = _store.search(query, limit=limit)
         results = []
-        for record, score, passage in zip(found["records"], found["scores"], found["passages"]):
+        for record, passage in zip(found["records"], found["passages"]):
+            # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
+            # relevance across questions — measured, an irrelevant question outscored a correct reworded match
+            # — so reporting it would hand the caller a confidence signal that is not one, and a number beside
+            # a result is read as confidence no matter what the surrounding words say.
             entry = dict(_without_harness_spans(record))
-            entry["score"] = score
             entry["passage"] = passage
             results.append(entry)
         out: dict = {"results": results, "passages_searched": found["searched"]}

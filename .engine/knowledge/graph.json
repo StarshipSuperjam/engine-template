@@ -3799,7 +3799,7 @@
       },
       "slug": "eADR-0038-memory-transcript-first-recall",
       "source": {
-        "fingerprint": "sha256:d1b8dedbae8a1ae3b4c0f9c8b348994c5768abb578a2c9712b03a62313aef650",
+        "fingerprint": "sha256:807e73f32c6911796fb547c38ca0ab7adaecf596d3d0d5e35c5a0765be4150f6",
         "path": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md"
       },
       "status": "accepted",
@@ -3893,7 +3893,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:3c8e169de21eb049226417dd241d756f1a1d2015fec3614d061a636a1105fc09",
+        "fingerprint": "sha256:821c4e364869845ac4d4e416d2312e40197a788a5937929dfb57e22664d0641c",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4405,7 +4405,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:fca4ffba61bcf6c6343f786d2db96a7f92cbdfc07221a009177d686fa6fb4cbf",
+        "fingerprint": "sha256:aefc1e687e92e07fd8925706a03d827674287ad30f8dcba76aa76d8752db49bb",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -4445,7 +4445,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:9ad78ec414a72712e43e59bc4eb6e4749adda6743b0a6e0f2268641da411cd07",
+        "fingerprint": "sha256:ec905dc984c1f0d40c3989325d1c5af21eca90739a6564ee637708ec68f7da63",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -7424,7 +7424,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:2f25e70472d94078e73d7fc628473350801d7721fa41133c1bccde26260c8dc5",
+        "fingerprint": "sha256:7a5b96346d8a5d849e60f44866e58bd1fd472c6455817b43464de592887ad485",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7713,7 +7713,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:0ca0c1293d9c497b89b915c84a870b01507b57b931f1d27c5b3e19e0a0fe5756",
+        "fingerprint": "sha256:79104e1bde3e5343cbe6a543cef899b4379a41a7ba7eab1cb0bafeaf989f0585",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -8155,7 +8155,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:5fdc84149d85625d29fdb9760f3f5f6bb77e25124c2a0cbd084f609254b34e36",
+        "fingerprint": "sha256:8b5d281e3a2894296bdbff146e273417e1c766cf894b6cc0a3b4d11ba2249df6",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8563,7 +8563,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:18235ff1c4c9903ae0d8fe5e159e73215d609f352fd5aa4fed4b3cb59af694df",
+        "fingerprint": "sha256:8da852074aaf2114ffbc0c5a2aab1d537df04df4fa7e6cb1a36ef35778779b8e",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -9549,7 +9549,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:60b7417efc51223efa9bd9657154a5671304e31c63109785c0e315378fdf720a",
+        "fingerprint": "sha256:1b586ade6a9293e19851bbb05904ceb30f4e22c134390c9929beee3d823e45ce",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9821,7 +9821,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:a75a7b20b2be09805940b498b26fa3ac273b584861d7329b2dc5935d3e982db8",
+        "fingerprint": "sha256:07a1f18243157d3db651db8929d62e8869792e557072a486e24de7c37a770c6b",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -10603,7 +10603,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:b8089d9661eeefa92b6cfa99ff3deb065f68e224f9fc11af94be8ef8765ba799",
+        "fingerprint": "sha256:52b03914ffc81750a92597d77763e2a4b0e10b5888c86fd73eb5f77418494ce2",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",

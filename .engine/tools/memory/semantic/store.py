@@ -18,10 +18,16 @@ anything.
 
 HOW IT STAYS CURRENT. There is no background job and no capture-time work. The store reconciles itself at
 the moment a question is asked: records that have appeared since last time are embedded, and records that
-have gone are dropped. That ordering is what makes erasure safe — a record the operator removed cannot
-linger as a vector and be found by meaning after its text is gone. Two independent guarantees, because one
-is not enough for a deletion the operator asked for: the reconcile deletes the vectors, and the answer is
-assembled only from records read live from the ledger in the same pass.
+have gone are dropped, deletions first.
+
+WHAT ERASURE GUARANTEES HERE, EXACTLY. An erased record can never be returned by this operation, from the
+moment its text leaves the ledger — the answer is assembled only from records read live in that same pass,
+so a stale row cannot reach a caller even before it is deleted. What is NOT instant is the row itself: the
+vectors of an erased record stay in this local file until the next meaning-based question, which is when the
+reconcile runs. What lingers is a lossy numeric derivative, not the wording — this store holds no text at
+all — it lives only in the gitignored memory directory, and it is unreachable by every read path. Said
+plainly rather than claimed away: the erasure paths rebuild the keyword index in the same pass, and they do
+not know this file exists.
 
 WHY BRUTE FORCE. Similarity here is one matrix multiply against a few tens of thousands of rows — a handful
 of milliseconds, scored in blocks so peak memory stays flat however large the store grows. A vector index
@@ -48,7 +54,7 @@ STORE_FILENAME = "vectors.sqlite3"
 
 # Bumped whenever what the store holds, or how a vector is derived, changes — so an older store is rebuilt
 # rather than silently mixed with vectors made a different way.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_LIMIT = 10
 
@@ -76,8 +82,13 @@ SCORE_BLOCK = 8192
 #
 # So the floor is set low, where plainly unrelated text sits (sourdough bread against an engine ledger scores
 # 0.077), and the judgement is left where it can actually be made: the caller receives the passage that
-# matched and the score, and reads it. That is not a shortcut — it is the same division of labour the rest of
-# recall uses, where meaning is supplied by the reading model rather than by the retrieval process.
+# matched, and reads it. That is not a shortcut — it is the same division of labour the rest of recall uses,
+# where meaning is supplied by the reading model rather than by the retrieval process.
+#
+# The figure is computed here, used to order results and to apply this floor, and deliberately NOT relayed to
+# the caller by the transport above this module. It ranks within one answer; it does not compare across
+# questions, and a number printed beside a result is read as confidence no matter what the words around it
+# say. The ordering and the passage carry everything a caller can actually act on.
 MIN_SIMILARITY = 0.15
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -102,6 +113,17 @@ def passages(text: str) -> list:
         piece = piece.strip()
         if not piece:
             continue
+        # A single sentence can exceed the cap on its own — minified code, a pasted table, prose with no
+        # terminator at all. Splitting it is what keeps the cap real: an un-split run averages into the same
+        # blurred middle that passages exist to avoid, and it would silently be the whole record.
+        while len(piece) > PASSAGE_CHARS:
+            if current:
+                out.append(current)
+                current = ""
+            out.append(piece[:PASSAGE_CHARS])
+            piece = piece[PASSAGE_CHARS:]
+        if not piece:
+            continue
         if current and len(current) + 1 + len(piece) > PASSAGE_CHARS:
             out.append(current)
             current = piece
@@ -109,7 +131,7 @@ def passages(text: str) -> list:
             current = f"{current} {piece}".strip()
     if current:
         out.append(current)
-    return out[:MAX_PASSAGES] or ([text[:PASSAGE_CHARS]] if text.strip() else [])
+    return out[:MAX_PASSAGES]
 
 
 def _table_fingerprint() -> str:
@@ -133,6 +155,12 @@ def _connect(path: str) -> sqlite3.Connection:
                  "  ordinal INTEGER NOT NULL,"
                  "  vec BLOB NOT NULL,"
                  "  scale REAL NOT NULL,"
+                 # A digest of the text these vectors were made from. A record can be rewritten in place
+                 # keeping its id — a ledger migration does exactly that — and without this the old vectors
+                 # survive, so the record answers for wording it no longer contains and the passage recovered
+                 # for the caller comes back EMPTY. That would strip the one piece of evidence this whole
+                 # design asks the caller to judge on.
+                 "  text_digest TEXT NOT NULL,"
                  "  PRIMARY KEY (record_id, ordinal))")
     conn.execute("CREATE TABLE IF NOT EXISTS meta ("
                  "  rowid INTEGER PRIMARY KEY CHECK (rowid = 1),"
@@ -172,6 +200,13 @@ def _live_text(path: "str | None" = None) -> dict:
     return out
 
 
+def _digest(text: str) -> str:
+    """A short fingerprint of a record's searchable text, so a rewrite in place is noticed."""
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:32]
+
+
 def _quantize(vectors):
     """Unit vectors as int8 rows plus a per-row scale — a quarter of the size, no measurable ranking cost."""
     import numpy
@@ -189,24 +224,34 @@ def _reconcile(conn: sqlite3.Connection, live: dict) -> dict:
     reports can never be computed from differently-reconciled stores. Deletions are applied and committed
     before any embedding, so a record that left is gone even if embedding then fails.
     """
-    stored = {row[0] for row in conn.execute("SELECT DISTINCT record_id FROM passages")}
-    gone = stored - live.keys()
-    if gone:
-        conn.executemany("DELETE FROM passages WHERE record_id = ?", [(rid,) for rid in gone])
+    stored = {}
+    for rid, digest in conn.execute("SELECT DISTINCT record_id, text_digest FROM passages"):
+        stored[rid] = digest
+    gone = set(stored) - live.keys()
+    # A record whose text changed under the same id is as stale as one that left: its rows are dropped and
+    # rebuilt rather than kept, so no vector ever outlives the wording it was made from.
+    changed = {rid for rid in live if rid in stored and stored[rid] != _digest(live[rid][1])}
+    stale = gone | changed
+    if stale:
+        conn.executemany("DELETE FROM passages WHERE record_id = ?", [(rid,) for rid in stale])
         conn.commit()
-    fresh = [rid for rid in live if rid not in stored]
+    fresh = [rid for rid in live if rid not in stored or rid in changed]
     if fresh:
-        texts, owners, ordinals = [], [], []
+        texts, owners, ordinals, digests = [], [], [], []
         for rid in fresh:
+            digest = _digest(live[rid][1])
             for ordinal, passage in enumerate(passages(live[rid][1])):
                 texts.append(passage)
                 owners.append(rid)
                 ordinals.append(ordinal)
+                digests.append(digest)
         if texts:
             rows, scales = _quantize(embed.embed_many(texts))
             conn.executemany(
-                "INSERT OR REPLACE INTO passages (record_id, ordinal, vec, scale) VALUES (?, ?, ?, ?)",
-                [(owners[i], ordinals[i], rows[i].tobytes(), float(scales[i])) for i in range(len(texts))])
+                "INSERT OR REPLACE INTO passages (record_id, ordinal, vec, scale, text_digest) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(owners[i], ordinals[i], rows[i].tobytes(), float(scales[i]), digests[i])
+                 for i in range(len(texts))])
     conn.commit()
     return {"embedded": len(fresh), "dropped": len(gone), "total": len(live)}
 
@@ -237,10 +282,45 @@ def coverage(*, ledger_file: "str | None" = None, store_file: "str | None" = Non
         return {"records_embedded": 0, "records": records, "passages": 0}
     conn = _connect(path)
     try:
+        # Reconcile first, or this counts records that have already left the ledger and reports a store that
+        # covers more than it does — the opposite of what a readout about coverage is for.
+        _reconcile(conn, _live_text(ledger_file))
         held = conn.execute("SELECT COUNT(*), COUNT(DISTINCT record_id) FROM passages").fetchone()
     finally:
         conn.close()
     return {"records_embedded": int(held[1]), "records": records, "passages": int(held[0])}
+
+
+def _best_by_record(cursor, live: dict, question):
+    """(best, scanned): the closest passage of each live record, and how many passages were compared.
+
+    Streams the cursor in blocks so peak memory is bounded by SCORE_BLOCK rather than by the store's size,
+    and considers only rows still present in the live read — the second erasure guarantee, applied before a
+    departed record's vector is ever scored.
+    """
+    import numpy
+
+    best: dict = {}
+    scanned = 0
+    width = question.shape[0]
+    while True:
+        rows = cursor.fetchmany(SCORE_BLOCK)
+        if not rows:
+            break                       # only an exhausted cursor returns nothing
+        block = [row for row in rows if row[0] in live]
+        if not block:
+            continue                    # a block that was entirely departed records; more may follow
+        matrix = numpy.frombuffer(b"".join(row[1] for row in block), dtype=numpy.int8)
+        matrix = matrix.reshape(len(block), width).astype(numpy.float32)
+        scales = numpy.fromiter((row[2] for row in block), dtype=numpy.float32, count=len(block))
+        # The stored row is a unit vector scaled into int8; restoring the scale restores the cosine.
+        scores = (matrix @ question) * (scales / 127.0)
+        for offset, score in enumerate(scores):
+            rid, ordinal = block[offset][0], block[offset][3]
+            if score > best.get(rid, (-2.0, 0))[0]:
+                best[rid] = (float(score), int(ordinal))
+        scanned += len(block)
+    return best, scanned
 
 
 def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" = None,
@@ -251,48 +331,39 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     Every returned record comes from the live read of the ledger performed in that same pass, and a record
     scores as well as its best passage.
     """
-    import numpy
-
     live = _live_text(ledger_file)
     conn = _connect(store_path(store_file))
     try:
         reconciled = _reconcile(conn, live)
-        rows = conn.execute("SELECT record_id, vec, scale, ordinal FROM passages").fetchall()
+        # Streamed in blocks, never fetchall(): the row set grows with the store, and materialising it whole
+        # would make peak memory linear in store size — the same unbounded read the keyword path already fixed.
+        best, scanned = _best_by_record(
+            conn.execute("SELECT record_id, vec, scale, ordinal FROM passages"), live, embed.embed(query))
     finally:
         conn.close()
 
-    # Only rows still present in the live read are considered — the second erasure guarantee.
-    usable = [row for row in rows if row[0] in live]
-    if not usable:
-        return {"records": [], "scores": [], "searched": 0, "embedded": reconciled["embedded"]}
-
-    question = embed.embed(query)
-    best: dict = {}
-    for start in range(0, len(usable), SCORE_BLOCK):
-        block = usable[start:start + SCORE_BLOCK]
-        matrix = numpy.frombuffer(b"".join(row[1] for row in block), dtype=numpy.int8)
-        matrix = matrix.reshape(len(block), question.shape[0]).astype(numpy.float32)
-        scales = numpy.fromiter((row[2] for row in block), dtype=numpy.float32, count=len(block))
-        # The stored row is a unit vector scaled into int8; restoring the scale restores the cosine.
-        scores = (matrix @ question) * (scales / 127.0)
-        for offset, score in enumerate(scores):
-            rid, ordinal = block[offset][0], block[offset][3]
-            if score > best.get(rid, (-2.0, 0))[0]:
-                best[rid] = (float(score), int(ordinal))
+    if not best:
+        # Every key the populated return carries must be present here too. A caller unpacks this dict
+        # positionally, and a deployed repo starts with an empty ledger — so the shape a fresh project sees
+        # FIRST is this one, and an omitted key is a crash on the first question ever asked.
+        return {"records": [], "scores": [], "passages": [], "searched": scanned,
+                "embedded": reconciled["embedded"]}
 
     ranked = sorted(best.items(), key=lambda pair: -pair[1][0])[:max(int(limit), 1)]
     records, scores_out, matched = [], [], []
     for rid, (score, ordinal) in ranked:
         if score < MIN_SIMILARITY:
             break                              # sorted best-first, so everything after this is further away
-        records.append(live[rid][0])
-        scores_out.append(round(score, 4))
         # The passage that actually matched — recomputed from the same text, never stored twice. Without it
         # a caller sees a record's opening and judges relevance on words that had nothing to do with the hit.
         found = passages(live[rid][1])
-        matched.append(found[ordinal] if ordinal < len(found) else "")
+        if ordinal >= len(found):
+            continue        # no recoverable passage means no evidence, and evidence is the whole offer
+        records.append(live[rid][0])
+        scores_out.append(round(score, 4))
+        matched.append(found[ordinal])
     return {"records": records, "scores": scores_out, "passages": matched,
-            "searched": len(usable), "embedded": reconciled["embedded"]}
+            "searched": scanned, "embedded": reconciled["embedded"]}
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
@@ -350,12 +421,18 @@ def _demo() -> int:
               f"{'found the note' if hit else 'MISSED IT'}")
         if hit:
             print(f'      it returned the sentence that matched: "{found["passages"][0][:70]}…"')
-            print(f"      and how close it judged it: {found['scores'][0]:.3f}")
 
-        noise = search(_DEMO_UNRELATED.replace("sourdough", "focaccia"),
+        noise = search("what is the best way to renew a passport",
                        ledger_file=ledger_file, store_file=store_file)
         kept_out = all("cron job" not in (r.get("text") or "") for r in noise["records"])
-        print(f"  a question about baking does not drag in the note ... {'correct' if kept_out else 'WRONG'}")
+        print(f"  an unrelated question does not return the note ...... {'correct' if kept_out else 'WRONG'}")
+        print()
+        print("  One honest limit, worth seeing before you rely on this. Only two notes are saved here, so")
+        print("  the unrelated question above had almost nothing to reach for. On a real store of thousands,")
+        print("  an unrelated question often DOES come back with something — the nearest thing present, which")
+        print("  is not the same as an answer. That is why every result carries the sentence that matched:")
+        print("  reading it is how you tell a real hit from the nearest miss, and there is no score that")
+        print("  would tell you instead.")
 
         ok = word_missed and hit and kept_out
         print()
@@ -363,8 +440,10 @@ def _demo() -> int:
             print("What this changes for you: until now, asking about something recorded in different words")
             print("found nothing at all — the lookup matched words, so a question phrased your way missed a")
             print("note phrased another way. It can now also search by meaning, and it shows you the sentence")
-            print("that matched and how close it judged it, because closeness ranks results but does not")
-            print("prove them. Word-based lookup is unchanged and still the right tool for an exact phrase.")
+            print("that matched, so you can see for yourself why it was offered. It shows the sentence rather")
+            print("than a confidence figure on purpose: how near two pieces of text are does not reliably say")
+            print("whether one answers a question about the other, and a number would suggest otherwise.")
+            print("Word-based lookup is unchanged and still the right tool for an exact phrase.")
         else:
             print("Meaning-based recall is NOT working as described above.")
         return 0 if ok else 1

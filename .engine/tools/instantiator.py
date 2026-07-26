@@ -112,8 +112,8 @@ _PRODUCT_PROMPT = (
 # invisible. The other two change what happens if the operator says nothing, so they are always stated.
 _STATUS_MARK = {
     "optional": "",
-    "default-on": "  [included unless you say otherwise]",
-    "experimental": "  [not settled yet — include only if you want to try it]",
+    "default-on": "[INCLUDED unless you say otherwise] ",
+    "experimental": "[NOT SETTLED YET — include only if you want to try it] ",
 }
 
 _DESELECT_PREFACE = (
@@ -457,9 +457,10 @@ def optional_dependency_closure(manifests) -> dict:
     offered as a choice, so surfacing them would only add noise. `manifests` is the
     (path, manifest) list module_coherence.discover_manifests yields.
 
-    Vacuous today: every optional module depends only on core, so every list is empty. The mechanism is
-    spec-mandated and armed for the first optional module that depends on another — v1 ships it complete, not
-    deferred."""
+    Empty today: the one selectable module that depends on more than core depends on a REQUIRED module, and
+    required dependencies are deliberately excluded here, so every list comes back empty. The mechanism is
+    spec-mandated and armed for the first selectable module that depends on another selectable one — it ships
+    complete, not deferred."""
     depends, status = {}, {}
     for _path, manifest in manifests:
         mid = manifest.get("id")
@@ -531,11 +532,13 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
                 # command-shaped token an operator can't actually type.
                 # The status decides the DEFAULT, so it is stated inline rather than left to be inferred from
                 # silence: an operator who says nothing must know what they have just agreed to.
+                # The mark LEADS the line. These descriptions run to several hundred characters, and the one
+                # token that decides what happens if the operator says nothing cannot be at the end of them.
                 mark = _STATUS_MARK.get(entry.get("status") or "optional", "")
                 if entry["verb"]:
-                    lines.append(f"    • {entry['verb']} — {entry['description']}{mark}")
+                    lines.append(f"    • {mark}{entry['verb']} — {entry['description']}")
                 else:
-                    lines.append(f"    • {entry['description']}{mark}")
+                    lines.append(f"    • {mark}{entry['description']}")
                 # Its dependency closure: any OTHER optional feature this one pulls in (required-spine deps
                 # are never surfaced — they are always present). Vacuous until an optional module depends on
                 # another optional one, but presented at the choice moment so the pull-in is never a surprise.
@@ -551,11 +554,12 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
             default_branch: str | None = None, product_repository: str | None = None,
-            manifests=None) -> dict:
+            declined_ids: list | None = None, manifests=None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint. Records the engine release,
-    the identity tier, the kept package set (the always-present required spine plus the optional features the
-    operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
-    apply phase, not here), the operator's handle when known (the preserved-config owner the apply phase
+    the identity tier, the kept package set (the always-present required spine, plus the optional features the
+    operator kept, plus any `default-on` feature they did not decline by name in `declined_ids` — anything not
+    recorded here is simply left out of the manifest, its files removed later in the apply phase, not here),
+    the operator's handle when known (the preserved-config owner the apply phase
     renders code-ownership from), and the repo's derived default-branch name when known (the preserved-config
     coordinate offline classification reads — checkout_health's operator-checkout strand model, #342 — instead
     of a frequently-unset `origin/HEAD`), and the engine's update HOME carried forward from the traveled/seed
@@ -564,6 +568,7 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`,
     `default_branch`, and `manifests` (for the dependency closure) are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
+    declined = set(declined_ids or [])
     manifests = manifests if manifests is not None else module_coherence.discover_manifests()
     # Honor the dependency closure the gather step surfaced: keeping an optional module also installs the
     # optional modules it depends on (the pull-ins present_gather annotated with "Including this also turns
@@ -577,7 +582,12 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
         mid, status = manifest.get("id"), manifest.get("status")
         if not mid:
             continue  # a manifest with no id fails the module schema upstream; never crash the committing step
-        if status == "required" or mid in kept:
+        # A `default-on` module is kept unless the operator DECLINED it by name — the menu tells them it is
+        # "included unless you say otherwise", and that promise has to be honoured by this step rather than by
+        # whoever assembles the keep-list. Silence keeping the opposite of what the operator was told is the
+        # failure this guards; the apply phase deletes the files of anything missing here.
+        default_on = status == "default-on" and mid not in declined
+        if status == "required" or default_on or mid in kept:
             packages[mid] = str(manifest.get("version") or "")
     release = engine_release or _existing_release(root) or "0.0.0-dev"
     written = {"engine_release": release, "packages": dict(sorted(packages.items())), "identity": tier}
@@ -3392,6 +3402,8 @@ def main(argv: list) -> int:
         return 0 if augment_demo() else 1
     if argv and argv[0] == "confirm":
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
+        # The other half of a `default-on` add-on: it is included unless the operator names it here.
+        decline = [k for k in (_flag_value(argv, "--decline") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
@@ -3403,7 +3415,8 @@ def main(argv: list) -> int:
         self_slug = (f"{ident['owner']}/{ident['name']}"
                      if ident.get("owner") and ident.get("name") else None)
         product = _external_product_or_none(_flag_value(argv, "--product-repository"), self_slug)
-        res = confirm(keep, tier, handle=handle, default_branch=default_branch, product_repository=product)
+        res = confirm(keep, tier, handle=handle, default_branch=default_branch, product_repository=product,
+                      declined_ids=decline)
         saved = (f"Saved your choices ({', '.join(sorted(res['manifest']['packages']))}; "
                  f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
         if res["manifest"].get("product_repository"):   # close the loop on the external path

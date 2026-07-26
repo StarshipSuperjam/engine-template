@@ -108,9 +108,13 @@ def assert_not_live_store(*paths) -> None:
     HONEST TIER — belt-and-braces, not the protection. The real safeguard is that the demo threads an explicit
     `path=` into every call, so it never consults the default at all; this guard would only catch a future
     edit that stopped doing so. Called where the path is a fresh temp directory, it cannot fire today."""
-    live = {os.path.realpath(ledger.ledger_path()), os.path.realpath(ledger.ledger_dir())}
+    live_dir = os.path.realpath(ledger.ledger_dir())
     for p in paths:
-        if os.path.realpath(p) in live:
+        resolved = os.path.realpath(p)
+        # CONTAINMENT, not equality: the store holds several derived files beside the ledger, each a second
+        # complete copy of the same conversation. Matching only the directory or only one filename would let
+        # a path to any of them through, which is the leak this guard exists to refuse.
+        if resolved == live_dir or resolved.startswith(live_dir + os.sep):
             raise SystemExit("recall: refusing to run a throwaway window against the LIVE memory store")
 
 

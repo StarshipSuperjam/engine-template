@@ -24,13 +24,17 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    confirms **what this engine builds** — usually the very repo it's set up in, so there's nothing to decide;
    but if this engine exists to work on a *different* project (a fork it contributes to, or a template it
    maintains), it asks which project that is. Show all of this to the operator in plain words.
-3. **Take the operator's answers** — their reviewer choice, which optional add-ons to keep, and — only if this
-   engine works on a project *different* from the repo it's set up in — which project that is (its owner/name).
+3. **Take the operator's answers** — their reviewer choice, which optional add-ons to keep, which of the
+   add-ons marked *included unless you say otherwise* they want left out, and — only if this engine works on a
+   project *different* from the repo it's set up in — which project that is (its owner/name).
 4. **State plainly what confirming does, then confirm.** Before saving, tell the operator: any optional add-on
    they did not keep will be removed from the project — its files are deleted, not just switched off — and
    adding one back later is a fresh request, not a checkbox they flip back. On their go-ahead, save their
    choices: run `python3 .engine/tools/instantiator.py confirm` with their reviewer choice, the add-ons they
-   kept, and their account name (for example `confirm --tier solo --keep "" --handle their-account`). If the
+   kept, any they turned down, and their account name (for example `confirm --tier solo --keep "" --handle
+   their-account`). An add-on marked *included unless you say otherwise* needs no `--keep`; it is kept by
+   saying nothing, and left out only by naming it in `--decline` — so pass `--decline` exactly when the
+   operator asked for one of those to be left out, and never otherwise. If the
    operator named a *different* project for this engine to build, pass it too with `--product-repository
    owner/name`; omit it for the usual self-building case, where the engine simply takes this repo as what it
    builds. Before this point nothing is changed; saving is the step the rest of setup builds on.

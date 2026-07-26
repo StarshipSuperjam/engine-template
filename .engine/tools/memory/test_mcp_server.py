@@ -79,11 +79,49 @@ class ToolWiringTests(_ServerBase):
             expected.add("recall-by-meaning")
         self.assertEqual(names, expected)
 
-    async def test_the_meaning_operation_is_present_exactly_when_its_module_is(self):
-        # The honest-absence law: where the module is absent the tool is absent too, rather than present and
-        # answering with keyword results — which would be a lie about what the operation does.
-        names = {t.name for t in await srv.server.list_tools()}
-        self.assertEqual("recall-by-meaning" in names, srv._semantic_installed())
+    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
+    async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):
+        # Measured, nearness does not track relevance: an irrelevant question outscored a correct reworded
+        # match. A figure beside a result is read as confidence whatever the description says, so the
+        # transport relays the matched passage and the ordering and nothing that looks like a score.
+        self.add("We ruled out a cron job and hooked the calendar instead.", role="decision")
+        data = self._result_json(
+            await srv.server.call_tool("recall-by-meaning",
+                                       {"query": "did we consider running it on a timer"}))
+        self.assertTrue(data["results"], "expected the reworded question to reach the record")
+        for entry in data["results"]:
+            self.assertNotIn("score", entry)
+            self.assertTrue(entry.get("passage"))
+
+    async def test_an_uninstalled_module_reads_as_absent_even_though_its_folder_remains(self):
+        # The honest-absence law, tested against the way it actually breaks. Removing a module deletes its
+        # files and leaves the directory, and Python resolves an empty directory as a namespace package — so
+        # a plain "can I find this package?" probe answered YES for an uninstalled module, registered the
+        # tool, and crashed on the first call. A namespace package has no `origin`; a real module file does.
+        import importlib.util
+
+        real = importlib.util.find_spec
+
+        class _NamespaceLike:
+            """What importlib hands back for a directory with no module file in it: a spec with no origin."""
+
+            origin = None
+
+        def emptied(name, *args, **kwargs):
+            # A STAND-IN, never the real spec: importlib caches specs, so mutating one would leave
+            # `origin = None` set for the rest of the process and quietly fail every later check. Discovered
+            # by the full suite — this test passed alone and broke two others when run with them.
+            if name == "memory.semantic.store":
+                return _NamespaceLike()
+            return real(name, *args, **kwargs)
+
+        importlib.util.find_spec = emptied
+        try:
+            self.assertFalse(srv._semantic_installed(),
+                             "an emptied module directory must not read as installed")
+        finally:
+            importlib.util.find_spec = real
+        self.assertTrue(srv._semantic_installed(), "and the real installation must still read as present")
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so
