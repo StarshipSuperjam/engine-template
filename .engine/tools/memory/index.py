@@ -19,7 +19,8 @@ pushes a constant cue asking the model to run the recall workflow, and every que
 makes deliberately. The closed record shape + role vocabulary come from the reflection step.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
-`unicode61`): the fast lookup stores the tokens it produces, and the slow scan matches the same way. That one
+`unicode61`): the fast lookup is BUILT from the tokens it produces (the FTS table is contentless — it keeps the
+inverted index, not a second copy of the text), and the slow scan matches the same way. That one
 shared word-splitter — not FTS5's own, which folds some scripts differently — is what makes the slow backup
 return the same set of records the fast lookup does, not a degraded different answer.
 """
@@ -47,6 +48,13 @@ if _PARENT not in sys.path:
 from memory import forget, ledger, records, score  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
+# The index's own shape version, stamped into `meta` and checked on every read. Bump it whenever what the
+# index is allowed to CONTAIN changes (membership), or how it is built changes (projection, tokenizer, table
+# shape) — a generation bump cannot signal any of those, because generation tracks the ledger, not the rules.
+#   1 — curated records only; content-bearing FTS table.
+#   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
+#   3 — fused harness blocks removed from the searchable projection.
+INDEX_SCHEMA_VERSION = 3
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -138,14 +146,18 @@ def _record_text(record) -> str:
 
     Gathers the record's string leaf values and joins them, EXCLUDING the top-level envelope-metadata keys
     in `_NON_BODY_KEYS` (the locked tags-not-in-the-FTS-body law, plus the capture-record provenance fields
-    that are not content). Otherwise shape-agnostic; the reflection step finalizes the projection against
-    the full record shape.
+    that are not content), and replacing any fused harness block with a marker (`records.mark_harness_spans`)
+    so engine-inserted text is never searchable as the operator's words. Otherwise shape-agnostic; the
+    reflection step finalizes the projection against the full record shape.
     """
     parts: list = []
 
     def walk(value) -> None:
         if isinstance(value, str):
-            parts.append(value)
+            # A fused harness block is not content: it arrives inside a real turn, marked as spoken by the
+            # operator, and indexing it would make engine-inserted text keyword-findable under their name.
+            # Removed from the SEARCHABLE projection only — the stored record keeps every byte.
+            parts.append(records.mark_harness_spans(value))
         elif isinstance(value, dict):
             for v in value.values():
                 walk(v)
@@ -199,12 +211,60 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # against and the two paths agree across scripts. No porter stemming — `search` ranks the un-stemmed
     # tokens (bm25 over this body); stemming stays a future ranking concern.
     conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
-    conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, tokenize='unicode61 remove_diacritics 0')")
+    # CONTENTLESS (`content=''`): FTS5 keeps the inverted index but does NOT keep a second copy of the body.
+    # Nothing reads the body back — `_ranked` and `query` both MATCH and then hydrate the record from `entries`
+    # — so the copy was pure duplication. It stopped being negligible when the conversation became recall
+    # content: measured through this very `rebuild` over the maintainer's real store, the index went from 894
+    # records / 2.3 MB to 21,507 / 20.5 MB, where the same pipeline keeping a second copy of the text costs
+    # ~31 MB — so contentless saves roughly a third, at the same rebuild time (1.8 s) and with bm25 unaffected
+    # (FTS5 still keeps the per-document lengths bm25 normalises by). An earlier figure in this comment claimed
+    # 72.2 -> 45.5 MB; that was measured with the injected-pseudo-turn exclusion switched off and overstated
+    # both the size and the saving. This is a schema change, so it belongs with the change that made the index
+    # an order of magnitude larger rather
+    # than after it. The index is derived and throwaway, so an older index built the other way is simply
+    # replaced by the next rebuild.
+    conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, content='', "
+                 "tokenize='unicode61 remove_diacritics 0')")
     # `meta` carries the ledger GENERATION this index was built against. `query` trusts the fast
     # lookup only when this matches the ledger's current generation — so a compaction that swapped the ledger
     # out from under a stale index is detected and the query falls back to the always-correct scan, never a
     # stale fast answer (a full index rebuild gated on a monotonic ledger-generation stamp).
-    conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL)")
+    # `meta` carries BOTH the ledger generation this index was built against AND the index's own SCHEMA
+    # VERSION. The generation leg alone is not enough, and the gap is not theoretical: generation moves only on
+    # compaction, so a change to what the index is allowed to CONTAIN leaves an existing index stamped current
+    # while holding the wrong set. That is exactly what admitting captured conversation did — an index built
+    # before it holds no conversation at all, matches on generation, and `_ranked` answers from it reporting
+    # `degraded=False` while the plain scan finds the turns. Silent, and it heals only when some unrelated event
+    # happens to force a rebuild. The version leg forces an old-SHAPE index to be treated as stale, exactly as
+    # `knowledge_index.INDEX_SCHEMA_VERSION` does for the knowledge graph. Bump it whenever membership, the
+    # projection, the tokenizer or the table shape changes.
+    conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL, "
+                 "schema_version INTEGER NOT NULL DEFAULT 0)")
+
+
+def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
+    """True iff the fast index may be trusted for `src`: its stamped ledger generation matches the ledger's
+    CURRENT generation AND its stamped schema version matches this module's. Both legs are load-bearing and
+    they catch different failures — the generation leg catches a compaction that swapped the ledger out from
+    under the index; the schema leg catches an index built when the rules about what belongs in it were
+    different, which no generation bump would ever signal. A missing or unreadable stamp reads as stale, so an
+    index built before this stamp existed falls back to the always-correct scan rather than answering
+    confidently from the wrong set."""
+    return (_index_schema_version(conn) == INDEX_SCHEMA_VERSION
+            and _index_generation(conn) == ledger.generation(for_path=src))
+
+
+def _index_schema_version(conn: sqlite3.Connection) -> int:
+    """The index's own schema version, or -1 when absent/unreadable — including the pre-stamp shape, whose
+    `meta` table has no such column, so the SELECT raises and this returns the never-matching -1."""
+    try:
+        row = conn.execute("SELECT schema_version FROM meta WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return -1
+    if not row:
+        return -1
+    val = row[0]
+    return val if isinstance(val, int) and not isinstance(val, bool) else -1
 
 
 def _index_generation(conn: sqlite3.Connection) -> int:
@@ -267,8 +327,8 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
             # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
             # store's generation.
-            conn.execute("INSERT INTO meta (rowid, generation) VALUES (1, ?)",
-                         (ledger.generation(for_path=src),))
+            conn.execute("INSERT INTO meta (rowid, generation, schema_version) VALUES (1, ?, ?)",
+                         (ledger.generation(for_path=src), INDEX_SCHEMA_VERSION))
             conn.commit()
         finally:
             conn.close()
@@ -281,6 +341,69 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             pass
         raise
     return report
+
+
+def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "str | None" = None) -> int:
+    """Add just-appended ledger records to the EXISTING fast index, returning how many rows were inserted.
+
+    Why this exists. Nothing else refreshes the index between full rebuilds, and `ledger.append` does not move
+    the generation stamp (only compaction does). Before the conversation became recall content that was
+    harmless: every record `live_records` yielded was written by a path that rebuilds afterwards, and captured
+    turns — the only records appended without one — were excluded by kind anyway. Now they are content, so
+    without this a captured turn sits in the ledger while the index does not hold it AND the generation still
+    MATCHES — so `query`/`search` would trust the fast path, return the stale set, and report `degraded=False`
+    while the plain scan found the turn. That is a silent fast/slow divergence, exactly what the parity law
+    forbids, and it would be invisible to any test built on the usual throwaway cabinet, because those rebuild
+    before querying.
+
+    Appends at the next free ordinal. Ledger order is append-only, so a row added here keeps `ord` monotone in
+    ledger position — which is all the ranking tiebreak asks of it.
+
+    NARROW CONTRACT, deliberately: this accepts CAPTURED TURNS ONLY and rejects any other kind outright. A full
+    `rebuild` streams `forget.live_records`, which ORs together five exclusions (injected capture, crash-orphan
+    retirement, gist-orphan, supersession, demotion); this applies the one that can apply to a turn just
+    written. Passing anything else would let the fast path hold a record `rebuild` and the plain scan both drop
+    — a fast/slow divergence in the direction that RESURFACES set-aside content, which is the worse direction.
+    Rejecting is cheap and keeps the invariant true rather than merely usually-true.
+
+    BEST-EFFORT BY CONTRACT: every failure path returns 0 and leaves the index untouched, because the caller is
+    end-of-turn capture and ambient capture must never gate a turn's close. A skipped extend is self-healing —
+    the next full rebuild (consolidation, roll-up, compaction, restore) reconstructs from the ledger, the one
+    source of truth. Declines silently when this machine has no FTS5, when no index exists yet, or when the
+    index's stamped generation no longer matches the ledger's: in that last case the index is already stale and
+    `query` is already falling back to the scan, so extending it would be writing into a file no reader trusts.
+    """
+    src = ledger.ledger_path() if ledger_file is None else ledger_file
+    dst = index_path() if index_file is None else index_file
+    if not new_records or not fts5_available() or not os.path.exists(dst):
+        return 0
+    inserted = 0
+    try:
+        conn = sqlite3.connect(dst)
+        try:
+            if not _index_is_current(conn, src):
+                return 0
+            row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
+            ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
+            for record in new_records:
+                if not isinstance(record, dict) or record.get("kind") != records.AMBIENT_CAPTURE_KIND:
+                    continue          # the narrow contract: captured turns only (see the docstring)
+                if forget._is_excluded_capture(record):
+                    continue
+                tokens = _tokenize(_record_text(record))
+                conn.execute(
+                    "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
+                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":"))),
+                )
+                conn.execute("INSERT INTO entries_fts (rowid, body) VALUES (?, ?)", (ordinal, " ".join(tokens)))
+                ordinal += 1
+                inserted += 1
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — the index is derived and rebuildable; capture must never fail for it
+        return 0
+    return inserted
 
 
 def _scan(query_tokens: list, src: str, limit: "int | None") -> list:
@@ -339,7 +462,7 @@ def query(
                 # it like a missing index and fall through to the always-correct scan over the CURRENT ledger,
                 # never a stale fast answer. The stamp is read from the same `conn`; the ledger generation from
                 # the queried ledger file's own sidecar.
-                if _index_generation(conn) == ledger.generation(for_path=src):
+                if _index_is_current(conn, src):
                     rows = conn.execute(sql, params).fetchall()
                     records = [json.loads(row[0]) for row in rows]
                     return QueryResult(records=records, degraded=False)
@@ -443,7 +566,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
         try:
             conn = sqlite3.connect(dst)
             try:
-                if _index_generation(conn) == ledger.generation(for_path=src):
+                if _index_is_current(conn, src):
                     rows = conn.execute(sql, [match]).fetchall()
                     candidates = []
                     for ordinal, record_json, relevance in rows:
@@ -495,9 +618,11 @@ def recent_decisions(*, limit: int = _RECENT_DECISIONS_LIMIT, roles=_DECISION_RO
     through the recall workflow; this answers the different question boot asks at orientation — "what was
     decided lately?".
 
-    Reads the CURATED layer through `forget.live_records`, the one shared read path (so the ambient `turn-delta`
-    verbatim is excluded here exactly as it is from search), and filters to the decision-bearing
-    roles. SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
+    Reads through `forget.live_records`, the one shared read path, and filters to the decision-bearing ROLES.
+    That role filter is now what keeps the recorded conversation out of this partition — captured turns carry
+    no role, and they ARE reachable through search. The exclusion this reader depends on used to come for free
+    from the shared stream and no longer does, so the filter is load-bearing rather than incidental.
+    SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
     orienting must not silently re-rank what recall surfaces later.
 
     Deterministic: ordered by the record's own recorded `ts` (newest first), ties broken by record id, so the
@@ -655,6 +780,38 @@ def _demo_one_bad_entry(cabinet: str, index_file: str) -> bool:
     return ok
 
 
+def _demo_conversation_is_findable(cabinet: str, index_file: str) -> bool:
+    print("\n" + "=" * 80)
+    print("PART 5 — something said once in conversation and never summarised. Can it be FOUND?")
+    print("=" * 80)
+    said = {"kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: "turn-1", "session_id": "s-demo",
+            "seq": 7, "speaker": "user", "tags": ["transcript", "stop"], "ts": int(time.time()),
+            "text": "the quokka connector keeps dropping friday deploys"}
+    scaffolding = {"kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: "turn-2", "session_id": "s-demo",
+                   "seq": 8, "speaker": "user", "tags": ["transcript", "stop", records.INJECTED_TAG],
+                   "ts": int(time.time()),
+                   "text": "<task-notification> the quokka background job finished </task-notification>"}
+    ledger.append(said, path=cabinet)
+    ledger.append(scaffolding, path=cabinet)
+    rebuild(ledger_file=cabinet, index_file=index_file)
+    fast = [r.get("text") for r in query("quokka", ledger_file=cabinet, index_file=index_file).records]
+    slow = [r.get("text") for r in query("quokka", force_scan=True,
+                                         ledger_file=cabinet, index_file=index_file).records]
+    found = said["text"] in fast
+    scaffolding_kept_out = all("task-notification" not in (t or "") for t in fast)
+    agree = fast == slow
+    print("\n  you asked about: \"quokka\"")
+    for text in fast:
+        print("    found:", text)
+    print("\n  The sentence was said once and no summary of it was ever written — the only record of it is the")
+    print("  conversation itself, and it came back anyway. That is the whole point of this change.")
+    print("  What did NOT come back is the machine's own notification, which also contained the word: text the")
+    print("  engine inserted is never handed back as something you said.")
+    ok = found and scaffolding_kept_out and agree
+    print(f"  => {'Found it, and kept the scaffolding out.' if ok else '!!! ' + ('the conversation was not findable' if not found else 'machine scaffolding leaked into recall' if not scaffolding_kept_out else 'the two lookups disagreed')}")
+    return ok
+
+
 def _demo() -> int:
     import shutil
 
@@ -671,6 +828,7 @@ def _demo() -> int:
             _demo_still_answered_when_fast_off(cabinet, index_file),
             _demo_throwaway_nothing_lost(cabinet, index_file),
             _demo_one_bad_entry(cabinet, index_file),
+            _demo_conversation_is_findable(cabinet, index_file),
         ]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

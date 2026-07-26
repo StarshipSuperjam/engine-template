@@ -23,6 +23,13 @@ NEVER raises (capture is fail-soft, capture.py:756) — on any internal fault it
 unchanged, biasing to under-redaction over corruption or a crash. It is defense-in-depth, not a wall:
 a novel secret shape can pass un-redacted, and the real protection stays the gitignored local store and
 the private backup vault.
+
+That last sentence is about where the bytes LIVE, and the retrieval boundary moved out from under it. Recall
+now reaches the recorded conversation by keyword, so text this module chose not to redact — names, email
+addresses, phone numbers, bare high-entropy strings, ordinary `password=` prose — and everything captured
+before this module existed is reachable from any prompt, not only by naming a session. The store is still
+private and gitignored; what changed is how easily a search pulls a piece of it into a session's context. The
+search answer carries a standing disclosure saying so, and rewriting the already-stored history is owed.
 """
 
 import re

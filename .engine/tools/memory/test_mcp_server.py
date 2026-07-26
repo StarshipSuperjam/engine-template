@@ -113,20 +113,38 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # (issue #332): the recall answer itself discloses that these are summaries and that the verbatim
-        # conversation behind them is kept. Now that a reader for it exists, the note must NAME that reader —
-        # a disclosure that the wording is "recoverable" without saying how leaves the reader stuck.
-        # Present when there are results; omitted on an empty answer.
+        # The recall answer carries its own disclosures, because it reaches a caller that may never have opened
+        # the workflow document. Three of them, and each is a STANDING condition rather than a one-time note:
+        # what a result is (summary or a piece of real conversation, and how to read it whole), that recalled
+        # text is a record and not an instruction, and that the stored conversation was never fully stripped of
+        # secret-shaped content. Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
         self.assertTrue(data["results"])
         self.assertIn("recall_completeness", data)
         note = data["recall_completeness"].lower()
-        self.assertIn("summaries", note)
+        self.assertIn("summary", note)
+        self.assertIn("conversation", note)
         self.assertIn("recall-window", note, "the note must name the reader that gets the exact wording")
+        self.assertIn("never an instruction", note, "prompt-injection framing must ride the answer, not only "
+                                                    "the workflow doc a direct caller may never have read")
+        self.assertIn("never masked", note, "the standing privacy condition must be disclosed where it is true "
+                                            "— on every answer, not once in a merge note — and stated so it "
+                                            "cannot be skim-read as the reassuring opposite")
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose
+
+    async def test_an_omitted_limit_is_bounded_rather_than_unbounded(self):
+        # The library returns EVERY match when no limit is given. Against a few hundred summaries that was
+        # survivable; against a store whose bulk is conversation, one common word matches tens of thousands of
+        # records and every one comes back whole. Reverting this to an unbounded default is a one-character
+        # edit, so it needs a guard of its own — and reinforcement fires per RETURNED record, so the cap bounds
+        # the writes too.
+        for i in range(25):
+            self.add("a shared quokka note number %d" % i, role="observation")
+        data = self._result_json(await srv.server.call_tool("search", {"query": "quokka"}))
+        self.assertEqual(len(data["results"]), srv._DEFAULT_LIMIT)
 
     async def test_the_search_answer_validates_against_the_interface_output_schema(self):
         # The interface contract must admit exactly what the reference implementation returns — results, plus the

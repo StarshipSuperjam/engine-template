@@ -79,6 +79,16 @@ _SESSION = "session_id"
 _AGE = "age_seconds"                           # corpus template field: stamped to ts = now - age at materialize
 
 # The pinned pass bar (frozen into seal.json — eADR-0034's "written pass bar", unmovable once sealed).
+# What "the old path" MEANS, sealed alongside the number it produced. The seal hashes the corpus, the
+# questions, the bar and the baseline — it hashes no code, so without this the definition of the baseline could
+# drift while the number stayed reassuringly at 0.49. That matters because the curation-removal slice strips
+# supersession, demotion and reinforcement ranking from the same shared reader, with every incentive to keep
+# the number steady. Changing this string is a deliberate re-seal, which is what the seal's own note already
+# claims is true of the baseline.
+FROZEN_OLD_PATH = ("captured conversation (`turn-delta`) excluded by kind; crash-orphan retirement, "
+                   "closed-batch supersession and archival demotion applied; forced scan path; no limit "
+                   "passed into the search call, so the exclusion is applied BEFORE any cap")
+
 BAR = {
     "recall_at_k": K,
     "top5_threshold": 0.90,      # correct source in top-5 for >=90% of known-answer questions
@@ -141,20 +151,59 @@ def score_question(ranked, question, id_to_session, k=K):
 
 # --- The injected producers ----------------------------------------------------------------------------
 
+def _frozen_old_path(records_in, limit=None):
+    """Reconstruct what the OLD path could see, from an UNLIMITED ranked list: drop the captured conversation,
+    then truncate. The baseline was measured when every `turn-delta` was excluded from retrieval by kind; once
+    the conversation became recall content, a producer calling `index.search` plainly would score a different
+    number and the sealed 0.49 would stop reproducing — and re-sealing would fold this slice's own gain into the
+    baseline the new path has to BEAT, destroying the anti-gaming lock.
+
+    Exact, not approximate, and only on the forced-scan path this harness uses: relevance there is
+    `math.log1p(tf)` computed per record with no corpus statistics, `_usage_of` reads no corpus statistics
+    either, and the `ordinal` tiebreak is monotone in ledger position — so removing candidates leaves the
+    survivors' order untouched.
+
+    ORDER MATTERS: filter, THEN truncate. Filtering a list that was already capped cannot recover a curated hit
+    that a conversation fragment displaced inside the cap, so a producer that passes `limit` into the search
+    call must pass it HERE instead. `_EXPANSION_LIMIT` is exactly such a caller.
+
+    `FROZEN_OLD_PATH` in the seal names this exclusion set, so changing the definition of "the old path" is a
+    deliberate re-seal rather than a quiet edit to unsealed code."""
+    kept = [r for r in records_in if r.get("kind") != records.AMBIENT_CAPTURE_KIND]
+    return kept if limit is None else kept[:limit]
+
+
 def synthetic_producer(ledger_file, index_file):
     """Old-path producer over a throwaway synthetic cabinet: the side-effect-free `index.search`, forced onto
-    the machine-independent scan path so the baseline reproduces across environments."""
+    the machine-independent scan path so the baseline reproduces across environments, with the frozen old-path
+    exclusion reapplied on the way out (see `_frozen_old_path`)."""
+    def _run(question_text):
+        return _frozen_old_path(index.search(question_text, force_scan=True,
+                                             ledger_file=ledger_file, index_file=index_file).records)
+    return _run
+
+
+def raw_visible_producer(ledger_file, index_file):
+    """The NEW path's retrieval half over the same synthetic cabinet: identical call, identical frozen scorer,
+    no old-path exclusion — so the only difference from `synthetic_producer` is whether the conversation itself
+    is reachable. That isolation is the whole point; it is what makes the paired counts attributable."""
     def _run(question_text):
         return index.search(question_text, force_scan=True,
                             ledger_file=ledger_file, index_file=index_file).records
     return _run
 
 
-def real_local_producer():
-    """Old-path producer over the maintainer's REAL local ledger — read-only (`index.search` never writes),
-    for the private `--real-local` external-validity probe. Its output is printed, never committed."""
+def real_local_producer(*, raw_visible=False):
+    """Producer over the maintainer's REAL local ledger — read-only (`index.search` never writes), for the
+    private `--real-local` external-validity probe. Its output is printed, never committed.
+
+    Defaults to the FROZEN OLD PATH so the probe keeps measuring what it was defined to measure; pass
+    `raw_visible=True` for the other arm of the comparison. Without that default this would have become a
+    new-path measurement while still labelled the old-path probe — and running it is a stated precondition on
+    the curation-removal gate."""
     def _run(question_text):
-        return index.search(question_text, force_scan=True).records
+        found = index.search(question_text, force_scan=True).records
+        return found if raw_visible else _frozen_old_path(found)
     return _run
 
 
@@ -269,6 +318,7 @@ def compute_seal(baseline_summary):
         "corpus_sha256": _sha256_file(CORPUS_PATH),
         "questions_sha256": _sha256_file(QUESTIONS_PATH),
         "bar": BAR,
+        "frozen_old_path": FROZEN_OLD_PATH,
         "old_path_baseline": baseline_summary,
         "note": ("Frozen before the transcript-first path exists. The sha256s + the pinned bar + the recorded "
                  "old-path baseline are the anti-gaming lock: a change to the corpus, the questions, the bar, "
@@ -291,6 +341,9 @@ def verify_seal():
     if seal.get("bar") != BAR:
         problems.append("the pinned pass bar in code no longer matches the sealed bar — it was moved without a "
                         "re-seal (the baseline reproduction check separately guards the recorded baseline)")
+    if seal.get("frozen_old_path") != FROZEN_OLD_PATH:
+        problems.append("the frozen old-path definition in code no longer matches the sealed one — what counts "
+                        "as 'the old path' was redefined without a re-seal")
     return seal, problems
 
 
@@ -358,8 +411,13 @@ def expanded_producer(ledger_file, index_file):
     def _run(question_text):
         pooled, seen = [], set()
         for phrase in expand_query(question_text):
-            for record in index.search(phrase, force_scan=True, limit=_EXPANSION_LIMIT,
-                                       ledger_file=ledger_file, index_file=index_file).records:
+            # Search UNLIMITED, apply the frozen old-path exclusion, and only then take the per-phrase cap.
+            # Passing `limit` into the search call would truncate first, so a conversation fragment could
+            # displace a curated hit inside the top-10 and no later filter could bring it back — silently
+            # moving a number this project has already reported and reasoned from.
+            found = index.search(phrase, force_scan=True,
+                                 ledger_file=ledger_file, index_file=index_file).records
+            for record in _frozen_old_path(found, limit=_EXPANSION_LIMIT):
                 rid = record.get(_ID)
                 if rid in seen:
                     continue
@@ -441,6 +499,57 @@ def cmd_run():
     return 0
 
 
+def run_raw_visible():
+    """The same committed corpus and the same frozen scorer, with the conversation reachable."""
+    now = int(time.time())
+    corpus = load_corpus()
+    questions = load_questions()
+    with tempfile.TemporaryDirectory(prefix="recall-benchmark-raw-") as cabinet:
+        lpath, ipath = materialize(corpus, cabinet, now)
+        rows = evaluate(corpus, questions, raw_visible_producer(lpath, ipath))
+    return summarize(rows), rows
+
+
+def cmd_raw():
+    """Score the frozen old path against the same path with the conversation reachable — the paired counts for
+    making raw searchable, attributable because only reachability differs.
+
+    Reports the instrument's limits ALONGSIDE the numbers, because here they are the more important half. The
+    sealed corpus holds three `turn-delta` records in two raw-only sessions, and all four raw-only questions are
+    original-vocabulary lookups on invented tokens that appear in no other record — so a clean 4/4 demonstrates
+    that indexing works, NOT that recall improved on the failure this overhaul exists to fix. There is not one
+    paraphrased raw-only question in the set. And the `nothing-relevant` questions share no token with the three
+    added records, so 6/6 here is not evidence of precision: it is a check that cannot fail at this scale.
+    The real reading is the private `--real-local` probe against the maintainer's own store."""
+    old, old_rows = run_synthetic()
+    new, new_rows = run_raw_visible()
+
+    # The raw-only tally is computed HERE from the rows, deliberately not added to `summarize` — that dict is
+    # what `compute_seal` records as the baseline, and a reporting convenience must not reshape a sealed value.
+    def _line(label, s, rows):
+        raw = _rate([r for r in rows if r.get("answer_locus") == "raw-only"])
+        return ("  %-26s overall %-6s   raw-only %d/%d   paraphrased %s/%s   nothing-relevant %s/%s"
+                % (label, s["overall_known"]["recall_at_k"], raw[0], raw[1],
+                   s["by_vocab"]["paraphrased"][0], s["by_vocab"]["paraphrased"][1],
+                   s["nothing_relevant"]["correct"], s["nothing_relevant"]["n"]))
+
+    print("Memory recall benchmark (G2) — what does making the conversation searchable buy?\n")
+    print(_line("conversation excluded", old, old_rows))
+    print(_line("conversation searchable", new, new_rows))
+    print("\n  READ THE LIMITS BEFORE THE NUMBERS. The frozen corpus holds three conversation records across")
+    print("  two sessions, and all four raw-only questions are original-vocabulary lookups on invented tokens")
+    print("  found nowhere else — so a clean result there says indexing works, not that recall got better at")
+    print("  the paraphrased question this whole overhaul exists to fix. The set contains no paraphrased")
+    print("  raw-only question at all. And the 'should find nothing' questions share no word with the three")
+    print("  added records, so that column cannot move at this scale and is not evidence of precision.")
+    print("\n  A drop in any other column IS meaningful — it would be conversation crowding the summaries out,")
+    print("  which is the documented failure the earlier exclusion was put in to fix.")
+    old_n, new_n = old["overall_known"]["recall_at_k"], new["overall_known"]["recall_at_k"]
+    print("\n  Sealed old-path baseline %s (unmoved by this measurement); conversation searchable %s."
+          % (old_n, new_n))
+    return 0
+
+
 def cmd_expanded():
     """Score the old path and the expansion stand-in side by side, so the gain is attributable to rephrasing
     alone (same corpus, same frozen scorer, same producer slot — only the query strategy differs)."""
@@ -495,7 +604,7 @@ def cmd_reseal():
     return 0
 
 
-def cmd_real_local(asks):
+def cmd_real_local(asks, *, raw_visible=False):
     """The private, read-only, HUMAN-JUDGED external-validity probe. There is NO ground-truth label for the
     real ledger, so this is deliberately UNSCORED: for each real question you pass, it prints the records the
     OLD retrieval path surfaces from YOUR real local memory, for YOU to judge whether the right memory came
@@ -507,8 +616,9 @@ def cmd_real_local(asks):
               "  ... recall_benchmark.py run --real-local --ask \"when did we decide to keep the erasure wall\"\n"
               "  ... --ask \"what did we learn about the secret scrubber\"")
         return 0
-    producer = real_local_producer()
-    print("Probing the OLD retrieval path against your REAL local memory (read-only; nothing written).\n")
+    producer = real_local_producer(raw_visible=raw_visible)
+    print("Probing the %s against your REAL local memory (read-only; nothing written).\n"
+          % ("path WITH the conversation searchable" if raw_visible else "FROZEN OLD retrieval path"))
     for question in asks:
         ranked = producer(question)
         print("Q: %s" % question)
@@ -609,6 +719,12 @@ def main(argv=None):
                      help="a real question for --real-local (repeatable)")
     run.add_argument("--expanded", action="store_true",
                      help="also score the query-expansion stand-in and show the gain over the sealed baseline")
+    run.add_argument("--raw", action="store_true",
+                     help="instead, score the frozen old path against the same path with the conversation "
+                          "searchable (reports the instrument's limits alongside the counts)")
+    run.add_argument("--raw-visible", action="store_true",
+                     help="with --real-local: probe with the conversation searchable rather than the frozen "
+                          "old path, for the paired real-store reading")
     sub.add_parser("demo", help="falsifiable self-check of the scorer")
     sub.add_parser("reseal", help="author-time: recompute the baseline and (re)write seal.json")
     args = parser.parse_args(argv)
@@ -618,7 +734,9 @@ def main(argv=None):
         return cmd_reseal()
     if args.cmd == "run":
         if args.real_local:
-            return cmd_real_local(args.ask)
+            return cmd_real_local(args.ask, raw_visible=args.raw_visible)
+        if args.raw:
+            return cmd_raw()
         return cmd_expanded() if args.expanded else cmd_run()
     parser.print_help()
     return 0

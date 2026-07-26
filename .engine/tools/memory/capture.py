@@ -703,7 +703,9 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     stable, content-free record id minted at capture — kept out of the search body too
     (index._NON_BODY_KEYS). `injected` adds `records.INJECTED_TAG` so the consolidation sweep skips a
     harness-injected pseudo-turn as fuel (issue #274) — the record still lands and stays fully recoverable;
-    the tag (like every tag) is kept out of the search body, and turn-deltas are recall-excluded by kind anyway."""
+    the tag (like every tag) is kept out of the search body. That tag now also keeps the pseudo-turn out of
+    RECALL: genuine turns are recall content, so this tag is what separates the operator's words from the
+    harness's."""
     tags = ["transcript", "stop"]
     if injected:
         tags.append(records.INJECTED_TAG)
@@ -826,6 +828,7 @@ def _capture(payload, *, cwd) -> int:
             return 0
         ledger_file = ledger.ledger_path(cwd)
         appended = 0
+        fresh: list = []          # what landed this turn, for the incremental index extend below
         for offset, rec in enumerate(delta):
             text = _message_text(rec)
             if not text or not text.strip():
@@ -843,11 +846,21 @@ def _capture(payload, *, cwd) -> int:
             # (issue #274). The record still lands + stays recoverable; consolidation skips it as fuel.
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
-                ledger.append(_make_record(session_id, cursor + offset, speaker, chunk, injected=injected),
-                              path=ledger_file)
+                record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
+                ledger.append(record, path=ledger_file)
+                fresh.append(record)
                 appended += 1
         _write_cursor(data_dir, session_id, len(messages))
         _write_capture_status("captured", session_id)
+        # The conversation is recall content, and nothing else refreshes the fast index between full rebuilds
+        # (`ledger.append` does not move the generation stamp — only compaction does). Without this a turn would
+        # be in the ledger, absent from the index, and the index would still look CURRENT — so the fast path
+        # would answer without it and call itself healthy while the plain scan found it. Still inside the
+        # capture lock, so a compaction swap cannot race it. Best-effort by contract: `extend` swallows its own
+        # failures and returns 0, and the next full rebuild reconstructs from the ledger regardless.
+        if fresh:
+            from memory import index  # lazy: index -> forget -> capture, so a module-level import would cycle
+            index.extend(fresh, ledger_file=ledger_file, index_file=index.index_path(cwd))
         return appended
     finally:
         _release_lock(lock_fd)
@@ -876,11 +889,11 @@ def _demo_transcript(path: str, turns) -> None:
 
 def _demo_notes(query_text: str):
     """Read the saved turn-notes straight back out of the cabinet (the ledger) and return those whose text
-    contains the asked-for words. Ambient turn-delta capture is durability fuel that lives in the LEDGER,
-    not the recall index (issue #332: recall surfaces the curated layer, never raw ambient capture) — so
-    the honest read-back for what capture just wrote is the ledger itself, which is exactly what this demo
-    proves ('saved and can't be lost'). Recall and ranking are a separate part of the engine, not exercised
-    here — a plain substring match stands in for 'ask for these words'."""
+    contains the asked-for words. The LEDGER is the one source of truth and the index is derived from it, so
+    the honest read-back for what capture just wrote is the ledger itself — which is exactly what this demo
+    proves ('saved and can't be lost'), independently of whether any index exists. Recall and ranking are a
+    separate part of the engine, not exercised here — a plain substring match stands in for 'ask for these
+    words'."""
     needle = query_text.lower()
     return [r.get("text", "") for r in ledger.read(path=ledger.ledger_path()).records
             if needle in (r.get("text") or "").lower()]

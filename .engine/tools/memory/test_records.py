@@ -173,5 +173,28 @@ class SessionEnvFixTests(unittest.TestCase):
         self.assertEqual(capture.SESSION_ENV, consolidate.SESSION_ENV)
 
 
+class HarnessSpanTests(unittest.TestCase):
+    """A harness block fused into a real turn. It cannot be excluded record-wise without losing the operator's
+    own words in the same message, so it is marked out wherever the text is indexed or shown."""
+
+    def test_the_block_goes_and_the_operators_own_words_stay(self):
+        text = "<system-reminder>\nThe engine says do X.\n</system-reminder>\n\nplease look at the export job"
+        out = records.mark_harness_spans(text)
+        self.assertNotIn("do X", out)
+        self.assertIn("please look at the export job", out)
+        self.assertIn(records.HARNESS_SPAN_MARKER, out)
+
+    def test_it_is_idempotent_and_leaves_ordinary_text_alone(self):
+        self.assertEqual(records.mark_harness_spans("just a normal turn"), "just a normal turn")
+        once = records.mark_harness_spans("<system-reminder>a</system-reminder> hi")
+        self.assertEqual(records.mark_harness_spans(once), once)
+
+    def test_it_never_raises_on_a_non_string_or_an_unclosed_block(self):
+        self.assertIsNone(records.mark_harness_spans(None))
+        self.assertEqual(records.mark_harness_spans(42), 42)
+        unclosed = "<system-reminder> never closed, so nothing to bound"
+        self.assertEqual(records.mark_harness_spans(unclosed), unclosed)
+
+
 if __name__ == "__main__":
     unittest.main()

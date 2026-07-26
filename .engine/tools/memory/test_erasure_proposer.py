@@ -809,11 +809,17 @@ class ConsolidatedRawClassTests(_Base):
     crash-duplicate class, the role-less cost line is content-free and names the verbatim it ends, the body collapses
     identical lines to a per-vintage count, and neither the committed proposal nor the body leaks a session id."""
 
-    def test_earned_targets_unions_both_classes(self):
+    def test_a_settled_consolidated_sessions_conversation_is_no_longer_proposed(self):
+        # This class used to be proposed for erasure on the theory that the summary stood in for the raw, so
+        # erasing it cost only the exact wording. The conversation is now the canonical record and is searchable
+        # in its own right, so that theory is dead — proposing to erase it would be proposing to delete the
+        # thing recall depends on. Crash-duplicate orphans are still proposed: a good copy of that same pass
+        # survives, so the retired twin really is redundant.
         dup = self._retired("an old hidden duplicate", age_days=60, batch="b1")
         raw = set(self._consolidated_raw(n=2, age_days=60))
         got = {r[records.RECORD_ID_KEY] for r in emit.earned_targets()}
-        self.assertEqual(got, {dup} | raw)
+        self.assertEqual(got, {dup})
+        self.assertEqual(got & raw, set(), "captured conversation must never be proposed for erasure")
 
     def test_a_recalled_consolidated_session_is_withheld(self):
         raw = set(self._consolidated_raw(n=1, age_days=60, session="Sx", batch="bx"))
@@ -823,18 +829,22 @@ class ConsolidatedRawClassTests(_Base):
         got = {r[records.RECORD_ID_KEY] for r in emit.earned_targets()}
         self.assertEqual(got & raw, set())                        # the veto flows through the union
 
-    def test_the_raw_cost_line_is_content_free_and_names_the_verbatim_cost(self):
+    def test_no_consent_wording_survives_for_a_class_that_can_never_be_proposed(self):
+        # The captured-conversation cost line was removed with the class. Leaving it would strand a consent
+        # sentence for an irreversible act that nothing re-reads — and it had already gone false once (it told
+        # the operator a summary stood in for the conversation). If the class is ever re-enabled, its wording
+        # must be written afresh rather than inherited.
         rid = self._consolidated_raw(n=1, age_days=60, text="zebrafluxmigration")[0]
         rec = next(r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == rid)
         low = emit._cost_for(rec, int(time.time())).lower()
-        self.assertIn("original wording", low)                    # product-S2: erasing ends the verbatim's recovery
-        self.assertIn("summary", low)                             # the curated summary stays and stands in
-        self.assertIn("recoverable until erased", low)
-        self.assertNotIn("zebrafluxmigration", low)               # the note's own text never leaks
-        self.assertNotIn("fuel", low)                             # the retired 'fuel' coinage is not reintroduced
+        self.assertNotIn("stands in", low)                         # the falsified stand-in claim is gone
+        self.assertNotIn("searchable in its own right", low)       # and so is its replacement
+        self.assertNotIn("zebrafluxmigration", low)                # the note's own text never leaks
+        self.assertEqual([], [r for r in emit.earned_targets()
+                              if r.get("kind") == records.AMBIENT_CAPTURE_KIND])
 
     def test_the_committed_proposal_and_body_carry_no_session_id(self):
-        self._consolidated_raw(n=2, age_days=60, session="ZZSECRETSESSION", batch="bcr")
+        self._retired("an old hidden duplicate", age_days=60, batch="bcr", session="ZZSECRETSESSION")
         proposal = emit.build_proposal(emit.earned_targets())
         blob = json.dumps(proposal) + emit._pr_body(proposal)
         self.assertNotIn("ZZSECRETSESSION", blob)                 # arch-S1 / risk-N2: the grouping key never leaks

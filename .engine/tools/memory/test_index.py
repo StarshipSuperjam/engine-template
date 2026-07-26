@@ -70,9 +70,11 @@ class RecentDecisionsTests(IndexTestCase):
                   self._rec("d", "lesson", ago=50))
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["c", "a"])
 
-    def test_the_ambient_verbatim_is_never_recall_content(self):
-        # A role-less `turn-delta` is the Stop-appended verbatim: fuel for consolidation, NEVER recall
-        # Reading through forget.live_records excludes it here exactly as it is from search.
+    def test_a_captured_turn_never_competes_for_the_decisions_partition(self):
+        # A captured turn IS recall content now and search reaches it — but this partition answers a different
+        # question ("what was decided lately?") and filters to the decision-bearing ROLES. A turn is role-less,
+        # so it is excluded HERE by the role filter, not by any membership rule. Worth pinning: the exclusion
+        # this reader relies on used to come for free from the shared read path, and no longer does.
         self.file(self._rec("keep", "decision", ago=300),
                   {records.RECORD_ID_KEY: "raw", "kind": "turn-delta", "ts": self._NOW, "text": "verbatim"})
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["keep"])
@@ -365,16 +367,21 @@ class ProjectionTests(IndexTestCase):
     def test_indexed_body_equals_the_shared_tokenization(self):
         # The fast path indexes exactly the tokens of _record_text(record) — the same tokens the scan path
         # matches against — so the two paths cannot silently desync on the projection or the tokenizer.
+        # Asserted through BEHAVIOUR rather than by reading the stored body back: the FTS table is contentless
+        # (`content=''`), so it keeps the inverted index and no second copy of the text. Behaviour is the better
+        # assertion anyway — it holds whatever the storage shape is, and it is what the parity law actually
+        # claims. Each record's own projected tokens must MATCH it on the fast path, and only it.
         records = [{"body": "first narrative", "title": "a title"}, {"note": "nested", "extra": ["deep", "words"]}]
         self.file(*records)
         self.rebuild()
-        conn = sqlite3.connect(self.index)
-        try:
-            for ordinal, record in enumerate(records):
-                body = conn.execute("SELECT body FROM entries_fts WHERE rowid = ?", (ordinal,)).fetchone()[0]
-                self.assertEqual(body, " ".join(index._tokenize(index._record_text(record))))
-        finally:
-            conn.close()
+        for record in records:
+            for token in index._tokenize(index._record_text(record)):
+                fast = index.query(token, index_file=self.index, ledger_file=self.ledger).records
+                scan = index.query(token, force_scan=True, index_file=self.index, ledger_file=self.ledger).records
+                self.assertIn(record, fast, "a projected token must retrieve its own record on the fast path")
+                self.assertEqual([json.dumps(r, sort_keys=True) for r in fast],
+                                 [json.dumps(r, sort_keys=True) for r in scan],
+                                 "the fast and slow paths must return the same set for token %r" % token)
 
     def test_non_dict_records_index_and_agree_across_paths(self):
         # The ledger is record-agnostic: a top-level string or list record must index and match on both paths.
@@ -420,6 +427,59 @@ class SafetyTests(IndexTestCase):
         self.assertTrue(hasattr(index, "query"))
         import memory
         self.assertTrue(hasattr(memory, "capture_turn_delta"))  # the capture path lit this up
+
+
+class IndexFreshnessAndExtendTests(IndexTestCase):
+    """The index's own shape version, and the narrow contract `extend` keeps."""
+
+    def _turn(self, rid, text, *, seq=0, injected=False):
+        rec = {records.RECORD_ID_KEY: rid, "kind": records.AMBIENT_CAPTURE_KIND, "session_id": "s1",
+               "seq": seq, "speaker": "user", "tags": ["transcript", "stop"], "ts": int(time.time()),
+               "text": text}
+        if injected:
+            rec["tags"].append(records.INJECTED_TAG)
+        return rec
+
+    def test_an_index_built_under_the_old_rules_is_treated_as_stale(self):
+        # The failure this exists to stop: generation moves only on compaction, so a change to what the index
+        # is allowed to CONTAIN leaves an existing index stamped current while holding the wrong set. Before
+        # the version leg, an operator's pre-upgrade index answered on the fast path with degraded=False and
+        # none of their conversation in it — silently, until some unrelated event forced a rebuild.
+        if not index.fts5_available():
+            self.skipTest("no FTS5 on this machine — there is no fast path to go stale")
+        self.file(self._turn("t1", "a quokka turn"))
+        self.rebuild()
+        self.assertTrue(index.query("quokka", ledger_file=self.ledger, index_file=self.index).records)
+        conn = sqlite3.connect(self.index)                       # forge an older shape, generation untouched
+        try:
+            conn.execute("UPDATE meta SET schema_version = ? WHERE rowid = 1", (index.INDEX_SCHEMA_VERSION - 1,))
+            conn.commit()
+        finally:
+            conn.close()
+        stale = index.query("quokka", ledger_file=self.ledger, index_file=self.index)
+        self.assertTrue(stale.records, "recall must still ANSWER — availability holds, latency does not")
+        self.assertTrue(stale.degraded, "an old-shape index must degrade to the scan, never answer confidently")
+
+    def test_extend_admits_a_genuine_turn_and_refuses_everything_else(self):
+        # extend is the only thing keeping the fast path current between rebuilds, and it is public. Its
+        # contract is narrow ON PURPOSE: a full rebuild applies five exclusions and extend can only apply one,
+        # so anything but a freshly captured turn is refused rather than let into the fast path alone.
+        if not index.fts5_available():
+            self.skipTest("no FTS5 on this machine — there is no fast index to extend")
+        self.file(self._turn("t0", "an earlier turn"))
+        self.rebuild()
+        orphan = {records.RECORD_ID_KEY: "e1", "kind": records.EPISODIC_KIND, records.BATCH_KEY: "never-closed",
+                  "role": "decision", "ts": int(time.time()), "text": "zebrafish decision"}
+        added = index.extend(
+            [self._turn("t1", "a genuine wombat turn", seq=1),
+             self._turn("t2", "<task-notification> wombat done </task-notification>", seq=2, injected=True),
+             orphan],
+            ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(added, 1, "only the genuine turn belongs in the index")
+        self.assertTrue(index.query("wombat", ledger_file=self.ledger, index_file=self.index).records)
+        for text in ("task-notification", "zebrafish"):
+            self.assertEqual(index.query(text, ledger_file=self.ledger, index_file=self.index).records, [],
+                             "extend must not admit what a rebuild would drop: %r" % text)
 
 
 if __name__ == "__main__":

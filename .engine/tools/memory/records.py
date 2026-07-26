@@ -14,6 +14,7 @@ already imports `index`, defining them here — a leaf that imports nothing from
 stdlib-only; imports nothing from `memory`.
 """
 
+import re
 import uuid
 
 # Record kinds (the `kind` field). These are the shared kinds the reflection and forgetting layers
@@ -25,12 +26,15 @@ AMBIENT_CAPTURE_KIND = "turn-delta"  # the role-less, Stop-appended verbatim cap
 EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
 MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
 
-# Recall membership (issue #332). Recall surfaces the curated layer — episodic records + gists — and
-# excludes ambient `turn-delta` capture, which is fuel for consolidation and the abandoned-session sweep, never
-# recall content. `forget._is_ambient_capture` keys on AMBIENT_CAPTURE_KIND above; the discriminator is the
-# record's `kind`, re-derived on every recall read / index rebuild (no per-record marker, no carried bit — it
-# survives compaction for free). It is a targeted exclusion of the ambient kind, not a curated-kind allowlist: a
-# record carrying a `role` + `text` but no explicit kind is an episodic-shaped recall record and stays surfaced.
+# Recall membership. Recall surfaces the recorded conversation AND the curated layer over it — the transcript
+# is the canonical record and the summaries above it are the disposable layer (eADR-0038). The whole
+# `turn-delta` kind was once excluded, because verbatim turns vastly outnumber paraphrased summaries and matched
+# more exactly, crowding them out of every recall; the answer now is that the summaries are the layer being
+# retired, not the conversation. `forget._is_excluded_capture` holds what remains of the exclusion: harness-
+# injected pseudo-turns only, keyed on `is_injected_record` below. It is re-derived on every recall read / index
+# rebuild (no per-record marker, no carried bit — it survives compaction for free), and it is a targeted
+# exclusion rather than an allowlist: a record carrying a `role` + `text` but no explicit kind is an
+# episodic-shaped recall record and stays surfaced.
 
 # Tags.
 DEFAULT_EPISODIC_TAG = "episodic"
@@ -39,15 +43,19 @@ MARKER_TAG = "consolidated"
 # Harness-injected pseudo-turns (issue #274, folding in #333). Claude Code injects non-conversational blocks as
 # `user`-role transcript turns — a background-agent completion notice (`<task-notification>`) and the `/compact`
 # continuation summary (`This session is being continued from a previous conversation…`). They reach the ledger
-# as ambient `turn-delta` records and are already EXCLUDED FROM RECALL by kind (above), but the consolidation
-# sweep reads the raw ledger, so without a filter the in-context AI would consolidate them as if the operator had
-# said them. The fix is NOT a pre-ledger drop — #333 chose to keep them RESIDENT + recoverable (the durability
+# as ambient `turn-delta` records, and this tag is now the WHOLE of what keeps them out of recall — the rest of
+# the conversation is recall content, so nothing else is holding them back (see the membership block above).
+# The consolidation sweep also reads the raw ledger, so without this filter the in-context AI would consolidate
+# them as if the operator had said them. The fix is NOT a pre-ledger drop — #333 chose to keep them RESIDENT
+# + recoverable (the durability
 # law: an abandoned session loses the reflection, not the content). Instead capture TAGS them (`INJECTED_TAG`, on
 # every chunk of an injected message, recognised before chunking so a multi-chunk continuation summary is fully
 # tagged) and `consolidate` SKIPS a tagged/injected record as fuel. The prefix set is deliberately the two
 # DISTINCTIVE, ground-truthed standalone sentinels: each is the WHOLE injected message (never fused with a real
 # prompt, confirmed against the live ledger), so a start-anchored match cannot eat conversation. `<system-reminder>`
-# is deliberately EXCLUDED — it fuses with a human prompt in the same turn, so dropping it would lose real content.
+# is deliberately EXCLUDED from this set — it fuses with a human prompt in the same turn, so dropping the whole
+# record would lose real content. It is handled instead by `mark_harness_spans` below, which removes just the
+# block wherever the text is indexed or shown.
 INJECTED_TAG = "injected"               # the tag capture stamps on every chunk of a harness-injected pseudo-turn
 _INJECTED_PSEUDO_TURN_PREFIXES = (
     "<task-notification>",                                              # background-agent completion notice
@@ -62,13 +70,48 @@ def is_injected_pseudo_turn_text(text) -> bool:
     return isinstance(text, str) and text.strip().startswith(_INJECTED_PSEUDO_TURN_PREFIXES)
 
 
+# A harness-inserted block that arrives FUSED into the same turn as a real prompt. Unlike the standalone
+# pseudo-turns above, it cannot be excluded record-wise without losing the operator's own words alongside it —
+# which is why it was deliberately left out of the injected set. That was harmless while captured conversation
+# was unsearchable. It is not harmless now: such a turn is keyword-findable and carries `speaker: "user"`, so a
+# reader is told the operator said something the engine inserted. Measured on the maintainer's store when this
+# was found, 2 user turns carry a complete block — and in one, 420 of 456 characters were the block.
+#
+# The fix is presentational, never destructive: the stored bytes are untouched (the ledger is the canonical
+# record and this is not erasure), and the span is replaced by a visible marker wherever the text is INDEXED or
+# SHOWN. So the harness half is not searchable and is never quoted as speech, while the operator's own words in
+# the same turn survive intact.
+_HARNESS_SPAN = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+HARNESS_SPAN_MARKER = "[engine-inserted note removed]"
+
+
+def mark_harness_spans(text):
+    """`text` with every fused harness block replaced by `HARNESS_SPAN_MARKER`. Returns the input unchanged for
+    a non-string or when no block is present. Idempotent — the marker matches no pattern — and it never raises:
+    a reader that fails here would be worse than one that under-marks.
+
+    HONEST BOUND: it matches a COMPLETE block within ONE record. An opening tag with no close in the same
+    record is left alone, which is right for the common case (an assistant quoting the tag while discussing it —
+    real content) and is a residual for the rare one (a block split across the chunk boundary, whose halves land
+    in different records). Verified on the maintainer's store after this landed: no complete block is searchable
+    any more, and every remaining occurrence is an unclosed tag."""
+    if not isinstance(text, str) or "<system-reminder>" not in text:
+        return text
+    try:
+        return _HARNESS_SPAN.sub(HARNESS_SPAN_MARKER, text)
+    except Exception:  # noqa: BLE001 — presentation must never break a read
+        return text
+
+
 def is_injected_record(record) -> bool:
     """True iff `record` is a harness-injected pseudo-turn the consolidation sweep should skip as fuel: tagged
     `INJECTED_TAG` at capture (the durable path — covers every chunk), OR — back-compat for records captured
     before tagging existed — its text begins with an injected marker. The record stays physically resident and
-    recoverable in the ledger and is already recall-excluded by kind. Two readers share this predicate: the
-    consolidation sweep skips such a record as fuel, and the transcript-window reader leaves it out of a
-    window so machine scaffolding is never presented as something the operator said."""
+    recoverable in the ledger; what this withholds is only ever surfacing, never storage. THREE readers share
+    this predicate, and it carries more weight than it used to: the consolidation sweep skips such a record as
+    fuel, the transcript-window reader leaves it out of a window, and recall itself now excludes it — since the
+    rest of the conversation became recall content, this predicate is the whole of what recall withholds, so a
+    gap here would surface machine scaffolding as something the operator said."""
     if not isinstance(record, dict):
         return False
     tags = record.get("tags")
