@@ -32,8 +32,16 @@ by presence, so tuning how a phrase matches never costs a deliberate guardrail a
 
 WHAT A GREEN SCAN DOES AND DOES NOT MEAN. It means no DECLARED reference was found in what was read. It is
 not a claim that the work carries nothing foreign — an undeclared vocabulary is unmatched by construction.
-Callers must narrate the three states apart: checked against a declaration, no declaration to check against,
-and a declaration that could not be read. Reporting the last two as "clean" would be a false claim.
+Callers must narrate the FOUR read states apart, and only one of them licenses "I checked and found none":
+
+  - DECLARED   — entries were compiled and the change was scanned against them. A real claim.
+  - EMPTY      — a declaration exists and lists nothing. A deliberate "this project has no shorthand", so it
+                 is an answer rather than a gap; nothing was scanned, so nothing may be claimed.
+  - ABSENT     — no declaration at all. The engine offers to set one up.
+  - UNREADABLE — a declaration exists and could not be parsed. The worst state to report as clean, because
+                 the operator believes a check is protecting them.
+
+Reporting any of the last three as "clean" would be a false claim of cleanliness.
 
 CLI (operator-runnable):
   uv run --directory .engine -- python tools/local_references.py demo
@@ -54,8 +62,9 @@ DECLARATION_REL = ".engine/operator-local-references.json"
 DECLARED_KEYS = ("id_prefixes", "phrases", "section_refs")
 
 # Read states, told apart so a caller can narrate them honestly rather than collapsing all three to "clean".
-ABSENT = "absent"          # no declaration — the normal steady state; nothing to match
-DECLARED = "declared"      # a declaration was read
+ABSENT = "absent"          # no declaration — the starting state; the engine offers to set one up
+EMPTY = "empty"            # a declaration that deliberately lists nothing — "this project has no shorthand"
+DECLARED = "declared"      # a declaration with entries; a scan against it is a real claim
 UNREADABLE = "unreadable"  # a declaration is present but could not be parsed — NEVER report this as clean
 
 # A reference sits on its own boundary: not butted against a letter, digit or underscore. A HYPHEN is
@@ -101,13 +110,13 @@ def compile_vocabulary(decl) -> list:
 
 
 def load_vocabulary(path: str | None = None) -> tuple:
-    """Read the deployment's declaration. Returns `(compiled, state)` where state is ABSENT / DECLARED /
-    UNREADABLE.
+    """Read the deployment's declaration. Returns `(compiled, state)` — one of the four states in the module
+    docstring, of which only DECLARED lets a caller say "I checked and found none".
 
-    ABSENT degrades to an empty vocabulary silently — that is the steady state for every repository before
-    its first declaration. UNREADABLE does NOT: it also yields an empty vocabulary, but it is reported
-    distinctly, because a caller that narrates an unread declaration as "checked and clean" would be making
-    a false claim of cleanliness — the same rule the outbound diff read already follows."""
+    Every state but DECLARED yields an empty vocabulary, and they are told apart precisely so that a caller
+    cannot narrate an unscanned contribution as clean. ABSENT is the steady state before a first declaration;
+    EMPTY is a deliberate "this project has no shorthand"; UNREADABLE is the worst to misreport, because the
+    operator believes a check is protecting them."""
     path = path if path is not None else os.path.join(validate.ROOT, DECLARATION_REL)
     if not os.path.exists(path):
         return [], ABSENT
@@ -118,10 +127,31 @@ def load_vocabulary(path: str | None = None) -> tuple:
         return [], UNREADABLE
     if not isinstance(decl, dict):
         return [], UNREADABLE
-    return compile_vocabulary(decl), DECLARED
+    compiled = compile_vocabulary(decl)
+    if not compiled:
+        # A declaration that lists nothing is NOT a declaration that was checked against. Collapsing it into
+        # DECLARED would let a caller say "I checked and found none" when no pattern was compiled and the
+        # change was never read — the exact false claim of cleanliness this module exists to prevent, and the
+        # likeliest shape to hit it, since an empty skeleton is the natural first thing an operator writes.
+        # It is a legitimate END state too: an operator who has none can say so once and stop being asked.
+        return [], EMPTY
+    return compiled, DECLARED
 
 
 # ---- git transport (read-only; its own, deliberately NOT the path-list helper) -------------------
+
+# The diff is asked for in a FIXED format, because the operator's own git configuration can otherwise change
+# it out from under the parser — and every such change makes the scan report "clean" over something it never
+# read. `--no-ext-diff` is the sharpest: a globally configured external differ (difftastic's own setup tells
+# people to set one) emits output with no added-line markers at all, which would parse as an empty diff that
+# was successfully inspected. `--text` closes the same hole for a file the project marks un-diffable in its
+# committed `.gitattributes` — an ordinary setting on lock files and generated assets, which otherwise
+# carries that file's references past the scan exactly as a rename would. The prefix and quoting flags pin
+# the file-header shape the parser keys on.
+_FORMAT = ("-U0", "--no-color", "--no-renames", "--no-ext-diff", "--no-textconv", "--text",
+           "--src-prefix=a/", "--dst-prefix=b/")
+_CONFIG = ("-c", "core.quotepath=false")   # non-ASCII paths render literally, not as \303\251 escapes
+
 
 def _git(args: list, checkout: str | None = None, timeout: int = 60) -> bytes | None:
     """Run a read-only git command in `checkout` and return RAW stdout bytes, or None on any failure.
@@ -132,7 +162,8 @@ def _git(args: list, checkout: str | None = None, timeout: int = 60) -> bytes | 
     space that distinguishes a context line from an added one. Bytes are decoded by the caller with
     replacement, so an undecodable file costs a garbled character rather than an unread diff."""
     try:
-        out = subprocess.run(["git", *args], capture_output=True, timeout=timeout, check=False, cwd=checkout)
+        out = subprocess.run(["git", *_CONFIG, *args], capture_output=True, timeout=timeout,
+                             check=False, cwd=checkout)
         return out.stdout if out.returncode == 0 else None
     except Exception:  # noqa: BLE001 — missing binary / OS error / timeout all degrade to "unavailable"
         return None
@@ -150,21 +181,53 @@ def added_lines(ref: str, checkout: str | None = None, *, run=_git) -> tuple:
 
     `inspected` is False when git could not be read. A caller must never narrate cleanliness on an
     uninspected diff — a failed read is an unknown diff, not a clean one."""
-    raw = run(["diff", "-U0", "--no-color", "--no-renames", f"{ref}...HEAD"], checkout)
+    raw = run(["diff", *_FORMAT, f"{ref}...HEAD"], checkout)
     if raw is None:
         return [], False
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-    out, path, lineno = [], None, 0
-    for line in text.splitlines():
-        if line.startswith("+++ b/"):
-            path, lineno = line[6:], 0
+    return _parse_added(text), True
+
+
+def _parse_added(text: str) -> list:
+    """Parse a unified diff STRUCTURALLY: each hunk header states how many lines of the new file follow, and
+    exactly that many are consumed as hunk content.
+
+    Sniffing each line's leading characters instead would let a line's own CONTENT be read as diff syntax.
+    Git prefixes every added line with `+`, so an added line that itself begins `++ b/x` renders as `+++ b/x`
+    — indistinguishable from a file header by shape. Reading it as one silently reattributes every following
+    line to a filename lifted from the change's own text, which then drops out of the scan and travels into
+    the published finding. Counting from the header makes that unreachable: inside a hunk, content is content.
+    """
+    out, path = [], None
+    lines = iter(text.splitlines())
+    for line in lines:
+        if line.startswith("diff --git "):
+            path = None                                  # a new file's headers follow; forget the last one
+        elif line.startswith("+++ "):
+            header = line[4:]
+            path = None if header == "/dev/null" else (header[2:] if header[:2] == "b/" else header)
         elif line.startswith("@@"):
-            m = re.search(r"\+(\d+)", line)
-            lineno = int(m.group(1)) if m else 0
-        elif line.startswith("+") and not line.startswith("+++"):
-            out.append((path, lineno, line[1:]))
-            lineno += 1
-    return out, True
+            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+            if not m:
+                continue
+            lineno = int(m.group(1))
+            remaining = int(m.group(2)) if m.group(2) is not None else 1
+            while remaining > 0:
+                body = next(lines, None)
+                if body is None:
+                    break
+                if body.startswith("+"):
+                    out.append((path, lineno, body[1:]))
+                    lineno += 1
+                    remaining -= 1
+                elif body.startswith(" "):
+                    lineno += 1                          # context line: occupies a line, adds nothing
+                    remaining -= 1
+                elif body.startswith("-") or body.startswith("\\"):
+                    continue                             # a removed line / "no newline" marker costs no count
+                else:
+                    break                                # not hunk content — the hunk ended early
+    return out
 
 
 def changed_paths(ref: str, checkout: str | None = None, *, run=_git) -> tuple:
@@ -186,41 +249,79 @@ def scan(vocabulary: list, *, lines=None, paths=None, blobs=None) -> list:
     the paths it changes, and the prose it sends alongside them (`blobs` — the pull-request title and body,
     which travel to the other repository just as the diff does).
 
-    The declaration file itself is skipped. Its own added lines contain the declared strings by definition,
-    so scanning it would report the operator's vocabulary back to them as a leak on every change to it."""
+    The declaration file itself is skipped, as a line and as a path. Its own content contains the declared
+    strings by definition, so scanning it would report the operator's vocabulary back to them as a leak on
+    every change to it. `blobs` are labelled prose, not paths, so the skip does not apply there."""
     hits = []
     for kind, token, pattern in vocabulary:
         for path, lineno, text in (lines or []):
-            if path and path.endswith(DECLARATION_REL.rsplit("/", 1)[-1]):
+            # Compared EXACTLY, not by file name: matching any path merely ending in that name would make
+            # `vendor/x-operator-local-references.json` or `docs/operator-local-references.json` scan-free
+            # zones, and the only path the reader ever loads is this one.
+            if path == DECLARATION_REL:
                 continue
             m = pattern.search(text)
             if m:
                 hits.append({"where": path or "(unknown file)", "line": lineno,
-                             "kind": kind, "token": m.group(0), "declared": token})
+                             "kind": kind, "token": _cap(m.group(0)), "declared": token})
         for path in (paths or []):
+            if path == DECLARATION_REL:
+                continue
             m = pattern.search(path)
             if m:
                 hits.append({"where": path, "line": None, "kind": kind,
-                             "token": m.group(0), "declared": token})
+                             "token": _cap(m.group(0)), "declared": token})
         for label, text in (blobs or {}).items():
             for n, line in enumerate((text or "").splitlines(), start=1):
                 m = pattern.search(line)
                 if m:
                     hits.append({"where": label, "line": n, "kind": kind,
-                                 "token": m.group(0), "declared": token})
+                                 "token": _cap(m.group(0)), "declared": token})
     return hits
+
+
+def ordered(hits: list) -> list:
+    """Hits sorted by where they sit, not by which declared entry found them.
+
+    `scan` loops patterns on the outside, so its raw order groups every hit of the first declared entry
+    before any hit of the second. Truncating THAT order would hide whole entries behind "and N more" — the
+    operator fixes what they were shown, re-prepares, and meets a fresh pause naming things they had no way
+    to know about. Ordering by location spreads the shown set across the entries that actually fired."""
+    return sorted(hits, key=lambda h: (h.get("where") or "", h.get("line") or 0, h.get("token") or ""))
+
+
+TOKEN_CAP = 40   # a matched token is PUBLISHED into an engine-opened issue; bound what can land there
+
+
+def _cap(token: str) -> str:
+    """Bound a matched token before it is reported. An id prefix is followed by `\\d+` with no limit, so a
+    declared prefix sitting beside a long run of digits produces an arbitrarily long string — and that string
+    is embedded verbatim in an engine-opened GitHub Issue."""
+    return token if len(token) <= TOKEN_CAP else token[:TOKEN_CAP] + "…"
 
 
 def _summarize(hits: list) -> str:
     """The hits in plain words: the matched token and where it sits, never the surrounding line. The line
     could contain anything the change touched, and this string is published — it becomes the first sentence
     of an engine-opened issue title and is embedded in its body."""
-    shown = hits[:ENUMERATED_HITS]
+    shown = ordered(hits)[:ENUMERATED_HITS]
     parts = [f"“{h['token']}” in {h['where']}" + (f" line {h['line']}" if h["line"] else "") for h in shown]
     rest = len(hits) - len(shown)
     if rest > 0:
         parts.append(f"and {rest} more")
     return "; ".join(parts)
+
+
+def too_broad_note(hits: list) -> str:
+    """The plain sentence for a scan that matched implausibly many places — shared, so the OPERATOR reads the
+    same diagnosis the recorded finding carries. Breadth is surfaced here rather than at the merge gate,
+    which cannot walk a deployment's whole tree to judge it; showing the operator a wall of hits without
+    naming the likely cause would leave them fixing symptoms of their own declaration."""
+    if len(hits) <= ENUMERATED_HITS:
+        return ""
+    return ("  Your list matched this many places, which usually means one of its entries is too broad to be "
+            "useful — a check that fires on everything is one people learn to click past. Worth narrowing "
+            "before you act on this.")
 
 
 def findings(tier: str, hits: list) -> list:
@@ -230,14 +331,12 @@ def findings(tier: str, hits: list) -> list:
     del tier
     if not hits:
         return []
-    breadth = ("  Your declaration matched this many places, which usually means one of its entries is too "
-               "broad to be useful — a check that fires on everything is one people learn to click past."
-               if len(hits) > ENUMERATED_HITS else "")
+    breadth = too_broad_note(hits)
     return [validate.finding(
         "soft",
         "This contribution carries references that mean something only in your own project, so they would "
         "name nothing a reader of the other project can reach: " + _summarize(hits) + "." + breadth,
-        {"file": hits[0]["where"], "line": hits[0]["line"]})]
+        {"file": ordered(hits)[0]["where"], "line": ordered(hits)[0]["line"]})]
 
 
 # ---- CLI ----------------------------------------------------------------------------------------
@@ -263,6 +362,14 @@ def _scan_cli(argv: list) -> int:
         print("This project has not declared a local reference vocabulary, so there was nothing to check "
               f"against. To declare one, write {DECLARATION_REL} with any of: "
               + ", ".join(DECLARED_KEYS) + ".")
+        return 0
+    if state == EMPTY:
+        # Handled distinctly for the same reason the prepared narration does: this path is the one the
+        # owned-product runbook MANDATES, and that path has no merge gate behind it — so a confident green
+        # here is the one nothing else would catch.
+        print("Your list of local references lists nothing, so there was nothing of that kind to look for. "
+              "That is a fine answer if this project has no shorthand of its own — but it is not the same as "
+              "this contribution having been checked.")
         return 0
     if state == UNREADABLE:
         print(f"Your local reference vocabulary ({DECLARATION_REL}) could not be read, so this contribution "

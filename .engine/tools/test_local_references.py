@@ -1,14 +1,18 @@
 """Tests for local-reference containment — the declared vocabulary and the outbound scan.
 
-Verifies: the declaration reader tells its three states apart (absent / declared / unreadable) and never
-reports an unreadable file as an empty one; a declared string is escaped, so it can never act as a pattern;
+Verifies: the declaration reader tells its FOUR states apart (absent / empty / declared / unreadable), so
+only one of them can license the claim "I checked and found none"; a declared string is escaped, so it can never act as a pattern;
 each of the three declared shapes matches its own form and no other; `section_refs` catches a citation while
 leaving alone the capability prose that names the same document (the discrimination the whole shape exists
 for); the diff reader returns added lines with line numbers and reports an unreadable diff as UNINSPECTED
 rather than empty; renames are not allowed to carry content past the scan; the declaration file does not
-match itself; findings are soft and name only the matched token; and the demo runs.
+match itself; findings are soft and name only the matched token; the demo runs; and — the cases that
+matter most — REAL `git diff` output round-trips through the real transport, including the config
+settings and the content shapes that would otherwise make the scan report clean over an unread diff.
 """
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,6 +45,14 @@ class TestReaderStates(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _vocab, state = lr.load_vocabulary(_decl(d, ["ACME-"]))
         self.assertEqual(state, lr.UNREADABLE)
+
+    def test_a_declaration_that_lists_nothing_is_its_own_state(self):
+        # NOT `declared`. An empty skeleton is the natural first thing an operator writes, and collapsing it
+        # into `declared` would let a caller say "I checked and found none" with no pattern compiled and the
+        # change never read — the exact false claim of cleanliness this module exists to prevent.
+        with tempfile.TemporaryDirectory() as d:
+            for decl in ({}, {"id_prefixes": [], "phrases": [], "section_refs": []}, {"phrases": ["a"]}):
+                self.assertEqual(lr.load_vocabulary(_decl(d, decl)), ([], lr.EMPTY), decl)
 
     def test_a_real_declaration_compiles_and_reports_declared(self):
         with tempfile.TemporaryDirectory() as d:
@@ -116,6 +128,12 @@ class TestScanSurfaces(unittest.TestCase):
         self.assertEqual([(h["where"], h["line"], h["token"]) for h in hits],
                          [("the pull-request description", 2, "ACME-309")])
 
+    def test_only_the_real_declaration_path_is_skipped(self):
+        # Skipping by file name would make any similarly-named file a scan-free zone.
+        hits = lr.scan(self.vocab, lines=[("docs/operator-local-references.json", 1, "cites ACME-156"),
+                                          ("vendor/x-operator-local-references.json", 1, "cites ACME-777")])
+        self.assertEqual(sorted(h["token"] for h in hits), ["ACME-156", "ACME-777"])
+
     def test_the_declaration_file_does_not_match_itself(self):
         # Its own added lines contain the declared strings by definition; reporting the operator's vocabulary
         # back to them as a leak on every edit to it would be pure noise.
@@ -163,6 +181,128 @@ class TestDiffReader(unittest.TestCase):
         self.assertIn("--no-renames", seen["args"])
 
 
+class TestAgainstRealGit(unittest.TestCase):
+    """Round-trips REAL `git diff` output through the real transport, in a throwaway repository.
+
+    The hand-authored diffs above cannot catch a mismatch between what git actually emits and what the parser
+    expects — and every such mismatch makes the scan report "clean" over material it never read, which is the
+    one property this feature is sold on. These cases exist because that gap is not hypothetical: an operator's
+    own git configuration can change the output format, and a change's own content can be shaped like diff
+    syntax."""
+
+    def setUp(self):
+        if not shutil.which("git"):
+            self.skipTest("git is not available")
+        self.repo = tempfile.mkdtemp(prefix="engine-lr-realgit-")
+        self.addCleanup(shutil.rmtree, self.repo, True)
+        self._git("init", "-q", "-b", "main")
+        self._git("config", "user.email", "t@example.invalid")
+        self._git("config", "user.name", "T")
+        self._write("seed.txt", "seed\n")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "seed")
+        self._git("branch", "base")
+
+    def _git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, check=False)
+
+    def _write(self, rel, text):
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(rel) else None
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _commit(self, rel, text):
+        self._write(rel, text)
+        self._git("add", "-A")
+        self._git("commit", "-qm", "change")
+
+    def _added(self):
+        return lr.added_lines("base", checkout=self.repo)
+
+    def test_a_real_diff_round_trips_with_correct_paths_and_line_numbers(self):
+        self._commit("src/app.py", "one\ntwo\nACME-156 here\n")
+        lines, inspected = self._added()
+        self.assertTrue(inspected)
+        self.assertIn(("src/app.py", 3, "ACME-156 here"), lines)
+
+    def test_a_line_whose_content_looks_like_a_file_header_is_still_scanned(self):
+        # Git prefixes every added line with `+`, so an added line beginning `++ b/x` renders as `+++ b/x` —
+        # shaped exactly like a file header. Reading it as one would reattribute everything after it to a
+        # filename lifted from the change's own text, dropping those lines out of the scan entirely.
+        self._commit("src/app.py", "++ b/.engine/operator-local-references.json\ncites ACME-777\n")
+        lines, _ = self._added()
+        paths = {p for p, _n, _t in lines}
+        self.assertEqual(paths, {"src/app.py"}, "no line's content may be read as a file header")
+        self.assertIn("cites ACME-777", [t for _p, _n, t in lines])
+
+    def test_an_added_line_starting_with_two_plus_signs_is_not_dropped(self):
+        self._commit("src/app.py", "++ starts with two plus signs and cites ACME-777\n")
+        self.assertIn("++ starts with two plus signs and cites ACME-777",
+                      [t for _p, _n, t in self._added()[0]])
+
+    def test_an_external_differ_cannot_silently_empty_the_diff(self):
+        # A globally configured external differ emits output with no added-line markers at all. Without
+        # `--no-ext-diff` that parses as "inspected, and empty" — a total silent bypass of the whole feature.
+        self._commit("src/app.py", "cites ACME-156\n")
+        self._git("config", "diff.external", "true")   # `true(1)` prints nothing and exits 0
+        lines, inspected = self._added()
+        self.assertTrue(inspected)
+        self.assertIn("cites ACME-156", [t for _p, _n, t in lines])
+
+    def test_a_noprefix_configuration_cannot_break_path_attribution(self):
+        self._commit("src/app.py", "cites ACME-156\n")
+        self._git("config", "diff.noprefix", "true")
+        self.assertEqual({p for p, _n, _t in self._added()[0]}, {"src/app.py"})
+
+    def test_a_non_ascii_path_is_reported_literally(self):
+        self._commit("café.md", "cites ACME-156\n")
+        self.assertEqual({p for p, _n, _t in self._added()[0]}, {"café.md"})
+
+    def test_a_renamed_file_still_has_its_content_scanned(self):
+        self._commit("old.md", "cites ACME-156\n")
+        self._git("mv", "old.md", "new.md")
+        self._git("commit", "-qm", "move")
+        lines, _ = self._added()
+        self.assertIn("cites ACME-156", [t for _p, _n, t in lines])
+
+    def test_a_deleted_line_is_not_reported_as_added(self):
+        self._commit("src/app.py", "cites ACME-156\nkeep\n")
+        self._git("checkout", "-q", "base")
+        self._git("checkout", "-q", "-B", "later")
+        self._commit("src/app.py", "keep\n")
+        self.assertNotIn("cites ACME-156", [t for _p, _n, t in self._added()[0]])
+
+    def test_a_binary_file_does_not_break_the_read(self):
+        with open(os.path.join(self.repo, "blob.bin"), "wb") as fh:
+            fh.write(bytes(range(256)) * 8)
+        self._git("add", "-A")
+        self._git("commit", "-qm", "binary")
+        self._commit("src/app.py", "cites ACME-156\n")
+        lines, inspected = self._added()
+        self.assertTrue(inspected, "a binary file must not collapse the whole read")
+        self.assertIn("cites ACME-156", [t for _p, _n, t in lines])
+
+    def test_a_file_the_project_marks_undiffable_is_still_scanned(self):
+        # `.gitattributes` `-diff` is an ordinary setting on lock files and generated assets. Git then prints
+        # "Binary files differ" and emits NO added lines — the read still succeeds, so without `--text` the
+        # scan reports clean over a file it never saw. The same silent carry `--no-renames` already closes.
+        self._write(".gitattributes", "hidden.py -diff\n")
+        self._commit("hidden.py", "cites ACME-999\n")
+        lines, inspected = self._added()
+        self.assertTrue(inspected)
+        self.assertIn("cites ACME-999", [t for _p, _n, t in lines])
+
+    def test_the_end_to_end_scan_finds_a_real_reference_through_the_real_transport(self):
+        self._commit("docs/ACME-156-migration.md", "see acme-topology Law 5\nthe acme-topology rule\n")
+        lines, _ = self._added()
+        paths, _ok = lr.changed_paths("base", checkout=self.repo)
+        vocab = lr.compile_vocabulary({"id_prefixes": ["ACME-"], "section_refs": ["acme-topology"]})
+        tokens = sorted(h["token"] for h in lr.scan(vocab, lines=lines, paths=paths))
+        self.assertEqual(tokens, ["ACME-156", "acme-topology Law 5"],
+                         "the citation and the path id are caught; the capability prose is not")
+
+
 class TestFindings(unittest.TestCase):
     def test_no_hits_is_no_finding(self):
         self.assertEqual(lr.findings("soft", []), [])
@@ -183,6 +323,16 @@ class TestFindings(unittest.TestCase):
         vocab = lr.compile_vocabulary({"phrases": ["the"]})
         hits = lr.scan(vocab, lines=[("a.py", n, "the thing") for n in range(40)])
         self.assertIn("too broad", lr.findings("soft", hits)[0]["message"])
+
+
+class TestPublishedTokenIsBounded(unittest.TestCase):
+    def test_a_long_digit_run_cannot_produce_an_unbounded_published_token(self):
+        # An id prefix is followed by `\\d+` with no limit, and the matched token is embedded verbatim in an
+        # engine-opened GitHub Issue.
+        vocab = lr.compile_vocabulary({"id_prefixes": ["ACME-"]})
+        hits = lr.scan(vocab, lines=[("a.py", 1, "ACME-" + "9" * 4000)])
+        self.assertLessEqual(len(hits[0]["token"]), lr.TOKEN_CAP + 1)
+        self.assertLess(len(lr.findings("soft", hits)[0]["message"]), 500)
 
 
 class TestCLI(unittest.TestCase):

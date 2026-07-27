@@ -359,10 +359,17 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         lr_line = (f" One thing I could NOT check: your list of local references "
                    f"({local_references.DECLARATION_REL}) couldn't be read, so nothing was compared against "
                    "it — that isn't the same as clean.")
+    elif local_references_state == local_references.EMPTY:
+        # A deliberate "we have none" is an ANSWER, not a gap — so it reads as settled and stops asking.
+        # Without this state the only way to silence the offer below would be an empty list, which used to
+        # be narrated as "checked and found none": the escape hatch and a false claim were the same door.
+        lr_line = (" You've told me this project has no shorthand of its own, so there was nothing of that "
+                   "kind to look for.")
     elif local_references_state == local_references.ABSENT:
         lr_line = (" Worth knowing: you haven't listed any references that mean something only in your own "
                    "project, so I couldn't check for those — if this project uses its own decision ids or "
-                   "spec names, tell me and I'll set that list up.")
+                   "spec names, tell me and I'll set that list up. If it has none, tell me that instead and "
+                   "I'll record it, so I stop raising this.")
     else:
         lr_line = ""
     # The review line states the TRUTH about this contribution (reviewed or not) and, when NOT reviewed, names
@@ -409,13 +416,18 @@ def _local_reference_narration(upstream_repo: str, hits: list) -> str:
     """The pause narration when the outbound work carries the deployment's own declared references. Like the
     engine-file leak, this is a DECISION, not a halt: it names what was found and both ways forward, because
     opening a pull request on a project the operator doesn't own cannot be undone."""
+    ordered = local_references.ordered(hits)
     where = "; ".join(
         f"“{h['token']}” in {h['where']}" + (f" line {h['line']}" if h.get("line") else "")
-        for h in hits[:6])
-    more = f" (and {len(hits) - 6} more)" if len(hits) > 6 else ""
+        for h in ordered[:6])
+    more = f" (and {len(ordered) - 6} more)" if len(ordered) > 6 else ""
+    # The operator reads the SAME breadth diagnosis the recorded finding carries — otherwise, at the one
+    # moment they are staring at an obviously over-firing check, the engine has written the explanation and
+    # shown them a different string that does not contain it.
+    breadth = local_references.too_broad_note(hits)
     return (
         f"Before opening the pull request, I checked what it would carry to {upstream_repo} against the list "
-        f"of references you've said mean something only in your own project — and found some: {where}{more}. "
+        f"of references you've said mean something only in your own project — and found some: {where}{more}.{breadth} "
         "These read as ordinary shorthand at home, but over there they name a record nobody can reach: a "
         "reader meets a bare identifier and has nowhere to go. I'd rewrite each one to say what it MEANS "
         "rather than what it refers to, and then prepare this again — or, if you're sure they belong, tell me "

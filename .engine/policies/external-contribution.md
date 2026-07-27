@@ -59,7 +59,8 @@ everything you own.
   detector, not posture. What stays posture is everything around it: the check is only as good as the list you
   gave it, it never blocks, and on the path where the engine builds a product it owns there is no merge gate
   at the far end at all — only a step the engine is trusted to run. And a *silent* result is not a clean one:
-  when there is no list, or the list can't be read, the engine says that instead of reporting clean.
+  when there is no list, when the list is deliberately empty, and when the list can't be read, the engine
+  says which of those it is instead of reporting clean. Only a list with entries in it earns "I checked".
 - **The live step runs on first real use.** The cross-fork path's final open-the-pull-request step reaches the
   network only on a real submission; the engine says so at install, and your first real contribution is the first
   time that live step runs on your setup — being straight that a released feature's live path runs the first time

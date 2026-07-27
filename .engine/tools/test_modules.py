@@ -669,8 +669,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
                          [".engine/docs/getting-started.md"], "core owns exactly the getting-started doc")
+        # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
+        # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
+        # a deployment's required self-tests for declining an add-on it was offered at setup.
+        installed = {m.get("id") for _p, m in module_coherence.discover_manifests()}
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["product-design"]),
-                         [".engine/docs/product-design.md"], "product-design owns exactly its orientation doc")
+                         [".engine/docs/product-design.md"] if "product-design" in installed else [],
+                         "product-design owns exactly its orientation doc when it is installed")
 
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect

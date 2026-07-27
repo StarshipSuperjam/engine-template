@@ -58,9 +58,12 @@ open-the-pull-request step reaches the network only on a real submission — see
    - You tell the engine your shorthand by listing it in `.engine/operator-local-references.json`: id
      prefixes like `D-`, whole phrases, and document names that should only be flagged when a section number
      follows them. There's no such list until you make one — just ask the engine to set it up.
-   - **If you haven't made that list, the engine says so** rather than telling you the contribution was
-     checked. Same if the list can't be read: it stops and says the check didn't run, because "I couldn't
-     look" and "I looked and it's clean" are not the same thing.
+   - **If your project has no shorthand of its own, say so once and it stops asking** — an empty list is the
+     way to record that, and it is a perfectly good answer. The engine then says there was nothing of that
+     kind to look for, rather than claiming it checked.
+   - **If you haven't made that list at all, the engine says so** rather than telling you the contribution
+     was checked, and offers to set one up. Same if the list can't be read: it stops and says the check
+     didn't run, because "I couldn't look" and "I looked and it's clean" are not the same thing.
 6. **Have the change looked over before you submit.** For a change to the engine's *own* project, the engine
    runs a second, independent review that hunts for mistakes the tests can miss. That review does **not** run
    by itself on a contribution to another project — so for anything beyond a trivial change, ask the engine to

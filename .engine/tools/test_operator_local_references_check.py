@@ -56,7 +56,7 @@ class TestFindings(unittest.TestCase):
     def test_a_blank_or_non_string_entry_is_refused(self):
         fs = check.findings("hard", {"phrases": ["", "  ", 7]})
         self.assertEqual(len(fs), 3)
-        self.assertTrue(all("not a piece of text" in f["message"] for f in fs))
+        self.assertTrue(all("not a plain word or phrase" in f["message"] for f in fs))
 
     def test_a_single_character_entry_is_refused_as_matching_everything(self):
         fs = check.findings("hard", {"id_prefixes": ["D"]})

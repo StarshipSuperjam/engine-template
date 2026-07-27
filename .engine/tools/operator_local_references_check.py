@@ -48,24 +48,22 @@ _MALFORMED = object()  # present but not parseable JSON -> a hard finding
 _KEY_LIST = "“" + "”, “".join(_KEYS) + "”"
 
 _NOT_JSON = ("Your list of local references (" + _FILE + ") is not valid JSON, so the engine cannot read it. "
-             "Nothing is being checked against it — which is not the same as your work being clean. Fix the "
-             "file so it is valid JSON before merging.")
+             "Nothing is being checked against it — which is not the same as your work being clean. Ask the engine "
+             "to put the file right, and it will.")
 _NOT_OBJECT = ("Your list of local references (" + _FILE + ") must be a single set of entries (a JSON object "
-               "with " + _KEY_LIST + " lists), but it is something else, so none of it is being applied. Fix "
-               "the shape before merging.")
+               "with " + _KEY_LIST + " lists), but it is something else, so none of it is being applied. Ask "
+               "the engine to put the shape right, and it will.")
 _UNKNOWN_KEY = ("Your list of local references (" + _FILE + ") has an entry the engine does not recognise "
                 "(“{key}”). The only entries allowed are " + _KEY_LIST + "; anything else is ignored — and a "
                 "value hidden under an unrecognised entry would quietly check nothing while looking as "
-                "though it did. Remove “{key}” before merging.")
+                "though it did. Ask the engine to remove “{key}”, and it will.")
 _NOT_LIST = ("In your list of local references (" + _FILE + "), “{field}” must be a list, but it is something "
-             "else, so it is being ignored. Make it a list of plain words before merging.")
-_BAD_ENTRY = ("In your list of local references (" + _FILE + "), one entry under “{field}” is not a piece of "
-              "text ({val}) — every entry must be a plain, non-empty word or phrase. Fix or remove it "
-              "before merging.")
+             "else, so it is being ignored. Ask the engine to make it a list of plain words, and it will.")
+_BAD_ENTRY = ("In your list of local references (" + _FILE + "), one entry under “{field}” is not a plain word "
+              "or phrase ({val}) — every entry must be a plain, non-empty word or phrase. Ask the engine to fix or remove it.")
 _TOO_SHORT = ("In your list of local references (" + _FILE + "), the entry “{val}” under “{field}” is a "
               "single character, so it would match nearly every line of every change — every contribution "
-              "would be flagged, forever. Use the whole reference (for example “ACME-” rather than “A”) before "
-              "merging.")
+              "would be flagged, forever. Use the whole reference — for example “ACME-” rather than “A”.")
 
 _ADVICE = {
     "id_prefixes": "an id prefix such as “ACME-”, matched when digits follow it",
@@ -144,8 +142,9 @@ def _demo() -> int:
         print(f"\nDEMO UNEXPECTED: expected two hard findings (the single character and the unrecognised "
               f"entry), got {len(hard)}.", file=sys.stderr)
         return 1
-    print("\nBoth block the merge: a list that matches everything and a list that matches nothing are the "
-          "two ways this check stops being worth having.")
+    print("\nBoth block the merge: an entry that would match everything, and entries hidden under a name "
+          "the engine does not know — the two ways this list stops being worth having. (A list that is "
+          "deliberately EMPTY is fine: it records that this project has no shorthand of its own.)")
     return 0
 
 

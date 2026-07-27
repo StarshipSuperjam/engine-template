@@ -552,6 +552,16 @@ class TestLocalReferenceGate(unittest.TestCase):
         self.assertIn("haven't listed any references", r["narration"])
         self.assertNotIn("found none of them", r["narration"])
 
+    def test_an_empty_declaration_is_not_narrated_as_checked_and_clean(self):
+        # A declaration listing nothing passes the hard shape gate cleanly and forever, and an empty skeleton
+        # is the natural first thing an operator writes after being offered one. Reporting it as "checked and
+        # found none" would be a false claim of cleanliness on the likeliest path to reach it.
+        r = self._submit(self._declare({"id_prefixes": [], "phrases": [], "section_refs": []}),
+                         added="restore it (ACME-309)")
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("no shorthand of its own", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
     def test_an_unreadable_declaration_stops_rather_than_checking_nothing(self):
         r = self._submit(self._declare("{not json"))
         self.assertEqual(r["status"], "local-references-unreadable")
