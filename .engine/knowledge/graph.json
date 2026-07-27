@@ -7172,6 +7172,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:erase",
+      "name": ".engine/tools/memory/erase.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "erase",
+      "source": {
+        "fingerprint": "sha256:43954b5d0fe6b6bea660aade9324797c261eb3c1bc736e6f6e8682ff25040afa",
+        "path": ".engine/tools/memory/erase.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:erasure_observer",
       "name": ".engine/tools/memory/erasure_observer.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -7184,23 +7201,6 @@
       "source": {
         "fingerprint": "sha256:7e2a819c8cc1a5ae8ff150bbae4c55bd445a87216b70b6e8d1ccce1dd0a4c950",
         "path": ".engine/tools/memory/erasure_observer.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:erasure_proposer",
-      "name": ".engine/tools/memory/erasure_proposer.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "erasure_proposer",
-      "source": {
-        "fingerprint": "sha256:4bc28fe980dfe29d68fb00a9a0ecc1750d3e961728f9a7fe4b5f1ff25b55d1dc",
-        "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
       "type": "tool"
@@ -8294,6 +8294,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:rescrub",
+      "name": ".engine/tools/memory/rescrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "rescrub",
+      "source": {
+        "fingerprint": "sha256:a5dd0fc466cd3d7136a97827e31c63c5127ce26ec169113a8e4909006aa9107b",
+        "path": ".engine/tools/memory/rescrub.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:restore_vault",
       "name": ".engine/tools/memory/restore_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9314,6 +9331,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_erase",
+      "name": ".engine/tools/memory/test_erase.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_erase",
+      "source": {
+        "fingerprint": "sha256:fe201b0c14ff6d9ef1af3715a95d09ff8ec4d48d782ab1587f71795365f2f8d5",
+        "path": ".engine/tools/memory/test_erase.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_erase_enact",
       "name": ".engine/tools/memory/test_erase_enact.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9343,23 +9377,6 @@
       "source": {
         "fingerprint": "sha256:4f618221f8a9ed2b22f07bcddc39f5b5ba1789f2a772d3c9e307178433edb49c",
         "path": ".engine/tools/memory/test_erasure_observer.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_erasure_proposer",
-      "name": ".engine/tools/memory/test_erasure_proposer.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_erasure_proposer",
-      "source": {
-        "fingerprint": "sha256:87842031e12199cda5a235c0d2fd505ac04d845e1a97d827e79a1fd24ce55716",
-        "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
       "type": "tool"
@@ -10295,6 +10312,23 @@
       "source": {
         "fingerprint": "sha256:b50c68d41ccca0eb1f3e67033aa6e7e2de9429f341e3b453767a045f503a5184",
         "path": ".engine/tools/test_repo_identity.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_rescrub",
+      "name": ".engine/tools/memory/test_rescrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_rescrub",
+      "source": {
+        "fingerprint": "sha256:05d5192d8734eec51f839d95413c3b9e542f449897addbfdce8c49611ca58350",
+        "path": ".engine/tools/memory/test_rescrub.py"
       },
       "status": "active",
       "type": "tool"
