@@ -244,6 +244,41 @@ def withheld_targets(src: str) -> tuple:
     return withheld_ids, withheld_sessions
 
 
+def withheld_report(path: "str | None" = None) -> dict:
+    """`{"notes": [...], "sessions": [...]}` — what is currently withheld, named so it can be restored.
+
+    WHY THIS EXISTS. Every surface promises the operator that a withhold is reversible, and `restore` needs the
+    exact identifier the withhold named. Nothing else could supply one: the readout reports counts, search
+    excludes withheld records by construction, and the pin list shows only live pins. So the promise held only
+    while the session that performed the withhold still had the identifier in its context — after that, "put it
+    back" was unactionable short of hand-reading the store. A control that is reversible in principle and
+    one-way in practice is not the control the operator was told they had.
+
+    IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
+    reading withheld text back is exactly what the operator asked not to happen. A note carries its kind and
+    the date it was withheld, which is enough to say which one you mean without saying what it said."""
+    src = ledger.ledger_path() if path is None else path
+    withheld_ids, withheld_sessions = withheld_targets(src)
+    when: dict = {}
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict) or record.get("kind") != records.WITHHOLD_KIND:
+            continue
+        target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
+        if isinstance(target, str) and target:
+            when[target] = record.get("ts")
+    kinds: dict = {}
+    for record in ledger.iter_records(path=src):
+        rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+        if isinstance(rid, str) and rid in withheld_ids:
+            kinds[rid] = record.get("kind") or "note"
+    return {
+        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid)}
+                         for rid in withheld_ids), key=lambda r: r["id"]),
+        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid)}
+                            for sid in withheld_sessions), key=lambda r: r["session_id"]),
+    }
+
+
 def is_withheld(record, withheld_ids: set, withheld_sessions: set) -> bool:
     """True iff the operator has withheld this record — by its own id, or by withholding its whole session.
 
@@ -258,8 +293,16 @@ def is_withheld(record, withheld_ids: set, withheld_sessions: set) -> bool:
     rid = record.get(records.RECORD_ID_KEY)
     if isinstance(rid, str) and rid in withheld_ids:
         return True
-    sid = record.get("session_id")
-    return isinstance(sid, str) and sid in withheld_sessions
+    # BOTH session keys, because a pin does not carry `session_id` — it records where it was asked for under
+    # `source_session`. Matching only the first meant a pin made during a conversation survived that
+    # conversation being withheld: the operator watched it vanish from search, from the reader and from the
+    # briefing, while the one fragment of it still read into every future session was the one place they would
+    # never think to look. A pin is up to a thousand characters of whatever they asked to be remembered.
+    for key in ("session_id", records.PIN_SOURCE_SESSION_KEY):
+        sid = record.get(key)
+        if isinstance(sid, str) and sid in withheld_sessions:
+            return True
+    return False
 
 
 def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:

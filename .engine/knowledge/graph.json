@@ -3880,6 +3880,7 @@
       "name": ".engine/interfaces/memory-control.json",
       "operations": [
         "list-pins",
+        "list-withheld",
         "pin",
         "restore",
         "withhold"
@@ -3895,7 +3896,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:d443a2e35dc38722696115460f9c1b2e6d3c0073472f513b073e14269a28940f",
+        "fingerprint": "sha256:bf9b1c38b378f90fed6c9da691da9a6e750bff346062cd34ffc9f16829fe39c1",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -4801,7 +4802,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:9b58eb5a198347f9877b6003bdf7425c8209a5ce38b4e0f2a874a6f0cb2c3cde",
+        "fingerprint": "sha256:b39d5ca11b513115e342b4d8955e3a47f40d61e59874490f68d3f1b4e2b54e7c",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7266,7 +7267,7 @@
       },
       "slug": "export",
       "source": {
-        "fingerprint": "sha256:b6b12b38f3fd1a45a5bd93424c7cf71a500ce94be54a444b26a36ceb7daced9a",
+        "fingerprint": "sha256:c9e2374cdb7672a2ceb73731fb1ed3ab789585cb60150c1c7e059345ab8983a8",
         "path": ".engine/tools/memory/export.py"
       },
       "status": "active",
@@ -7334,7 +7335,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:a661e424b8cb1fa315e17a367c1a616c8d800ec34ce96bf2c712e5669dc1c9a5",
+        "fingerprint": "sha256:dc161e1f929e87a10a1740411f8392b85099ed5393d8a10dd6a80a9c34838c68",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7759,7 +7760,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:9008ec92012ed983e8e23b80c4c1feb4c5b8441be93c154dbace524568b1891a",
+        "fingerprint": "sha256:871dade4bde73a320c6ca9e24d40b9daf68496b95da4e45c23f2a8a6bfb7be63",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -9459,7 +9460,7 @@
       },
       "slug": "test_export",
       "source": {
-        "fingerprint": "sha256:47dbf935994557ca118316ea43fca7acfe986efb69e0adb5b1e7b2b6eac33341",
+        "fingerprint": "sha256:8ca95394e3ebb6d11d456c1e0da93fa019f43fb14a5333a750b3582f38c6686f",
         "path": ".engine/tools/memory/test_export.py"
       },
       "status": "active",
@@ -9510,7 +9511,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:37ed7a82dca92dce611868f9ce67302dc8a8066a9075d03311016ddcc03f35db",
+        "fingerprint": "sha256:1058afeaaa26598f4d43f17f66595af86558e10fd3d90d0314c8fa8410428e3e",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",

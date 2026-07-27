@@ -473,6 +473,21 @@ def withhold(record_id: str | None = None, session_id: str | None = None) -> dic
 
 
 @server.tool(
+    name="list-withheld",
+    description=(
+        "Read back what the operator has taken out of recall, with the identifiers `restore` needs. Reach for "
+        "this whenever they ask what they have forgotten, or want something back and cannot name it — search "
+        "cannot find these by construction, so this is the only route. It returns identifiers and dates, never "
+        "the wording: reading a withheld note back at them is the thing they asked not to happen."
+    ),
+)
+def list_withheld() -> dict:
+    from memory import forget as _forget
+
+    return _forget.withheld_report()
+
+
+@server.tool(
     name="restore",
     description=(
         "Put back something the operator withheld, naming the same target the withhold named. Restoring "

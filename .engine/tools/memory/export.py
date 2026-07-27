@@ -105,7 +105,10 @@ def assert_safe_destination(dest: str) -> None:
     refused export is an inconvenience, a committed transcript is not retractable."""
     if not isinstance(dest, str) or not dest.strip():
         raise ExportRefused("no destination was given.")
-    resolved = os.path.abspath(dest)
+    # REALPATH, not abspath: a destination that is itself a symlink pointing into a working tree was judged
+    # by its parent — outside the tree, therefore allowed — and the write then followed the link inside it.
+    # Resolving first judges the place the bytes actually land.
+    resolved = os.path.realpath(os.path.abspath(dest))
     asked_from = _nearest_existing_dir(resolved)
     root, consulted = _worktree_root(asked_from)
     if not consulted:
@@ -186,7 +189,7 @@ def search_markdown(query: str, *, session: "str | None" = None, limit: int = 10
 def write(text: str, dest: str) -> str:
     """Write `text` to `dest` after the destination guard clears it. Returns the resolved path."""
     assert_safe_destination(dest)
-    resolved = os.path.abspath(dest)
+    resolved = os.path.realpath(os.path.abspath(dest))
     parent = os.path.dirname(resolved)
     if parent:
         os.makedirs(parent, exist_ok=True)

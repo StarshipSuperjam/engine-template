@@ -560,6 +560,38 @@ class WithholdTests(_Base):
         forget.restore(session_id="s-live")
         self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (6, 6))
 
+    def test_a_pin_goes_with_the_conversation_it_was_asked_for_in(self):
+        # A pin records its origin under its OWN key, not `session_id`, so a session withhold missed it
+        # entirely — the operator watched a conversation vanish from search, from the reader and from the
+        # briefing while the one fragment still read into every future session was the one place they would
+        # never think to look.
+        from memory import pins as _pins
+
+        self._turns("s-pinned")
+        _pins.add("a standing note asked for in that conversation", session_id="s-pinned")
+        self.assertEqual(len(_pins.list_pins()), 1)
+        forget.withhold(session_id="s-pinned")
+        self.assertEqual(_pins.list_pins(), [])
+        forget.restore(session_id="s-pinned")
+        self.assertEqual(len(_pins.list_pins()), 1)
+
+    def test_what_is_withheld_can_be_named_again_after_the_session_that_hid_it(self):
+        # Reversibility is promised on every surface, and `restore` needs the exact identifier. Nothing else
+        # could supply one: the readout reports counts, search excludes these by construction, and the pin
+        # list shows only live pins. Without this the promise held only while the session that performed the
+        # withhold still had the id in context.
+        ids = self._turns("s-named")
+        self._turns("s-whole-named")
+        forget.withhold(record_id=ids[0])
+        forget.withhold(session_id="s-whole-named")
+        report = forget.withheld_report()
+        self.assertEqual([n["id"] for n in report["notes"]], [ids[0]])
+        self.assertEqual([r["session_id"] for r in report["sessions"]], ["s-whole-named"])
+        self.assertTrue(all(isinstance(n["withheld_at"], int) for n in report["notes"]))
+        self.assertNotIn("text", report["notes"][0])       # identifiers and when — never the wording
+        forget.restore(record_id=report["notes"][0]["id"])
+        self.assertEqual(forget.withheld_report()["notes"], [])
+
     def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
         # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by
         # time would leave the operator's most recent instruction decided by a coin toss.

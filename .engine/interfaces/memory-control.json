@@ -117,6 +117,33 @@
       }
     },
     {
+      "name": "list-withheld",
+      "description": "Read back what the operator currently has out of recall, named so it can be restored. Declared because every surface promises a withhold is reversible and `restore` needs the exact identifier the withhold used — a promise that held only while the session that performed the withhold still had that identifier in its context. Returns identifiers and when, never the wording: reading withheld text back is the thing the operator asked not to happen.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "notes",
+          "sessions"
+        ],
+        "properties": {
+          "notes": {
+            "description": "Withheld single records, by identifier.",
+            "type": "array"
+          },
+          "sessions": {
+            "description": "Withheld whole conversations, by identifier.",
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
       "name": "restore",
       "description": "Put back something the operator withheld, by the same target the withhold named. Restoring something that was never withheld is harmless rather than an error, so \"put it back\" is safe to say twice. It cannot recover anything erased — erasure is a different act under a different gate, and nothing here reaches it.",
       "input_schema": {

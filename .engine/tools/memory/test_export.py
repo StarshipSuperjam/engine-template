@@ -78,6 +78,17 @@ class DestinationGuardTests(_Base):
                     export.write("conversation", os.path.join(root, missing))
                 self.assertFalse(os.path.exists(os.path.join(root, missing.split("/")[0])))
 
+    def test_a_symlink_pointing_into_a_working_tree_is_refused(self):
+        # The guard judged the path it was handed, not the place the bytes land: a destination that is itself
+        # a symlink into a repository was judged by its parent — outside the tree, therefore allowed — and the
+        # write then followed the link inside.
+        root = self._repo()
+        link = os.path.join(self.out.name, "looks-harmless.md")
+        os.symlink(os.path.join(root, "leaked.md"), link)
+        with self.assertRaises(export.ExportRefused):
+            export.write("conversation", link)
+        self.assertFalse(os.path.exists(os.path.join(root, "leaked.md")))
+
     def test_an_unanswerable_question_refuses_rather_than_permitting(self):
         # The stated failure direction, asserted rather than trusted: if git cannot be consulted at all there
         # is no way to know whether the path would be committed, and "don't know" must never read as "safe".
