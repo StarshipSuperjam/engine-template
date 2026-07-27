@@ -1,7 +1,7 @@
 """test_backup_vault.py — memory's backup vault, EXPORT path.
 
 The REAL backup logic runs fully offline behind the module's own injected `_FakeVault` transport (the
-erasure_proposer/_FakeGH precedent) — only GitHub is faked. Each test redirects a throwaway ledger cabinet
+erasure _FakeGH precedent) — only GitHub is faked. Each test redirects a throwaway ledger cabinet
 (ENGINE_MEMORY_DIR) AND a throwaway repo root (validate.ROOT) so neither the real ledger nor the real
 committed pointer is ever touched.
 """

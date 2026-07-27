@@ -3,9 +3,9 @@
   "concerns": [
     {
       "target": "the project's saved memory (the experiential decision and preference records the engine keeps)",
-      "adversarial-question": "Do any saved beliefs now contradict each other, has observed behaviour since refuted one, or is a heavily-used record actually obsolete — and is any already-retired record still physically present when it has earned erasure?",
-      "finding-types": ["contradicting-belief", "refuted-belief", "obsolete-high-use-record", "earned-erasure"],
-      "justification": "Memory's mechanical consolidation and decay keep the store tidy by frequency and age, but they cannot judge that a belief is now wrong or that two records disagree — that is a content judgment made fresh each run, above the mechanical layer, and never expressible as a check."
+      "adversarial-question": "Do any saved records now contradict each other, has observed behaviour since refuted one, or is a record the project keeps relying on actually obsolete?",
+      "finding-types": ["contradicting-belief", "refuted-belief", "obsolete-record"],
+      "justification": "Memory keeps every record it was given and nothing prunes by age or frequency, so nothing mechanical can judge that a stored belief is now wrong or that two records disagree — that is a content judgment made fresh each run, above the mechanical layer, and never expressible as a check."
     },
     {
       "target": "the engine-labelled open issues (the deployed engine's own debt register)",

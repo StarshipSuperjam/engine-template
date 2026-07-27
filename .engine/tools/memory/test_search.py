@@ -23,7 +23,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import forget, index, ledger, records, score  # noqa: E402
+from memory import forget, index, ledger, records  # noqa: E402
 
 _ID = records.RECORD_ID_KEY
 
@@ -76,30 +76,26 @@ class RankingTests(SearchTestCase):
         self.assertEqual(order[0], strong)
         self.assertIn(weak, order)
 
-    def test_bm25_leads_a_reinforced_weak_match_does_not_overtake(self):
-        # The B2 guard: hammering the weaker match with usage must NOT push it past a clearly-stronger match.
+    def test_a_clearly_stronger_match_leads(self):
         strong, weak = self._discriminative_corpus()
-        self.reinforce(weak, times=50)
         self.rebuild()
         self.assertEqual(self.ids(self.search("export"))[0], strong)
 
-    def test_usage_breaks_a_near_tie(self):
-        # Two identical-text matches (same bm25 → same relevance bucket) reorder by usage.
-        a = self.add("the field almanac lists the frost dates")
-        b = self.add("the field almanac lists the frost dates")
+    def test_equal_relevance_orders_newest_first(self):
+        # Two identical texts score identically, so the tiebreak alone decides. It used to be how often each
+        # had been recalled; with that gone the surviving order was ledger position ASCENDING — oldest first,
+        # on a store that is almost entirely conversation, and worst on exactly the broad query where every
+        # match ties. Newest-first is the deliberate replacement, and this is what pins it.
+        older = self.add("the field almanac lists the frost dates")
+        newer = self.add("the field almanac lists the frost dates")
         self.rebuild()
-        self.reinforce(b, times=5)
-        self.rebuild()
-        self.assertEqual(self.ids(self.search("almanac"))[0], b)
+        self.assertEqual(self.ids(self.search("almanac")), [newer, older])
 
-    def test_never_accessed_match_is_still_returned_just_lower(self):
+    def test_neither_of_two_equal_matches_is_dropped(self):
         a = self.add("the field almanac lists the frost dates")
         b = self.add("the field almanac lists the frost dates")
         self.rebuild()
-        self.reinforce(b, times=5)
-        self.rebuild()
-        got = set(self.ids(self.search("almanac")))
-        self.assertEqual(got, {a, b})   # the un-accessed one is deprioritized, never dropped
+        self.assertEqual(set(self.ids(self.search("almanac"))), {a, b})
 
     def test_limit_caps_the_top_k_by_ranking(self):
         strong, weak = self._discriminative_corpus()
@@ -114,9 +110,9 @@ class RankingTests(SearchTestCase):
             self.assertIn(records.SCORE_KEY, r)
             self.assertIsInstance(r[records.SCORE_KEY], float)
             self.assertGreaterEqual(r[records.SCORE_KEY], 0.0)
-        # The primary ordering is by relevance bucket (best first): the first result's bucket is <= the last's.
-        buckets = [round(-r[records.SCORE_KEY], index._REL_DECIMALS) for r in result.records]
-        self.assertEqual(buckets, sorted(buckets))
+        # The ordering is by relevance, best first — no rounding, no second term.
+        rels = [r[records.SCORE_KEY] for r in result.records]
+        self.assertEqual(rels, sorted(rels, reverse=True))
 
     def test_empty_query_returns_empty_not_degraded(self):
         self.add("anything at all")
@@ -128,27 +124,16 @@ class RankingTests(SearchTestCase):
 
 
 class FilterTests(SearchTestCase):
-    def test_unknown_role_is_rejected(self):
-        self.add("a decision about export", role="decision")
+    def test_a_role_is_not_something_you_can_filter_on(self):
+        # The role filter is gone, and this is the shape of its absence: a caller that passes one gets a
+        # TypeError rather than a silently-ignored argument or an empty answer that reads as "not held".
+        # Nothing writes a role any more, so the filter could only ever have matched records an older engine
+        # left behind — while looking, to any caller, exactly like the project having no history on a subject.
+        self.add("we decided to ship export", role="decision")
         self.rebuild()
-        with self.assertRaises(ValueError):
-            self.search("export", roles=["banana"])
-
-    def test_role_filter_narrows_to_the_vocabulary(self):
-        d = self.add("we decided to ship export", role="decision")
-        self.add("a lesson about export", role="lesson")
-        self.rebuild()
-        only = self.search("export", roles=["decision"])
-        self.assertEqual(self.ids(only), [d])
-        self.assertEqual(len(self.search("export").records), 2)   # roles=None -> all
-
-    def test_role_accept_set_equals_score_role_weights(self):
-        # Mutation tripwire: every vocabulary role is accepted, and the accept-set is exactly score.ROLE_WEIGHTS.
-        for role in score.ROLE_WEIGHTS:
-            self.assertEqual(index._validate_roles([role]), {role})
-        self.assertEqual(index._validate_roles(list(score.ROLE_WEIGHTS)), set(score.ROLE_WEIGHTS))
-        with self.assertRaises(ValueError):
-            index._validate_roles(["definitely-not-a-role"])
+        with self.assertRaises(TypeError):
+            index.search("export", roles=["decision"])
+        self.assertEqual(len(self.search("export").records), 1)     # the record itself is still found
 
     def test_tag_any_match(self):
         a = self.add("export plans", tags=["eADR-0007", "release"])
@@ -253,9 +238,12 @@ class NoSideEffectTests(SearchTestCase):
     def test_search_source_has_no_write_calls(self):
         # A source-scan: the ranked recall path must not reach the reinforcement appender or a ledger write.
         src = "".join(inspect.getsource(fn) for fn in
-                       (index.search, index._ranked, index._rank_slice_score, index._usage_of))
+                       (index.search, index._ranked, index._rank_slice_score, index._fast_candidates))
         self.assertNotIn("record_access", src)
         self.assertNotIn("ledger.append", src)
+        # And the stronger property this slice adds: the fast path reads no ledger at all, so what a search
+        # costs tracks what it matched rather than what is stored.
+        self.assertNotIn("live_records", inspect.getsource(index._fast_candidates))
 
 
 class QueryUnchangedTests(SearchTestCase):

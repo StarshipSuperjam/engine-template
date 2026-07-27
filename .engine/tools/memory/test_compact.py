@@ -7,7 +7,7 @@ generation gate + lock through a throwaway `ENGINE_MEMORY_DIR` cabinet, with an 
 point, and pin the load-bearing invariants: a crash leaves exactly one intact ledger (old or new); recall
 content is NEVER dropped (only the non-recall markers are); the content-free id is preserved; the score is identical
 before and after; the generation gate routes a crash-staled index to the scan; a leftover temp is reaped and
-never promoted; and `record_access` is held under the lock so a swap can never race it.
+never promoted.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import capture, compact, consolidate, forget, index, ledger, records, score  # noqa: E402
+from memory import capture, compact, forget, index, ledger, legacy_shapes as legacy, records  # noqa: E402
 
 _DAY = 86400
 
@@ -42,7 +42,7 @@ class _Base(unittest.TestCase):
         self._tmp.cleanup()
 
     def _episodic(self, text, *, age_days=0, role="decision", batchless=True):
-        rec = consolidate._make_episodic("S", {"role": role, "text": text}, "b")
+        rec = legacy.episodic("S", role, text, "b")
         if batchless:
             rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - age_days * _DAY
@@ -72,7 +72,7 @@ class CrashSafeSwapTests(_Base):
         e = self._episodic("alpha bridge note")
         rid = e[records.RECORD_ID_KEY]
         for _ in range(3):
-            forget.record_access(rid)
+            ledger.append(legacy.reinforcement(rid))
         ids = self._content_ids()
         book = self._reinforcements()
         gen0 = ledger.generation()
@@ -94,7 +94,7 @@ class CrashSafeSwapTests(_Base):
         e = self._episodic("equinox parade note")
         rid = e[records.RECORD_ID_KEY]
         for _ in range(3):
-            forget.record_access(rid)
+            ledger.append(legacy.reinforcement(rid))
         ids = self._content_ids()
         index.rebuild()                                        # an index at generation 0
         with self.assertRaises(compact._InjectedCrash):
@@ -119,7 +119,7 @@ class CrashSafeSwapTests(_Base):
                 self._tmp.cleanup(); self._tmp = tempfile.TemporaryDirectory()
                 os.environ[ledger.ENV_DIR] = self._tmp.name
                 e = self._episodic("solstice note")
-                forget.record_access(e[records.RECORD_ID_KEY])
+                ledger.append(legacy.reinforcement(e[records.RECORD_ID_KEY]))
                 with self.assertRaises(compact._InjectedCrash):
                     compact.compact(_crash_after=crash)
                 read = ledger.read()
@@ -128,51 +128,11 @@ class CrashSafeSwapTests(_Base):
                               [r.get(records.RECORD_ID_KEY) for r in read.records])
 
 
-class FoldPreservesScoreTests(_Base):
-    def test_the_score_is_identical_before_and_after_compaction(self):
-        now = 2_000_000_000
-        e = self._episodic("the cartographer note", role="lesson")
-        e["ts"] = now - 10 * _DAY
-        rid = e[records.RECORD_ID_KEY]
-        # Re-append the back-dated record (the demo/test factory appended a now-ish one; overwrite via accesses' ts).
-        for ts in (now - 6 * _DAY, now - 2 * _DAY):
-            forget.record_access(rid, now=ts)
-        accesses = forget._access_index(ledger.ledger_path()).get(rid, [])
-        # Score the LIVE (un-compacted) record at two times.
-        live = [r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == rid
-                and r.get("kind") == records.EPISODIC_KIND][0]
-        s_before_t0 = score.score(live, accesses, now=now)
-        s_before_t1 = score.score(live, accesses, now=now + 4 * _DAY)
-        compact.compact(now=now)                               # fold at t0 = now
-        comp = self._by_id(rid)[0]
-        self.assertIn(records.FRECENCY_SNAPSHOT_KEY, comp)     # the snapshot was carried
-        after_acc = forget._access_index(ledger.ledger_path()).get(rid, [])
-        self.assertEqual(after_acc, [])                        # the markers were folded away
-        s_after_t0 = score.score(comp, after_acc, now=now)
-        s_after_t1 = score.score(comp, after_acc, now=now + 4 * _DAY)
-        self.assertAlmostEqual(s_before_t0, s_after_t0, places=9)
-        self.assertAlmostEqual(s_before_t1, s_after_t1, places=9)   # the recurrence holds across time
-
-    def test_a_record_reinforced_into_a_different_tier_keeps_its_recall_membership(self):
-        # An archived-aged record (40 d, no accesses -> archived) reinforced enough to climb out of archived:
-        # its recall VISIBILITY (not merely its scalar score) must be unchanged across compaction.
-        e = self._episodic("the lighthouse note", age_days=40, role="lesson")
-        rid = e[records.RECORD_ID_KEY]
-        for _ in range(5):
-            forget.record_access(rid)
-        live_ids = lambda: {r.get(records.RECORD_ID_KEY) for r in forget.live_records()}
-        self.assertIn(rid, live_ids())                         # reinforced -> visible before compaction
-        compact.compact()
-        self.assertIn(rid, live_ids())                         # still visible after the fold (tier preserved)
-        comp = self._by_id(rid)[0]
-        self.assertNotEqual(score.tier(comp, ()), score.ARCHIVED)
-
-
 class IdAndPruneTests(_Base):
     def test_the_4b_id_is_preserved_on_re_append(self):
         e = self._episodic("the quokka decision")
         rid = e[records.RECORD_ID_KEY]
-        forget.record_access(rid)
+        ledger.append(legacy.reinforcement(rid))
         compact.compact()
         survivors = self._by_id(rid)
         self.assertEqual(len(survivors), 1)                    # exactly one content record, same id
@@ -181,7 +141,7 @@ class IdAndPruneTests(_Base):
     def test_reinforcement_markers_are_pruned(self):
         e = self._episodic("pelican note")
         for _ in range(4):
-            forget.record_access(e[records.RECORD_ID_KEY])
+            ledger.append(legacy.reinforcement(e[records.RECORD_ID_KEY]))
         compact.compact()
         self.assertNotIn(records.REINFORCEMENT_KIND, self._kinds())
 
@@ -206,16 +166,16 @@ class NeverDropsRecallContentTests(_Base):
         a = self._episodic("the manifest note")
         b = self._episodic("the migration note", role="decision")
         ledger.append(capture._make_record("S", 0, "user", "a raw turn note about turnips"))
-        forget.record_access(a[records.RECORD_ID_KEY])
+        ledger.append(legacy.reinforcement(a[records.RECORD_ID_KEY]))
         ids = self._content_ids()
         compact.compact()
         self.assertEqual(self._content_ids(), ids)             # superset (==) before -> after; nothing dropped
 
     def test_a_crash_duplicate_orphan_survives_and_stays_retired(self):
         # An orphan episodic (batch never closed) + a completed pass; the orphan is retired but NOT erased.
-        orphan = consolidate._make_episodic("S", {"role": "decision", "text": "orphaned summary"}, "batch-x")
+        orphan = legacy.episodic("S", "decision", "orphaned summary", "batch-x")
         ledger.append(orphan)
-        consolidate.store_episodic("S", [{"role": "decision", "text": "the completed summary"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "the completed summary"}])
         orphan_id = orphan[records.RECORD_ID_KEY]
         self.assertNotIn(orphan_id, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
         compact.compact()
@@ -230,43 +190,21 @@ class NeverDropsRecallContentTests(_Base):
         # after the rewrite, and compaction must not quietly reintroduce an age-based drop of its own.
         old = self._episodic("the buried gantry note", age_days=40, role="lesson")
         aid = old[records.RECORD_ID_KEY]
-        self.assertEqual(score.tier(old, ()), score.ARCHIVED)   # the tier still computes — it just hides nothing
         self.assertIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
         compact.compact()
         self.assertEqual(len(self._by_id(aid)), 1)             # still resident in the ledger
         self.assertIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])
 
 
-class WatermarkSurvivesCompactionTests(_Base):
-    """#446: the per-session consolidation watermark must survive compaction (a reset would re-consolidate an
-    already-summarized session wholesale). It survives because `consolidated` markers pass through the fold
-    verbatim — this pins that, and that an erasure pass never drops one."""
-
-    def _watermark(self, session):
-        return consolidate._session_states().get(session, (-1, -1, False))[1]
-
-    def test_the_max_through_seq_survives_compaction(self):
-        ledger.append(capture._make_record("S", 0, "user", "first half"))
-        consolidate.store_episodic("S", [{"role": "decision", "text": "a"}])   # marker through_seq 0
-        ledger.append(capture._make_record("S", 1, "user", "second half"))
-        consolidate.store_episodic("S", [{"role": "lesson", "text": "b"}])     # marker through_seq 1
-        self.assertEqual(self._watermark("S"), 1)
-        compact.compact()
-        self.assertEqual(self._watermark("S"), 1)                              # NOT reset
-        self.assertNotIn("S", consolidate.detect_unconsolidated())            # so not re-consolidated wholesale
-        markers = [r for r in ledger.iter_records() if r.get("kind") == records.MARKER_KIND]
-        self.assertEqual(len(markers), 2)                                      # both markers verbatim
-        self.assertTrue(all(records.THROUGH_SEQ_KEY in m for m in markers))    # the field carried through
-
+class MarkerSurvivalTests(_Base):
     def test_an_erasure_pass_never_drops_a_consolidated_marker(self):
         ledger.append(capture._make_record("S", 0, "user", "the note"))
-        consolidate.store_episodic("S", [{"role": "decision", "text": "the summary"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "the summary"}])
         gone = self._episodic("erase this unrelated note")
         compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
         report = compact.compact()
         self.assertEqual(report["erased"], 1)                                  # the erasure did happen...
         self.assertIn(records.MARKER_KIND, self._kinds())                      # ...but the marker survived
-        self.assertEqual(self._watermark("S"), 0)                             # watermark intact
 
 
 class Layer2ErasureTests(_Base):
@@ -358,32 +296,32 @@ class Layer2ErasureTests(_Base):
 
 
 class SearchBodyTests(_Base):
-    def test_compaction_no_longer_stamps_a_tier(self):
-        # The three carried snapshot fields are read back by the scorer; the carried tier never was. It was
-        # stamped for legibility while a tier decided whether a record still surfaced — nothing does now, so
-        # writing it would leave a label that reads as if it did ("archived" looks like hidden).
+    def test_compaction_carries_no_score_onto_a_record(self):
+        # Compaction used to fold a frecency snapshot onto every reinforced record before pruning its markers,
+        # so the scorer could resume from it. There is no scorer, so there is nothing to resume and nothing to
+        # carry — the markers are simply reclaimed. A record must come out of a compaction byte-identical.
         e = self._episodic("the riverside survey note")
         rid = e[records.RECORD_ID_KEY]
         for _ in range(3):
-            forget.record_access(rid)
+            ledger.append(legacy.reinforcement(rid))
         compact.compact()
         comp = self._by_id(rid)[0]
-        self.assertIn(records.FRECENCY_SNAPSHOT_KEY, comp)            # the fields the scorer reads are still folded
-        self.assertIn(records.SNAPSHOT_TS_KEY, comp)
-        self.assertIn(records.LAST_ACCESS_TS_KEY, comp)
-        self.assertNotIn(records.TIER_KEY, comp)
+        for carried in (records.FRECENCY_SNAPSHOT_KEY, records.SNAPSHOT_TS_KEY,
+                        records.LAST_ACCESS_TS_KEY, records.TIER_KEY):
+            self.assertNotIn(carried, comp, f"compaction carried {carried!r} onto a record")
+        self.assertEqual(comp, e)                                     # byte-identical: only the markers went
 
     def test_a_tier_carried_by_an_older_engine_is_not_searchable(self):
         # A deployed repo that upgrades brings records an older engine compacted, and those DO carry a `tier`
         # string ("hot"/"cold"/"archived"). It must stay out of the search body, else a query for one of those
         # words would surface every such record. The note's own text contains no tier word, so a hit could only
         # be the leaked field. This is the reason `records.TIER_KEY` still exists at all.
-        legacy = consolidate._make_episodic("S", {"role": "decision", "text": "the riverside survey note"}, "b")
-        legacy.pop(records.BATCH_KEY, None)                           # batchless: always live
-        legacy[records.TIER_KEY] = score.ARCHIVED
-        ledger.append(legacy)
+        old = legacy.episodic("S", "decision", "the riverside survey note", "b")
+        old.pop(records.BATCH_KEY, None)                              # batchless: always live
+        old[records.TIER_KEY] = "archived"
+        ledger.append(old)
         index.rebuild()
-        for word in (records.TIER_KEY, score.HOT, score.WARM, score.COLD, score.ARCHIVED):
+        for word in (records.TIER_KEY, "hot", "warm", "cold", "archived"):
             self.assertEqual(index.query(word).records, [], f"the carried {word!r} leaked into search")
         self.assertEqual(len(index.query("riverside").records), 1)    # its real words are still findable
 
@@ -438,16 +376,20 @@ class LockTests(_Base):
         finally:
             capture._release_lock(held)
 
-    def test_record_access_is_a_no_op_while_the_lock_is_held(self):
+    def test_a_bookkeeping_marker_appended_under_contention_is_skipped_not_written_lock_free(self):
+        # The single-writer law, exercised on the one marker kind a real store is full of. Compaction holds
+        # this lock across its whole read-fold-swap, so anything that wrote without it could be renamed away
+        # mid-flight. Nothing appends a reinforcement marker any more, but the law it proved still binds every
+        # writer, and a legacy store is the honest fixture for it.
         e = self._episodic("a note")
         rid = e[records.RECORD_ID_KEY]
         held = capture._acquire_lock(os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME))
         try:
-            forget.record_access(rid)                          # contended -> skipped, never lock-free
+            self.assertIsNone(capture._acquire_lock(               # a second writer cannot take it
+                os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)))
         finally:
             capture._release_lock(held)
-        self.assertEqual(self._reinforcements(), 0)            # nothing was appended under contention
-        forget.record_access(rid)                              # lock free now -> the marker lands
+        ledger.append(legacy.reinforcement(rid))                   # lock free now -> the marker lands
         self.assertEqual(self._reinforcements(), 1)
 
 

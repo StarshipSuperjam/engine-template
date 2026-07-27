@@ -77,7 +77,7 @@ gitignored, non-canonical marker at `.engine/boot/.cache/standing-alarms.json` (
 recording each surfaced standing alarm's structured condition and that it was shown in full, so the next
 session can collapse an unchanged one. It is read and written by boot's own `SessionStart` hook, lives at
 a stable per-instance path under the shared clone root (never an ephemeral worktree, so it spans separate
-sessions on the one machine), shares **no code path** with memory's consolidation sweep, is never
+sessions on the one machine), shares **no code path** with memory's own session-start work, is never
 committed, and is **fail-toward-full** (any loss or ambiguity renders the alarm in full). This refines
 boot's read-only law to *read-only of canonical state* — it never regenerates derived or committed state;
 its sole write is this presentation ledger.

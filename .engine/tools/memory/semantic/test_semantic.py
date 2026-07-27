@@ -14,12 +14,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 _PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records                       # noqa: E402
+from memory import forget, ledger, records               # noqa: E402
 from memory.semantic import embed, store, wordpiece      # noqa: E402
 
 
@@ -285,6 +286,63 @@ class StoreBehaviourTests(_Cabinet):
         finally:
             reopened.close()
         self.assertEqual(remaining, 0)
+
+
+
+class LiveDerivationCacheTests(unittest.TestCase):
+    """Meaning-based recall re-derived the whole live set on every question — a full ledger pass plus a hash of
+    every record, measured at 264 ms of a 334 ms query on a 30 MB store. It is cached now, and the only thing
+    that matters is that the cache can never serve a record recall is no longer allowed to surface.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = os.environ.get(ledger.ENV_DIR)
+        os.environ[ledger.ENV_DIR] = self._tmp.name
+        store._LIVE_CACHE.clear()
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop(ledger.ENV_DIR, None)
+        else:
+            os.environ[ledger.ENV_DIR] = self._prev
+        store._LIVE_CACHE.clear()
+        self._tmp.cleanup()
+
+    def _turn(self, text, seq=0, session="s-1"):
+        rid = records.new_record_id()
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: rid,
+                       "session_id": session, "seq": seq, "speaker": "user", "ts": 1785000000 + seq,
+                       "text": text})
+        return rid
+
+    def test_an_unchanged_ledger_is_derived_once(self):
+        self._turn("the quokka decision")
+        first = store._live_text()
+        with mock.patch.object(store.forget, "live_records",
+                               side_effect=AssertionError("re-derived an unchanged ledger")):
+            self.assertEqual(store._live_text(), first)
+
+    def test_a_new_turn_invalidates_it(self):
+        self._turn("the quokka decision")
+        self.assertEqual(len(store._live_text()), 1)
+        self._turn("a second thing entirely", seq=1)
+        self.assertEqual(len(store._live_text()), 2)      # the append was seen
+
+    def test_a_withhold_invalidates_it(self):
+        # THE ONE THAT MATTERS. A withhold removes a record from recall without changing the ledger's size in
+        # any way the reader can predict, so it rides the epoch counter. A cache that missed this would serve
+        # the operator back the very conversation they took out.
+        rid = self._turn("the thing that should not be recalled")
+        self.assertIn(rid, store._live_text())
+        forget.withhold(record_id=rid)
+        self.assertNotIn(rid, store._live_text())
+
+    def test_an_unreadable_ledger_is_never_served_from_cache(self):
+        self._turn("the quokka decision")
+        store._live_text()
+        os.remove(ledger.ledger_path())
+        self.assertEqual(store._live_text(), {})          # re-derived, not the stale copy
 
 
 if __name__ == "__main__":

@@ -12,10 +12,10 @@ live session's turn. Callers reach the ledger/index primitives explicitly with `
 ledger`` / ``from memory import index``.
 
 Shipped: the ledger (``memory.ledger``), the derived index + plain-scan fallback (``memory.index``),
-turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), AI-judged episodic consolidation —
-the closed role vocabulary + the abandoned-session ``SessionStart`` sweep (``memory.consolidate``), active
-forgetting (Layer 1): logical retirement (``memory.forget``), crash-safe ledger compaction
-(``memory.compact``), gist roll-up (``memory.rollup``), the public search interface + MCP server, the
+turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), the operator's own controls — pins
+(``memory.pins``), reversible withhold/restore and the readout (``memory.forget``), export (``memory.export``),
+the operator-asked erasure request (``memory.erase``) and the operator-asked secret re-scrub
+(``memory.rescrub``) — crash-safe ledger compaction (``memory.compact``), the public search interface + MCP server, the
 backup/restore vault with its resurrection-surfacing (``memory.backup_vault`` / ``memory.restore_vault``),
 the pre-migration backup seam the module manager consumes (``memory.snapshot_for_migration``) and the
 migration-revert restore that brings a pre-migration snapshot tag back (``memory.restore_pre_migration``). Layer-2

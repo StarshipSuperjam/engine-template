@@ -2,7 +2,8 @@
 """The engine-memory MCP server: the conforming fallback for memory recall (search.json).
 
 A thin MCP transport over the recall library: the declared operations of `search.json` — `search`, which
-ranks (lexical relevance, reinforced by usage) and filters (role/tag) via `memory.index.search`;
+ranks (lexical relevance, equally-relevant matches newest first) and filters (tag, session) via
+`memory.index.search`;
 `recall-window`, which reads one past session's actual conversation back through `memory.recall.window`
 (a fetch, never a second ranking — the ranked contract stays single); and `recall-by-meaning`, which finds
 records that mean the same thing as a question in different words, and is registered only where the optional
@@ -16,8 +17,8 @@ nothing. `recall-by-meaning` always has a nearest neighbour, so it returns the m
 and expects the caller to read it. No closeness figure is relayed: it ranks within one answer but does not
 track relevance, and a number beside a result is read as confidence whatever the surrounding words say. A
 caller chooses between the two; nothing here blends them or falls back from one to the other.
-On every hit it fires the live reinforcement that records the access (`forget.record_access`), so recall is
-self-reinforcing — the move reserved for "the search server" (records.py / forget.py). Registered
+Reading changes nothing. Recall used to append an access marker for each record it returned, and the ranking
+read those back as a usage tiebreak; both are gone with the curation lifecycle (eADR-0038). Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
 fallback); the operator's one-time approval of the tool is the operator's own (never engine-written), so until they
 approve it the tool is simply switched off — recall never half-runs.
@@ -55,21 +56,6 @@ SERVER_NAME = "engine-memory"
 server = FastMCP(SERVER_NAME)
 
 
-def _reinforce_on_recall(results) -> None:
-    """Record one access per RETURNED (post-slice) record — the live reinforcement the ranking reads back as
-    usage. Fires only for what the caller actually saw, never the wider candidate set. Fail-soft: a reinforcement
-    fault NEVER converts a successful recall into an error (the contract is *recall always answers*);
-    `forget.record_access` is already a clean no-op on lock contention (it reinforces again on the next hit) and
-    on a blank id, and compaction folds these markers into the carried frecency snapshot, so the
-    marker population stays bounded."""
-    for record in results:
-        try:
-            rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
-            forget.record_access(rid)
-        except Exception:  # noqa: BLE001 — best-effort bookkeeping; one fault never costs the response or the rest
-            pass
-
-
 # The cap applied when a caller omits `limit`. Search is unbounded by default in the library, which was
 # survivable against a few hundred curated summaries and is not against a store whose bulk is conversation: a
 # single common word matches tens of thousands of records, and every one of them comes back whole. A default
@@ -77,17 +63,19 @@ def _reinforce_on_recall(results) -> None:
 _DEFAULT_LIMIT = 10
 
 
-def _recall(query: str, *, roles=None, tags=None, session=None, limit=None):
-    """The recall + live-reinforcement the `search` tool performs, as a plain function shared by the tool and the
-    operator demo so BOTH exercise the real path: rank/filter via the side-effect-free library, then record one
-    access per returned record. Returns the library `QueryResult` (an unknown role raises ValueError from the
-    library — the tool lets the SDK serialize that as a tool error).
+def _recall(query: str, *, tags=None, session=None, limit=None):
+    """The recall the `search` tool performs, as a plain function shared by the tool and the operator demo so
+    BOTH exercise the real path. Returns the library `QueryResult`.
+
+    A READ IS NOW A READ. Recall used to append an access marker for every record it returned, and the ranking
+    read those back as a usage tiebreak. Both are gone (eADR-0038 ends per-record scoring), so searching writes
+    nothing at all — which is also what made the fast path stop reading the ledger, since collecting those
+    markers was a full pass over it on every single query.
 
     An omitted `limit` becomes `_DEFAULT_LIMIT` rather than staying unbounded. A caller that genuinely wants
     everything asks for a large number; nobody is served by the accidental unbounded read."""
-    result = index.search(query, roles=roles, tags=tags, session=session,
+    result = index.search(query, tags=tags, session=session,
                           limit=_DEFAULT_LIMIT if limit is None else limit)
-    _reinforce_on_recall(result.records)
     # A captured turn can be part the operator's words and part a harness block the engine fused into the same
     # message — and the record is marked as spoken by the operator either way. Handing that back whole tells a
     # reader the operator said something the engine inserted, and this answer is the one place a model reads a
@@ -142,31 +130,26 @@ _RECALL_COMPLETENESS_NOTE = (
 @server.tool(
     name="search",
     description=(
-        "Recall the memory records most relevant to a query, ranked best-first (lexical relevance, with how often "
-        "a memory has been used breaking near-ties — a clearly stronger match is never shoved aside by a much-used "
-        "weaker one). Optional `roles` narrows to record kinds (decision, rationale/pushback, lesson, dead-end, "
-        "preference, intent, observation); optional `tags` narrows to records carrying any given tag (entity refs "
-        "like 'eADR-0007' or free topic tags — compose the link to knowledge yourself by tag-filtering an entity "
-        "id); optional `limit` caps results and defaults to 10. Optional `session` narrows to ONE conversation — "
+        "Recall the memory records most relevant to a query, ranked best-first by lexical relevance, with "
+        "equally-relevant matches ordered newest first. Optional `tags` narrows to records carrying any given "
+        "tag; optional `limit` caps results and defaults to 10. Optional `session` narrows to ONE conversation — "
         "the second move of a recall, once a first search has named which conversation to look in. Reach for it "
         "whenever a hit points at a long session and you need the moment inside it: paging a session from its "
-        "start is slow and often misses, because a session here can run to hundreds of messages. Searches BOTH the curated summaries and the "
-        "actual past conversation, so a result may be a summary or one piece of a real message — take its "
-        "`session_id` and `seq` to `recall-window` to read it in context. NOTE `roles` EXCLUDES CONVERSATION: "
-        "captured turns carry no role, so any role filter returns summaries only — do not use it when the answer "
-        "may live in something said once and never summarised. `tags` has the SAME blind spot — captured turns "
-        "carry only transcript tags, never an entity reference like 'eADR-0007' — so a tag filter also returns "
-        "summaries only. Returns narrative recall only, never structural fact (knowledge's job). Every result "
-        "carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation hit ADDS `speaker` and `seq`, a "
-        "summary ADDS `role` — that is how you tell them apart. Using a memory reinforces it, so what you rely "
-        "on stays easy to recall. AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
+        "start is slow and often misses, because a session here can run to hundreds of messages. Searches the "
+        "actual past conversation, so a result is usually one piece of a real message — take its "
+        "`session_id` and `seq` to `recall-window` to read it in context. NOTE `tags` HAS A BLIND SPOT: captured "
+        "turns carry only transcript tags, never an entity reference like 'eADR-0007', so a tag filter silently "
+        "drops the conversation. Search unfiltered first. Returns narrative recall only, never structural fact "
+        "(knowledge's job). Every result carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation "
+        "hit ADDS `speaker` and `seq`, and a pin carries `kind: pin`. Reading changes nothing — a search records "
+        "no access and writes nothing at all. AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
         "history on the subject: if `recall-by-meaning` is among your tools, ask it the same question in "
         "ordinary words before concluding anything, because it reaches records that share no wording with you."
     ),
 )
-def search(query: str, roles: list[str] | None = None, tags: list[str] | None = None,
+def search(query: str, tags: list[str] | None = None,
            session: str | None = None, limit: int | None = None) -> dict:
-    out = _recall(query, roles=roles, tags=tags, session=session, limit=limit).records
+    out = _recall(query, tags=tags, session=session, limit=limit).records
     result: dict = {"results": out}
     if out:
         result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
@@ -265,9 +248,9 @@ if _semantic_installed():
 
 # --- Operator demonstration -------------------------------------------------------------------------------
 # An operator-runnable walkthrough on a throwaway PRACTICE filing cabinet (a temp folder via ENGINE_MEMORY_DIR),
-# never the real store. It exercises the REAL ranked search + the REAL live reinforcement above. Plain words
-# only — "the filing cabinet" (the one real copy), "looking it up", "how often you've used it". Run it and vary
-# the memories/question/usage near the top:
+# never the real store. It exercises the REAL ranked search over REAL captured conversation. Plain words only —
+# "the filing cabinet" (the one real copy), "looking it up". Run it and vary the conversation/question near the
+# top:
 #     uv run --directory .engine --frozen -- python tools/memory/mcp_server.py demo
 
 _ID = records.RECORD_ID_KEY
@@ -279,100 +262,74 @@ def _demo_body() -> bool:
     now = int(time.time())
     ok = True
 
-    def add(text: str, *, role: str = "observation", tags=()) -> str:
+    def say(session: str, seq: int, speaker: str, text: str) -> str:
+        """One captured turn — the shape memory actually stores now, not a summary anyone wrote."""
         rid = records.new_record_id()
-        ledger.append({_ID: rid, "ts": now, "role": role, "tags": list(tags), "text": text})
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: rid, "session_id": session,
+                       "seq": seq, "speaker": speaker, "ts": now + seq, "text": text})
         return rid
 
-    def rebuild() -> None:
-        index.rebuild()
-
-    # A handful of memories. "export" is RARE (only two mention it), so looking it up clearly separates the strong
-    # match from the weak one; "almanac" is shared by two near-identical notes, so usage decides between them.
-    strong = add("we decided the export format, the export schedule, and the export owner", role="decision", tags=["release"])
-    weak = add("a passing note that export came up once in standup", role="observation")
-    for t in ("keep the onboarding copy short and friendly", "the nightly job rebuilds the cache",
-              "prefer dark mode across the whole interface", "the planning meeting moved to friday",
-              "we settled on snake_case for the config names", "retries are capped at three attempts"):
-        add(t)
-    almanac_a = add("the field almanac lists the frost dates")
-    almanac_b = add("the field almanac lists the frost dates")
-    rebuild()
+    # Two conversations that share a word, so narrowing to one of them is visibly different from searching both.
+    monday = [
+        say("monday", 0, "user", "why did we pick the ledger format we did?"),
+        say("monday", 1, "assistant", "we chose a plain append-only text file so git and ordinary tools can read it"),
+        say("monday", 2, "user", "and the export format?"),
+        say("monday", 3, "assistant", "export writes markdown, because a person reads it somewhere else"),
+    ]
+    friday = [
+        say("friday", 0, "user", "remind me what we said about export"),
+        say("friday", 1, "assistant", "export refuses to write anywhere a project would commit it"),
+    ]
+    index.rebuild()
 
     print("=" * 80)
-    print("PART 1 — the engine looks it up itself, and the most relevant memory comes back first")
+    print("PART 1 — the engine looks it up itself, in what was actually said")
     print("=" * 80)
-    top = _recall("export").records
-    ok1 = bool(top) and top[0].get(_ID) == strong
+    hits = _recall("export").records
     print('  you asked: "export"')
-    for r in top:
-        print("    found:", r["text"])
-    print("  =>", "the most relevant memory came back first." if ok1 else "!!! the wrong memory was first")
-    # ...and a much-used weaker match must NOT shove the stronger one aside.
-    for _ in range(30):
-        forget.record_access(weak)
-    rebuild()
-    top2 = _recall("export").records
-    ok1b = bool(top2) and top2[0].get(_ID) == strong
-    print("  even after the weaker note was used 30 times, the best answer still leads:",
-          "yes" if ok1b else "NO")
-    print("  =>", "a much-used weaker memory did not push the best answer down." if ok1b else "!!! the weaker note jumped the queue")
-    ok = ok and ok1 and ok1b
+    for r in hits:
+        print(f"    found: [{r.get('session_id')} #{r.get('seq')}] {r['text']}")
+    ok1 = len(hits) >= 3 and all(h.get("session_id") in ("monday", "friday") for h in hits)
+    print("  =>", "it found the moments themselves — not a summary of them." if ok1
+          else "!!! the conversation was not searched")
+    ok = ok and ok1
 
     print("\n" + "=" * 80)
-    print("PART 2 — using a memory makes it easier to find again, and the others are still there")
+    print("PART 2 — you can narrow to one conversation, which is how you find a moment inside a long one")
     print("=" * 80)
-    before = [r.get(_ID) for r in _recall("almanac").records]   # both come back; this reinforces both equally
-    for _ in range(8):
-        forget.record_access(almanac_b)                          # then use ONE of them repeatedly
-    rebuild()
-    after = _recall("almanac").records
-    after_ids = [r.get(_ID) for r in after]
-    climbed = bool(after_ids) and after_ids[0] == almanac_b
-    both_present = {almanac_a, almanac_b} <= set(after_ids)
-    print("  before, looking up \"almanac\" brings back:", len(before), "memories")
-    print("  after using one of them repeatedly, looking it up again:")
-    for r in after:
-        print("    found:", r["text"], "  <- the one you kept using" if r.get(_ID) == almanac_b else "")
-    print("  =>", "the one you used rose to the top — and the other is still right there, just lower."
-          if (climbed and both_present) else "!!! the climb or the retention failed")
-    ok = ok and climbed and both_present
+    scoped = _recall("export", session="friday").records
+    ok2 = bool(scoped) and {r.get("session_id") for r in scoped} == {"friday"}
+    print('  looking up "export" across everything:', len(hits), "moments")
+    print('  the same search, narrowed to friday :', len(scoped), "moments")
+    for r in scoped:
+        print(f"    found: [{r.get('session_id')} #{r.get('seq')}] {r['text']}")
+    print("  =>", "narrowing reached one conversation only." if ok2 else "!!! the narrowing did not hold")
+    ok = ok and ok2
 
     print("\n" + "=" * 80)
-    print("PART 3 — you can narrow the search to one kind of memory, or one topic")
+    print("PART 3 — looking something up changes nothing at all")
     print("=" * 80)
-    all_export = _recall("export").records
-    decisions = _recall("export", roles=["decision"]).records
-    tagged = _recall("export", tags=["release"]).records
-    ok3 = len(all_export) >= 2 and 1 <= len(decisions) < len(all_export) and 1 <= len(tagged) < len(all_export)
-    print('  looking up "export":')
-    print("    all memories that mention it:", len(all_export))
-    print('    just the decisions:', len(decisions))
-    print('    just the ones tagged "release":', len(tagged))
-    print("  =>", "the filters narrowed the answer." if ok3 else "!!! a filter did not narrow the answer")
+    before = sum(1 for _ in ledger.iter_records())
+    for _ in range(10):
+        _recall("export")
+        _recall("ledger format")
+    after = sum(1 for _ in ledger.iter_records())
+    ok3 = before == after
+    print("  lines in the cabinet before twenty look-ups:", before)
+    print("  lines in the cabinet after them            :", after)
+    print("  =>", "nothing was written — a read is a read." if ok3
+          else "!!! a look-up wrote to the cabinet")
     ok = ok and ok3
-
-    print("\n" + "=" * 80)
-    print("PART 4 — the private \"when you used it\" notes never show up when you search")
-    print("=" * 80)
-    raw_total = sum(1 for _ in ledger.iter_records())
-    leaked = any(r.get("kind") == records.REINFORCEMENT_KIND
-                 for r in _recall("almanac").records + _recall("export").records)
-    print("  the cabinet now holds", raw_total, "lines (real memories + the private usage notes from all that looking-up),")
-    print("  yet a search still returns only real memories — none of the private notes.")
-    print("  =>", "none of the private usage notes showed up as a search result." if not leaked else "!!! a private note leaked into search")
-    ok = ok and not leaked
 
     print("\n" + "-" * 80)
     print("What you just saw ran on a PRACTICE filing cabinet we filled for this demo, then threw away.")
-    print("On your REAL data: the engine can now look things up in its own memory ITSELF — but only after you")
-    print("approve the new memory-search tool once (a one-time approval, like the knowledge tool; until then it")
+    print("On your REAL data: the engine can look things up in its own memory ITSELF — but only after you")
+    print("approve the memory-search tool once (a one-time approval, like the knowledge tool; until then it")
     print("stays switched off). This is the engine PULLING an answer when it needs one; separately, every message")
     print("you send carries a short reminder to check whether this project already settled the thing — a reminder")
-    print("to go and look, never a peek at what is stored. Nothing here deletes")
-    print("anything: using a memory only changes its ranking, never removes the others, and permanent erasure")
-    print("stays a separate step you approve yourself.")
-    print("\nVary it yourself: edit the memories / question / how-many-times-used near the top and run it again.")
+    print("to go and look, never a peek at what is stored. Nothing here deletes anything, and nothing here")
+    print("writes: searching your memory leaves it exactly as it was.")
+    print("\nVary it yourself: edit the conversation / question near the top and run it again.")
     return ok
 
 

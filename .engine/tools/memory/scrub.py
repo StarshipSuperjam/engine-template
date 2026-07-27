@@ -29,7 +29,8 @@ now reaches the recorded conversation by keyword, so text this module chose not 
 addresses, phone numbers, bare high-entropy strings, ordinary `password=` prose — and everything captured
 before this module existed is reachable from any prompt, not only by naming a session. The store is still
 private and gitignored; what changed is how easily a search pulls a piece of it into a session's context. The
-search answer carries a standing disclosure saying so, and rewriting the already-stored history is owed.
+search answer carries a standing disclosure saying so. Rewriting the already-stored history is what
+`rescrub.py` does — an operator-asked verb, because it rewrites their own conversation and requires a backup.
 """
 
 import re

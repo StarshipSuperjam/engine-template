@@ -154,9 +154,8 @@ COLD_START_BUDGET = 20
 # budget_size governs surfacing and this floor is not used; it only keeps a budget-less result from
 # rendering an unbounded list. boot renders a prefix of attention's order — it never re-orders.
 NEEDS_ATTENTION_CAP = 4
-# How much of a recalled decision's text the orientation block shows. A recorded decision is a narrative
-# summary, not a headline, so a long one is elided rather than allowed to crowd the briefing — HOW MANY are
-# shown is the policy's budget slice; this bounds only how much of each. A build-spec leaf.
+# How much of a quoted note's own words a readout shows. A stored note is narrative, not a headline, so a long
+# one is elided rather than allowed to crowd the briefing; this bounds only how much of each. A build-spec leaf.
 _RECALL_SNIPPET_CHARS = 240
 
 
@@ -470,9 +469,9 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
     context, NOT an operator action item, so `structural_neighbors` are routed to the pack's neighborhood
     block (assemble_pack) and never to the action list; `recent_decisions` are likewise routed out — its two
-    halves to the "recently shipped" digest (merged PRs) and the recalled-decisions block (the memory recall),
+    half to the "recently shipped" digest (merged pull requests, the decision record now),
     since what already happened is not something needing attention. Returns
-    (action_lines, degraded_inputs, neighborhood, shipped_lines, recalled_entries, blocking_findings) — the
+    (action_lines, degraded_inputs, neighborhood, shipped_lines, blocking_findings) — the
     last being the finding: members the ranker graded blocking ({number, title} each), which boot needs
     separately from the rendered action lines: a blocking finding keeps a never-shed session-start relay
     (routine findings do not), and its identity set keys that relay's anti-habituation collapse.
@@ -502,11 +501,12 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
         # slice as DATA — boot is the LOADING layer; attention merges it per-key, never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
-        # The memory half of recent decisions, pulled ONCE here: the same rows feed the ranking (which orders
-        # and budgets them) and the render below (which needs the text `rank()` strips), so the block can never
-        # show a decision the ranking did not rank.
-        recall_rows = _recent_decisions_recall()
-        # The merged-PR half, read ONCE for the same reason: the ranking needs the moments and the digest
+        # RECENT DECISIONS IS THE MERGED-PULL-REQUEST HALF ALONE. There was a memory half: the summary writer
+        # stamped a `decision` role onto what it produced, and this relayed the newest of those into the
+        # ranking. Nothing writes a role any more (eADR-0038 ends the summary writer), so that half could only
+        # ever have relayed an empty list — a partition input that is structurally always nothing. Merged pull
+        # requests are the decision record now, and they are a better one: they carry the operator's own merge.
+        # Read ONCE, because the ranking needs the moments and the digest below needs the titles rank() strips: the ranking needs the moments and the digest
         # below needs the titles rank() strips. Read twice, that is two `git log` spawns per session AND a
         # seam — a merge landing between them would leave the digest naming a number with no title.
         try:
@@ -515,10 +515,10 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
             shipped_rows = None
         result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
                                      focus=focus or None, gh=gh, source=source, live_findings=live_findings,
-                                     memory_recall=recall_rows, shipped=shipped_rows,
+                                     memory_recall=None, shipped=shipped_rows,
                                      budget_total=COLD_START_BUDGET)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
-        return [], ["attention"], None, [], [], []
+        return [], ["attention"], None, [], []
     # The finding names, from the SAME rows the ranking graded — so a line can never name a finding the
     # ranking did not rank, and no second read is made for the sake of the wording.
     finding_titles = {f"finding:{r.get('number')}": r.get("title") for r in (live_findings or [])}
@@ -562,7 +562,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
         neighborhood["focus_total"] = focus_total   # the true count behind FOCUS_CAP, for honest disclosure (#165)
     return (lines, list(result.get("degraded_inputs") or []), neighborhood,
             _shipped_lines(result, read=(lambda: shipped_rows) if shipped_rows is not None else None),
-            _recalled_entries(result, recall_rows), blocking_findings)
+            blocking_findings)
 
 
 # (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. These
@@ -715,39 +715,6 @@ def render_neighborhood(nb: dict | None) -> list:
 
 # ---- "what just happened" — merged PRs, never a changelog -----------------------------------
 
-def _recent_decisions_recall(read=None) -> list[dict]:
-    """The saved memory's most recent DECISIONS, pulled read-only for attention's recent-decisions partition.
-
-    Attention's recent decisions are "recently merged pull requests … **and** the memory recall boot assembles
-    into the pack"; cold start "pull[s] knowledge structure and memory recall when their
-    servers are up". BOOT does that pull and RELAYS the rows to the ranking — attention never
-    queries memory itself (a deliberate choice keeps memory off attention's direct-reads list, preserving the
-    model: memory detects and owns its store, boot relays, attention ranks what it is handed).
-
-    The pull is non-lexical on purpose: a cold start has no prompt to match against, so it asks "what was
-    decided lately?" (recency-ordered). "What relates to THIS?" is asked mid-session instead, by the model
-    running the recall workflow the per-prompt cue points it at — never by this relay.
-
-    Normalises each record for the pure ranker: the ledger stores an epoch `ts`, the ranking reads a trailing-Z
-    moment, so the conversion happens HERE at the relay boundary rather than letting a raw epoch reach the
-    ranking math. Memory is imported LAZILY (it is off the cold-start import path) and every fault degrades to
-    [] — an unreadable store costs the recall, never the pack, and boot already surfaces an unreadable store as
-    its own plain-language memory-offline notice rather than from here."""
-    try:
-        from memory import index as _mem_index, records as _mem_records
-        out: list[dict] = []
-        for r in (read or _mem_index.recent_decisions)():
-            ts, rid = r.get("ts"), r.get(_mem_records.RECORD_ID_KEY)
-            if not rid or not isinstance(ts, (int, float)) or isinstance(ts, bool):
-                continue          # no stable id / no usable moment -> it cannot be ranked or cited; skip it
-            out.append({"id": str(rid), "text": (r.get("text") or ""),
-                        "recency": datetime.datetime.fromtimestamp(
-                            ts, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
-        return out
-    except Exception:  # noqa: BLE001 — recall is orientation context; its loss never breaks the pack
-        return []
-
-
 def _recent_sessions_recall(read=None, *, session_id=None) -> list:
     """The last few work sessions, one card each, RELAYED read-only from memory's own derivation.
 
@@ -864,9 +831,9 @@ def render_recent_sessions(cards: list) -> list:
 
 
 def _quote_for_pack(text: str) -> str:
-    """Neutralise fence and prompt markers in quoted conversation before it enters the pack — the same
-    treatment the recalled-decisions block gives its rows two blocks up, and needed MORE here: this quotes raw
-    conversation rather than a written note, so it can carry anything a past session pasted."""
+    """Neutralise fence and prompt markers in quoted conversation before it enters the pack. Load-bearing here
+    above anywhere else: this quotes raw conversation rather than a written note, so it can carry anything a
+    past session pasted."""
     return validate.defang_prompt_fence_markers(text or "")
 
 
@@ -938,51 +905,6 @@ def _recent_members(result: dict) -> list:
     return (entry.get("members") or [])[:entry.get("budget_size", NEEDS_ATTENTION_CAP)]
 
 
-def _recalled_entries(result: dict, rows: list) -> list:
-    """The MEMORY half of the ranked recent-decisions partition: the budget-bounded members, in the ranking's
-    order, re-joined with the record text `rank()` strips (it reduces every member to {id, rank}) — the same
-    reason the knowledge neighbourhood needs its own channel."""
-    by_id = {f"memory:{r.get('id')}": r for r in (rows or [])}
-    return [by_id[m["id"]] for m in _recent_members(result)
-            if m.get("id") in by_id]
-
-
-def render_recalled_decisions(entries: list | None) -> list:
-    """The AI-facing "decisions recorded recently" orientation block — the MEMORY half of attention's
-    recent-decisions partition, pulled at cold start, ordered by the
-    ranking and bounded by the policy's budget slice.
-
-    Orientation CONTEXT for the model, like the knowledge neighbourhood: it sits above the dashboard divider,
-    carries no RELAY_MARKER, and is not an operator alarm or an action item (the engine's own machinery
-    stays out of operator narration).
-
-    ATTRIBUTED, not confirmed. These are the project's own recorded decisions, which is exactly why the block
-    says so rather than asserting them: a decision can have been superseded since it was written, and the
-    ledger records what WAS decided, never a promise it still holds. Same trust seam the recall workflow
-    carries — attributed narrative the model verifies before asserting, never content it repeats as current
-    fact.
-
-    Each record's text is defanged: it is replayed into the model's context and a session can have pasted
-    anything into the notes it was consolidated from. [] when nothing was recalled (a fresh project, an
-    unreadable store) — no block at all, never an empty heading."""
-    if not entries:
-        return []
-    out = ["--- decisions recorded recently (orientation context, not an alarm) ---",
-           "From the project's saved memory, newest first. Attributed, not confirmed — a decision here may "
-           "have been superseded; check before you rely on it."]
-    for e in entries:
-        text = " ".join((e.get("text") or "").split())
-        if not text:
-            continue
-        if len(text) > _RECALL_SNIPPET_CHARS:
-            text = text[:_RECALL_SNIPPET_CHARS].rstrip() + "…"
-        out.append(f"  • {validate.defang_prompt_fence_markers(text)}  (recorded {e.get('recency')})")
-    if len(out) == 2:          # every entry was blank -> no block rather than a bare heading
-        return []
-    out.append("")
-    return out
-
-
 _SET_ASIDE_SHOW = 3    # how many most-recent notes the readout names inline; the true total is
 #                        always stated, and "ask me to list them all" reaches the rest — so the block stays a
 #                        brief orientation cue, never a wall (a long-lived store sets aside many notes).
@@ -1026,10 +948,9 @@ def _withheld_line(totals: dict, *, follows_other: bool) -> str:
 
 
 def _set_aside_snippet(text) -> str:
-    """One defanged, length-bounded line of a set-aside note's own words — the same treatment
-    render_recalled_decisions gives recall text, and load-bearing for the same reason: this readout replays
-    ledger text into the model's context, and a session can have pasted anything into the notes a summary was
-    built from."""
+    """One defanged, length-bounded line of a set-aside note's own words. Load-bearing, not cosmetic: this
+    readout replays ledger text into the model's context, and a session can have pasted anything into the
+    notes a summary was built from."""
     text = " ".join(str(text or "").split())
     if len(text) > _RECALL_SNIPPET_CHARS:
         text = text[:_RECALL_SNIPPET_CHARS].rstrip() + "…"
@@ -1321,7 +1242,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     # (map_corrupt) — both ran orientation on a live rebuild, but the operator's repair reads differently, so
     # each earns its own honestly-named heads-up (eADR-0004 'name what is reduced'). Mutually exclusive.
     map_corrupt = bool(source and getattr(source, "from_corrupt", False))
-    att_lines, att_degraded, neighborhood, shipped, recalled, blocking_findings = needs_attention(
+    att_lines, att_degraded, neighborhood, shipped, blocking_findings = needs_attention(
         state, gh=gh, live_findings=findings, source=source)
     # The whole-backlog total the card leads with — the operator's own open issues PLUS the engine's own
     # findings (its housekeeping folded in, never separately alarmed). Computed ONCE here so the marker and the
@@ -1595,8 +1516,6 @@ def gather_signals(session_id: str | None = None) -> dict:
         "map_corrupt": map_corrupt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
-        # the memory half of recent decisions (#394) -> the AI-facing recalled-decisions block
-        "recalled": recalled,
         # The "recently shipped" digest, now the attention policy's budget_recent_decisions slice over the
         # ranked partition rather than a buried constant's fixed 5 (#394).
         "shipped": shipped,
@@ -2778,7 +2697,6 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     orientation.append("")
     orientation.extend(render_recognition_slice())
     orientation.extend(render_neighborhood(s.get("neighborhood")))
-    orientation.extend(render_recalled_decisions(s.get("recalled")))
     # "Where we left off" (the cold-start thread): the last few sessions in the operator's own words. It sits in
     # the ORIENTATION tier deliberately — it is context, not state. Putting it in the status dashboard made the
     # pack exceed the platform's output cap, which shed the dashboard itself and took the stance line and the

@@ -2,12 +2,12 @@
   "schema_version": 1,
   "id": "search",
   "title": "Memory recall",
-  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` writes nothing at all and `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, and `search` and `recall-window` write nothing at all; `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
   "status": "active",
   "operations": [
     {
       "name": "search",
-      "description": "Recall the memory records most relevant to a query, ranked best-first. Searches both the curated records and the recorded conversation itself, so a result may be a summary written after the fact or one piece of a real message — long messages are stored in pieces, which is why a conversation hit is read back through the window operation rather than quoted as it stands. An optional session filter narrows to ONE conversation — the second move of a recall, once a first search has named which conversation to look in, and the answer to a hit that carries no position: without it the only way into a long session is to read it from the start. An optional role filter narrows to record kinds (the closed memory role vocabulary: decision, rationale/pushback, lesson, dead-end, preference, intent, observation), and excludes the conversation entirely because captured turns carry no role; an optional tag filter narrows to records carrying given tags (entity references such as eADR-#### or free topic tags — the read-time link to knowledge is composed by filtering on an entity-id tag); an optional limit caps how many results are returned, and an implementation is expected to bound an omitted one rather than return every match.",
+      "description": "Recall the memory records most relevant to a query, ranked best-first. Searches both the curated records and the recorded conversation itself, so a result may be a summary written after the fact or one piece of a real message — long messages are stored in pieces, which is why a conversation hit is read back through the window operation rather than quoted as it stands. An optional session filter narrows to ONE conversation — the second move of a recall, once a first search has named which conversation to look in, and the answer to a hit that carries no position: without it the only way into a long session is to read it from the start. ",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -19,14 +19,6 @@
             "description": "The recall query text, matched against the records' narrative content.",
             "type": "string",
             "minLength": 1
-          },
-          "roles": {
-            "description": "Restrict to these record roles (the closed memory role vocabulary: decision, rationale/pushback, lesson, dead-end, preference, intent, observation). Omit for all roles. Note that this is not a narrowing among what would otherwise be returned: captured conversation carries no role, so any role filter returns curated records ONLY and silently excludes the conversation itself — which looks identical to finding nothing. Omit it when the answer may live in something said once and never summarised. Validated against the implementation's own role schema, not frozen by this contract.",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
           },
           "tags": {
             "description": "Restrict to records carrying any of these tags (entity references such as 'eADR-0007' or free topic tags). Omit for no tag filter.",
@@ -58,7 +50,7 @@
         ],
         "properties": {
           "results": {
-            "description": "The matching memory records, ordered best-first by relevance (the ranking is the implementation's — BM25 for the lexical floor, reinforced by usage). Each result is a record object whose exact shape is the memory substrate's own (role, narrative, tags, provenance, score), not frozen by this contract.",
+            "description": "The matching memory records, ordered best-first by relevance (the ranking is the implementation's — BM25 for the lexical floor, with equally-relevant matches ordered newest first). Each result is a record object whose exact shape is the memory substrate's own (narrative, tags, provenance, score), not frozen by this contract.",
             "type": "array",
             "items": {
               "type": "object"

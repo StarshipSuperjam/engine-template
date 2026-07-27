@@ -4,10 +4,10 @@ Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
-ranked library and returns `{"results": [...]}`, and — the move this server adds — fires the live reinforcement
-(forget.record_access) once per RETURNED record, so recall is self-reinforcing. The reinforcement is fail-soft
-(a fault never converts a successful recall into an error), lock-safe (it never writes lock-free), and skips a
-record with no id. An unknown role surfaces as a tool error, not a crash. Isolation is a throwaway
+ranked library and returns `{"results": [...]}`, writing nothing at all — a read is a read. Beside it are the
+operator's own controls, which DO write, and the two that do not appear here at all: permanent erasure and the
+secret re-scrub are declared in the control contract and deliberately not served, because each is a
+command-line verb a person runs at a terminal. Isolation is a throwaway
 ENGINE_MEMORY_DIR cabinet, so the server's default-path library calls resolve to the test's temp store.
 """
 
@@ -92,22 +92,36 @@ class ToolWiringTests(_ServerBase):
         # private detail no other conforming implementation would offer, breaking a caller that relied on it.
         #
         # DERIVED FROM THE CONTRACTS, not from a literal: the operations are read out of the declarations
-        # themselves, so this fails if a tool is added without declaring it OR if an operation is declared and
-        # never served. TWO declarations are in play because the writes are a separate contract — `search.json`
-        # describes recall as never changing what is stored, so the operator's controls could not be declared
-        # beside it without making that description false.
+        # themselves, so this fails if a tool is added without declaring it. TWO declarations are in play
+        # because the writes are a separate contract — `search.json` describes recall as never changing what
+        # is stored, so the operator's controls could not be declared beside it without making that false.
+        #
+        # SERVED IS A SUBSET OF DECLARED, not an equality, and the difference is deliberate. Two operations —
+        # permanent erasure and the secret re-scrub — are declared BECAUSE a reader of the contract must know
+        # the capability exists and where it lives, and are NOT served BECAUSE serving them would defeat what
+        # makes them safe: each is a command-line verb that a person runs at a terminal, and a callable tool
+        # would be exactly the model-reachable path they are built to refuse. Their descriptions say so. The
+        # property that actually matters is the one below: the server offers nothing it has not declared.
         #
         # TWO SHAPES ARE REAL, so both are covered rather than whichever this checkout happens to be:
         # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
         # deployment without it offers the rest alone.
         here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(srv.__file__))))
-        declared = set()
+        declared, unserved = set(), set()
         for slug in ("search", "memory-control"):
             with open(os.path.join(here, "interfaces", f"{slug}.json"), encoding="utf-8") as fh:
-                declared |= {op["name"] for op in json.load(fh)["operations"]}
-        expected = declared if srv._semantic_installed() else declared - {"recall-by-meaning"}
+                for op in json.load(fh)["operations"]:
+                    declared.add(op["name"])
+                    if "NOT SERVED AS A TOOL" in op.get("description", ""):
+                        unserved.add(op["name"])
+        expected = declared - unserved
+        if not srv._semantic_installed():
+            expected -= {"recall-by-meaning"}
         names = {t.name for t in await srv.server.list_tools()}
         self.assertEqual(names, expected)
+        self.assertTrue(unserved, "no operation is declared as unserved — this assertion has stopped biting")
+        self.assertFalse(names & unserved,
+                         "an operation declared NOT SERVED is being served — the terminal gate is bypassed")
 
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):
@@ -186,12 +200,12 @@ class ToolWiringTests(_ServerBase):
         lib_ids = [r.get(_ID) for r in index.search("export").records]
         self.assertEqual(tool_ids, lib_ids)   # the server is a thin pass-through over the ranked library
 
-    async def test_roles_tags_limit_pass_through(self):
-        d = self.add("we decided to ship export", role="decision", tags=["release"])
-        self.add("a lesson about export", role="lesson")
-        data = self._result_json(
-            await srv.server.call_tool("search", {"query": "export", "roles": ["decision"], "limit": 5}))
-        self.assertEqual([r.get(_ID) for r in data["results"]], [d])
+    async def test_tags_and_limit_pass_through(self):
+        d = self.add("we decided to ship export", tags=["release"])
+        self.add("a lesson about export")
+        capped = self._result_json(
+            await srv.server.call_tool("search", {"query": "export", "limit": 1}))
+        self.assertEqual(len(capped["results"]), 1)
         tagged = self._result_json(
             await srv.server.call_tool("search", {"query": "export", "tags": ["release"]}))
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
@@ -249,12 +263,6 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual(list(checker.iter_errors(empty)), [])         # an empty answer conforms
         self.assertTrue(list(checker.iter_errors({"results": [], "surprise": 1})))  # unknown keys still rejected
 
-    async def test_unknown_role_surfaces_as_a_tool_error(self):
-        self.add("a decision about export", role="decision")
-        with self.assertRaises(Exception) as cm:
-            await srv.server.call_tool("search", {"query": "export", "roles": ["banana"]})
-        self.assertIn("banana", str(cm.exception))
-
     async def test_search_still_answers_when_fts5_absent(self):
         # Availability law: with the fast lookup off, the server still returns recall (via the slow scan).
         self.add("export decision", role="decision")
@@ -265,53 +273,6 @@ class ToolWiringTests(_ServerBase):
             self.assertTrue(len(data["results"]) >= 1)
         finally:
             index.fts5_available = original
-
-
-class ReinforcementOnRecallTests(_ServerBase):
-    async def test_reinforces_one_marker_per_returned_result(self):
-        self.add("export one export two", role="decision")
-        self.add("export three")
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        after = _marker_count()
-        self.assertEqual(after - before, len(data["results"]))   # one access marker per RETURNED record
-
-    async def test_reinforces_only_the_post_slice_set(self):
-        # Three matches but limit=1 -> exactly ONE marker (the returned record), not three (the candidates).
-        for _ in range(3):
-            self.add("export mention here")
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export", "limit": 1}))
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(_marker_count() - before, 1)
-
-    async def test_reinforcement_is_fail_soft(self):
-        # A reinforcement fault must never convert a successful recall into an error.
-        self.add("export decision", role="decision")
-        with mock.patch.object(forget, "record_access", side_effect=RuntimeError("boom")):
-            data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        self.assertTrue(len(data["results"]) >= 1)   # the response is the contract
-
-    async def test_a_result_lacking_an_id_is_skipped(self):
-        self.add("export without an id", with_id=False)
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        self.assertTrue(len(data["results"]) >= 1)
-        self.assertEqual(_marker_count() - before, 0)   # no id -> record_access no-op, no marker, no error
-
-    async def test_reinforcement_is_lock_safe_no_lock_free_write(self):
-        # While the single-writer lock is held, recall still answers but appends ZERO markers (never lock-free).
-        self.add("export decision", role="decision")
-        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
-        held = capture._acquire_lock(lock_path)
-        self.assertIsNotNone(held)
-        try:
-            before = _marker_count()
-            data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-            self.assertTrue(len(data["results"]) >= 1)
-            self.assertEqual(_marker_count() - before, 0)
-        finally:
-            capture._release_lock(held)
 
 
 class ControlToolTests(_ServerBase):

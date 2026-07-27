@@ -267,7 +267,7 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
         # the engine's own saved-memory upkeep is a Bash CLI, not a Write/Edit tool → the gate allows it
         self.assertTrue(_allow(modes.handler(_explore_payload(
-            "Bash", ".engine/.venv/bin/python .engine/tools/memory/consolidate.py store sid"))))
+            "Bash", ".engine/.venv/bin/python .engine/tools/memory/pins.py add note"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "git commit -m x"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "gh pr create"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Write"))))
@@ -373,7 +373,7 @@ class TestMemoryTargetDenial(unittest.TestCase):
         # including via the ABSOLUTE worktree path (…/.claude/worktrees/<wt>/.engine/tools/memory/…), which
         # carries both a `.claude` and a `memory` segment and must NOT be mistaken for the harness notebook.
         for path in (".engine/tools/x.py", ".engine/tools/memory/index.py", "README.md",
-                     "/Users/x/.claude/worktrees/wt/.engine/tools/memory/consolidate.py"):
+                     "/Users/x/.claude/worktrees/wt/.engine/tools/memory/pins.py"):
             d = modes.handler(self._payload("Write", path))
             self.assertTrue(_deny(d))
             self.assertEqual(d["reason"], modes._DENIAL, f"{path} must keep the generic denial")
@@ -386,7 +386,7 @@ class TestMemoryTargetDenial(unittest.TestCase):
         self.assertFalse(modes.is_memory_target("Write", {"file_path": ".engine/tools/memory/index.py"}))
         # the worktree case: engine source under a `.claude/worktrees/…` path is NOT a memory store.
         self.assertFalse(modes.is_memory_target(
-            "Write", {"file_path": "/Users/x/.claude/worktrees/wt/.engine/tools/memory/consolidate.py"}))
+            "Write", {"file_path": "/Users/x/.claude/worktrees/wt/.engine/tools/memory/pins.py"}))
         self.assertFalse(modes.is_memory_target("Write", {"file_path": ".engine/tools/x.py"}))
         self.assertFalse(modes.is_memory_target("Write", {}))                 # no path -> not classifiable
         self.assertFalse(modes.is_memory_target("Bash", {"command": "x"}))    # not a file-mutating tool

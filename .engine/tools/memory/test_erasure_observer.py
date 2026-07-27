@@ -386,10 +386,10 @@ class BatchEnactTests(_Base):
     def test_a_merged_batch_erases_the_whole_batch_in_one_compaction(self):
         # End-to-end: two authorised targets are removed in a single compaction swap; a third, un-authorised note
         # survives. (Records planted directly with content-free ids; compaction removes exactly the marked pair.)
-        from memory import consolidate
-        keep = consolidate._make_episodic("S", {"role": "decision", "text": "keep me"}, "bk")
-        gone1 = consolidate._make_episodic("S", {"role": "lesson", "text": "erase one"}, "b1")
-        gone2 = consolidate._make_episodic("S", {"role": "lesson", "text": "erase two"}, "b2")
+        from memory import legacy_shapes as legacy
+        keep = legacy.episodic("S", "decision", "keep me", "bk")
+        gone1 = legacy.episodic("S", "lesson", "erase one", "b1")
+        gone2 = legacy.episodic("S", "lesson", "erase two", "b2")
         for rec in (keep, gone1, gone2):
             ledger.append(rec)
         gid1, gid2 = gone1[records.RECORD_ID_KEY], gone2[records.RECORD_ID_KEY]

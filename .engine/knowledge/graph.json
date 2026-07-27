@@ -2805,7 +2805,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:e626f9c7e4b456df79935beb31d1f8235fc7116dc6e230510555457efbdf7035",
+        "fingerprint": "sha256:b4f727c5651ae4a722440efd5a729df77f1d57517c38d9d72ee7a31cdae9c305",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -3904,9 +3904,11 @@
       "id": "interface:memory-control",
       "name": ".engine/interfaces/memory-control.json",
       "operations": [
+        "erase",
         "list-pins",
         "list-withheld",
         "pin",
+        "rescrub",
         "restore",
         "withhold"
       ],
@@ -3921,7 +3923,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:bf9b1c38b378f90fed6c9da691da9a6e750bff346062cd34ffc9f16829fe39c1",
+        "fingerprint": "sha256:c747e0f8686a40b1de3502adfe00dc9b5a670151f76ea50cc07f7e38a44674d0",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -3948,7 +3950,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:8b67248d9306eeee980aa2477605cc2f1a13640fa14c11112f2cc10bfff73d2a",
+        "fingerprint": "sha256:f9db9665f3b11c2c0d174d9eda46a28a0783dfe4372de6ab6cee723a91e2de8b",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -3980,7 +3982,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:5f8719476450ccf4dd27d77b0157a78a713d73132a4b61e52c8879918c2f740a",
+        "fingerprint": "sha256:e4972f9eb222d5f1a5e2ec9f4788f5e3eeba36a6a3ab00ac26d81e5e30ead280",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4089,7 +4091,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:fcba2db422a94305921b54fdde8b73d1cbd51df9aafb4dfc05e7f148371f374c",
+        "fingerprint": "sha256:f2a731c76a9f415f048827e7a3f21dc7214e6a14f66597cf6524ae806d358f69",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -4200,7 +4202,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:9127ac64a63665a46b135154e6658b0c01abf4cc76539664fe2c4667837990b4",
+        "fingerprint": "sha256:6d10c607ee33ab613514e0ce62f1452035c059ce775caffe0744743cc51c6549",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4500,7 +4502,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:0fc193df63407953f9a804221631a0ecea4fd46fb8885379f66a868679a182f7",
+        "fingerprint": "sha256:2927e72ecd342c95c20bf8f5cadab3eb850c092918d78adefe4906aedc43a96b",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -4560,7 +4562,7 @@
       },
       "slug": "onboarding-read",
       "source": {
-        "fingerprint": "sha256:1e582e31370491a8b9a5d0992259b0ee02ec54169afc3c693de25f91bc6e369b",
+        "fingerprint": "sha256:cecfd39971ea09d777188a404e03436e5b7fc01e6cb90562ffbaf3c6cf7e96d4",
         "path": ".engine/operations/onboarding-read.md"
       },
       "status": "active",
@@ -5578,7 +5580,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:c22bdce55c7ba4f9b66d96fcc3330f5fcf6641f2a42a563b282d483da0c7335b",
+        "fingerprint": "sha256:73ea870157c75731688a53f274d9f20945c024c17bd716401f789138ef7df8f2",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -5813,7 +5815,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:e35104eb3c39187bfdf3fcc2aa9b06838f9d8b22103493a64440f53b0ff844b6",
+        "fingerprint": "sha256:6e94c93bfb7896fafe526c45dde2992a9fed68ff3735153d643f9a293bda5a15",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -5915,7 +5917,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:23a268799b8dfef46624100c182b7ef1048e36d734d7e226f319bc6f40ed1f4a",
+        "fingerprint": "sha256:77471574bcb29fbb8f0e2e84d9c440bfebdb2a7b886eaeb11980283502742a80",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -5949,7 +5951,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e3b589ddb093406ef468d07ca20ee08527284e89c1bac67cf7c696ab0cf26b96",
+        "fingerprint": "sha256:bae06c332251b0686fcd9b1f46ae3bf8aebbfad9edc3ca5bdbc1872bac76642e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6034,7 +6036,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:4c5d906a3ba3bc36f1152e11cccce8e6674e68321fef881e9a209b03fad04bb2",
+        "fingerprint": "sha256:a70483dbe843056da1c62a126b2b03896b031ff736622304a251e9218e8ce72a",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -6204,7 +6206,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:8157eca724197a1283e9e3b0714f409b949ddfff361b6ba770ee96d7e6073f3e",
+        "fingerprint": "sha256:b9d83104a6dd20d1fcba7edcca36a06530ca104eb032967dc8022e9968162803",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -6257,23 +6259,6 @@
       "source": {
         "fingerprint": "sha256:63e4b518472e247c5819a2a827991b085a41e8021dce4463e029d952bf5fb470",
         "path": ".engine/tools/conformance_sweep.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:consolidate",
-      "name": ".engine/tools/memory/consolidate.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "consolidate",
-      "source": {
-        "fingerprint": "sha256:ff019069762d3bd3deda9821e843aa4fb1878bb71566e04877a7b6db0a033b63",
-        "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
       "type": "tool"
@@ -6529,23 +6514,6 @@
       "source": {
         "fingerprint": "sha256:3d49d95918e0f5610a3c45c00c46b58329119a822e30c39fed20bdf381df6be7",
         "path": ".engine/tools/demo_boot_alarm_collapse.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:demo_boot_set_aside_readout",
-      "name": ".engine/tools/demo_boot_set_aside_readout.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_boot_set_aside_readout",
-      "source": {
-        "fingerprint": "sha256:d63b4a6b66c6856a6025a6a5c660663570507433d69b82e32156e85fcd5bd4ff",
-        "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
       "type": "tool"
@@ -6942,23 +6910,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:demo_remember_this",
-      "name": ".engine/tools/demo_remember_this.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_remember_this",
-      "source": {
-        "fingerprint": "sha256:61480e589cc7e792b3a274a8d71b1386aeebb5ef94cc6187793aa4de1e72c5eb",
-        "path": ".engine/tools/demo_remember_this.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:demo_repo_behavior",
       "name": ".engine/tools/demo_repo_behavior.py",
       "owner": "core",
@@ -7105,7 +7056,7 @@
       },
       "slug": "demo_weakening_guard_narrowed_set",
       "source": {
-        "fingerprint": "sha256:976ea6b920cda75aecc97d230314eb68692fa819b4571e9320677585172fb19e",
+        "fingerprint": "sha256:7ca52832770e7b0259f6c624fd9671f2f5871f919810401ae3d80390d235abc3",
         "path": ".engine/tools/demo_weakening_guard_narrowed_set.py"
       },
       "status": "active",
@@ -7248,6 +7199,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:erase",
+      "name": ".engine/tools/memory/erase.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "erase",
+      "source": {
+        "fingerprint": "sha256:d560cf7cec81ec3b6f14ec71fddf4c58d0137eb4dacb5aaa8aa187f0b7560cbf",
+        "path": ".engine/tools/memory/erase.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:erasure_observer",
       "name": ".engine/tools/memory/erasure_observer.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -7258,25 +7226,8 @@
       },
       "slug": "erasure_observer",
       "source": {
-        "fingerprint": "sha256:7e2a819c8cc1a5ae8ff150bbae4c55bd445a87216b70b6e8d1ccce1dd0a4c950",
+        "fingerprint": "sha256:7cdb6c0c38061a7524bcb08dce834823c28d24021ee5910e9c7a6f48d652ec0d",
         "path": ".engine/tools/memory/erasure_observer.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:erasure_proposer",
-      "name": ".engine/tools/memory/erasure_proposer.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "erasure_proposer",
-      "source": {
-        "fingerprint": "sha256:4bc28fe980dfe29d68fb00a9a0ecc1750d3e961728f9a7fe4b5f1ff25b55d1dc",
-        "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
       "type": "tool"
@@ -7360,7 +7311,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:88e4db63c004fd508a248914c11c3df4be2a52b5ef232de7c0c81da3c8e705e0",
+        "fingerprint": "sha256:e63f1860cfa459325292b41bffd238c406520f83c19a886e2819fc48bc057e2a",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7445,7 +7396,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:b070b6d45a60cce40f256c86def95857e8215983cc40b63f4afd7d043611912f",
+        "fingerprint": "sha256:17a28a957d25a2c4bf8b1e7ecd2024e2b8069c611ce90e8f3a2a5455c79176df",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7479,7 +7430,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:f6ca1545031f47db8b875cc6d168da1af7cc47f599d81b2a21541141161c07bc",
+        "fingerprint": "sha256:fa5d28b2e19132bc9f887c3cdc70aec3a14700a9cb755d2e8f4857cde0d570f7",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7496,7 +7447,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:714150c84a9ad7e1c00b5f4c4185cc818fef9fc03516ab353efcea0358c5b8f5",
+        "fingerprint": "sha256:85798fde6024a1de5e73ca03a70545399a35bd34a31e910b8a5d683a99d28b4e",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7707,6 +7658,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:legacy_shapes",
+      "name": ".engine/tools/memory/legacy_shapes.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "legacy_shapes",
+      "source": {
+        "fingerprint": "sha256:594822da13040be26b71d3192eccb9070184f92945fef163f5ab354ccfc27427",
+        "path": ".engine/tools/memory/legacy_shapes.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:lens_consumption_check",
       "name": ".engine/tools/lens_consumption_check.py",
       "owner": "core",
@@ -7802,7 +7770,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:871dade4bde73a320c6ca9e24d40b9daf68496b95da4e45c23f2a8a6bfb7be63",
+        "fingerprint": "sha256:902fc4ef151cbbf6350b7fb7f8f76a68a5ba0ee26f37565420b584fc6e745386",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7836,7 +7804,7 @@
       },
       "slug": "memory.__init__",
       "source": {
-        "fingerprint": "sha256:ab3232e994545acbaeab4c7f6efe23f19fe50bb613ba81843f243698bd1ce6b1",
+        "fingerprint": "sha256:29c4f54ebe7df4a78c7e7e909889f5c7fe64e37779cf592ff073efb01f2405aa",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -7904,7 +7872,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:1de73a2a2db001e76e1b5f0c8a5c6a247a653a929979d4caeaa7226d23432577",
+        "fingerprint": "sha256:b2b89a93bd3a5081e3e66f04e792c9b8dbe5341cbcc74728ccab95384d67fec5",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -8227,7 +8195,7 @@
       },
       "slug": "provider_vocab_check",
       "source": {
-        "fingerprint": "sha256:e670225ce5822435351292980c9b71c43df9dfaf4f9ffa73f842cbbf6e63e2b4",
+        "fingerprint": "sha256:6827b20d67ea89bee9ae293a42547f8b56d45fd7fdccbc3d58872239158baab8",
         "path": ".engine/tools/provider_vocab_check.py"
       },
       "status": "active",
@@ -8295,7 +8263,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:00b1e756ab3a4f0578ad76338659a03f2dbd3c2bb7cfd7b5b839d4d5e784f55d",
+        "fingerprint": "sha256:a491666cdbf299f673046936c7ab515a66d10ba4cdf26589d044f8e69ade2c0d",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8387,6 +8355,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:rescrub",
+      "name": ".engine/tools/memory/rescrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "rescrub",
+      "source": {
+        "fingerprint": "sha256:9db51a0452b02f85ba790a6f5babbcf0fea11679c88b82d1d45503c6c1671fbf",
+        "path": ".engine/tools/memory/rescrub.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:restore_vault",
       "name": ".engine/tools/memory/restore_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -8397,7 +8382,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:b2d8bb5ed110ba1b050adaf1fd73654ca331ae325e0ee8668c3670dbdafbc554",
+        "fingerprint": "sha256:9ee0427065b5711c21550988882516e30841e4542f3589eeaf80a82d45be8d54",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -8433,23 +8418,6 @@
       "source": {
         "fingerprint": "sha256:117c069ed65c787e8b4616d361eacd2134455baa041467933a12a9cd8be2d4a2",
         "path": ".engine/tools/migration_discipline/rollback.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:rollup",
-      "name": ".engine/tools/memory/rollup.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "rollup",
-      "source": {
-        "fingerprint": "sha256:84847aaeb6403e558051624fac8e28706160786000fb3b4db002fba9ae51c5a8",
-        "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
       "type": "tool"
@@ -8506,23 +8474,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:score",
-      "name": ".engine/tools/memory/score.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "score",
-      "source": {
-        "fingerprint": "sha256:a051fe831c5ce0c0d3eacac6da9ef0c4b3471d19f7e9119459205dc8a4d1658c",
-        "path": ".engine/tools/memory/score.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:scrub",
       "name": ".engine/tools/memory/scrub.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -8533,7 +8484,7 @@
       },
       "slug": "scrub",
       "source": {
-        "fingerprint": "sha256:7f44882af1b4f97d2d87dd372f37cb3263f3a1a823bc90dabd653b0ad5e729fa",
+        "fingerprint": "sha256:5719e3528fe85e8e3d879d93933f38349e95bd28b1151a42c8961cde3a646154",
         "path": ".engine/tools/memory/scrub.py"
       },
       "status": "active",
@@ -8686,7 +8637,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:cc60b80a2f4604e022aa40028e1087e75f7756474552c8932f6be737221a8f9d",
+        "fingerprint": "sha256:3e9e4152f8094666963da06feb32e8387c02c475c351a6b1433437a12f2a76ee",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -8737,7 +8688,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:ba66e1fa3fbbf4cf482364da8b942e234e4b55b64853a103e4048821933feb60",
+        "fingerprint": "sha256:0479ff7d1999d4fcab44e353a751da89eddef48ff30c219e1601b1e0836b1b66",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -8856,7 +8807,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:38e8e5cb1596b7e9018a0de271869f7e11f0f6db5b78e8f748e1e52cb54247ff",
+        "fingerprint": "sha256:f81f4480b2d6c59002cd8f03a84c8843e38712414cd8fa31079c164ea333c67a",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -8941,7 +8892,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:43a07b440acce8f5e228edb1e0dcec10837eafbcd87fd705b3fcce4a5afc3aba",
+        "fingerprint": "sha256:ca8ed4afed7ea04690cf84b0cc6bb7225437173fc361c7f331387a3b9ed6691d",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -8975,7 +8926,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:b91a97d565b010067061d6f41752491c01fdb3e06534c0d3af03e83711f953fd",
+        "fingerprint": "sha256:b75a09b3bf3b170412e4b4558b38e242441fe2e8e38b7778f9092ef1b02248b6",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9060,7 +9011,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:5717b255d79a0be976a0411b1bc35711d95c8411a6c8dfd0426b537806a26455",
+        "fingerprint": "sha256:73a40628918b36e91d8c4c8e016eb4b6d955857dd3a87b89d366a8c2869426b8",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -9162,7 +9113,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:f05597e66628c7d9b8588c205a3b8afb9477a248e0bd76fc27cab6e79acf6511",
+        "fingerprint": "sha256:b21da09f350c5185db4ce7005bf2137cd1f46026a7414248165027d38119e03b",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -9179,7 +9130,7 @@
       },
       "slug": "test_compact_trigger",
       "source": {
-        "fingerprint": "sha256:0bb8ec0d202bde2f329dbd381bcf2c8c10a0db6dad35a91999eb83ecacb70064",
+        "fingerprint": "sha256:21a5ddbcead1d1867cebc8bb5d0e3a36486c6bc4e9dfb677010fba46f598f48a",
         "path": ".engine/tools/memory/test_compact_trigger.py"
       },
       "status": "active",
@@ -9215,23 +9166,6 @@
       "source": {
         "fingerprint": "sha256:0c58b41360838f41c237d9eb302200c737f5e5f451bc86474969b75ef024b3c0",
         "path": ".engine/tools/test_conformance_sweep.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_consolidate",
-      "name": ".engine/tools/memory/test_consolidate.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_consolidate",
-      "source": {
-        "fingerprint": "sha256:af22f73ca63672689961d3ee186f459daaa933ea465457620dbc15080db5b9e8",
-        "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
       "type": "tool"
@@ -9458,6 +9392,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_erase",
+      "name": ".engine/tools/memory/test_erase.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_erase",
+      "source": {
+        "fingerprint": "sha256:5668afe0eebd9cb8ab93bf8ee4c50b3b80b12c343e03d5c0bbe4cc1c90e0f2ac",
+        "path": ".engine/tools/memory/test_erase.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_erase_enact",
       "name": ".engine/tools/memory/test_erase_enact.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9485,25 +9436,8 @@
       },
       "slug": "test_erasure_observer",
       "source": {
-        "fingerprint": "sha256:4f618221f8a9ed2b22f07bcddc39f5b5ba1789f2a772d3c9e307178433edb49c",
+        "fingerprint": "sha256:5d204dfeb5e5a205a0c5a576700128cde0517cde14a33c910e9b7a3923c78275",
         "path": ".engine/tools/memory/test_erasure_observer.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_erasure_proposer",
-      "name": ".engine/tools/memory/test_erasure_proposer.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_erasure_proposer",
-      "source": {
-        "fingerprint": "sha256:44cb762c29610764f2776d76160b9a9f1563e0b2ac7ed8867d18406cf982b29c",
-        "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
       "type": "tool"
@@ -9570,7 +9504,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:1058afeaaa26598f4d43f17f66595af86558e10fd3d90d0314c8fa8410428e3e",
+        "fingerprint": "sha256:64cc4425bc8f9af3c98ff1a9fe577142de78d9194510459c9087692a9b08bb18",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -9638,7 +9572,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:033a1f2bed0742a32c64f7860e0c966bb15e400bafbab881cd8e9407deeff13e",
+        "fingerprint": "sha256:2d6cc6353916512f8e37ee47f586e14654b76035719b7558554920f4f5bffe59",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -9672,7 +9606,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:ae15347dbc4b460d3822faf64747ef6d8826760925f761d9b73f2f3d51959c35",
+        "fingerprint": "sha256:16836925f31aa103013314e569b502f7e27b910b75b1cffd6792e189b9e4c0c4",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -9706,7 +9640,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:16bef966373cb12fbf25663a2166c2fe0591f3330506c6bf713c66764497a442",
+        "fingerprint": "sha256:2bcc7f9baf0dc11291418c399d8229199128bdbf6dd397ac7d419012f9f9c490",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -9978,7 +9912,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:f8f9377d458e2194ca24554de1da6ea3858acd899b451ea2f14e89f86d63c63f",
+        "fingerprint": "sha256:e92ac0dc995ec7334807c68027e23de09cfa85cebda6ddc1bb69cbaffa82be70",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -10046,7 +9980,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:f3c171bb362cce167145995b643b3948bfa14704ba771ccc5d6196f80886a466",
+        "fingerprint": "sha256:b80e8d07e025782fb48aeecd6246239d316947dbac38be17a887908e3c6b4ae4",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -10335,7 +10269,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:f9cc973805c054adbf880ce14fb7b9ba3ec821df6d4534ba56670de93518d8ed",
+        "fingerprint": "sha256:9523b1ddbf046a86b3949848c6c3af18efa2004155c57dc63e01bd05a228ca24",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -10403,7 +10337,7 @@
       },
       "slug": "test_records",
       "source": {
-        "fingerprint": "sha256:9de63493f58e6f81c70dfaf7a11bb73ca557e97a68a6182b9dd247e215cb35a3",
+        "fingerprint": "sha256:7f13a368a8063bc24c6b659c20746779bdc41175cb54ac6334451a3eddb11856",
         "path": ".engine/tools/memory/test_records.py"
       },
       "status": "active",
@@ -10478,6 +10412,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_rescrub",
+      "name": ".engine/tools/memory/test_rescrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_rescrub",
+      "source": {
+        "fingerprint": "sha256:8679dd22f043c1eb78b20e24c5a848e4501972b6b87f7cf4919567ba4af20ac3",
+        "path": ".engine/tools/memory/test_rescrub.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_restore_vault",
       "name": ".engine/tools/memory/test_restore_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -10546,40 +10497,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:test_rollup",
-      "name": ".engine/tools/memory/test_rollup.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_rollup",
-      "source": {
-        "fingerprint": "sha256:362c24d06f1bae0570a95c688656f6ba888716ba09f478f7f0f3508b20db464e",
-        "path": ".engine/tools/memory/test_rollup.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_rollup_sweep",
-      "name": ".engine/tools/memory/test_rollup_sweep.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_rollup_sweep",
-      "source": {
-        "fingerprint": "sha256:24f9455be4a643716a2b09c0f660623d5cc0f4364ac0a59ad80aa0983867136f",
-        "path": ".engine/tools/memory/test_rollup_sweep.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:test_scaffold",
       "name": ".engine/tools/product_design/test_scaffold.py",
       "owner": "product-design",
@@ -10631,23 +10548,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:test_score",
-      "name": ".engine/tools/memory/test_score.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_score",
-      "source": {
-        "fingerprint": "sha256:1b68c83ff0eb47c4320834fed8c2d1a23f11dd454da5033cec642b8eca9b03f2",
-        "path": ".engine/tools/memory/test_score.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:test_scrub",
       "name": ".engine/tools/memory/test_scrub.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -10675,7 +10575,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:e17709e365bf603a8fda1bacf22fa59bce8768294c94cc63e4511171b4e41e13",
+        "fingerprint": "sha256:25a6db2a3e697b7393f4bef13e4620464ea89c65d34c35e4ccccbfadd05983bb",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
@@ -10743,7 +10643,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:ba1e53280de489d3a5ce34c665a4abff8d6312452a48ca754033a6d28b52dee9",
+        "fingerprint": "sha256:f7d0f7df2087732af121389e72b056e70e8cca14453bdfcb09fa5f4f4e78eac9",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10794,7 +10694,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:1851fccef891aee29b232a5741cbee156d8eae02d416d3b3b3066bc9943e21a3",
+        "fingerprint": "sha256:da21791e313ced820d3a5b0ccafffd479e3d5a88697ae5a75f97c6b7a3aa3be9",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
@@ -10947,7 +10847,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:492fb11f381f0e53d0f178d8c5baecf0574ad14cb6ca25143fb8147e7b3f2838",
+        "fingerprint": "sha256:59f1eeebcf9d2fed7dcd516566f5ebff9c9f1560ccb255c5ef94c014e75bd5ad",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
