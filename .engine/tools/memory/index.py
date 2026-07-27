@@ -58,7 +58,9 @@ INDEX_FILENAME = "index.sqlite3"
 #   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
 #   3 — fused harness blocks removed from the searchable projection.
 #   4 — the archived-tier age-out removed, so records an older index left out are now members.
-INDEX_SCHEMA_VERSION = 4
+#   5 — the operator's withholds are members of the index's own state: it stamps what was withheld when it
+#       was built, so the incremental update can honour a withhold it did not itself see.
+INDEX_SCHEMA_VERSION = 5
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -250,8 +252,15 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # previous version over a store holding one 60-day-old note answered a query for that note with nothing and
     # `degraded=False`, while the plain scan answered with the note. A change to what recall MAY reach is
     # exactly a change to what the index is allowed to contain, even when no line of the build code moved.
+    # `withheld` carries the operator's withholds AS OF THIS BUILD, as JSON. It is state the index needs about
+    # itself, not a second copy of the ledger's truth: `extend` inserts a freshly captured turn without ever
+    # reading the ledger, so without this it re-admits turns from a conversation the operator withheld — and
+    # it does so on the fast path only, which is the divergence direction that RESURFACES withheld content.
+    # Stamping is sound precisely because `extend` refuses to touch an index whose generation no longer
+    # matches, and a withhold bumps the generation: so whenever `extend` runs at all, this stamp is current.
     conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL, "
-                 "schema_version INTEGER NOT NULL DEFAULT 0)")
+                 "schema_version INTEGER NOT NULL DEFAULT 0, withheld TEXT NOT NULL DEFAULT '[]', "
+                 "index_epoch INTEGER NOT NULL DEFAULT 0)")
 
 
 def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
@@ -262,8 +271,37 @@ def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
     different, which no generation bump would ever signal. A missing or unreadable stamp reads as stale, so an
     index built before this stamp existed falls back to the always-correct scan rather than answering
     confidently from the wrong set."""
+    if _index_epoch_of(conn) != ledger.index_epoch(for_path=src):
+        return False
     return (_index_schema_version(conn) == INDEX_SCHEMA_VERSION
             and _index_generation(conn) == ledger.generation(for_path=src))
+
+
+def _index_epoch_of(conn: sqlite3.Connection) -> int:
+    """The index epoch this index was built against. Guarded like `_index_schema_version`: an index built by an
+    older engine has no such column, and reading -1 there makes it honestly stale rather than raising."""
+    try:
+        row = conn.execute("SELECT index_epoch FROM meta WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return -1
+    val = row[0] if row else None
+    return val if isinstance(val, int) and not isinstance(val, bool) else -1
+
+
+def _stamped_withholds(conn: sqlite3.Connection) -> tuple:
+    """`({record_id}, {session_id})` the index was built under, from its own `meta` row.
+
+    Guarded exactly the way `_index_schema_version` is: an older index has no such column, and a read that
+    raised here would land inside the incremental update, whose whole contract is that it never gates a turn's
+    close. Failure returns EMPTY sets, which is the direction that admits a record rather than dropping one —
+    safe because a withhold bumps the generation, so an index that has not seen it is already refused by
+    `_index_is_current` before this is consulted."""
+    try:
+        row = conn.execute("SELECT withheld FROM meta WHERE rowid = 1").fetchone()
+        data = json.loads(row[0]) if row and row[0] else {}
+        return set(data.get("ids") or ()), set(data.get("sessions") or ())
+    except (sqlite3.Error, ValueError, TypeError, IndexError):
+        return set(), set()
 
 
 def _index_schema_version(conn: sqlite3.Connection) -> int:
@@ -319,6 +357,14 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
         conn = sqlite3.connect(tmp)
         try:
             _build_schema(conn)
+            # READ THE LINEAGE BEFORE STREAMING, never after. This build takes over a second on a real store
+            # and holds no lock, so a withhold landing mid-stream would otherwise be stamped as though the
+            # index had seen it — leaving a withheld record in the fast answer, reported `degraded=False`,
+            # with nothing to invalidate it until the next bump. Reading first makes that race stamp the index
+            # honestly STALE instead, which costs one wasted rebuild and never a wrong answer.
+            built_generation = ledger.generation(for_path=src)
+            built_epoch = ledger.index_epoch(for_path=src)
+            w_ids, w_sessions = forget.withheld_targets(src)
             ordinal = 0
             # `live_records` excludes logically-retired duplicates (a crashed pass's orphans) — the SAME shared
             # filter the slow `_scan` uses, so the fast and slow lookups retire identically (parity).
@@ -339,8 +385,13 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
             # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
             # store's generation.
-            conn.execute("INSERT INTO meta (rowid, generation, schema_version) VALUES (1, ?, ?)",
-                         (ledger.generation(for_path=src), INDEX_SCHEMA_VERSION))
+            conn.execute(
+                "INSERT INTO meta (rowid, generation, schema_version, withheld, index_epoch) "
+                "VALUES (1, ?, ?, ?, ?)",
+                (built_generation, INDEX_SCHEMA_VERSION,
+                 json.dumps({"ids": sorted(w_ids), "sessions": sorted(w_sessions)}, separators=(",", ":")),
+                 built_epoch),
+            )
             conn.commit()
         finally:
             conn.close()
@@ -395,6 +446,11 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
         try:
             if not _index_is_current(conn, src):
                 return 0
+            # The operator's withholds, as the index itself recorded them. A withheld SESSION is the case that
+            # matters: withholding a conversation the operator is still in is the most natural way to use the
+            # control, and every turn captured after it would otherwise be inserted straight back here — found
+            # by the fast path, absent from the scan, and reported as an authoritative answer.
+            w_ids, w_sessions = _stamped_withholds(conn)
             row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
             ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
             for record in new_records:
@@ -402,6 +458,9 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
                     continue          # the narrow contract: captured turns only (see the docstring)
                 if forget._is_excluded_capture(record):
                     continue
+                if forget.is_withheld(record, w_ids, w_sessions):
+                    continue          # the operator took this conversation out of recall; a new turn in it is
+                    # not a new exception to that
                 tokens = _tokenize(_record_text(record))
                 conn.execute(
                     "INSERT INTO entries (ord, record_json) VALUES (?, ?)",

@@ -82,7 +82,15 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     os.makedirs(data_dir, exist_ok=True)
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
-        raise PinRefused("another memory write is in progress, so nothing was saved. Try again in a moment.")
+        # `None` is not proof of contention: the same value comes back when the store cannot be opened at all.
+        # "Try again in a moment" over a permissions problem or a full disk is advice that can never work.
+        writable = os.access(data_dir, os.W_OK)
+        raise PinRefused(
+            "another memory write is in progress, so nothing was saved. Try again in a moment."
+            if writable else
+            f"memory could not be written to ({data_dir} is not writable), so nothing was saved. This will "
+            "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
+        )
     try:
         record = {
             "v": capture.RECORD_VERSION,
@@ -95,7 +103,7 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
         }
         if isinstance(session_id, str) and session_id:
             record[records.PIN_SOURCE_SESSION_KEY] = session_id
-        ledger.bump_generation(for_path=target)
+        ledger.bump_index_epoch(for_path=target)
         ledger.append(record, path=path)
         return record
     except PinRefused:
@@ -162,7 +170,14 @@ def main(argv: list) -> int:
         try:
             remove(args.record_id)
         except forget.ControlNotRecorded as exc:
-            print(f"Not removed: {exc}")
+            # The shared verb speaks of "a single note, or a whole session" because it serves both; this
+            # command takes a pin id and nothing else, so offering a session here names a choice the operator
+            # was never given.
+            reason = str(exc).replace("name exactly one thing to act on — a single note, or a whole session.",
+                                      "no pin identifier was given.")
+            reason = reason.replace("there is no note in memory with that identifier",
+                                    "there is no pin with that identifier")
+            print(f"Not removed: {reason}")
             return 1
         print("Removed from recall. It is still saved — ask to restore it any time.")
         return 0

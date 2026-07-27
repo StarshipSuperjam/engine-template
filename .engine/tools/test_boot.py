@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import io
 import json
+import inspect
 import os
 import tempfile
 import unittest
@@ -2816,6 +2817,82 @@ class TestContractRateRender(unittest.TestCase):
         self.assertNotIn("over-recorded", dash)
         self.assertNotIn("permanent decision records", dash)
 
+
+
+class PinAndWithholdReadoutTests(unittest.TestCase):
+    """The two blocks the operator meets for the memory controls. Both carry safety-relevant copy, so the copy
+    itself is asserted rather than only the shape: one stops a pin being read as verified wording or as a fresh
+    instruction, the other is the only signal the operator ever gets that a privacy control took effect."""
+
+    def _pins(self, n):
+        return [{"text": f"standing instruction {i}"} for i in range(n)]
+
+    def test_the_pin_block_says_what_to_do_with_a_pin_and_what_not_to_claim_about_it(self):
+        out = "\n".join(boot.render_pins(self._pins(2)))
+        self.assertIn("standing instruction 0", out)
+        # The instruction: a pin exists so a preference gets honoured. A block that only discounted its own
+        # contents would spend pack budget in every session and change no behaviour.
+        self.assertIn("work to them", out)
+        # The caveat, which is not optional: nothing can verify who authored a pin, so no reader may present
+        # one as the operator's exact words or as an instruction arriving now.
+        self.assertIn("rather than as their exact words", out)
+        self.assertIn("never as a fresh instruction arriving now", out)
+
+    def test_the_pin_block_says_how_many_there_are_when_it_shows_only_some(self):
+        # A pin's whole promise is that nothing ages it out. A bounded sample with no total ages one out BY
+        # RANK instead: the sixth pin silently stops reaching any session while the reader believes it has
+        # seen everything.
+        self.assertNotIn("in all", "\n".join(boot.render_pins(self._pins(3))))
+        many = "\n".join(boot.render_pins(self._pins(9)))
+        self.assertIn("9 in all", many)
+        self.assertEqual(many.count("standing instruction"), 5)
+
+    def test_no_block_is_rendered_when_nothing_is_pinned(self):
+        self.assertEqual(boot.render_pins([]), [])
+        self.assertEqual(boot.render_pins(None or []), [])
+
+    def test_pins_are_named_in_the_shed_notice_they_can_be_dropped_from(self):
+        # They sit in the shed-first tier, and this tier's rule is that every member is named when it goes —
+        # most of all this one, which the operator went out of their way to make durable.
+        source = inspect.getsource(boot)
+        self.assertIn("what you asked me to remember)", source)
+
+    def test_the_withheld_line_counts_without_quoting(self):
+        block = "\n".join(boot.render_set_aside(
+            {"rows": [], "totals": {"summarised": 0, "withheld_notes": 2, "withheld_sessions": 1}}))
+        self.assertIn("2 notes and 1 conversation", block)
+        self.assertIn("still saved", block)          # never reads as deletion
+        self.assertIn("put them back", block)        # and names the undo
+
+    def test_the_withheld_block_stands_on_its_own_heading_and_does_not_back_reference(self):
+        # Rendered alone it used to borrow the sibling heading — which attributes the operator's own control to
+        # the assistant and mislabels conversations as notes — and to open with "also", a back-reference to a
+        # sentence that was not there.
+        alone = boot.render_set_aside(
+            {"rows": [], "totals": {"summarised": 0, "withheld_notes": 1, "withheld_sessions": 0}})
+        self.assertEqual(alone[0], "### What you've kept out of recall")
+        self.assertNotIn("also", alone[1])
+        beside = "\n".join(boot.render_set_aside(
+            {"rows": [{"id": "d1", "reason": "summarised", "text": "a folded note"}],
+             "totals": {"summarised": 1, "withheld_notes": 1, "withheld_sessions": 0}}))
+        self.assertIn("also", beside)                # and only then does the back-reference have an antecedent
+
+    def test_nothing_withheld_renders_no_line_at_all(self):
+        self.assertEqual(boot.render_set_aside(
+            {"rows": [], "totals": {"summarised": 0, "withheld_notes": 0, "withheld_sessions": 0}}), [])
+
+    def test_a_damaged_total_never_raises_or_renders_nonsense(self):
+        for bad in ({"withheld_notes": None}, {"withheld_notes": -3}, {"withheld_sessions": True}, {}):
+            totals = {"summarised": 0}
+            totals.update(bad)
+            self.assertEqual(boot.render_set_aside({"rows": [], "totals": totals}), [])
+
+    def test_read_pins_degrades_to_empty_rather_than_costing_the_pack(self):
+        def explode(**_kw):
+            raise RuntimeError("unreadable store")
+        self.assertEqual(boot.read_pins(read=explode), [])
+        self.assertEqual(boot.read_pins(read=lambda **_kw: [{"text": "kept"}, {"no": "text"}, "junk"]),
+                         [{"text": "kept"}])
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,45 +51,72 @@ class ExportRefused(ValueError):
     cannot report a file that was never written."""
 
 
-def _git_ignores(dest: str) -> bool:
+def _nearest_existing_dir(dest: str) -> str:
+    """The closest existing ancestor directory of `dest`.
+
+    Every git question below has to be asked from a directory that EXISTS, and an export's destination very
+    often does not yet — `exports/tuesday.md` is the shape an operator actually types. Asking from the missing
+    directory made `subprocess.run` raise, which the old code read as "not in a git project" and therefore as
+    safe. That inverted the guard precisely on the friendliest path: writing to a brand-new folder inside the
+    project was allowed while writing beside it was refused. Walking up first asks the same question about the
+    same place, whether or not the leaf exists yet."""
+    current = os.path.dirname(os.path.abspath(dest)) or os.sep
+    while not os.path.isdir(current):
+        parent = os.path.dirname(current)
+        if parent == current:            # reached the root without finding one
+            return os.sep
+        current = parent
+    return current
+
+
+def _git_ignores(dest: str, cwd: str) -> bool:
     """True when git itself says `dest` is ignored. Asking git rather than reading `.gitignore` is what makes
     this honest: the rules compose across files, exclusion patterns can re-include a path, and a hand-rolled
     matcher that got any of that wrong would fail in the permissive direction."""
     try:
         done = subprocess.run(["git", "check-ignore", "-q", dest],
-                              cwd=os.path.dirname(dest) or ".", capture_output=True, timeout=10)
+                              cwd=cwd, capture_output=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return False              # cannot ask => treat as NOT ignored, the safe direction
     return done.returncode == 0
 
 
-def _worktree_root(dest: str) -> "str | None":
-    """The git working tree `dest` sits inside, or None when it sits outside any. Resolved from the
-    destination's own directory, never the process's, so a path elsewhere on disk is judged where it lands."""
-    start = os.path.dirname(os.path.abspath(dest)) or "."
+def _worktree_root(cwd: str) -> "tuple[str | None, bool]":
+    """`(root, consulted)` — the git working tree `cwd` sits inside, and whether git could be asked at all.
+
+    The two are reported separately because they mean different things and only one of them is safe to treat
+    as "anywhere is fine". `(None, True)` is a real answer: git ran and said this is not a working tree.
+    `(None, False)` is the absence of an answer, and an unanswered question must never read as a permission."""
     try:
         done = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                              cwd=start, capture_output=True, text=True, timeout=10)
+                              cwd=cwd, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, False
     root = done.stdout.strip()
-    return root if done.returncode == 0 and root else None
+    return (root if done.returncode == 0 and root else None), True
 
 
 def assert_safe_destination(dest: str) -> None:
     """Refuse a destination that would put verbatim conversation somewhere a commit could pick it up.
 
     Outside a git working tree, anywhere is fine — that is the operator's own disk. Inside one, the path must
-    be ignored by git. The failure direction is REFUSE: if git cannot be consulted at all, an in-tree
-    destination is refused rather than assumed safe, because the cost of being wrong is asymmetric — a refused
-    export is an inconvenience, a committed transcript is not retractable."""
+    be ignored by git. The failure direction is REFUSE, and that now holds for every arm: an unanswerable
+    question is refused rather than read as permission, because the cost of being wrong is asymmetric — a
+    refused export is an inconvenience, a committed transcript is not retractable."""
     if not isinstance(dest, str) or not dest.strip():
         raise ExportRefused("no destination was given.")
     resolved = os.path.abspath(dest)
-    root = _worktree_root(resolved)
+    asked_from = _nearest_existing_dir(resolved)
+    root, consulted = _worktree_root(asked_from)
+    if not consulted:
+        raise ExportRefused(
+            "git could not be consulted, so there is no way to tell whether that path sits inside a project "
+            "that would commit it. Nothing was written. Choose a destination well outside any project — your "
+            "home directory, or a temporary folder."
+        )
     if root is None:
         return
-    if _git_ignores(resolved):
+    if _git_ignores(resolved, asked_from):
         return
     raise ExportRefused(
         f"that path is inside a git project ({root}) and is not ignored by it, so the export could end up "

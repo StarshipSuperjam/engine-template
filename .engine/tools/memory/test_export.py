@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -63,6 +64,28 @@ class DestinationGuardTests(_Base):
         os.makedirs(os.path.join(root, "scratch"))
         written = export.write("conversation", os.path.join(root, "scratch", "ok.md"))
         self.assertTrue(os.path.exists(written))
+
+    def test_a_destination_whose_folder_does_not_exist_yet_is_still_judged(self):
+        # THE BYPASS THAT SHIPPED. `git rev-parse` was asked from the destination's own directory, so a folder
+        # that did not exist yet made the question raise — and the failure was read as "not in a git project",
+        # i.e. as permission. `exports/tuesday.md` is the shape an operator actually types, so the guard was
+        # inverted on its friendliest path: writing beside the repo root refused, writing into a new folder
+        # inside it succeeded, and `write` then created the folder and put the transcript there.
+        root = self._repo()
+        for missing in ("new-folder/leak.md", "a/b/c/leak.md"):
+            with self.subTest(missing=missing):
+                with self.assertRaises(export.ExportRefused):
+                    export.write("conversation", os.path.join(root, missing))
+                self.assertFalse(os.path.exists(os.path.join(root, missing.split("/")[0])))
+
+    def test_an_unanswerable_question_refuses_rather_than_permitting(self):
+        # The stated failure direction, asserted rather than trusted: if git cannot be consulted at all there
+        # is no way to know whether the path would be committed, and "don't know" must never read as "safe".
+        root = self._repo()
+        with mock.patch.object(export.subprocess, "run", side_effect=OSError("git is not here")):
+            with self.assertRaises(export.ExportRefused) as caught:
+                export.write("conversation", os.path.join(root, "anywhere.md"))
+        self.assertIn("could not be consulted", str(caught.exception))
 
     def test_a_destination_outside_any_working_tree_is_allowed(self):
         written = export.write("conversation", os.path.join(self.out.name, "anywhere.md"))

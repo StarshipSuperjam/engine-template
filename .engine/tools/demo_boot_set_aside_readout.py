@@ -7,7 +7,7 @@ back? And does it quietly stop searching a note just because I haven't used it i
 
 That last question used to have the opposite answer. A note nobody had come back to was set aside from search
 after about a month, and asking for it brought it back. That age-out is gone for every kind of note, so the
-only thing that sets a note aside now is a summary being written over it — which this demo shows, and which is
+engine no longer sets anything aside by time. What this demo shows is a summary being written over a note, which is
 never reversible, so the readout must never pretend otherwise.
 
 It runs the REAL logic end-to-end — memory's own `forget.set_aside` / `recorded_text`, and boot's own
@@ -57,7 +57,11 @@ def _note(text, *, age_days, session):
 
 
 def _fold_into_summary(session, raw_id, summary_text):
-    """Write a real roll-up summary over one note — the one thing that sets a note aside from search."""
+    """Write a real roll-up summary over one note — the irreversible way a note leaves search.
+
+    Not the only way: the operator can also WITHHOLD a note or a whole conversation, which the same readout
+    reports and which `forget.restore` reverses. This demo covers the fold because that is the class with no
+    undo, and so the one whose readout must never overstate what it can offer."""
     rollup.store_gist(session, [{"role": "lesson", "text": summary_text,
                                  records.SOURCE_IDS_KEY: [raw_id]}])
 

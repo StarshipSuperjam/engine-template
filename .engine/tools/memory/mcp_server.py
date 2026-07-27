@@ -434,6 +434,24 @@ def pin(text: str, session_id: str | None = None) -> dict:
 
 
 @server.tool(
+    name="list-pins",
+    description=(
+        "Read back every pin the operator has saved, newest first, with the total. Reach for this whenever "
+        "they ask what you are remembering, or before saving a new pin that might duplicate or contradict an "
+        "existing one. The session-start briefing shows only the newest few, so this is the only way to see "
+        "the whole set — and each result carries the `id` that `withhold` takes to drop one."
+    ),
+)
+def list_pins() -> dict:
+    from memory import pins as _pins
+
+    live = _pins.list_pins()
+    return {"pins": [{"id": p.get(records.RECORD_ID_KEY), "text": p.get("text"), "ts": p.get("ts"),
+                      records.PIN_VIA_KEY: p.get(records.PIN_VIA_KEY)} for p in live],
+            "total": len(live)}
+
+
+@server.tool(
     name="withhold",
     description=(
         "Stop surfacing one note, or one whole conversation, when the operator asks you to forget it. "

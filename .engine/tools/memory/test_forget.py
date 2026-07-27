@@ -539,6 +539,27 @@ class WithholdTests(_Base):
         self.assertEqual(len(recall.session_turns("s-whole")), 4)
         self.assertEqual(self._hits(force_scan=False), 4)
 
+    def test_a_withheld_conversation_stays_withheld_as_it_continues(self):
+        # Withholding a conversation the operator is still IN is the most natural way to use the control, and
+        # the incremental index update is the path that breaks it: it inserts a freshly captured turn without
+        # consulting the ledger at all, so every turn after the withhold went straight back into the fast
+        # index — found there, absent from the scan, and answered as authoritative. The index carries the
+        # withholds it was built under precisely so this cannot happen.
+        self._turns("s-live")
+        index.rebuild()
+        forget.withhold(session_id="s-live")
+        self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (0, 0))
+
+        later = self._turns("s-live", count=2, ts=int(time.time()) + 500)
+        fresh = [r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) in set(later)]
+        index.extend(fresh)
+        self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (0, 0))
+
+        # And restoring brings back everything, including what was said while it was withheld — nothing was
+        # dropped on the way in, only kept out of what recall surfaces.
+        forget.restore(session_id="s-live")
+        self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (6, 6))
+
     def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
         # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by
         # time would leave the operator's most recent instruction decided by a coin toss.
@@ -567,6 +588,28 @@ class WithholdTests(_Base):
             with self.assertRaises(forget.ControlNotRecorded):
                 forget.withhold(**kwargs)
 
+    def test_an_identifier_that_names_nothing_is_refused_not_confirmed(self):
+        # Appending a marker always succeeds — it names a target and says nothing about whether the target is
+        # real. So a stale or mistyped id produced a confident "that note is out of recall now" over a note
+        # still fully searchable, and this is the one class of report where being wrong is silent: the
+        # operator has no way to notice that the thing they made private is not.
+        self._turns("s-exists")
+        for kwargs in ({"record_id": "deadbeefdeadbeefdeadbeefdeadbeef"}, {"session_id": "s-nope"}):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(**kwargs)
+            self.assertIn("no", str(caught.exception).lower())
+            with self.assertRaises(forget.ControlNotRecorded):
+                forget.restore(**kwargs)
+        self.assertEqual([r for r in ledger.iter_records()
+                          if r.get("kind") in (records.WITHHOLD_KIND, records.RESTORE_KIND)], [])
+
+    def test_withholding_something_already_withheld_says_so_rather_than_stacking(self):
+        ids = self._turns("s-twice")
+        forget.withhold(record_id=ids[0])
+        with self.assertRaises(forget.ControlNotRecorded) as caught:
+            forget.withhold(record_id=ids[0])
+        self.assertIn("already out of recall", str(caught.exception))
+
     def test_a_corrupt_marker_surfaces_rather_than_hides(self):
         # Failure direction: a marker that cannot be read must never take conversation out of recall on its own.
         self._turns("s-corrupt")
@@ -588,6 +631,7 @@ class WithholdTests(_Base):
 
     def test_the_readout_counts_what_is_withheld_without_quoting_it(self):
         ids = self._turns("s-readout")
+        self._turns("s-other")
         forget.withhold(record_id=ids[0])
         forget.withhold(session_id="s-other")
         totals = forget.set_aside()["totals"]

@@ -262,6 +262,62 @@ def generation(cwd: str | None = None, *, for_path: str | None = None) -> int:
     return val
 
 
+def _read_sidecar(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _sidecar_with(path: str, **updates) -> dict:
+    """The sidecar's current contents with `updates` applied — so a writer of one counter never silently
+    discards the other. The file holds two independent numbers now, and each has exactly one writer."""
+    data = _read_sidecar(path)
+    data.update(updates)
+    return data
+
+
+def index_epoch(cwd: str | None = None, *, for_path: str | None = None) -> int:
+    """A monotonic counter meaning "what the derived index is allowed to CONTAIN has changed".
+
+    DELIBERATELY NOT `generation`, and the distinction is load-bearing. `generation` means "content was
+    rewritten or removed", and a second reader depends on exactly that meaning: `restore_vault` refuses a
+    backup whose generation is BEHIND the local store, on the reasoning that restoring it would undo
+    deliberate removals, and raises a trust-critical finding saying so. Bumping `generation` to invalidate the
+    index would therefore have told an operator who merely pinned a note that their backup could not be
+    restored because notes had been deliberately removed — false, and refused on the day they needed it.
+
+    So membership changes that remove nothing — a withhold, which hides without deleting — move this instead.
+    Missing or malformed reads as 0, the same fail-safe `generation` uses."""
+    data = _read_sidecar(meta_path(cwd, for_path=for_path))
+    val = data.get("index_epoch")
+    if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+        return 0
+    return val
+
+
+def bump_index_epoch(cwd: str | None = None, *, for_path: str | None = None) -> int:
+    """Increment and durably persist the index epoch (temp + fsync + atomic os.replace). Returns the new value.
+    The CALLER must hold the single-writer lock, as with `bump_generation`."""
+    path = meta_path(cwd, for_path=for_path)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    new_val = index_epoch(cwd, for_path=for_path) + 1
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, json.dumps(_sidecar_with(path, index_epoch=new_val),
+                                separators=(",", ":")).encode("utf-8"))
+        _durable_fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+    return new_val
+
+
 def bump_generation(cwd: str | None = None, *, for_path: str | None = None) -> int:
     """Increment and durably persist the ledger generation (temp + fsync + atomic os.replace). Returns the new
     value. The CALLER must hold the single-writer lock (compaction does); this is not itself serialized. Bumped
@@ -275,7 +331,8 @@ def bump_generation(cwd: str | None = None, *, for_path: str | None = None) -> i
     tmp = path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
-        os.write(fd, json.dumps({"generation": new_val}, separators=(",", ":")).encode("utf-8"))
+        os.write(fd, json.dumps(_sidecar_with(path, generation=new_val),
+                                separators=(",", ":")).encode("utf-8"))
         _durable_fsync(fd)
     finally:
         os.close(fd)
@@ -297,7 +354,8 @@ def set_generation(value: int, cwd: str | None = None, *, for_path: str | None =
     tmp = path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
-        os.write(fd, json.dumps({"generation": new_val}, separators=(",", ":")).encode("utf-8"))
+        os.write(fd, json.dumps(_sidecar_with(path, generation=new_val),
+                                separators=(",", ":")).encode("utf-8"))
         _durable_fsync(fd)
     finally:
         os.close(fd)

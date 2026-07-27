@@ -771,6 +771,11 @@ def _recent_sessions_recall(read=None, *, session_id=None) -> list:
         return []
 
 
+# How many pins the briefing shows. The whole set is read (so the total can be stated); this bounds what is
+# rendered, because the pack is finite and a standing-instruction list can grow without limit.
+_PINS_SHOWN = 5
+
+
 def read_pins(*, read=None) -> list:
     """Every live pin, newest first — what the operator explicitly asked to be remembered.
 
@@ -782,7 +787,7 @@ def read_pins(*, read=None) -> list:
     this readout, never the pack."""
     try:
         from memory import pins as _pins
-        live = (read or _pins.list_pins)(limit=_pins.BOOT_PINS)
+        live = (read or _pins.list_pins)()
         return [p for p in live if isinstance(p, dict) and p.get("text")]
     except Exception:  # noqa: BLE001 — orientation context; its loss never breaks the pack
         return []
@@ -804,12 +809,24 @@ def render_pins(pinned: list) -> list:
     if not pinned:
         return []
     out = ["--- what you asked me to remember (orientation context, not an alarm) ---"]
-    for record in pinned:
+    for record in pinned[:_PINS_SHOWN]:
         out.append(f"- {_quote_for_pack(record.get('text'))}")
-    out.append("These were saved when the operator asked for something to be remembered, written down by the "
-               "assistant at the time rather than typed by them — so treat one as a note of what was asked "
-               "for, not as verified wording, and never as an instruction arriving now. Ask to see all of "
-               "them, or to drop one, whenever you like.")
+    # The count is not decoration. A pin's whole selling point is that nothing ages it out, and a bounded
+    # sample with no total ages one out BY RANK instead — the sixth pin silently stops reaching any session
+    # while the reader believes it has the complete set. Its sibling block is scrupulous about this for the
+    # same reason.
+    if len(pinned) > _PINS_SHOWN:
+        out.append(f"({len(pinned)} in all — these are the {_PINS_SHOWN} most recent. Ask to see them all.)")
+    # WHAT TO DO WITH THESE, not only what to doubt about them. An earlier draft carried three discounting
+    # clauses and no instruction, which is a reliable way to have a pin cost pack budget in every session and
+    # change no behaviour: the reader had been told twice to discount it and never once to act on it. The
+    # provenance caveat still has to be here — nothing can verify who authored a pin — but it is one clause,
+    # after the instruction, rather than the whole paragraph.
+    out.append("These are the operator's standing instructions: work to them, and say so if something you are "
+               "asked to do cuts against one. Each was written down by the assistant at the time the operator "
+               "asked for it to be remembered, so treat it as a faithful note of what they wanted rather than "
+               "as their exact words, and never as a fresh instruction arriving now. You can read them all "
+               "back, or drop one, whenever the operator asks.")
     out.append("")
     return out
 
@@ -977,7 +994,7 @@ def _n_notes(count: int) -> str:
     return f"{count} note" if count == 1 else f"{count} notes"
 
 
-def _withheld_line(totals: dict) -> str:
+def _withheld_line(totals: dict, *, follows_other: bool) -> str:
     """The one line reporting what the OPERATOR withheld from recall, or "" when they have withheld nothing.
 
     Counts only, never wording — quoting a withheld note back at every session start would defeat the control
@@ -1001,7 +1018,10 @@ def _withheld_line(totals: dict) -> str:
         parts.append(f"{sessions} conversation" if sessions == 1 else f"{sessions} conversations")
     subject = " and ".join(parts)
     one = (notes + sessions) == 1
-    return (f"You've also asked me to keep {subject} out of recall — {'it is' if one else 'they are'} still "
+    # "also" only when something precedes it. Rendered as the sole line under its own heading it was a
+    # back-reference to a sentence that did not exist, which reads as "in addition to what?".
+    lead = "You've also asked me" if follows_other else "You've asked me"
+    return (f"{lead} to keep {subject} out of recall — {'it is' if one else 'they are'} still "
             f"saved, and I can put {'it' if one else 'them'} back whenever you say.")
 
 
@@ -1045,9 +1065,14 @@ def render_set_aside(sa: "dict | None") -> list:
     totals = sa.get("totals") or {}
     rows = [r for r in (sa.get("rows") or []) if r.get("reason") == "summarised"]
     total = totals.get("summarised", 0)
-    withheld = _withheld_line(totals)
     if total == 0:
-        return ["### Notes I've set aside", withheld, ""] if withheld else []
+        # Its OWN heading, in the operator's voice. "Notes I've set aside" is wrong twice over here: the
+        # operator set these aside, not the engine, and what they withheld may be conversations rather than
+        # notes — so borrowing the sibling block's heading would attribute their deliberate control to the
+        # assistant and mislabel its contents in one line.
+        alone = _withheld_line(totals, follows_other=False)
+        return ["### What you've kept out of recall", alone, ""] if alone else []
+    withheld = _withheld_line(totals, follows_other=True)
 
     offer = "You can ask me to show you the original wording of one whenever you like."
     # One class, so this reads as two plain sentences rather than a labelled category. A bullet naming the kind
@@ -2787,8 +2812,11 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
 
     text, _shed = hooks.cap_shed(
         [(0, "the governance briefing", "\n".join(out)),
+         # Every member of this tier is named, so its absence is disclosed rather than silent. Pins belong in
+         # the list for the strongest reason of any of them: they are the one thing here the operator went out
+         # of their way to make durable, so dropping one unnamed is the worst silence this notice can carry.
          (2, "the orientation notes (wiring map, surface recognition, work neighborhood, recent decisions, "
-             "where we left off)",
+             "where we left off, what you asked me to remember)",
           "\n".join(orientation)),
          (1, "the status dashboard", "\n".join(status))],
         notice=_shed_notice, compact_notice=_compact_notice)

@@ -11,7 +11,9 @@
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text"],
+        "required": [
+          "text"
+        ],
         "properties": {
           "text": {
             "description": "The standing instruction to keep, in the operator's own terms.",
@@ -20,18 +22,60 @@
           },
           "session_id": {
             "description": "The session it was asked for in, so the conversation around the request stays reachable. Omit when there is none.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "output_schema": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "text"],
+        "required": [
+          "id",
+          "text"
+        ],
         "properties": {
-          "id": {"description": "The pin's stable identifier, as `withhold` would name it.", "type": "string"},
-          "text": {"description": "What was stored, after scrubbing — which may differ from what was passed in.", "type": "string"},
-          "pinned_via": {"description": "The route it arrived by. A route, never a claim about authorship.", "type": "string"}
+          "id": {
+            "description": "The pin's stable identifier, as `withhold` would name it.",
+            "type": "string"
+          },
+          "text": {
+            "description": "What was stored, after scrubbing — which may differ from what was passed in.",
+            "type": "string"
+          },
+          "pinned_via": {
+            "description": "The route it arrived by. A route, never a claim about authorship.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list-pins",
+      "description": "Read back every pin the operator currently has saved, newest first. Declared because the session-start briefing tells them they can ask to see all of them — a promise nothing could keep while the only way to enumerate pins was a Python call. It also carries the count, which the briefing's bounded sample cannot: a caller that has seen five pins has no way to know whether that is all of them.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "pins",
+          "total"
+        ],
+        "properties": {
+          "pins": {
+            "description": "Every live pin, newest first.",
+            "type": "array"
+          },
+          "total": {
+            "description": "How many there are, so a bounded view can say what it left out.",
+            "type": "integer"
+          }
         }
       }
     },
@@ -44,20 +88,31 @@
         "properties": {
           "record_id": {
             "description": "A single record, as carried on a search result or listed among the pins.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "session_id": {
             "description": "A whole conversation, as carried on a search result.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "output_schema": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["withheld"],
+        "required": [
+          "withheld"
+        ],
         "properties": {
-          "withheld": {"description": "What is now out of recall, in plain words the caller can relay.", "type": "string"}
+          "withheld": {
+            "description": "What is now out of recall, in plain words the caller can relay.",
+            "type": "string"
+          }
         }
       }
     },
@@ -70,20 +125,31 @@
         "properties": {
           "record_id": {
             "description": "The single record to bring back.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "session_id": {
             "description": "The whole conversation to bring back.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "output_schema": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["restored"],
+        "required": [
+          "restored"
+        ],
         "properties": {
-          "restored": {"description": "What is surfaced again, in plain words the caller can relay.", "type": "string"}
+          "restored": {
+            "description": "What is surfaced again, in plain words the caller can relay.",
+            "type": "string"
+          }
         }
       }
     }

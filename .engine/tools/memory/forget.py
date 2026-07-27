@@ -17,8 +17,10 @@ marker is dropped, while the marked (completed) pass is kept. The retirement is 
 Leaf discipline: this module RETURNS records / a report and renders no operator-facing prose
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
 so the fast and slow lookups retire identically (the parity law, index.py). `index.extend` applies the same
-membership predicate when capture adds a turn to an already-built index, so the incremental path cannot admit
-what a full rebuild would drop. stdlib-only.
+membership predicates when capture adds a turn to an already-built index — the injected-capture exclusion, and
+the operator's withholds as the index itself recorded them — so the incremental path cannot admit what a full
+rebuild would drop. That second half is what keeps "forget this conversation", said while the conversation is
+still going, from being undone by its own next turn. stdlib-only.
 
 **Reinforcement, and the age-out that used to ride on it**. A record is reinforced each time it is recalled — an
 append-only `reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds those
@@ -218,8 +220,11 @@ def withheld_targets(src: str) -> tuple:
     reading it front to back and letting each marker overwrite the last is both the simplest rule and the
     truthful one. `_closed_batches` derives closure from position for the same reason.
 
-    A marker names EITHER a record or a session, never both: the record key is checked first, so a malformed
-    marker carrying both is read as naming the record and can never withhold a whole session by accident.
+    A marker names EITHER a record or a session, never both. The record key is checked first, so a marker
+    carrying both well-formed keys is read as naming the record. Be precise about the residual case rather than
+    overclaiming: a marker whose record key is malformed AND whose session key is valid does fall through to
+    the session leg. No write path can produce one — `_write_control` refuses both-or-neither, and a test pins
+    that — so this is the shape of a hand-edited or corrupted line, not of anything the engine mints.
     Failure direction throughout is SURFACE, not hide — a marker missing or mistyping its target is skipped, so
     a corrupt line can never take conversation out of recall on its own."""
     withheld_ids, withheld_sessions = set(), set()
@@ -301,6 +306,39 @@ class ControlNotRecorded(RuntimeError):
     forbid, and the operator would have no way to tell."""
 
 
+def _target_state(src: str, rid, sid) -> tuple:
+    """`(exists, already_withheld)` for one named target, in a single pass over the ledger.
+
+    WHY EXISTENCE IS CHECKED AT ALL. Appending a marker always succeeds — it names a target and says nothing
+    about whether that target is real — so an id that matches nothing produced a confident "that note is out
+    of recall now" over a note still fully searchable. The id comes from a search result by way of a model, so
+    a stale, mistyped or invented one is an ordinary occurrence, and this is the one class of report where
+    being wrong is silent: the operator has no way to notice that the thing they asked to be private is not.
+
+    The asymmetry with `restore` is deliberate and runs the other way. An unverified restore under-promises —
+    the worst case is that something already reachable stays reachable — so it is reported rather than
+    refused. An unverified withhold over-promises privacy, which is why it refuses."""
+    exists = False
+    withheld_ids, withheld_sessions = set(), set()
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        kind = record.get("kind")
+        if kind in (records.WITHHOLD_KIND, records.RESTORE_KIND):
+            hiding = kind == records.WITHHOLD_KIND
+            t_rid, t_sid = record.get(records.TARGET_KEY), record.get(records.TARGET_SESSION_KEY)
+            if isinstance(t_rid, str) and t_rid:
+                withheld_ids.add(t_rid) if hiding else withheld_ids.discard(t_rid)
+            elif isinstance(t_sid, str) and t_sid:
+                withheld_sessions.add(t_sid) if hiding else withheld_sessions.discard(t_sid)
+            continue
+        if rid is not None and record.get(records.RECORD_ID_KEY) == rid:
+            exists = True
+        elif sid is not None and record.get("session_id") == sid:
+            exists = True
+    return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
+
+
 def _write_control(kind: str, *, record_id=None, session_id=None,
                    path: "str | None" = None, now: "int | None" = None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
@@ -308,28 +346,54 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     Exactly ONE target, checked here rather than at each caller: a marker naming both would be ambiguous to
     every reader, and one naming neither would sit in the ledger doing nothing.
 
-    THE GENERATION BUMP IS THE LOAD-BEARING HALF. `ledger.append` alone would leave the fast index stamped
+    THE INDEX-EPOCH BUMP IS THE LOAD-BEARING HALF. `ledger.append` alone would leave the fast index stamped
     current while its rows no longer match what recall may surface — so `search` would keep returning, as an
     authoritative answer, the very record the operator just withheld, while the plain scan correctly dropped it.
     That is the fast/slow divergence in its worse direction, and it would resurface withheld content rather
     than merely miss new content. `index.extend` cannot help: it accepts captured turns only, and no incremental
-    update can express a REMOVAL anyway. Bumping the generation is what makes the index honestly stale, so the
+    update can express a REMOVAL anyway. Bumping the index epoch is what makes the index honestly stale, so the
     next ranked read heals it (`index._heal_if_stale`) and every read before that heals falls to the scan, which
     reads through `live_records` and is already correct. Held under the single-writer lock, and bumped BEFORE
     the append for the same reason compaction does it: every crash window then leaves the index stamped stale,
-    which is always the safe way to be wrong."""
+    which is always the safe way to be wrong.
+
+    THE EPOCH, NOT THE CONTENT GENERATION, and that distinction is not cosmetic. `generation` means content was
+    rewritten or removed, and `restore_vault` reads it that way: a local generation ahead of a backup's makes it
+    refuse the restore and raise a trust-critical finding saying deliberate removals would be undone. Since
+    backups are throttled to about a day, using `generation` here would have told any operator who withheld or
+    pinned something in the last day that their backup could not be restored, for a removal that never
+    happened — on the day they needed it. Withholding removes nothing, so it moves the counter that means only
+    "the index may no longer hold the right set" (`ledger.index_epoch`)."""
     from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
     rid = record_id if isinstance(record_id, str) and record_id else None
     sid = session_id if isinstance(session_id, str) and session_id else None
     if (rid is None) == (sid is None):
         raise ControlNotRecorded("name exactly one thing to act on — a single note, or a whole session.")
     target = path if path is not None else ledger.ledger_path()
+    exists, already = _target_state(target, rid, sid)
+    if not exists:
+        noun = "note" if rid is not None else "conversation"
+        raise ControlNotRecorded(
+            f"there is no {noun} in memory with that identifier, so nothing was changed. Check it against a "
+            "search result — the identifier has to be one memory actually holds."
+        )
+    if kind == records.WITHHOLD_KIND and already:
+        noun = "note" if rid is not None else "conversation"
+        raise ControlNotRecorded(f"that {noun} is already out of recall — nothing needed changing.")
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
+        # A `None` here does NOT prove contention — the same value comes back when the store cannot be opened
+        # at all, which is what a permissions problem, a full disk or an unmounted volume looks like. Saying
+        # "try again in a moment" over one of those sends the operator into a retry that can never succeed, so
+        # the message names both possibilities and points at the one they can act on.
+        writable = os.access(data_dir, os.W_OK)
         raise ControlNotRecorded(
             "another memory write is in progress, so nothing was changed. Try again in a moment."
+            if writable else
+            f"memory could not be written to ({data_dir} is not writable), so nothing was changed. This will "
+            "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
     try:
         marker = {
@@ -343,7 +407,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             marker[records.TARGET_KEY] = rid
         else:
             marker[records.TARGET_SESSION_KEY] = sid
-        ledger.bump_generation(for_path=target)
+        ledger.bump_index_epoch(for_path=target)
         ledger.append(marker, path=path)
         return marker
     except ControlNotRecorded:
@@ -371,8 +435,10 @@ def restore(*, record_id=None, session_id=None, path: "str | None" = None,
     """Undo a withhold, by the same target the withhold named. Appends; it never edits the earlier marker.
 
     Restoring something that was never withheld is harmless rather than an error — the marker simply names a
-    target no withhold covers, and `withheld_targets` discards what is not there. That keeps "put it back" safe
-    to say twice, which is how an operator actually talks to it."""
+    target no withhold covers, and `withheld_targets` discards what is not there. That keeps "put it back"
+    safe to say twice, which is how an operator actually talks to it. The target must still be something
+    memory holds: an identifier matching nothing is a mistake worth telling them about rather than a silent
+    no-op dressed as success (`_target_state`)."""
     return _write_control(records.RESTORE_KIND, record_id=record_id, session_id=session_id,
                           path=path, now=now)
 
@@ -572,11 +638,19 @@ def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> di
 
         rows: list = []
         summarised = 0
+        # The withheld set is needed BEFORE the rows are built, not only for the counts: a summary the
+        # operator withheld — by its own id, or by withholding the conversation it was written over — must
+        # not appear as a row, because a row carries the record's own `text` and the readout prints that into
+        # the briefing at every session start. Reporting a withhold and quoting the withheld wording in the
+        # same block is the exact outcome the count-only design exists to prevent.
+        withheld_ids, withheld_sessions = withheld_targets(src)
         for record in ledger.iter_records(path=src):
             if not isinstance(record, dict):
                 continue
             if record.get("kind") not in (records.EPISODIC_KIND, records.GIST_KIND):
                 continue                                   # only recall content — never a marker or a turn-delta
+            if is_withheld(record, withheld_ids, withheld_sessions):
+                continue
             rid = record.get(records.RECORD_ID_KEY)
             text = record.get("text")
             if not (isinstance(rid, str) and rid) or not (isinstance(text, str) and text.strip()):
@@ -601,7 +675,6 @@ def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> di
 
         rows.sort(key=_order, reverse=True)
         identity = sorted(r["id"] for r in rows)
-        withheld_ids, withheld_sessions = withheld_targets(src)
         return {"rows": rows[:limit],
                 "totals": {"summarised": summarised, "withheld_notes": len(withheld_ids),
                            "withheld_sessions": len(withheld_sessions)},
