@@ -7475,7 +7475,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:e63f1860cfa459325292b41bffd238c406520f83c19a886e2819fc48bc057e2a",
+        "fingerprint": "sha256:f0772f24dbb6f5395cf2e4e55f8e4b2a7aae44604d774c71c5e4fdb776c906ba",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -11045,7 +11045,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:5951c80cf0f4996e7dc81f87aceef71f0487d7545f5dc09b1a6d3a8969dff864",
+        "fingerprint": "sha256:d29bd66f004c3d42aa3b7b2752c4b13a2642fbc3cd9870bcb43b26921aecab29",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
