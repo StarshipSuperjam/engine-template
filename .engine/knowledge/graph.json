@@ -3921,7 +3921,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:821c4e364869845ac4d4e416d2312e40197a788a5937929dfb57e22664d0641c",
+        "fingerprint": "sha256:8b67248d9306eeee980aa2477605cc2f1a13640fa14c11112f2cc10bfff73d2a",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4473,7 +4473,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:ec905dc984c1f0d40c3989325d1c5af21eca90739a6564ee637708ec68f7da63",
+        "fingerprint": "sha256:0fc193df63407953f9a804221631a0ecea4fd46fb8885379f66a868679a182f7",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -7758,7 +7758,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:77523cf594232ffde6c943bd0c7ffddb5662b7b4037dceba6604c1e5bc386c25",
+        "fingerprint": "sha256:c4995098bddb7e3f2ca9fae2d2ecc2b7240accd712be808f402fc5857029de4d",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -8217,7 +8217,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:53d987b530acab80e5d2b4ef45c4757a940d71a3f38c509434871abda939c9bf",
+        "fingerprint": "sha256:38035cbed3ac1a7d6276161657d7e1f29024559ae2e1412355f1a27a2e599558",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -9448,6 +9448,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_export",
+      "name": ".engine/tools/memory/test_export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_export",
+      "source": {
+        "fingerprint": "sha256:828d0c86aa460627823dbe7bf4a27dca28a47414402f59f73de2b250ca189d79",
+        "path": ".engine/tools/memory/test_export.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_first_run_health",
       "name": ".engine/tools/test_first_run_health.py",
       "owner": "core",
@@ -9883,7 +9900,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:88fd46da539f7c28382df428e3f33a494036f6a045c85c78990ec9e90ef42480",
+        "fingerprint": "sha256:f8f9377d458e2194ca24554de1da6ea3858acd899b451ea2f14e89f86d63c63f",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",

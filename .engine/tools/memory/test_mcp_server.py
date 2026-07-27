@@ -314,6 +314,67 @@ class ReinforcementOnRecallTests(_ServerBase):
             capture._release_lock(held)
 
 
+class ControlToolTests(_ServerBase):
+    """The three tools that WRITE, exercised through the server rather than through the library beneath it —
+    the transport is where a caller actually meets them, and where a wrong shape would surface."""
+
+    async def _call(self, name, args):
+        return self._result_json(await srv.server.call_tool(name, args))
+
+    async def test_pinning_stores_the_text_and_makes_it_findable(self):
+        out = await self._call("pin", {"text": "Always ask before filing an issue."})
+        self.assertTrue(out["id"])
+        self.assertEqual(out[records.PIN_VIA_KEY], records.PIN_VIA_ASSISTANT)
+        found = await self._call("search", {"query": "filing"})
+        self.assertEqual(len(found["results"]), 1)
+
+    async def test_a_pin_is_scrubbed_at_the_transport_too(self):
+        # The tool is the path a model actually uses, so the scrub has to hold here and not only in the library
+        # — this is the call that would carry a credential a session had just been shown.
+        out = await self._call("pin", {"text": "token sk-ant-api03-" + "A" * 32})
+        self.assertNotIn("sk-ant-api03", out["text"])
+
+    async def test_withhold_and_restore_round_trip_through_the_server(self):
+        rid = self.add("a decision that was withdrawn", role="decision")
+        self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)
+        said = await self._call("withhold", {"record_id": rid})
+        self.assertIn("still saved", said["withheld"])          # never reads as erasure
+        self.assertEqual((await self._call("search", {"query": "withdrawn"}))["results"], [])
+        back = await self._call("restore", {"record_id": rid})
+        self.assertIn("back in recall", back["restored"])
+        self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)
+
+    async def test_withholding_names_exactly_one_target(self):
+        # Both, or neither, is refused rather than guessed at: a record id and a session id are both uuid hex,
+        # so a wrong guess here withholds something the operator never named.
+        for args in ({}, {"record_id": "r", "session_id": "s"}):
+            with self.assertRaises(Exception):
+                await self._call("withhold", args)
+
+    async def test_no_control_tool_removes_a_record_from_the_ledger(self):
+        # The whole safety story of these tools is that they append. If one ever deletes, the reversibility
+        # every description promises becomes false and the erasure wall stops being the only way out.
+        rid = self.add("something to take out of recall")
+        before = sum(1 for _ in ledger.iter_records())
+        await self._call("withhold", {"record_id": rid})
+        await self._call("pin", {"text": "a standing note"})
+        after = list(ledger.iter_records())
+        self.assertGreater(len(after), before)
+        self.assertIn(rid, {r.get(_ID) for r in after})
+
+    async def test_search_can_be_scoped_to_one_conversation(self):
+        for sid in ("s-A", "s-B"):
+            for i in range(3):
+                ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                               "session_id": sid, "seq": i, "speaker": "user", "ts": self.now + i,
+                               "text": f"{sid} talking about wombats"})
+        index.rebuild()
+        whole = await self._call("search", {"query": "wombats", "limit": 50})
+        scoped = await self._call("search", {"query": "wombats", "session": "s-B", "limit": 50})
+        self.assertEqual(len(whole["results"]), 6)
+        self.assertEqual({r["session_id"] for r in scoped["results"]}, {"s-B"})
+
+
 class DemoTests(unittest.TestCase):
     def test_demo_body_exits_zero(self):
         # The operator demo exercises the REAL rank + filter + reinforce on its own throwaway cabinet; a real

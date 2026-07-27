@@ -65,14 +65,19 @@ keyword side, and skipping it is still what makes recall fail.
    pooled set, not each search in isolation, and a record that surfaced both by word and by meaning is the
    strongest signal available.
 5. **Read the conversation behind the promising hits.** A hit is either a summary written after the fact or one
-   piece of a real message — long messages were stored in pieces, so a conversation hit is a fragment and must
-   never be quoted as if it were the whole thing. **Tell them apart by their fields: a conversation hit carries
-   a `speaker` and a single `seq` and no `role`; a summary carries a `role`.** For the few that look like they
+   piece of a real message, or a pin the operator asked to be kept — long messages were stored in pieces, so a
+   conversation hit is a fragment and must never be quoted as if it were the whole thing. **Tell them apart by
+   their fields: a conversation hit carries a `speaker` and a single `seq` and no `role`; a summary carries a
+   `role`; a pin carries `kind: pin`.** A pin is what the assistant wrote down when the operator asked for
+   something to be remembered, so relay it as that and not as their verified wording. For the few that look like they
    answer the question, read the real conversation with the window tool
    (`mcp__engine-memory__recall-window`), passing the hit's `session_id`.
    **A conversation hit carries its own `seq` — anchor directly on it** with a radius of 6, or 20 for more
-   context, and skip the exploratory first read entirely. A summary hit carries no position, so for those start
-   at the beginning; once that window shows you the ordinals, anchor a follow-up read on the relevant one. The
+   context, and skip the exploratory first read entirely. **A summary hit carries no position, so search
+   inside its session instead of reading from the start:** call search again with the same or a narrower
+   phrase and the hit's `session_id`, and anchor on what that returns. Reading from the beginning is the last
+   resort, not the default — a session here runs to a hundred messages and more, and paging forward through
+   one usually costs a great deal of context and still misses the moment. The
    window keeps the anchor centred, so widening never pushes it out of view. Pass the hit's `session_id` even when it is a cluster
    key for a summary folded from several sessions: the window resolves that to the real sessions itself. When
    it cannot, it says so in its note — answer from the summary and say plainly that the original conversation

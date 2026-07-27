@@ -608,9 +608,14 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     # `demo` only, deliberately. An earlier draft carried a `window <session-id>` verb that printed verbatim
-    # conversation from the LIVE store to stdout — a surface nothing asked for, on the one path where a stray
+    # conversation from the LIVE store to STDOUT — a surface nothing asked for, on the one path where a stray
     # invocation (or a CI log) leaks the operator's own words. Reading real memory goes through the MCP
     # operation, in a session the operator is present for.
+    #
+    # `export.py` is the deliberate exception, and the difference is the whole reason it is a separate tool:
+    # the operator asks for it by name, it writes to a file rather than to a log, and it refuses any
+    # destination inside a git working tree that git does not already ignore. Printing to stdout has none of
+    # those, which is why that verb stayed cut rather than being revived here.
     cmd = argv[0] if argv else "demo"
     if cmd == "demo":
         return _demo()
