@@ -9579,7 +9579,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:16bef966373cb12fbf25663a2166c2fe0591f3330506c6bf713c66764497a442",
+        "fingerprint": "sha256:2bcc7f9baf0dc11291418c399d8229199128bdbf6dd397ac7d419012f9f9c490",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
