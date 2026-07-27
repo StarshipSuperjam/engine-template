@@ -190,6 +190,18 @@ def _connect(path: str) -> sqlite3.Connection:
 # module is loaded inside the long-lived recall server, so a session that asks several meaning-based questions
 # in a row re-derives once instead of once per question.
 #
+# WHAT IT COSTS, stated because a comment further down in `search` warns against exactly this shape: it says
+# materialising the row set whole "would make peak memory linear in store size". The distinction that makes
+# this a different trade is PEAK versus RESIDENT. `_live_text` is derived on every query regardless and held
+# for that query's duration, so the peak is unchanged; what changes is that the derivation now survives
+# BETWEEN queries in the long-lived recall server — roughly one ledger's worth, about 30 MB on a 30 MB store,
+# never released. That is a real cost and it is the one being bought: 334 ms to 118 ms on a repeat question.
+#
+# It is also NOT the durable byte-cursor the design review named. A cursor kept in the vector store would
+# survive a restart; this does not, so the first query in each process still pays full price, and `_reconcile`
+# still re-checks its passages per query. What is fixed is the repeat cost inside one session, which is where
+# a recall workflow actually asks several questions in a row.
+#
 # WHY THESE FOUR KEYS ARE SUFFICIENT, which is the whole safety argument. A record can only enter the live set
 # by being APPENDED (the file grows, so size changes) and can only leave it by being withheld (which bumps the
 # index epoch), by an erasure compaction, or by the operator's re-scrub (both of which rewrite the file, and

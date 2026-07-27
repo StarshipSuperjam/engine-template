@@ -68,8 +68,7 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # ENVELOPE metadata is excluded for the same reason: `session_id` (a per-session UUID — its hex fragments are
 # real words: dead/beef/cafe/face…), `kind` ("turn-delta"), and `speaker` ("user"/"assistant") are provenance,
 # not content, and indexing them makes `query("user")`/`query("delta")` match every record. Only the human
-# `text` (and any other non-metadata string leaf) is searchable. The closed role vocabulary the reflection
-# step adds is a structured filter, so `role` joins this set: searching a label like "decision" must
+# `text` (and any other non-metadata string leaf) is searchable. A `role` an older engine stamped on a summary is a label, not content, so it joins this set: searching a label like "decision" must
 # never drag in every record that carries it (the same pollution the capture-record provenance fields would
 # cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type. The
 # per-pass `batch` id the forgetting step adds is a uuid — its hex fragments are real words, exactly the

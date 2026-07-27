@@ -59,7 +59,7 @@ from memory import ledger, records  # noqa: E402 — the canonical store + the s
 BACKUP_INTERVAL_HOURS = 24
 _HOUR = 3600
 
-# A gitignored runtime sidecar under .engine/memory/ (sibling of ledger-meta.json / erasure-proposer-state.json),
+# A gitignored runtime sidecar under .engine/memory/ (sibling of ledger-meta.json / the erasure observer's state sidecar),
 # holding the throttle + privacy-report state. Never committed; resolved via ledger.ledger_dir() so it lands in the
 # throwaway cabinet under tests/demo and the real store in production. Already fenced by the `.engine/memory/` gitignore.
 _STATE_FILENAME = "backup-vault-state.json"

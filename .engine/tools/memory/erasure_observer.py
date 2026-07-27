@@ -25,11 +25,19 @@ Posture: **fail-SAFE on consent, fail-OPEN on host.** Any doubt — no token, un
 unreadable/malformed proposal, a bad id shape — yields no erasure and a silent proceed (retry next session). The
 SessionStart hook can never block or slow the session past one bounded, swallowed read.
 
-Why this is not an AI-reachable note-shredder (the hazard the earlier step dropped the `erase` CLI to avoid): the merge SHA
-comes from a GENUINE merge to protected `main`, never from argv. An AI in-session cannot merge to protected `main`,
-cannot fabricate `merged_at`/`merge_commit_sha`, and cannot forge the committed proposal at the merge tree — so there
-is deliberately NO real-ledger arbitrary-mint verb here either. The label only *discovers*; the binding is the
-immutable proposal@sha, so a mislabelled random merged PR (no proposal at its tree) is a no-op.
+Why this is not an AI-reachable note-shredder — stated precisely, because the honest bound is narrower than the
+obvious one. The merge SHA comes from a GENUINE merge to protected `main`, never from argv: nothing here can
+fabricate `merged_at`/`merge_commit_sha` or forge the committed proposal at the merge tree, and there is
+deliberately no arbitrary-mint verb. The label only *discovers*; the binding is the immutable proposal@sha, so a
+mislabelled random merged PR (no proposal at its tree) is a no-op.
+
+WHAT THE MERGE ITSELF IS WORTH DEPENDS ON THE TIER, and this used to claim more than it had. In a TEAM
+repository the ruleset requires an approving review the author cannot give themselves, and the merge genuinely
+prevents. In SOLO — the shipped default — the provisioned ruleset requires zero approving reviews, so the same
+actor that opens an erasure pull request can merge it. There the merge is a VISIBILITY gate: it makes the act a
+reviewable, attributable commit that cannot happen quietly. What bounds the MODEL path in solo is upstream of
+here: `erase.py` refuses unless it is attached to a controlling terminal, which an automated shell does not
+have.
 
 Leaf discipline: stdlib + the cycle-free `memory` set (`compact` / `ledger` / `records`) + the sibling `hooks`; the
 GitHub reader (`boot` resolvers + `telemetry`'s 2-tuple transport) is lazy-imported inside the network path so the

@@ -4,10 +4,10 @@ Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
-ranked library and returns `{"results": [...]}`, and — the move this server adds — fires the live reinforcement
-(forget.record_access) once per RETURNED record, so recall is self-reinforcing. The reinforcement is fail-soft
-(a fault never converts a successful recall into an error), lock-safe (it never writes lock-free), and skips a
-record with no id. An unknown role surfaces as a tool error, not a crash. Isolation is a throwaway
+ranked library and returns `{"results": [...]}`, writing nothing at all — a read is a read. Beside it are the
+operator's own controls, which DO write, and the two that do not appear here at all: permanent erasure and the
+secret re-scrub are declared in the control contract and deliberately not served, because each is a
+command-line verb a person runs at a terminal. Isolation is a throwaway
 ENGINE_MEMORY_DIR cabinet, so the server's default-path library calls resolve to the test's temp store.
 """
 
@@ -92,22 +92,36 @@ class ToolWiringTests(_ServerBase):
         # private detail no other conforming implementation would offer, breaking a caller that relied on it.
         #
         # DERIVED FROM THE CONTRACTS, not from a literal: the operations are read out of the declarations
-        # themselves, so this fails if a tool is added without declaring it OR if an operation is declared and
-        # never served. TWO declarations are in play because the writes are a separate contract — `search.json`
-        # describes recall as never changing what is stored, so the operator's controls could not be declared
-        # beside it without making that description false.
+        # themselves, so this fails if a tool is added without declaring it. TWO declarations are in play
+        # because the writes are a separate contract — `search.json` describes recall as never changing what
+        # is stored, so the operator's controls could not be declared beside it without making that false.
+        #
+        # SERVED IS A SUBSET OF DECLARED, not an equality, and the difference is deliberate. Two operations —
+        # permanent erasure and the secret re-scrub — are declared BECAUSE a reader of the contract must know
+        # the capability exists and where it lives, and are NOT served BECAUSE serving them would defeat what
+        # makes them safe: each is a command-line verb that a person runs at a terminal, and a callable tool
+        # would be exactly the model-reachable path they are built to refuse. Their descriptions say so. The
+        # property that actually matters is the one below: the server offers nothing it has not declared.
         #
         # TWO SHAPES ARE REAL, so both are covered rather than whichever this checkout happens to be:
         # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
         # deployment without it offers the rest alone.
         here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(srv.__file__))))
-        declared = set()
+        declared, unserved = set(), set()
         for slug in ("search", "memory-control"):
             with open(os.path.join(here, "interfaces", f"{slug}.json"), encoding="utf-8") as fh:
-                declared |= {op["name"] for op in json.load(fh)["operations"]}
-        expected = declared if srv._semantic_installed() else declared - {"recall-by-meaning"}
+                for op in json.load(fh)["operations"]:
+                    declared.add(op["name"])
+                    if "NOT SERVED AS A TOOL" in op.get("description", ""):
+                        unserved.add(op["name"])
+        expected = declared - unserved
+        if not srv._semantic_installed():
+            expected -= {"recall-by-meaning"}
         names = {t.name for t in await srv.server.list_tools()}
         self.assertEqual(names, expected)
+        self.assertTrue(unserved, "no operation is declared as unserved — this assertion has stopped biting")
+        self.assertFalse(names & unserved,
+                         "an operation declared NOT SERVED is being served — the terminal gate is bypassed")
 
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):

@@ -462,7 +462,7 @@ _SAVED_MEMORY_NONE_YET = (
 _SAVED_MEMORY_PUBLIC_AGGREGATE_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
     "Review them HERE, IN THIS RUN: do any now contradict each other, has anything you can see "
-    "refuted one, or is a heavily-used note actually obsolete? You are reading these from the backup (you can't "
+    "refuted one, or is a note the project still leans on actually obsolete? You are reading these from the backup (you can't "
     "reach them yourself); treat them as what the engine had saved as of that backup. IMPORTANT — this project is "
     "public, or its visibility could not be confirmed private, and your summary is committed where anyone could "
     "read it. So in that committed summary report ONLY HOW MANY of these {n} look stale (for example: \"N of your "
@@ -478,7 +478,7 @@ _SAVED_MEMORY_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
     "Review them: do any now contradict each other, has anything you can see refuted one, or is a "
     "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
-    "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-used first.")
+    "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-recorded first.")
 
 # fetch error code -> the disclosure marker (the corrected two-part split, #224). not-configured = no backup
 # for this run; no-token = set up but THIS RUN wasn't granted access (a standing credential gap → re-arm the vault

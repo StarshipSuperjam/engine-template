@@ -4,10 +4,10 @@ The locked design splits memory capture
 along a "content survives / reflection defers" seam. This module is the CONTENT half:
 
   - **Every completed turn (`Stop`) appends the turn's session-id-tagged delta to the ledger** — an
-    *append, not a summarization*, so it never taxes mid-session use. The expensive AI-judged
-    consolidation into clean, role-typed episodic records is the REFLECTION half (`consolidate.py`),
-    which runs separately because it needs the in-context AI's judgment — something a fire-and-forget
-    hook does not have.
+    *append, not a summarization*, so it never taxes mid-session use. There used to be a second half — an
+    AI-judged pass that folded each session into role-typed summaries — and it is gone: the transcript
+    itself is the record now (eADR-0038), and meaning is spent at read time by the session's own model
+    rather than accumulated as summaries that go stale.
 
   - **Capture is cheap, generous, and LOSSLESS over conversation.** A long *turn* is *chunked*
     (paragraph-preferred, 4 KB) and every chunk is stored — conversational content is never elided at
@@ -74,7 +74,7 @@ CHUNK_MAX_CHARS = 4_000                  # per-record body cap (paragraph-prefer
 MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024  # 64 MiB hard ceiling; refuse a larger transcript
 
 TRANSCRIPT_DIR_ENV = "ENGINE_MEMORY_TRANSCRIPT_DIR"  # adopter/test escape hatch (an ADDITIONAL root)
-SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live platform session var (matches consolidate.py); the env
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live platform session var (the shared convention); the env
                                          # fallback used only when the hook payload omits `session_id`
 TRANSCRIPT_ENV = "CLAUDE_TRANSCRIPT_PATH"
 

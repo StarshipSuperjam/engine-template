@@ -103,13 +103,27 @@ def reinforcement(target_id: str, *, now: "int | None" = None) -> dict:
 # The deleted writers did more than mint: they appended a whole pass in a strict order whose crash points are
 # exactly what the surviving predicates key on. A fixture that appends in the wrong order tests nothing, so
 # these reproduce the order rather than leaving each caller to remember it.
+#
+# THEY REFUSE TO WRITE TO THE DEFAULT STORE. `ledger.append(path=None)` resolves to the operator's real ledger,
+# and these mint shapes no live path produces — so a caller that forgot to point them at a throwaway cabinet
+# would quietly plant retired records in real memory. An explicit path is required, and the demos that use
+# these run under a temporary ENGINE_MEMORY_DIR, which resolves before this check.
+
+
+def _refuse_default_store(path) -> None:
+    """Refuse an append with no explicit destination unless the environment already redirects the store."""
+    if path is None and not os.environ.get("ENGINE_MEMORY_DIR"):
+        raise RuntimeError(
+            "legacy_shapes writes record shapes nothing produces any more; it refuses to append to the real "
+            "store. Pass an explicit `path=`, or point ENGINE_MEMORY_DIR at a throwaway cabinet.")
 
 def store_episodic(session_id: str, entries, *, batch: "str | None" = None, path=None,
-                   close: bool = True) -> str:
+                   close: bool = True) -> str:  # noqa: D401
     """Append a summarising pass: its summaries, then the marker that closes it. Returns the batch id.
     `close=False` leaves the pass OPEN — the crashed shape whose summaries recall must retire as orphans."""
     import uuid
     from memory import ledger
+    _refuse_default_store(path)
     batch = batch or uuid.uuid4().hex
     for e in entries:
         ledger.append(episodic(session_id, e["role"], e["text"], batch, tags=e.get("tags") or ()), path=path)
@@ -125,6 +139,7 @@ def store_gist(session_key: str, text: str, source_ids, *, batch: "str | None" =
     the crash shape that must leave every supersession INERT, so no raw is hidden without its gist."""
     import uuid
     from memory import ledger
+    _refuse_default_store(path)
     batch = batch or uuid.uuid4().hex
     g = gist(session_key, text, source_ids, batch, role=role)
     ledger.append(g, path=path)

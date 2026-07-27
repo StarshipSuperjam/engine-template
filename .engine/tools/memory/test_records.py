@@ -168,7 +168,7 @@ class BackCompatTests(_Base):
 
 class SessionEnvFixTests(unittest.TestCase):
     def test_capture_session_env_is_the_live_platform_var(self):
-        # the folded-in fix: capture's env fallback must name the live var (matches consolidate's)
+        # the folded-in fix: capture's env fallback must name the live var (the shared convention)
         self.assertEqual(capture.SESSION_ENV, "CLAUDE_CODE_SESSION_ID")
 
 

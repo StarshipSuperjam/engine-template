@@ -288,9 +288,6 @@ class StoreBehaviourTests(_Cabinet):
         self.assertEqual(remaining, 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class LiveDerivationCacheTests(unittest.TestCase):
     """Meaning-based recall re-derived the whole live set on every question — a full ledger pass plus a hash of
@@ -346,3 +343,7 @@ class LiveDerivationCacheTests(unittest.TestCase):
         store._live_text()
         os.remove(ledger.ledger_path())
         self.assertEqual(store._live_text(), {})          # re-derived, not the stale copy
+
+
+if __name__ == "__main__":
+    unittest.main()

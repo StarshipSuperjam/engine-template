@@ -670,9 +670,6 @@ class IndexFreshnessAndExtendTests(IndexTestCase):
                              "extend must not admit what a rebuild would drop: %r" % text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class ExtendFaultHealsTests(IndexTestCase):
     """A failed incremental update must leave the index STALE, not silently short a turn.
@@ -716,3 +713,42 @@ class ExtendFaultHealsTests(IndexTestCase):
                 "session_id": "s-1", "seq": 0, "speaker": "user", "ts": 1785000000, "text": "a turn"}
         self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index), 0)
         self.assertEqual(ledger.index_epoch(for_path=self.ledger), epoch)
+
+
+class LedgerFreeFastPathTests(IndexTestCase):
+    """The proof the plan called load-bearing: answer a search with the ledger gone.
+
+    This is the whole read-path bound stated as something that can fail. Recall used to make a full pass over
+    the ledger on every query just to collect the usage tiebreak — measured as the ENTIRE cost of a search,
+    80.8 ms of 80.8 ms on a 30 MB store. Nothing weaker proves the pass is gone: a timing is a measurement, a
+    source scan is a proxy, and only removing the file distinguishes "reads it quickly" from "does not read
+    it". With the file unreadable, a fast path that still touched it returns nothing or raises.
+    """
+
+    def test_a_search_answers_with_the_ledger_removed(self):
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        os.replace(self.ledger, self.ledger + ".gone")          # the one source of truth, taken away
+        try:
+            result = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(len(result.records), 5)
+        self.assertFalse(result.degraded, "it fell back to the scan, which means it wanted the ledger")
+
+    def test_the_slow_path_does_need_the_ledger_which_is_what_makes_the_above_meaningful(self):
+        # The control. If the scan also answered without the file, the test above would prove nothing about
+        # where the records came from.
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            scanned = index.search("quokka", limit=5, force_scan=True,
+                                   ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(scanned.records, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

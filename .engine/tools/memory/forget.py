@@ -179,7 +179,7 @@ def _is_bookkeeping(record) -> bool:
     whatever landed in the archived tier, which retired a never-reinforced record at 26.7 days (`dead-end`) to
     32.9 (`decision`). The age-out is gone for every kind — see the module docstring for why the conversation
     could not earn its way out of it and why exempting only the conversation would have been the worse half.
-    `score` still ranks (index.py) and still selects roll-up candidates (rollup.py); it decides nothing about
+    nothing scores a record any more — the ranking is lexical relevance alone; it decides nothing about
     what recall can reach."""
     if not isinstance(record, dict):
         return False

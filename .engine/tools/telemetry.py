@@ -2088,28 +2088,6 @@ def _run_ambient_cli(argv: list) -> int:
     return 0
 
 
-def _hook_payload_session_id() -> str | None:
-    """The live session id from a SessionStart hook's stdin PAYLOAD (mirroring memory's handler,
-    consolidate.py:361 — SessionStart hooks receive the id in the payload, not reliably in the environment).
-    Returns None on a tty / empty / unparseable stdin, so a manual CLI run falls back to the env var. Never
-    raises — a bad payload just means the reader's reused lease-heartbeat filter is the only live-session guard
-    this pass (a bounded, safe degrade)."""
-    try:
-        if sys.stdin is None or sys.stdin.isatty():
-            return None
-        raw = sys.stdin.read()
-    except Exception:  # noqa: BLE001
-        return None
-    if not raw or not raw.strip():
-        return None
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return None
-    sid = payload.get("session_id") if isinstance(payload, dict) else None
-    return sid if isinstance(sid, str) and sid else None
-
-
 def _run_drain_cli(argv: list) -> int:
     """The findings-inbox drain verb — the LOCAL SessionStart driver (a sibling of run-ambient and
     the memory/backup SessionStart writers) that stands the emit-and-done seam's drain up in PRODUCTION (the
