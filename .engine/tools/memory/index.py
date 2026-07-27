@@ -533,16 +533,27 @@ def _query_terms(text: str) -> list:
     return list(dict.fromkeys(_tokenize(text)))
 
 
-def _passes_filters(record, roles, tags) -> bool:
-    """The structured POST-FETCH filters (role/tags are non-body — never FTS MATCH terms). `roles`: the record's
-    `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags. Both apply
-    identically on the fast and slow paths, so the degraded path returns the same FILTERED set."""
+def _passes_filters(record, roles, tags, session=None) -> bool:
+    """The structured POST-FETCH filters (role/tags/session are non-body — never FTS MATCH terms). `roles`: the
+    record's `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags.
+    `session`: the record belongs to that one conversation. All apply identically on the fast and slow paths, so
+    the degraded path returns the same FILTERED set.
+
+    WHY SESSION IS A FILTER AND NOT A SECOND SEARCH. Reaching a remembered thing has two moves: find which
+    conversation it was in, then find the moment inside it. The first was already answered; the second had no
+    answer at all, so a hit that carried no position sent the reader to the start of the session to page
+    forward — against a median session of well over a hundred records here, with the largest past what one
+    window can hold. Scoping the SAME ranked search to one conversation makes the second move the same shape as
+    the first, and being a filter rather than a new operation is what keeps one ranking and one seam."""
     if roles is not None:
         if not isinstance(record, dict) or record.get("role") not in roles:
             return False
     if tags is not None:
         have = record.get("tags") if isinstance(record, dict) else None
         if not isinstance(have, (list, tuple)) or not (set(have) & tags):
+            return False
+    if session is not None:
+        if not isinstance(record, dict) or record.get("session_id") != session:
             return False
     return True
 
@@ -600,7 +611,7 @@ _HYDRATE_CHUNK = 200
 _HYDRATE_MIN = 32
 
 
-def _fast_candidates(conn, match, *, roles, tags, limit, access_index, now):
+def _fast_candidates(conn, match, *, roles, tags, session, limit, access_index, now):
     """The fast path's candidate list — ranked WITHOUT holding the whole matched set in memory.
 
     The old shape fetched every matching row up front and parsed each one into a record dict before ranking. On
@@ -650,7 +661,7 @@ def _fast_candidates(conn, match, *, roles, tags, limit, access_index, now):
             if record_json is None:
                 continue                 # an fts row with no `entries` row — what the old JOIN dropped silently
             record = json.loads(record_json)
-            if not _passes_filters(record, roles, tags):
+            if not _passes_filters(record, roles, tags, session):
                 continue
             # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
             keys.append((-float(relevance), _usage_of(record, access_index, now), ordinal))
@@ -720,7 +731,7 @@ def _heal_if_stale(src: str, dst: str) -> bool:
         return False
 
 
-def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
+def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
     """The shared ranked retrieval. Fast path: bm25 read from the FTS5 index (when present +
     generation-current); slow path: a full scan over the ledger computing THE SAME bm25 in plain Python. So the
     two paths agree on the matched set AND on its order — the availability law now holds for the answer, not
@@ -737,7 +748,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
             conn = sqlite3.connect(dst)
             try:
                 if _index_is_current(conn, src):
-                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, limit=limit,
+                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, session=session, limit=limit,
                                                   access_index=access_index, now=now)
                     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
             finally:
@@ -762,7 +773,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
         present = set(body_tokens)
         for term in wanted & present:
             doc_freq[term] += 1
-        if not (wanted <= present) or not _passes_filters(record, roles, tags):
+        if not (wanted <= present) or not _passes_filters(record, roles, tags, session):
             continue
         # Per-term counts as a flat TUPLE in `want` order, not a dict keyed by the term strings. A matched
         # record has to be held until the pass ends (its score depends on statistics only the end of the pass
@@ -840,6 +851,7 @@ def search(
     *,
     roles: "list | None" = None,
     tags: "list | None" = None,
+    session: "str | None" = None,
     limit: "int | None" = None,
     force_scan: bool = False,
     ledger_file: "str | None" = None,
@@ -852,17 +864,24 @@ def search(
     ValueError) and `tags` (any-match) narrow. Each result is a shallow copy carrying `records.SCORE_KEY` (the
     lexical relevance). `degraded` is True when answered by the slow backup scan.
 
+    `session` narrows to ONE conversation — the second move of a recall, once the first has named which
+    conversation to look in (`_passes_filters` carries why this is a filter rather than a second operation).
+    A blank string is treated as no filter rather than as a session nothing can match, so a caller passing an
+    empty value through gets the whole store instead of a silent nothing.
+
     SIDE-EFFECT-FREE: never reinforces, never writes the ledger — the live reinforcement-on-recall caller is the
     engine-memory MCP server, at the recall boundary, not here."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
     roles_set = _validate_roles(roles)
     tags_set = set(tags) if tags is not None else None
+    session_key = session if isinstance(session, str) and session else None
     tokens = _query_terms(query_text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
     now = int(time.time())
-    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, limit=limit, force_scan=force_scan, now=now)
+    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, session=session_key,
+                   limit=limit, force_scan=force_scan, now=now)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

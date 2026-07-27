@@ -7227,6 +7227,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:export",
+      "name": ".engine/tools/memory/export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "export",
+      "source": {
+        "fingerprint": "sha256:a132d6c44b4edf13f187aea374a6578d21b9b86c8e0105c4f2a9e3120d83979b",
+        "path": ".engine/tools/memory/export.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:external_contribution.__init__",
       "name": ".engine/tools/external_contribution/__init__.py",
       "owner": "external-contribution",
@@ -7407,7 +7424,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:f894b785ca20efac0e9df395e5bc657b80b654138edfaa0a1f56c43d67ab3a20",
+        "fingerprint": "sha256:b8e94c92710ab09efc1fd53093a4766441315dd546814518035ec04b21c72a04",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
