@@ -49,6 +49,7 @@ self_map.py. The generic catalog-driven walk and the JSON edge vocabulary are ne
 (informed by the Engine_Prototype KG, not ported from it).
 """
 from __future__ import annotations
+import ast
 import glob as _glob
 import hashlib
 import json
@@ -61,6 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import module_coherence  # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness for the commit-boundary regen hook)
+import weakening_guard   # noqa: E402  (the guardrail classifier — the `guarded` attribute's public seam)
 
 # The committed graph's home: a directory (the gitignored query index lives alongside under .cache/;
 # the gitignored boot slice is its rung-1 cache, built on demand into the same .cache/), owned by core's provides.knowledge
@@ -183,8 +185,11 @@ def surface_instance_inventory(catalog: dict, claims: dict) -> list:
 
 # ---- pure attribute harvesters (operate on already-parsed dicts; NO file IO; fixture-testable) ----
 # Each takes parsed frontmatter / JSON / manifest dicts and returns a declared STATE/IDENTITY token or a
-# discriminator map — never prose meaning (the four-gate rule: declared, structural, not belief). The
-# file IO stays in derive_entities' passes; these stay pure so they unit-test on dicts.
+# discriminator map — never an INTERPRETATION of what a surface means (the four-gate rule: declared,
+# structural, not belief). Copying the file's own declared words VERBATIM is not interpretation and stays
+# within the gate: the Pass-4 `summary` attribute copies a tool's module-docstring first line as-is, the same
+# footing as `title` (a declared identity token) — neither reads meaning out of prose. The file IO stays in
+# derive_entities' passes; these stay pure so they unit-test on dicts.
 
 def _status_for(surface_type: str, frontmatter: dict, manifest: dict | None) -> str:
     """The declared lifecycle STATE TOKEN (the 'else active' rule): a module manifest's `status` and a
@@ -323,6 +328,224 @@ def _supersedes_edges(contract_entities: list, fm_by_id: dict, canon_ids) -> dic
     return {k: sorted(v) for k, v in edges.items()}
 
 
+# ---- Pass 4: code-dependency, wiring, and identity harvesters (the tool tree's DECLARED facts) -----
+# These reach past frontmatter into the tool tree's own declarations — its import statements, a check's
+# `params.script`, a manifest hook command, an interface's fallback handle, and the file's own module
+# docstring — each a machine-declared fact read byte-deterministically, never an interpretation of what the
+# code MEANS. A tool's one-line `summary` is a VERBATIM COPY of the module docstring's first line (the file's
+# own declared words, mechanical self-description), which is why it clears the "declared, not belief" gate
+# that `title` (an identity token) also clears; neither reads meaning out of prose.
+
+TOOLS_DIRNAME = "tools"                                   # under .engine/; the import-resolution root.
+# A .engine/tools/<...>.py path as it appears inside a manifest hook command string (the shared launcher
+# hook-runner.sh is a `.sh`, so this deliberately matches only the .py payload the hook actually runs).
+_TOOLS_PY_IN_CMD = re.compile(r"\.engine/tools/[A-Za-z0-9_./-]+\.py")
+
+
+class DanglingImportError(ValueError):
+    """Raised (loud) when a tool imports an IN-REPO name that resolves to no file — a reference to a module or
+    name that does not exist (typically left behind when something was renamed or removed). A subclass of
+    ValueError so the CLI and the CI fingerprint gate catch it on their existing fail-closed paths, and the
+    commit-boundary hook proceeds best-effort; the message names the file and the exact import so the session
+    that introduced it knows the fix. Stdlib/external names never reach here — their head is not an in-repo
+    top-level module, so they are dropped, never raised on."""
+
+
+def _dangling_import_message(source_rel: str, name: str) -> str:
+    return (f"knowledge graph: {source_rel} imports '{name}', which resolves to no file under "
+            f".engine/{TOOLS_DIRNAME}/. This is a dangling in-repo import — a reference to a module or name "
+            f"that does not exist (often residue of a rename or removal). Fix or remove the import; the graph "
+            f"refuses to record an edge to something that is not there. Regenerate with `{REGEN_CMD}`.")
+
+
+def _py_declared_names(abs_init_path: str) -> frozenset:
+    """The names an `__init__.py` DECLARES at module scope — import aliases, top-level assignments, defs and
+    classes — so a `from pkg import name` that is a re-export (not a submodule) resolves to the package. Pure
+    over the file's AST at module scope only (a name bound inside a function is not a package export); a parse
+    or read failure yields the empty set (the file's own checks are its gate)."""
+    try:
+        with open(abs_init_path, "rb") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, SyntaxError):
+        return frozenset()
+    names: set = set()
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                if a.name != "*":
+                    names.add((a.asname or a.name).split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return frozenset(names)
+
+
+def _tool_module_index(tools_root_abs: str):
+    """Walk the tool tree ONCE and return (packages, modules, init_symbols) for import resolution. Top-level
+    tools are on sys.path (a bare `import validate` -> the tuple `('validate',)`), so names resolve relative
+    to the tools root, not to the importing file's directory.
+      packages     : set of dotted-name tuples for every directory carrying `__init__.py` (root excluded)
+      modules      : set of dotted-name tuples for every `.py` module (`__init__.py` excluded — it is the
+                     package marker, carried by `packages`)
+      init_symbols : {package-tuple: frozenset of names its `__init__.py` declares}
+    Non-source directories (`.cache`, `__pycache__`, dot-dirs) are pruned so a build artifact never shadows a
+    real module."""
+    packages: set = set()
+    modules: set = set()
+    init_symbols: dict = {}
+    for dp, dns, fns in os.walk(tools_root_abs):
+        dns[:] = [d for d in dns if d != "__pycache__" and not d.startswith(".")]
+        rel = os.path.relpath(dp, tools_root_abs)
+        base = () if rel == "." else tuple(rel.split(os.sep))
+        if base and "__init__.py" in fns:
+            packages.add(base)
+            init_symbols[base] = _py_declared_names(os.path.join(dp, "__init__.py"))
+        for fn in fns:
+            if fn.endswith(".py") and fn != "__init__.py":
+                modules.add(base + (fn[:-3],))
+    return packages, modules, init_symbols
+
+
+def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> list:
+    """The IN-REPO import targets of one tool source, as repo-relative `.py` paths, from its parsed AST
+    (`ast.walk` so a lazy in-function import counts too). `index` is `_tool_module_index`'s triple. Raises
+    `DanglingImportError` on an in-repo name that resolves to nothing; drops a name whose head is not an
+    in-repo top-level module (stdlib/external). Package-before-module, matching CPython's own resolution
+    order. Not deduped — the caller dedupes, drops self-edges, and maps through `path_to_id`."""
+    packages, modules, init_symbols = index
+
+    def _head_in_repo(parts) -> bool:
+        head = (parts[0],)
+        return head in packages or head in modules
+
+    def _resolve(parts):
+        key = tuple(parts)
+        if key in packages:
+            return tools_root_rel + "/" + "/".join(parts) + "/__init__.py"
+        if key in modules:
+            return tools_root_rel + "/" + "/".join(parts) + ".py"
+        return None
+
+    out: list = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                parts = a.name.split(".")
+                if not _head_in_repo(parts):
+                    continue
+                resolved = _resolve(parts)
+                if resolved is None:
+                    raise DanglingImportError(_dangling_import_message(source_rel, a.name))
+                out.append(resolved)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level != 0 or not node.module:
+                continue                                   # relative (none live) or bare `from . import` -> skip
+            parts = node.module.split(".")
+            if not _head_in_repo(parts):
+                continue
+            modpath = _resolve(parts)
+            if modpath is None:
+                raise DanglingImportError(_dangling_import_message(source_rel, node.module))
+            if modpath.endswith("/__init__.py"):           # a package: probe each imported name
+                syms = init_symbols.get(tuple(parts), frozenset())
+                for a in node.names:
+                    if a.name == "*":
+                        continue
+                    sub = _resolve(parts + [a.name])
+                    if sub is not None:
+                        out.append(sub)                    # a submodule
+                    elif a.name in syms:
+                        out.append(modpath)                # a re-exported symbol -> the package itself
+                    else:
+                        raise DanglingImportError(
+                            _dangling_import_message(source_rel, f"{node.module}.{a.name}"))
+            else:                                          # a module file: imported names are its attributes
+                out.append(modpath)
+    return out
+
+
+def _hook_wired_tools(manifests: list) -> dict:
+    """{module_id: sorted[tool repo-relative .py path]} — the payload tools each module wires as a hook, from
+    its manifest `wires[]` entries of type `hook` (the `.py` path(s) in the hook command; the shared launcher
+    `.sh` is not a payload and is excluded by the regex)."""
+    out: dict = {}
+    for _, m in manifests:
+        mid = m.get("id")
+        tools: set = set()
+        for w in (m.get("wires") or []):
+            if w.get("type") != "hook":
+                continue
+            cmd = ((w.get("hook") or {}).get("command")) or ""
+            tools.update(_TOOLS_PY_IN_CMD.findall(cmd))
+        if tools:
+            out[mid] = sorted(tools)
+    return out
+
+
+def _mcp_handle_to_tool(mcp_abs_path: str) -> dict:
+    """{server handle: tool repo-relative path} from `.mcp.json` `mcpServers[].args` (the `tools/<x>.py` arg,
+    prefixed `.engine/`). A missing or malformed `.mcp.json` yields `{}` (fail-soft; its presence is checked
+    elsewhere)."""
+    out: dict = {}
+    try:
+        with open(mcp_abs_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return out
+    for handle, spec in (data.get("mcpServers") or {}).items():
+        for arg in (spec.get("args") or []):
+            if isinstance(arg, str) and arg.startswith(TOOLS_DIRNAME + "/") and arg.endswith(".py"):
+                out[handle] = ".engine/" + arg
+                break
+    return out
+
+
+def _summary_for(tree) -> "str | None":
+    """The tool's one-line `summary`: the FIRST line of its module docstring, VERBATIM — control characters
+    stripped, inner whitespace collapsed, truncated to 160 chars. None when the module declares no docstring.
+    The file's own declared words, copied not interpreted."""
+    doc = ast.get_docstring(tree)
+    if not doc:
+        return None
+    lines = doc.strip().splitlines()
+    first = lines[0] if lines else ""
+    first = " ".join("".join(ch for ch in first if ch >= " " or ch == "\t").split())
+    return first[:160].rstrip() or None
+
+
+def _has_main_guard(tree) -> bool:
+    """True iff the module body has a top-level `if __name__ == '__main__':` guard (the CLI marker)."""
+    for node in tree.body:
+        if isinstance(node, ast.If):
+            t = node.test
+            if isinstance(t, ast.Compare) and isinstance(t.left, ast.Name) and t.left.id == "__name__":
+                return True
+    return False
+
+
+def _entrypoint_for(rel: str, tree, hook_tools: set, mcp_tools: set, ci_tools: set) -> str:
+    """A `.py` tool's role, by fixed precedence: test > demo > hook > mcp-server > ci > cli > library. `test`
+    and `demo` are name conventions; `hook`/`mcp-server`/`ci` are declared wirings (a hook payload, a
+    registered MCP server, a check's `params.script`); `cli` has a `__main__` guard; else `library`."""
+    base = os.path.basename(rel)
+    if base.startswith("test_"):
+        return "test"
+    if base.startswith("demo_"):
+        return "demo"
+    if rel in hook_tools:
+        return "hook"
+    if rel in mcp_tools:
+        return "mcp-server"
+    if rel in ci_tools:
+        return "ci"
+    if _has_main_guard(tree):
+        return "cli"
+    return "library"
+
+
 # ---- pure derivation layer (no committed-file IO; fixture-testable) --------------------------
 
 def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dict,
@@ -454,6 +677,82 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
     for src_id, targets in _supersedes_edges(contract_entities, contract_fm_by_id, canon_ids).items():
         if targets:
             entities[src_id]["predicates"]["supersedes"] = targets
+
+    # Pass 4 — code-dependency (imports/tests), wiring (enforced_by/wires_hook/implemented_by), and per-tool
+    # identity attributes (summary/entrypoint/guarded), all from the tool tree's DECLARED facts. A dangling
+    # in-repo import raises (loud): the graph refuses a fabricated edge, so the session that introduced it
+    # fixes it before merge (the CI fingerprint gate fails closed on the raise) and the committed graph on the
+    # default branch can never carry a dangling import.
+    tools_root_abs = os.path.join(validate.ENGINE_DIR, TOOLS_DIRNAME)
+    tools_root_rel = _rel(tools_root_abs)                  # ".engine/tools"
+    # Guardrail-classifier health canary: a synthetic NON-guarded tool path reads as guarded ONLY when the
+    # guard has collapsed to its blanket fail-safe (an unreadable check rule under .engine/check/). Refuse to
+    # bake a degraded, all-true `guarded` derivation into the committed graph — fail loud like a malformed source.
+    if weakening_guard.is_guardrail(tools_root_rel + "/__knowledge_guard_canary__.py"):
+        raise ValueError(
+            "knowledge graph: the guardrail classifier is in its blanket fail-safe (a check rule under "
+            ".engine/check/ could not be read), so every tool would be marked guarded. Refusing to record a "
+            "graph with a degraded 'guarded' derivation — fix the unreadable check rule and regenerate.")
+    mod_index = _tool_module_index(tools_root_abs)
+    hook_tools_by_mod = _hook_wired_tools(manifests)
+    hook_tool_set = {p for ps in hook_tools_by_mod.values() for p in ps}
+    handle_to_tool = _mcp_handle_to_tool(os.path.join(validate.ROOT, ".mcp.json"))
+    mcp_tool_set = set(handle_to_tool.values())
+
+    # enforced_by (check -> the tool its `params.script` runs) + the ci-entrypoint set.
+    ci_tool_set: set = set()
+    for rel, eid in path_to_id.items():
+        if entities[eid]["type"] != "check":
+            continue
+        try:
+            rule = validate.load_json(os.path.join(validate.ROOT, rel))
+        except Exception:
+            continue                                       # a malformed check is caught by its schema check
+        script = (rule.get("params") or {}).get("script")
+        if isinstance(script, str) and script in path_to_id:
+            entities[eid]["predicates"]["enforced_by"] = [path_to_id[script]]
+            ci_tool_set.add(script)
+
+    # wires_hook (module -> the payload tools it wires as hooks).
+    for _, m in manifests:
+        meid = f"module:{m.get('id')}"
+        tids = sorted({path_to_id[p] for p in hook_tools_by_mod.get(m.get("id"), []) if p in path_to_id})
+        if tids:
+            entities[meid]["predicates"]["wires_hook"] = tids
+
+    # implemented_by (interface -> the tool its fallback handle registers in .mcp.json).
+    for eid in list(entities):
+        ent = entities[eid]
+        if ent["type"] != "interface":
+            continue
+        handle = ent.get("fallback")
+        tool = handle_to_tool.get(handle) if isinstance(handle, str) else None
+        if tool and tool in path_to_id:
+            ent["predicates"]["implemented_by"] = [path_to_id[tool]]
+
+    # imports / tests edges + summary / entrypoint / guarded attributes, per tool entity.
+    for eid in list(entities):
+        ent = entities[eid]
+        if ent["type"] != "tool":
+            continue
+        rel = ent["source"]["path"]
+        ent["guarded"] = weakening_guard.is_guardrail(rel)   # EVERY tool entity, incl. non-.py (e.g. .sh)
+        if not rel.endswith(".py"):
+            continue                                       # imports/summary/entrypoint are .py-only
+        try:
+            with open(os.path.join(validate.ROOT, rel), "rb") as fh:
+                tree = ast.parse(fh.read())
+        except SyntaxError:
+            continue                                       # a malformed .py harvests nothing (its own gate)
+        targets = _resolve_tool_imports(rel, tree, mod_index, tools_root_rel)
+        predicate = "tests" if os.path.basename(rel).startswith("test_") else "imports"
+        tids = sorted({path_to_id[t] for t in targets if t in path_to_id and path_to_id[t] != eid})
+        if tids:
+            ent["predicates"][predicate] = tids
+        summary = _summary_for(tree)
+        if summary:
+            ent["summary"] = summary
+        ent["entrypoint"] = _entrypoint_for(rel, tree, hook_tool_set, mcp_tool_set, ci_tool_set)
 
     return [entities[k] for k in sorted(entities)]
 

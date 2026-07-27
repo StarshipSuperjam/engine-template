@@ -32,7 +32,7 @@ import knowledge_index     # noqa: E402
 from knowledge_index import KnowledgeUnavailable  # noqa: E402
 
 EDGE_KINDS = knowledge_index.EDGE_KINDS            # the full valid edge vocabulary (incl. supersedes)
-WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS  # the cold-start default: the four STRUCTURAL edges only
+WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS  # the cold-start default: the walk edges (all but supersedes)
 
 
 def _decode_attributes(row) -> dict:
@@ -100,8 +100,8 @@ def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1)
         raise ValueError(f"direction must be out/in/both, got {direction!r}")
     if not isinstance(depth, int) or depth < 1:
         raise ValueError(f"depth must be an integer >= 1, got {depth!r}")
-    # No edge_filter == the COLD-START default: the four structural edges only (WALK_EDGE_KINDS), so a
-    # focus walk never traverses supersedes. An explicit edge_filter may name ANY valid edge (EDGE_KINDS),
+    # No edge_filter == the COLD-START default: the walk edges (WALK_EDGE_KINDS — every kind but supersedes),
+    # so a focus walk never traverses supersedes. An explicit edge_filter may name ANY valid edge (EDGE_KINDS),
     # so supersedes is a deliberate PULL via neighbors(edge_filter=["supersedes"]).
     preds = tuple(edge_filter) if edge_filter else WALK_EDGE_KINDS
     bad = [p for p in preds if p not in EDGE_KINDS]

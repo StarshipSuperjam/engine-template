@@ -70,12 +70,15 @@ orientation first and blocking debt last). The per-prompt reminder to consult sa
 numbers at all — it is unconditional, so there is no bar to set. The numbers themselves stand as deliberate
 starting values, calibrated against real use rather than proven from the outset.
 
-When the engine looks at the parts of the project next to what you are touching, it follows only the
-**structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
-parts depend on which. That neighbourhood walk deliberately ignores other kinds of links the project's map
-may record (for example, which decision replaced an earlier one): those are looked up only when you ask for
-them directly, never pulled in as bulk background, so getting your bearings stays fast and cheap no matter
-how rich the map grows. This is a fixed rule of how the engine orients, not one of the tunable numbers above.
+When the engine looks at the parts of the project next to what you are touching, it follows the **wiring**
+between them — who owns a file, which rule governs it, what a check targets, which parts depend on which,
+which piece of code imports another, which tests exercise it, and what runs, enforces, or implements it. That
+is the real blast radius of a change, surfaced without your asking. When one part connects to very many
+others — a widely-used helper, say — the engine shows you a few examples and tells you the true total, so a
+busy neighbourhood never floods your bearings; getting oriented stays cheap because of that sampling, not
+because the map is kept thin. One kind of link is left out of this quick look — which decision replaced an
+earlier one — and is pulled only when you ask for it directly. Which kinds of link ride this walk is a fixed
+rule of how the engine orients, not one of the tunable numbers above.
 
 ## Rationale
 

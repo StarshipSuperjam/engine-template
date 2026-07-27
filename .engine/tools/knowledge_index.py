@@ -40,22 +40,31 @@ CACHE_DIR = os.path.join(knowledge_gen.KNOWLEDGE_DIR, ".cache")
 INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 
 # The FULL valid edge vocabulary — every predicate that may appear in the store and be requested via a
-# neighbors edge_filter / pulled by relate. `supersedes` is a deliberate PULL edge: it is valid
-# here, but excluded from WALK_EDGE_KINDS below so the cold-start adjacency walk never traverses it.
-EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on", "supersedes")
+# neighbors edge_filter / pulled by relate. `supersedes` is a deliberate PULL edge: valid here, but excluded
+# from WALK_EDGE_KINDS below so the cold-start adjacency walk never traverses it.
+EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on",
+              "imports", "tests", "enforced_by", "wires_hook", "implemented_by", "supersedes")
 
-# The cold-start adjacency walk's traversal set — pinned to the four STRUCTURAL edges as a build-spec
-# INVARIANT (new edge kinds stay off the walk so the orientation budget stays flat). This is the
-# default neighbors() traverses when no edge_filter is given (the cold-start path), and attention's
-# cold-start caller also passes it explicitly. Its conceptual home is the attention policy's `## Scope`
-# (the surface that owns budget allocation/trim); it is a fixed invariant, not an operator-tunable dial,
-# so it is pinned in code rather than the policy's overridable `values:` block.
-WALK_EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
+# The cold-start adjacency walk's traversal set — the containment edges (provided_by / governed_by / targets /
+# depends_on) PLUS the code-dependency and wiring edges (imports / tests / enforced_by / wires_hook /
+# implemented_by), so a cold session's orientation push answers "what depends on / exercises / wires the part
+# I'm changing", not merely "what owns it". `supersedes` alone stays OFF the walk (a pull-only lineage edge).
+# The orientation budget is held flat NOT by keeping this vocabulary small but by the render's per-relationship
+# SAMPLE CAP with honest totals (attention.NEIGHBORHOOD_SAMPLE_CAP: a 162-importer hub renders as one line,
+# "showing 4 of 162"), so a richer map cannot bloat the block. The invariant that is pinned here is WHICH kinds
+# ride the walk (a build-spec decision), not a count; its conceptual home is the attention policy's `## Scope`
+# (the surface that owns budget allocation/trim), a fixed rule rather than an operator-tunable dial, so it is
+# pinned in code rather than the policy's overridable `values:` block. This is also the default neighbors()
+# traverses when no edge_filter is given, and attention's cold-start caller passes it explicitly.
+WALK_EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on",
+                   "imports", "tests", "enforced_by", "wires_hook", "implemented_by")
 
 # The index's own shape version. Bumped whenever the SQLite schema or the columns build_index writes
 # change, so an OLD-shape cached index on disk is deemed stale and rebuilt (is_fresh checks it alongside
 # the graph fingerprint) — a graph that did not move still cannot serve a row missing a new column.
-INDEX_SCHEMA_VERSION = "2"
+# 2 -> 3: EDGE_KINDS widened (the code-dependency + wiring edges join the store), so an index built against
+# the old 5-kind vocabulary would silently omit the new edges and must rebuild.
+INDEX_SCHEMA_VERSION = "3"
 
 # The staleness key an index built from a LIVE WALK records in its `meta` (rung 3). It is never equal
 # to a real "sha256:" graph fingerprint, and never equal to the None that graph_fingerprint() returns

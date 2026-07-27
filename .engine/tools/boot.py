@@ -568,8 +568,10 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
 
 # (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. These
 # are VERBS only — never the internal type nouns ("surface"/"module"/"check"/"policy"/"schema"); the slugs
-# already name the things. A walk edge is provided_by/governed_by/targets/depends_on; "in" means the edge
-# points AT the focus — the reverse connective tissue the walk surfaces.
+# already name the things. The walk edges are the containment edges (provided_by/governed_by/targets/
+# depends_on) plus the code-dependency and wiring edges (imports/tests/enforced_by/wires_hook/implemented_by);
+# "in" means the edge points AT the focus — the reverse connective tissue the walk surfaces (e.g. imports/in
+# is "who imports me", the blast radius of a change).
 _RELATION_PHRASE = {
     ("provided_by", "out"): "is part of",
     ("provided_by", "in"): "provides",
@@ -579,6 +581,16 @@ _RELATION_PHRASE = {
     ("targets", "in"): "is checked by",
     ("depends_on", "out"): "depends on",
     ("depends_on", "in"): "is relied on by",
+    ("imports", "out"): "imports",
+    ("imports", "in"): "is imported by",
+    ("tests", "out"): "exercises",
+    ("tests", "in"): "is exercised by",
+    ("enforced_by", "out"): "is enforced by",
+    ("enforced_by", "in"): "enforces",
+    ("wires_hook", "out"): "wires as a hook",
+    ("wires_hook", "in"): "is wired as a hook by",
+    ("implemented_by", "out"): "is implemented by",
+    ("implemented_by", "in"): "implements",
 }
 
 
