@@ -13,6 +13,7 @@ ENGINE_MEMORY_DIR cabinet, so the server's default-path library calls resolve to
 
 import contextlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -87,17 +88,25 @@ class ToolWiringTests(_ServerBase):
                 jsonschema.validate(out, schema)
 
     async def test_tools_list_is_exactly_the_declared_operations(self):
-        # The server answers search.json's operation set and nothing else — an undeclared tool would be a
+        # The server answers its declared operation sets and nothing else — an undeclared tool would be a
         # private detail no other conforming implementation would offer, breaking a caller that relied on it.
         #
-        # TWO SHAPES ARE REAL, so both are asserted rather than whichever this checkout happens to be:
+        # DERIVED FROM THE CONTRACTS, not from a literal: the operations are read out of the declarations
+        # themselves, so this fails if a tool is added without declaring it OR if an operation is declared and
+        # never served. TWO declarations are in play because the writes are a separate contract — `search.json`
+        # describes recall as never changing what is stored, so the operator's controls could not be declared
+        # beside it without making that description false.
+        #
+        # TWO SHAPES ARE REAL, so both are covered rather than whichever this checkout happens to be:
         # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
-        # deployment without it offers the other two alone. Pinning one literal would silently stop covering
-        # the other configuration the moment this repository's own module set changed.
+        # deployment without it offers the rest alone.
+        here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(srv.__file__))))
+        declared = set()
+        for slug in ("search", "memory-control"):
+            with open(os.path.join(here, "interfaces", f"{slug}.json"), encoding="utf-8") as fh:
+                declared |= {op["name"] for op in json.load(fh)["operations"]}
+        expected = declared if srv._semantic_installed() else declared - {"recall-by-meaning"}
         names = {t.name for t in await srv.server.list_tools()}
-        expected = {"search", "recall-window"}
-        if srv._semantic_installed():
-            expected.add("recall-by-meaning")
         self.assertEqual(names, expected)
 
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")

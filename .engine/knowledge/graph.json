@@ -1316,6 +1316,7 @@
         ],
         "targets": [
           "interface:knowledge-retrieval",
+          "interface:memory-control",
           "interface:search"
         ]
       },
@@ -3875,6 +3876,33 @@
     },
     {
       "fallback": "engine-memory",
+      "id": "interface:memory-control",
+      "name": ".engine/interfaces/memory-control.json",
+      "operations": [
+        "pin",
+        "restore",
+        "withhold"
+      ],
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:interface.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory-control",
+      "source": {
+        "fingerprint": "sha256:7f9bfc745fdb0af1c4088805235b18521faff02aa269ae44c4ce3a052b649cfc",
+        "path": ".engine/interfaces/memory-control.json"
+      },
+      "status": "active",
+      "title": "Memory controls",
+      "type": "interface"
+    },
+    {
+      "fallback": "engine-memory",
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
       "operations": [
@@ -4772,7 +4800,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:b1dc2da68dec0e3077eaeb2db03deacebb4f5c5ed47acbf47eaca6a3a73bce04",
+        "fingerprint": "sha256:9b58eb5a198347f9877b6003bdf7425c8209a5ce38b4e0f2a874a6f0cb2c3cde",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -5894,7 +5922,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:4c07ec7004f37006836020c74b49f25b366b60465647ef3475ba84bd6d1391ea",
+        "fingerprint": "sha256:7ca9795df1eca86b63582658ed2251b09b8973d1d9c00b4cf339c81cfb793517",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7730,7 +7758,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:79104e1bde3e5343cbe6a543cef899b4379a41a7ba7eab1cb0bafeaf989f0585",
+        "fingerprint": "sha256:77523cf594232ffde6c943bd0c7ffddb5662b7b4037dceba6604c1e5bc386c25",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -9855,7 +9883,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:1e79a5ed66dacf50c533015c2bcccb5e42f549e319b37a92b21b245363627b28",
+        "fingerprint": "sha256:88fd46da539f7c28382df428e3f33a494036f6a045c85c78990ec9e90ef42480",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
