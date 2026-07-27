@@ -69,6 +69,15 @@ def genesis_baseline() -> dict:
 
 ENVIRONMENTS = ("claude", "codex")
 _BASELINE_REL = os.path.join(".engine", "state", "execution.json")
+_POLICY_REL = os.path.join(".engine", "policies", "model-routing.md")
+
+# The safe fallback posture — always available in code, so the engine has careful guidance even when the
+# policy file is missing or unparseable. The operator tunes the rendered posture text in model-routing.md;
+# this constant is the floor beneath it, never a "future" placeholder.
+_CONSERVATIVE_DEFAULT = [
+    "Execution environment is not a verified qualified match here — run your full, careful ceremony.",
+    "Make no model-dependent shortcuts; the running model's identity is not verified by the engine.",
+]
 
 
 class BaselineUnreadable(Exception):
@@ -220,21 +229,58 @@ def compare(observed: dict, baseline: dict) -> dict:
     return {"runtime": env, "posture": "matched", "drift": []}
 
 
+def _policy_posture_block(root: str, name: str) -> list[str] | None:
+    """The operator-tunable posture lines from model-routing.md's fenced block marked
+    `<!-- posture:<name> -->`, or None when the file or the block is absent or unparseable. Deliberately
+    tolerant: any miss returns None so resolve_posture falls back to the safe constant — the parse never
+    raises into boot."""
+    try:
+        text = open(os.path.join(root, _POLICY_REL), encoding="utf-8").read()
+    except OSError:
+        return None
+    start = text.find(f"<!-- posture:{name} -->")
+    if start < 0:
+        return None
+    fence = text.find("```", start)
+    if fence < 0:
+        return None
+    body_start = text.find("\n", fence)
+    end = text.find("```", body_start + 1)
+    if body_start < 0 or end < 0:
+        return None
+    lines = [ln.rstrip() for ln in text[body_start + 1:end].splitlines() if ln.strip()]
+    return lines or None
+
+
+def resolve_posture(posture: str, root: str | None = None) -> list[str]:
+    """The self-instruction lines the engine loads for a posture. A 'matched' environment loads the
+    operator-authored qualified posture (or the safe constant if the policy is absent); every other posture
+    loads the conservative default. Never raises — the constant is always available."""
+    root = root or _repo_root()
+    block = "qualified" if posture == "matched" else "conservative-default"
+    return _policy_posture_block(root, block) or list(_CONSERVATIVE_DEFAULT)
+
+
 def derive(*, provider: str, repo: str | None = None, root: str | None = None) -> dict:
-    """The total, boot-safe entry point: observe + read the baseline + compare, never raising. A missing
-    baseline yields 'unqualified'; an unreadable one yields 'unknown'; any other failure also yields 'unknown'
-    (conservative). The tool owns the posture decision; boot only relays it."""
+    """The total, boot-safe entry point: observe + read the baseline + compare + resolve the posture lines,
+    never raising. A missing baseline yields 'unqualified'; an unreadable one yields 'unknown'; any other
+    failure also yields 'unknown' (conservative). The tool owns the posture decision AND its text; boot only
+    relays. The returned dict carries {runtime, posture, drift, lines}."""
     root = root or _repo_root()
     try:
         if repo is None:
             repo = current_repo(root)
         observed = observe(provider=provider, repo=repo, root=root)
-        baseline = read_baseline(root)
-        return compare(observed, baseline)
+        result = compare(observed, read_baseline(root))
     except BaselineUnreadable:
-        return {"runtime": provider, "posture": "unknown", "drift": []}
+        result = {"runtime": provider, "posture": "unknown", "drift": []}
     except Exception:
-        return {"runtime": provider, "posture": "unknown", "drift": []}
+        result = {"runtime": provider, "posture": "unknown", "drift": []}
+    try:
+        result["lines"] = resolve_posture(result["posture"], root)
+    except Exception:
+        result["lines"] = list(_CONSERVATIVE_DEFAULT)
+    return result
 
 
 def _utcnow() -> str:

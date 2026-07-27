@@ -1747,6 +1747,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:model-routing",
           "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
@@ -1808,6 +1809,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:model-routing",
           "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
@@ -4007,7 +4009,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:e4972f9eb222d5f1a5e2ec9f4788f5e3eeba36a6a3ab00ac26d81e5e30ead280",
+        "fingerprint": "sha256:516968689f10f504c5b63132830163bd0c7306d38e94463d55975d896c874477",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4838,6 +4840,27 @@
       },
       "status": "active",
       "title": "Migration discipline",
+      "type": "policy"
+    },
+    {
+      "id": "policy:model-routing",
+      "name": ".engine/policies/model-routing.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-routing",
+      "source": {
+        "fingerprint": "sha256:76b8c6ab10bbf439f4999650b44aff962e077e56490e8c46e0f2a418c6841dd9",
+        "path": ".engine/policies/model-routing.md"
+      },
+      "status": "active",
+      "title": "Model routing and execution posture",
       "type": "policy"
     },
     {
@@ -5993,7 +6016,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:bae06c332251b0686fcd9b1f46ae3bf8aebbfad9edc3ca5bdbc1872bac76642e",
+        "fingerprint": "sha256:bc812a334b5619482d1067effdc4aaf7ae0d20b0c5fdcc10e4eb302df433b2bc",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7285,7 +7308,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:b488f358d165918a5316a5ec2775af40badaeef6a62b07d609828507494384bf",
+        "fingerprint": "sha256:ecd5a09fdc2aa6d897ae4a41b23c96ac234f051ba261d6295f6d8517c64c3a9f",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -9512,7 +9535,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:6ecd843b2ed844401d40ab4b46e12a85bd5390970acb07387f16dec71f152f47",
+        "fingerprint": "sha256:70b67ea0381052bf0a737fcf3c8f4458ea5936d48dd37f3ae18ab938b718285c",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",

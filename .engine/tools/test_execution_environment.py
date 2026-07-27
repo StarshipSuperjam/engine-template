@@ -358,5 +358,38 @@ class TestSlugParsing(unittest.TestCase):
                 self.assertEqual(ee.current_repo(d), want, f"{url} -> {want}")
 
 
+class TestBootPostureRelay(unittest.TestCase):
+    """Boot wires the deriver's posture into the AI-facing Tier-0 briefing and pushes a drift alarm only on
+    a 'changed' posture. Uses a real signals dict, mutating only the execution signal."""
+
+    @classmethod
+    def setUpClass(cls):
+        import boot  # noqa: E402  (tools/ is on the path via the module-level insert)
+        cls.boot = boot
+        cls.signals = boot.gather_signals()
+
+    def test_execution_signal_is_present(self):
+        self.assertIn("execution", self.signals)
+        self.assertIn(self.signals["execution"]["posture"],
+                      ("matched", "changed", "unqualified", "unknown"))
+
+    def test_changed_posture_pushes_an_alarm_keyed_execution(self):
+        s = dict(self.signals)
+        s["execution"] = {"runtime": "claude", "posture": "changed", "drift": ["CLAUDE.md"], "lines": []}
+        keys = [a["key"] for a in self.boot._pushed_alarms(s)]
+        self.assertIn("execution", keys)
+
+    def test_non_changed_postures_push_no_alarm(self):
+        for posture in ("matched", "unqualified", "unknown"):
+            s = dict(self.signals)
+            s["execution"] = {"runtime": "claude", "posture": posture, "drift": [], "lines": []}
+            keys = [a["key"] for a in self.boot._pushed_alarms(s)]
+            self.assertNotIn("execution", keys, f"{posture} must not push an alarm")
+
+    def test_posture_block_reaches_the_assembled_pack(self):
+        # The genesis baseline in this repo yields the conservative posture; its block must reach Tier 0.
+        self.assertIn("EXECUTION POSTURE", self.boot.assemble_pack())
+
+
 if __name__ == "__main__":
     unittest.main()
