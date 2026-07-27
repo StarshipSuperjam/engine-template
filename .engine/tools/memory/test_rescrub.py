@@ -26,6 +26,11 @@ class _Base(unittest.TestCase):
         self._prev = os.environ.get(ledger.ENV_DIR)
         os.environ[ledger.ENV_DIR] = self._tmp.name
 
+        # `snapshot=False` skips only the network push now, never the requirement that a destination exists.
+        self._backup = mock.patch("memory.backup_vault.migration_backup_available", return_value=True)
+        self._backup.start()
+        self.addCleanup(self._backup.stop)
+
     def tearDown(self):
         if self._prev is None:
             os.environ.pop(ledger.ENV_DIR, None)
@@ -96,19 +101,21 @@ class DurabilityTests(_Base):
             if lock is not None:
                 capture._release_lock(lock)
 
-        real_read = ledger.read
+        # Raced on the checksum, which runs ONLY inside the lock — the pre-flight read that checks for
+        # unparseable lines happens before it, deliberately, and a racer there proves nothing.
+        real_digest = rescrub._digest_of
 
-        def read_then_race(*a, **k):
-            out = real_read(*a, **k)
+        def digest_then_race(*a, **k):
+            out = real_digest(*a, **k)
             t = threading.Thread(target=concurrent_append)
             t.start()
             t.join()
             return out
 
-        with mock.patch.object(ledger, "read", side_effect=read_then_race):
+        with mock.patch.object(rescrub, "_digest_of", side_effect=digest_then_race):
             rescrub.run(snapshot=False)
-        # The reader is reached twice — once for the ledger, once for the round-trip check — so the racer runs
-        # twice. Every attempt must have been kept out.
+        # The checksum is taken twice — once over the cleaned records, once over the temp read back — so the
+        # racer runs twice. Every attempt must have been kept out.
         self.assertTrue(landed, "the race never ran, so this proved nothing")
         self.assertEqual(set(landed), {None}, "a concurrent writer got the lock during the rewrite")
 
@@ -127,7 +134,7 @@ class DurabilityTests(_Base):
         self._turn(f"the token is {_SECRET}")
         with mock.patch("memory.backup_vault.migration_backup_available", return_value=False):
             with self.assertRaises(rescrub.RescrubRefused) as caught:
-                rescrub.run()
+                rescrub.run(snapshot=False)          # even with the push skipped, the requirement stands
         self.assertIn("no backup is set up", str(caught.exception))
         self.assertIn(_SECRET, " ".join(self._texts()))
 
@@ -144,3 +151,37 @@ class DurabilityTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MalformedRefusalTests(_Base):
+    """A writer must not read through a lossy reader.
+
+    `ledger.read` skips an unparseable line, counts it, and does not keep its bytes. Writing back only what it
+    returned would delete that line for good — while reporting a clean sweep over "all N records". The count is
+    the reader's own admission of what it could not see, so this refuses on exactly that.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._backup = mock.patch("memory.backup_vault.migration_backup_available", return_value=True)
+        self._backup.start()
+        self.addCleanup(self._backup.stop)
+
+    def test_an_unreadable_line_refuses_the_whole_rewrite(self):
+        self._turn(f"the token is {_SECRET}")
+        with open(ledger.ledger_path(), "a", encoding="utf-8") as fh:
+            fh.write("{this is not json at all}\n")
+        self._turn("a later turn", seq=1)
+        before = open(ledger.ledger_path(), encoding="utf-8").read()
+        with self.assertRaises(rescrub.RescrubRefused) as caught:
+            rescrub.run(snapshot=False)
+        self.assertIn("could not be read", str(caught.exception))
+        self.assertEqual(open(ledger.ledger_path(), encoding="utf-8").read(), before)   # byte-identical
+
+    def test_the_backup_requirement_is_not_a_keyword_argument(self):
+        # `snapshot=False` skips the network push, never the check that a destination exists — otherwise it
+        # would be a public seam straight past the whole safety argument.
+        self._turn(f"the token is {_SECRET}")
+        with mock.patch("memory.backup_vault.migration_backup_available", return_value=False):
+            with self.assertRaises(rescrub.RescrubRefused):
+                rescrub.run(snapshot=False)

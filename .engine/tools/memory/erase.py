@@ -39,6 +39,7 @@ mistake, not a gate against an attacker.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -59,6 +60,9 @@ _PREVIEW_CHARS = 200
 # The word that must be typed. A whole word rather than "y": this is the one act with no undo, and the cost of
 # typing eight characters is the point.
 _CONFIRM_WORD = "erase"
+_NO_TERMINAL = ("erasing is only ever done from a real terminal, by a person reading what they are erasing. "
+                "This was not run from one, so nothing was proposed. Run it yourself in a shell if you meant "
+                "it.")
 _DAY = 86400
 # Plain words for the summary labels an older engine stamped on what it wrote, so a line about one of those
 # records never surfaces a raw engine token. Nothing writes them any more, but a store that has been running is
@@ -178,66 +182,6 @@ def _reader(transport=None):
     return telemetry.GitHubIssues(repo, token, label=observer.ERASURE_LABEL)
 
 
-def _proposed_targets(gh):
-    """A pair `(covered, declined)` of target-id sets read from the `engine-erasure` pull requests:
-    `covered` = targets in a pull request that is OPEN or MERGED (the cross-PR dedup, so auto-open never
-    opens a second pull request for a target already awaiting the operator or already consented);
-    `declined` = targets in a CLOSED-and-unmerged (declined) pull request. A declined target is NOT
-    covered — it returns to the earned pool and is re-offered (the operator's decline is "not this time",
-    not "keep forever"; a close still never erases) — but it is reported so the batch selector can step a
-    just-declined GROUP aside for a fresher one (issue #536). Follows pages to exhaustion so a MERGED pull
-    request beyond the first page is never dropped (which would re-propose an already-consented target; a
-    merged-but-not-yet-enacted one is also covered locally by `_erased_targets`, but do not rely on that
-    alone). Reads each candidate's proposal at its merge tree (merged) or head (open/declined). Returns
-    `(None, None)` if the pull-request LIST could not be read (host doubt -> the caller DECLINES to open,
-    fail-SAFE). Never raises."""
-    items: list = []
-    page = 1
-    while page <= _MAX_PR_PAGES:
-        raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=all&labels={observer.ERASURE_LABEL}"
-                                f"&per_page=100&page={page}")
-        if raw is None:
-            return None, None                         # could not read the list -> cannot dedup -> decline upstream
-        if not isinstance(raw, list):
-            if page == 1:
-                return set(), set()                   # matches the earlier contract for a malformed 1st response
-            break                                     # a malformed later page -> stop; use the pages already read
-        items.extend(raw)
-        if len(raw) < 100:
-            break                                     # a short page is the last page
-        page += 1
-    covered: set = set()
-    declined: set = set()
-    for item in items:
-        if not (isinstance(item, dict) and "pull_request" in item and isinstance(item.get("number"), int)):
-            continue
-        pr = observer._get(gh, f"/repos/{gh.repo}/pulls/{item['number']}")
-        if not isinstance(pr, dict):
-            continue
-        is_declined = pr.get("state") == "closed" and not pr.get("merged_at")
-        ref = pr.get("merge_commit_sha") or (pr.get("head") or {}).get("sha")   # merged tree, else head
-        if not isinstance(ref, str) or not ref:
-            continue
-        sink = declined if is_declined else covered   # a declined PR feeds re-offer step-aside, not the dedup
-        for target in observer._read_targets(gh, ref):  # reads ONLY the content-free ids from the committed proposal
-            sink.add(target)
-    return covered, declined
-
-
-def _open_erasure_pr_numbers(gh):
-    """The numbers of the `engine-erasure` pull requests that are currently OPEN — the one-in-flight serializer's read,
-    so auto-open holds the next proposal until the operator has resolved (merged or closed) the current one. Returns the
-    list, or None if the open-list could not be read (host doubt -> the caller DECLINES to open, fail-SAFE — never read
-    an unreadable list as 'none open -> go ahead'). Never raises."""
-    raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=open&labels={observer.ERASURE_LABEL}&per_page=100")
-    if raw is None:
-        return None                                   # could not read -> cannot confirm none open -> decline upstream
-    if not isinstance(raw, list):
-        return []
-    return [item["number"] for item in raw
-            if isinstance(item, dict) and "pull_request" in item and isinstance(item.get("number"), int)]
-
-
 def _apply_label(gh, number: int) -> bool:
     """Ensure the `engine-erasure` label exists — with ITS OWN colour and description (never the engine label's grey
     'health' identity `gh.ensure_label()` would stamp, since `gh.label` is `engine-erasure` here) — and apply it to the
@@ -267,9 +211,11 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
     re-offer replaces it — but only after VERIFYING (never inferring) it backs no open pull request, so a deterministic
     branch name still can never duplicate. Returns the new pull-request number, or None.
 
-    INVARIANT (keep coupled): the stale-branch replace below is safe ONLY because `propose` runs the in-flight
-    serializer (`_open_erasure_pr_numbers`) before reaching here AND this path re-verifies no open PR backs the
-    branch. A caller that opens without the serializer gate would break that coupling."""
+    THE DUPLICATE PROTECTION IS THE RE-VERIFY BELOW, and nothing else. The automatic proposer paired this with
+    an in-flight serializer that swept open erasure pull requests before opening another; that ran because a
+    hook fired it unasked, and it is gone with it. An operator asking twice is not a race, so what remains is
+    the check that matters: a stale branch ref is only replaced after CONFIRMING no open pull request is
+    backed by it."""
     import boot  # noqa: E402 — lazy: only for the protected-branch name
     base = getattr(boot, "PROTECTED_BRANCH", "main")
     try:
@@ -448,10 +394,7 @@ def _confirmed_on_a_terminal(targets: list, *, stream=None) -> bool:
     automated caller has no terminal, so it never reaches the prompt; a person running this in their own shell
     always does."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        raise EraseRefused(
-            "erasing is only ever done from a real terminal, by a person reading what they are erasing. This "
-            "was not run from one, so nothing was proposed. Run it yourself in a shell if you meant it."
-        )
+        raise EraseRefused(_NO_TERMINAL)
     out = stream or sys.stdout
     out.write(preview(targets))
     out.write(f"This opens a pull request. Merging it erases the above permanently — there is no undo.\n"
@@ -467,6 +410,11 @@ def request(name: str, *, path: "str | None" = None, opener=None, transport=None
     The whole order matters: resolve the target, refuse unless it is already withheld, show the wording and take
     the typed confirmation, and only then write the proposal and open the pull request. Every refusal happens
     before anything is written or opened."""
+    # THE TERMINAL CHECK COMES FIRST, before any question about the store is answered. Ordered the other way,
+    # an automated caller with no terminal could still learn which record and session ids exist and which are
+    # withheld, one refusal message at a time — a small leak, but the gate should be the first thing.
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise EraseRefused(_NO_TERMINAL)
     targets = _targets_for(name, path=path)
     if not targets:
         raise EraseRefused(

@@ -603,21 +603,22 @@ def _demo_body(data_dir: str) -> bool:
         ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     book_before = _bookkeeping_count()
-    fresh_before = _freshness(keep)
     found_before = _recall_count(_DEMO_KEEP_WORD)
-    print(f'  a note you use a lot: "{_snippet(_DEMO_KEEP_TEXT)}"')
-    print(f"  private 'used it' bookkeeping piled up behind it: {book_before}")
-    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_before}    freshness: {fresh_before}')
+    print(f'  a note from an older engine, with its private bookkeeping behind it: "{_snippet(_DEMO_KEEP_TEXT)}"')
+    print(f"  spent 'used it' entries piled up behind it: {book_before}")
+    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_before}')
     report = compact()
     book_after = _bookkeeping_count()
-    fresh_after = _freshness(keep)
     found_after = _recall_count(_DEMO_KEEP_WORD)
     print(f"  ...tidied. status: {report['status']}")
-    print(f"  private 'used it' bookkeeping now: {book_after}   (folded away — no longer cluttering the cabinet)")
-    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_after}    freshness: {fresh_after}')
+    print(f"  spent 'used it' entries now: {book_after}   (reclaimed — no longer cluttering the cabinet)")
+    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_after}')
+    # The note must come out BYTE-IDENTICAL: the tidy reclaims spent bookkeeping and carries nothing onto the
+    # record itself, so this compares the whole thing rather than a summary of it.
+    kept_after = next((r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == keep_id), None)
     part1 = (book_before >= _DEMO_USED_TIMES and book_after == 0 and found_after == 1
-             and fresh_after == fresh_before)
-    print(f"  => {'tidied the bookkeeping; the note and its freshness are intact.' if part1 else '!!! the note or its freshness changed'}")
+             and kept_after == keep)
+    print(f"  => {'reclaimed the bookkeeping; the note itself is untouched, byte for byte.' if part1 else '!!! the note changed or the bookkeeping was not reclaimed'}")
 
     # --- PART 2 ------------------------------------------------------------------------------------------
     print("\nPART 2 — a power-cut in the MIDDLE of the tidy never loses or corrupts your memory")
@@ -670,12 +671,10 @@ def _demo_body(data_dir: str) -> bool:
     # is why this plants a real roll-up rather than an old note. That is also the harder case for the rewrite:
     # compaction folds the supersession onto the note and prunes the marker that recorded it, so "still hidden
     # afterwards" is a genuine property to check rather than a restatement of the note's age.
-    from memory import rollup                       # lazy: rollup imports forget/score, not needed at load
     aside = _make_episodic(_DEMO_SET_ASIDE_TEXT, age_days=_DEMO_SET_ASIDE_AGE_DAYS, role="lesson")
     aside_id = aside[records.RECORD_ID_KEY]
     ledger.append(aside)
-    rollup.store_gist(_DEMO_SESSION, [{"role": "lesson", "text": _DEMO_SET_ASIDE_SUMMARY,
-                                       records.SOURCE_IDS_KEY: [aside_id]}])
+    _legacy.store_gist(_DEMO_SESSION, _DEMO_SET_ASIDE_SUMMARY, [aside_id])
     dup = _make_episodic(_DEMO_DUP_TEXT, age_days=0, batchless=False)   # a crashed-pass orphan (batch never closed)
     dup_id = dup[records.RECORD_ID_KEY]
     ledger.append(dup)

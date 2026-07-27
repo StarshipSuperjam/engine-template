@@ -119,14 +119,29 @@ def run(*, path: "str | None" = None, snapshot=True, engine_version: str = "resc
     if not os.path.exists(src):
         return {"status": "empty", "records": 0, "changed": 0,
                 "message": "There is no saved memory yet, so there was nothing to clean."}
+    # The backup REQUIREMENT is unconditional — it is the whole safety argument, and a keyword argument that
+    # could switch it off would be a public seam straight past it. `snapshot=False` skips only the network
+    # push, which is what a test needs; it never skips the check that a destination exists.
+    _require_backup()
     if snapshot:
-        _require_backup()
         from memory import backup_vault
         if backup_vault.snapshot_for_migration(None, engine_version, migration_id="rescrub") is None:
             raise RescrubRefused(
                 "the engine could not save a copy of your memory before changing it, so it changed nothing. "
                 "This is usually a network problem — try again when you are online."
             )
+    # READ RAW, REFUSE WHAT CANNOT BE PARSED. `ledger.read` skips a malformed line, counts it, and does NOT
+    # keep its bytes — so writing back only what it returned would delete that line permanently while this
+    # reported a clean sweep over "all N records". A writer must not read through a lossy reader. The count is
+    # the reader's own, so this refuses on exactly what it could not see.
+    probe = ledger.read(path=src)
+    if probe.malformed:
+        raise RescrubRefused(
+            f"{probe.malformed} line{'' if probe.malformed == 1 else 's'} of your saved memory could not be "
+            "read, and rewriting the file would delete "
+            f"{'it' if probe.malformed == 1 else 'them'} for good. Nothing was changed. This usually means a "
+            "damaged file — ask me to look at your memory's health first."
+        )
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
         raise RescrubRefused("another memory write is in progress. Nothing was changed; try again in a moment.")
@@ -165,9 +180,13 @@ def run(*, path: "str | None" = None, snapshot=True, engine_version: str = "resc
         if _digest_of(ledger.read(path=tmp).records) != expected:
             raise RescrubRefused("internal check failed: the cleaned copy did not read back identically. "
                                  "Nothing was changed.")
+        # BEFORE the swap, never after — the ordering compaction uses for the same reason. Bumped after, a
+        # failed bump would leave the index stamped current over the OLD text, so every search would keep
+        # serving back the very secrets this just masked, silently, behind a success message. Bumped first, a
+        # failed swap costs one unnecessary rebuild and nothing else.
+        ledger.bump_index_epoch(for_path=src)
         ledger.replace_ledger(tmp, path=src)
         tmp = None
-        ledger.bump_index_epoch(for_path=src)
     finally:
         if tmp and os.path.exists(tmp):
             os.remove(tmp)

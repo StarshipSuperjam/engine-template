@@ -6179,7 +6179,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:c7d8361bd1fb9823f702ac164f2de3ee2c5d713ff22829258b07c2a80156ef3b",
+        "fingerprint": "sha256:b9d83104a6dd20d1fcba7edcca36a06530ca104eb032967dc8022e9968162803",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -7182,7 +7182,7 @@
       },
       "slug": "erase",
       "source": {
-        "fingerprint": "sha256:43954b5d0fe6b6bea660aade9324797c261eb3c1bc736e6f6e8682ff25040afa",
+        "fingerprint": "sha256:d560cf7cec81ec3b6f14ec71fddf4c58d0137eb4dacb5aaa8aa187f0b7560cbf",
         "path": ".engine/tools/memory/erase.py"
       },
       "status": "active",
@@ -8304,7 +8304,7 @@
       },
       "slug": "rescrub",
       "source": {
-        "fingerprint": "sha256:a5dd0fc466cd3d7136a97827e31c63c5127ce26ec169113a8e4909006aa9107b",
+        "fingerprint": "sha256:9db51a0452b02f85ba790a6f5babbcf0fea11679c88b82d1d45503c6c1671fbf",
         "path": ".engine/tools/memory/rescrub.py"
       },
       "status": "active",
@@ -9341,7 +9341,7 @@
       },
       "slug": "test_erase",
       "source": {
-        "fingerprint": "sha256:fe201b0c14ff6d9ef1af3715a95d09ff8ec4d48d782ab1587f71795365f2f8d5",
+        "fingerprint": "sha256:5668afe0eebd9cb8ab93bf8ee4c50b3b80b12c343e03d5c0bbe4cc1c90e0f2ac",
         "path": ".engine/tools/memory/test_erase.py"
       },
       "status": "active",
@@ -10327,7 +10327,7 @@
       },
       "slug": "test_rescrub",
       "source": {
-        "fingerprint": "sha256:05d5192d8734eec51f839d95413c3b9e542f449897addbfdce8c49611ca58350",
+        "fingerprint": "sha256:8679dd22f043c1eb78b20e24c5a848e4501972b6b87f7cf4919567ba4af20ac3",
         "path": ".engine/tools/memory/test_rescrub.py"
       },
       "status": "active",

@@ -8,7 +8,9 @@ automated path there is.
 
 from __future__ import annotations
 
+import inspect
 import io
+import json
 import os
 import sys
 import tempfile
@@ -161,3 +163,59 @@ class WallTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenerTests(_Base):
+    """The real pull-request opener, which had no coverage at all — and was broken.
+
+    Both other tests inject `opener=`, so the shipped path ran nowhere. It referenced `base64` without
+    importing it, and the opener's blanket `except Exception` turned that into `return None`, which `request`
+    reports as "could not be opened just now; try again". Every time, forever, looking exactly like a network
+    problem. This drives the real opener over a stub transport where every call succeeds.
+    """
+
+    class _Transport:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, method, path, payload=None):
+            self.calls.append((method, path))
+            if path.endswith("/git/ref/heads/main"):
+                return 200, {"object": {"sha": "b" * 40}}
+            if path.endswith("/git/refs"):
+                return 201, {}
+            if "/contents/" in path:
+                return 201, {}
+            if path.endswith("/pulls"):
+                return 201, {"number": 42}
+            return 200, {}
+
+    def _gh(self):
+        return erase._reader(transport=self._Transport())
+
+    def test_the_real_opener_opens_a_pull_request(self):
+        proposal = erase.build_proposal([{records.RECORD_ID_KEY: "a" * 32, "kind": records.AMBIENT_CAPTURE_KIND,
+                                          "speaker": "user", "ts": 1785000000, "text": "x"}])
+        number = erase._open_erasure_pr(self._gh(), erase._branch_for(proposal["targets"]),
+                                        erase._pr_title(1), erase._pr_body(proposal),
+                                        json.dumps(proposal))
+        self.assertEqual(number, 42, "the real opener returned nothing on an all-success transport")
+
+    def test_every_name_the_module_uses_is_bound(self):
+        # The defect class, caught structurally: a ported module referencing a name its imports do not carry.
+        # `base64` failed this way and the blanket except hid it; a second, `_MAX_PR_PAGES`, was dead code.
+        import ast
+        import builtins
+        tree = ast.parse(inspect.getsource(erase))
+        loaded = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        module_level = set(vars(erase)) | set(dir(builtins))
+        local = {a.arg for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) for a in n.args.args}
+        local |= {a.arg for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) for a in n.args.kwonlyargs}
+        local |= {t.id for n in ast.walk(tree) for t in ast.walk(n)
+                  if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
+        # names bound inside a function: a lazy `import x`, and an `except ... as exc`
+        local |= {(a.asname or a.name).split(".")[0]
+                  for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+        local |= {n.name for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name}
+        unbound = sorted(loaded - module_level - local)
+        self.assertEqual(unbound, [], f"erase.py uses names it never binds: {unbound}")
