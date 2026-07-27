@@ -4062,6 +4062,7 @@
       "operations": [
         "find",
         "get-entity",
+        "health",
         "neighbors",
         "relate"
       ],
@@ -4079,7 +4080,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:056362bcd87575d546e401902048a19157aa77007c97b522226c15b4da280c96",
+        "fingerprint": "sha256:d04d6fa7c9fd940b3b09ab04d0a9842ae0f2468011cabba06d6bf4688b3c6d03",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -4125,6 +4126,7 @@
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
       "operations": [
+        "health",
         "recall-by-meaning",
         "recall-window",
         "search"
@@ -4143,7 +4145,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:f9db9665f3b11c2c0d174d9eda46a28a0783dfe4372de6ab6cee723a91e2de8b",
+        "fingerprint": "sha256:420702766e5c74a98147b4d63a58075cdb0940ffc6f775864da6c2eb826a53e7",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4437,7 +4439,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:1424329a5d0fd05b8dc8d0e3177daa0e4fbb2d44eb6f71830dbdc5ecd28a9b3a",
+        "fingerprint": "sha256:0ea280c964af7f14d80b757b16cf3699c921a9d3233a560e6a9475bc51da7cb0",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4477,7 +4479,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:5edfd3644c4160c11d9f1ce2047074a446df441e675dd591ab3568f09ef8409b",
+        "fingerprint": "sha256:89bf65fca4e2f7611064e1b82f57f1dc77a46cc3143efeab187e3035eda1264a",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6380,7 +6382,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:24bd0fce9b798649caa2dffeac093c3df011ed823103c66bda80bb86f994d3a6",
+        "fingerprint": "sha256:6e6e0587c4595e2ad286091b0285443f123eadf926ffef6edf5f0421bc1f6746",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8691,7 +8693,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:d23801fd8ae09703d071beadad8169384b2eefe6309cf02d59e9dd5b35798289",
+        "fingerprint": "sha256:ff6fe96809dfa94d0ec9d25b8853ec35386c4426198def0f826f6d91d46a4105",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "status": "active",
@@ -8977,7 +8979,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:cb5f8dcf30dfae378b0b4369694d2b240cdee657edc0da45c52351b32605ea22",
+        "fingerprint": "sha256:046714166f9dde07e3dbd6d3342587c83fa7fa3ee314d23f4344c740e5898ed0",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -10660,7 +10662,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:b786259fd686ab8110ee1d4d9a409a9c6a05723ce5a43c0937cf85687c32569c",
+        "fingerprint": "sha256:53044d5abdaa074adb0a1994f11b3c8dd691f3b56c4c463ad2070344afa1cc19",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11756,7 +11758,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:2bcc7f9baf0dc11291418c399d8229199128bdbf6dd397ac7d419012f9f9c490",
+        "fingerprint": "sha256:45cb4a5c685cd1db1b046f0d4ee320af3e46b95a9398be12d62d0e78bacf2132",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -11885,7 +11887,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:562234925e88ef9245a9017a0f9029e6755635c1f82b9e51e8c1ee23c00fdf02",
+        "fingerprint": "sha256:edfe35c1c3d6cdd08d75a1a291ae205fb836011bc429a995d4113fe6bfd31d8d",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -11911,7 +11913,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:9e6d77ed229b9aaef700afd66084a98099b614c2dc3bf7db5036ada9775fa99b",
+        "fingerprint": "sha256:01e8a375d8405b4bf6a0f310ba82bac182dc95d6def1003a6d756defe5e573ca",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -12155,7 +12157,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:e92ac0dc995ec7334807c68027e23de09cfa85cebda6ddc1bb69cbaffa82be70",
+        "fingerprint": "sha256:59379c193f221e551f8e7bed90e1169cc6e831873a67710827a68dc6e0368b36",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",

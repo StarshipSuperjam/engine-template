@@ -2,9 +2,34 @@
   "schema_version": 1,
   "id": "search",
   "title": "Memory recall",
-  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, and `search` and `recall-window` write nothing at all; `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). The content-free `health` operation proves only that this exact helper answered; it reads no memory and is the safe availability probe used before the first operator reply. Recall never changes or removes what is stored, and `search` and `recall-window` write nothing at all; `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The recall operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
   "status": "active",
   "operations": [
+    {
+      "name": "health",
+      "description": "Prove that this exact MCP helper answered without reading the memory ledger, returning saved content, rebuilding an index, or changing any state. This says the server is live; it does not claim the stored memory is healthy, which boot checks separately.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "server"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "server": {
+            "const": "engine-memory"
+          }
+        }
+      }
+    },
     {
       "name": "search",
       "description": "Recall the memory records most relevant to a query, ranked best-first. Searches both the curated records and the recorded conversation itself, so a result may be a summary written after the fact or one piece of a real message — long messages are stored in pieces, which is why a conversation hit is read back through the window operation rather than quoted as it stands. An optional session filter narrows to ONE conversation — the second move of a recall, once a first search has named which conversation to look in, and the answer to a hit that carries no position: without it the only way into a long session is to read it from the start. ",

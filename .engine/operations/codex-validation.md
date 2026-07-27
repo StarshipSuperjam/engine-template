@@ -25,8 +25,27 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
    denied with the plain exploring explanation; a shell `git commit` must be denied the same way.
 5. Check Build entry: type `$engine-start` — the stance flips to building (and ONLY this typed verb
    does; casual phrasing must not).
-6. Check the helpers: the `mcp__engine-memory__*` and `mcp__engine-knowledge-graph__*` tool families
-   are callable — or their absence is plainly disclosed with the trust-then-restart fix.
+6. **Check deferred live-helper discovery — including its failure branches, without disturbing the real
+   project.** The exact Codex procedure is emitted by `.engine/tools/boot.py`
+   `MCP_AVAILABILITY_CHECK_CODEX`; validate that procedure, never an invented substitute.
+   - **Healthy deferred case, in this project:** start a fresh session and record whether the initial tool
+     summary omits `mcp__engine_memory.health` and `mcp__engine_knowledge_graph.health`. When it omits them,
+     confirm one search per helper discovers the exact tool, each fixed health call returns its exact server
+     identity, and the first reply carries no helper-outage warning. If this Codex build surfaces either tool
+     initially, that helper's deferred-discovery branch was **not verified** — do not call it a pass; repeat on
+     a build/session that actually defers it.
+   - **Controlled failure matrix, only in throwaway project copies:** never edit this project's real
+     `.codex/config.toml`, trust state, or servers. Exercise these seven fresh-session cases explicitly:
+     (1) both pass; (2) memory passes and knowledge discovery misses; (3) memory passes and knowledge is
+     discovered but its call fails; (4) knowledge passes and memory discovery misses; (5) knowledge passes and
+     memory is discovered but its call fails; (6) both discovery checks miss; (7) both are discovered but both
+     calls fail. Produce a miss by omitting only that temporary registration. Produce a call failure by pointing
+     only that registration at a temporary MCP fixture which registers the exact `health` operation but returns
+     an MCP error — never damage a real store or server. In every mixed case the passing helper stays silent and
+     only the failed helper warns; a discovery miss gives the trust-and-restart diagnosis, while a discovered
+     call failure says registered-but-not-passing and does not blame trust. Remove temporary copies and fixtures
+     afterward. If Codex cannot isolate them from the real project's trust state, record the negative arms as
+     **not verified** rather than perturbing the real installation.
 7. Check memory capture: after a turn or two, `$engine-status` shows no memory-capture warning (a
    "conversation wasn't saved" line means the transcript reader needs updating — a defect, not a
    deferral).

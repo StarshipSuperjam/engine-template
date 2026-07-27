@@ -719,7 +719,7 @@ class TestLiveDerivationAttributes(unittest.TestCase):
         self.assertEqual(self.by_id["policy:attention"].get("title"), "Attention")
         i = self.by_id["interface:knowledge-retrieval"]
         self.assertEqual(i.get("title"), "Knowledge graph retrieval")
-        self.assertEqual(i.get("operations"), ["find", "get-entity", "neighbors", "relate"])
+        self.assertEqual(i.get("operations"), ["find", "get-entity", "health", "neighbors", "relate"])
         self.assertEqual(i.get("fallback"), "engine-knowledge-graph")
 
     def test_module_carries_status_and_version(self):

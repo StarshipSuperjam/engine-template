@@ -3,8 +3,9 @@
 
 This is the named fallback the knowledge-retrieval interface declares
 (.engine/interfaces/knowledge-retrieval.json, handle 'engine-knowledge-graph'). It is a thin MCP
-transport over the knowledge_query op-set: it exposes the four declared operations
-(get-entity / find / neighbors / relate) as MCP tools, each delegating to knowledge_query, which reads
+transport over the knowledge_query op-set: it exposes a content-free `health` availability probe and the
+four declared retrieval operations (get-entity / find / neighbors / relate) as MCP tools. The retrieval
+operations delegate to knowledge_query, which reads
 the committed knowledge graph through the gitignored SQLite index, rebuilds that index from the
 committed graph when it is missing, and falls back to a live walk of the surfaces when the committed
 graph is absent (degrade-to-git-native).
@@ -30,6 +31,13 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 SERVER_NAME = "engine-knowledge-graph"
 
 server = FastMCP(SERVER_NAME)
+
+
+@server.tool(name="health", description="Content-free availability probe for this exact "
+             "engine-knowledge-graph server. Returns only its fixed identity and status; reads no graph, "
+             "rebuilds no query cache, walks no project files, and changes no state.")
+def health() -> dict:
+    return {"status": "ok", "server": SERVER_NAME}
 
 
 # Every tool answers through kq.with_degrade, which returns (result, degrade_note_or_None). When the read
