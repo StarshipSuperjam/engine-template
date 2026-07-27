@@ -12,14 +12,15 @@ loses nothing (`rebuild()` reconstructs it), and backup is still "copy the ledge
 Leaf discipline: this module DETECTS the FTS5-absent / slow-path condition and RETURNS it to the caller; it
 never renders operator-facing prose (boot does that). It writes no telemetry and logs no findings.
 
-This module builds the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Ranked, filtered recall is `search` (BM25 best-first reinforced by usage; role/tag filters) — the RANKING ENGINE
-beneath the `search.json` contract, not the conforming implementation of it. The engine-memory MCP server
-(`mcp_server.py`) is what conforms: it supplies the default bound the contract requires on an omitted `limit`
-(this library leaves it unbounded, which only a caller passing its own ceiling can rely on) and it is the
-declared fallback handle. `query` stays UNRANKED for the
+This module builds the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`).
+Ranked, filtered recall is `search` (BM25 best-first, equally-relevant matches newest first; tag and session
+filters) — the RANKING ENGINE beneath the `search.json` contract, not the conforming implementation of it. The
+engine-memory MCP server (`mcp_server.py`) is what conforms: it supplies the default bound the contract requires
+on an omitted `limit` (this library leaves it unbounded, which only a caller passing its own ceiling can rely on)
+and it is the declared fallback handle. `query` stays UNRANKED for the
 rebuild/scan callers. Nothing queries this index per prompt: the boot-owned `scent.py` UserPromptSubmit hook
 pushes a constant cue asking the model to run the recall workflow, and every query here is one the model then
-makes deliberately. The closed record shape + role vocabulary come from the reflection step.
+makes deliberately.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
 `unicode61`): the fast lookup is BUILT from the tokens it produces (the FTS table is contentless — it keeps the
@@ -48,7 +49,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, ledger, records, score  # noqa: E402
+from memory import forget, ledger, records  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
 # The index's own shape version, stamped into `meta` and checked on every read. Bump it whenever what the
@@ -555,28 +556,16 @@ def query(
 # never writes the ledger; the live reinforcement-on-recall caller is the engine-memory MCP server (mcp_server.py),
 # at the recall boundary, never here (rebuild/_scan/the demos all call read-only).
 
-# Build-spec leaf `search-rank`: the decimal places bm25/relevance is rounded to before the usage tiebreak. It
-# groups NEAR-equal matches into one relevance bucket so usage can reorder them (the "reinforced by usage" move),
-# while a clearly-stronger match lands in its own better bucket and is NEVER overtaken by usage ("BM25 leads").
-# Coarser (fewer places) lets usage reorder more; finer makes lexical relevance stricter — the demo validates both
-# directions. The ordering is LEXICOGRAPHIC, deliberately NOT a multiplicative blend: a multiplicative
-# rel * (1 + k*usage) gives usage ZERO leverage where bm25 ties at ~0 (a common query term) and UNBOUNDED leverage
-# where bm25 separates (frecency is unwindowed) — inverting "BM25 leads".
-_REL_DECIMALS = 1
-
-
-def _validate_roles(roles):
-    """The role filter as a set, or None for no filter. An unknown role (outside the closed vocabulary —
-    `score.ROLE_WEIGHTS` keys, which a test pins == `consolidate.ROLE_VOCABULARY` == `search.json`'s roles) raises
-    ValueError: a caller asking for a misspelled role is told, never silently handed all-roles results. The
-    engine-memory server surfaces the raise as a tool error; the server survives."""
-    if roles is None:
-        return None
-    valid = set(score.ROLE_WEIGHTS)
-    unknown = set(roles) - valid
-    if unknown:
-        raise ValueError(f"unknown role(s): {sorted(unknown)}; valid roles are {sorted(valid)}")
-    return set(roles)
+# RANKING: lexical relevance alone, ties broken NEWEST FIRST.
+#
+# There used to be a second term — how often a record had been recalled — and a rounding step that grouped
+# near-equal matches into one relevance bucket so that usage could reorder inside it. Both are gone with
+# reinforcement-on-read (eADR-0038 ends per-record scoring). Removing the usage term alone would have left the
+# rounding as pure information loss AND left the final tiebreak deciding on its own: ledger position ascending,
+# which is OLDEST first. On a store that is overwhelmingly conversation, and on exactly the broad query where
+# bm25's separating term collapses and every match ties, that would have answered every such question with the
+# oldest thing in the store. So the rounding goes with it and the tiebreak flips: equal relevance is broken by
+# ledger position DESCENDING — the most recent of equally-good matches, which is the one more likely meant.
 
 
 def _query_terms(text: str) -> list:
@@ -592,11 +581,16 @@ def _query_terms(text: str) -> list:
     return list(dict.fromkeys(_tokenize(text)))
 
 
-def _passes_filters(record, roles, tags, session=None) -> bool:
-    """The structured POST-FETCH filters (role/tags/session are non-body — never FTS MATCH terms). `roles`: the
-    record's `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags.
-    `session`: the record belongs to that one conversation. All apply identically on the fast and slow paths, so
-    the degraded path returns the same FILTERED set.
+def _passes_filters(record, tags, session=None) -> bool:
+    """The structured POST-FETCH filters (tags/session are non-body — never FTS MATCH terms). `tags`: any-match
+    — the record shares at least one of the requested tags. `session`: the record belongs to that one
+    conversation. Both apply identically on the fast and slow paths, so the degraded path returns the same
+    FILTERED set.
+
+    THERE IS NO ROLE FILTER. There used to be, over a closed vocabulary the summary writer stamped onto what it
+    produced. Nothing writes a `role` any more, so in any repository the engine deploys into, that filter could
+    only ever have matched nothing — an input a caller could pass, be answered "no results" for, and reasonably
+    read as "memory does not hold it". Removing it is the honest form.
 
     WHY SESSION IS A FILTER AND NOT A SECOND SEARCH. Reaching a remembered thing has two moves: find which
     conversation it was in, then find the moment inside it. The first was already answered; the second had no
@@ -604,9 +598,6 @@ def _passes_filters(record, roles, tags, session=None) -> bool:
     forward — against a median session of well over a hundred records here, with the largest past what one
     window can hold. Scoping the SAME ranked search to one conversation makes the second move the same shape as
     the first, and being a filter rather than a new operation is what keeps one ranking and one seam."""
-    if roles is not None:
-        if not isinstance(record, dict) or record.get("role") not in roles:
-            return False
     if tags is not None:
         have = record.get("tags") if isinstance(record, dict) else None
         if not isinstance(have, (list, tuple)) or not (set(have) & tags):
@@ -617,26 +608,17 @@ def _passes_filters(record, roles, tags, session=None) -> bool:
     return True
 
 
-def _usage_of(record, access_index, now: int) -> float:
-    """The usage signal for the tiebreak: `score.score` (frecency × role-weight × recency) over the record's
-    accesses, collected once into `access_index`. A record with no id / no accesses still scores from birth —
-    never zero, so it is only deprioritized, never dropped (ranking, not retention)."""
-    rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
-    access_ts = access_index.get(rid, ()) if isinstance(rid, str) and rid else ()
-    return score.score(record, access_ts, now)
-
-
 def _rank_slice_score(candidates: list, limit: "int | None") -> list:
     """Order the candidates best-first, slice to `limit`, and attach `records.SCORE_KEY` (the lexical relevance) to
     a SHALLOW COPY of each kept record (never mutate the live record — the score must not leak back into the
-    ledger/index). Each candidate is `(rel, usage, ord, record)` with `rel` the positive lexical relevance
-    (higher = better). Sort key: bucketed relevance DESC (via `-rel` rounded, ASC), then usage DESC, then ledger
-    `ord` ASC (a stable, deterministic final tiebreak)."""
-    candidates.sort(key=lambda c: (round(-c[0], _REL_DECIMALS), -c[1], c[2]))
+    ledger/index). Each candidate is `(rel, ord, record)` with `rel` the positive lexical relevance
+    (higher = better). Sort key: relevance DESC, then ledger `ord` DESC — newest of equally-good matches first,
+    a total and deterministic order."""
+    candidates.sort(key=lambda c: (-c[0], -c[1]))
     if limit is not None:
         candidates = candidates[:limit]
     out = []
-    for rel, _usage, _ord, record in candidates:
+    for rel, _ord, record in candidates:
         scored = dict(record) if isinstance(record, dict) else record
         if isinstance(scored, dict):
             scored[records.SCORE_KEY] = rel
@@ -670,7 +652,7 @@ _HYDRATE_CHUNK = 200
 _HYDRATE_MIN = 32
 
 
-def _fast_candidates(conn, match, *, roles, tags, session, limit, access_index, now):
+def _fast_candidates(conn, match, *, tags, session, limit):
     """The fast path's candidate list — ranked WITHOUT holding the whole matched set in memory.
 
     The old shape fetched every matching row up front and parsed each one into a record dict before ranking. On
@@ -681,60 +663,58 @@ def _fast_candidates(conn, match, *, roles, tags, session, limit, access_index, 
 
     Two bounds, because they cover different queries and neither covers both:
 
-    * **Nothing is retained but the sort key.** Each record is parsed, scored and released; only
-      `(relevance, usage, ord)` survives the walk, and the record bodies of the survivors are re-read at the end.
+    * **Nothing is retained but the sort key.** Each record is parsed, tested against the filters and released;
+      only `(relevance, ord)` survives the walk, and the record bodies of the survivors are re-read at the end.
       Retained cost falls from a parsed dict per match to a flat tuple per match. This is the bound that holds
-      for a COMMON word, where bm25's IDF term collapses to ~0 and every match lands in one relevance bucket —
-      there the ranking genuinely depends on every match's usage, so they must all be scored, just not kept.
+      for a COMMON word, where bm25's IDF term collapses to ~0 and tens of thousands of rows tie.
     * **The walk stops early once no unread row could reach the top `limit`.** `_rank_slice_score` sorts by
-      bucketed relevance, then usage, then ledger position; rounding is monotone, so the SQL order is already
-      the bucket order. Once `limit` candidates have been kept, the bucket of the last of them is the BOUNDARY:
-      a row in that same bucket can still overtake them on usage, so it is read too, but a row in any worse
-      bucket sorts behind all of them and can never reach the top `limit`. This is the bound that holds for a
-      SELECTIVE word, where the buckets are many and small ("decision" matched 951 records across 44 buckets,
-      the largest holding 43). With no `limit` the caller asked for everything, so nothing is skipped.
+      relevance, then ledger position descending, and the SQL already returns rows in bm25 order. Once `limit`
+      candidates have been kept, the relevance of the last of them is the BOUNDARY: a row with the SAME
+      relevance can still overtake on the newer-first tiebreak, so it is read too, but a strictly worse row
+      sorts behind all of them and can never reach the top `limit`. With no `limit` the caller asked for
+      everything, so nothing is skipped.
 
     Either way the returned records are exactly the ones ranking the full matched set would have returned."""
     cur = conn.execute(
         "SELECT rowid, bm25(entries_fts) AS relevance FROM entries_fts "
         "WHERE entries_fts MATCH ? ORDER BY relevance", [match])
     span = _HYDRATE_CHUNK if limit is None else min(_HYDRATE_CHUNK, max(2 * limit, _HYDRATE_MIN))
-    keys: list = []                      # (relevance, usage, ord) — deliberately NOT the record
-    boundary = None
+    keys: list = []                      # (relevance, ord) — deliberately NOT the record
+    boundary = None                      # the raw bm25 of the limit-th kept row; more-positive is worse
     done = False
     while not done:
         chunk = cur.fetchmany(span)
         if not chunk:
             break
-        if boundary is not None and round(float(chunk[0][1]), _REL_DECIMALS) > boundary:
+        if boundary is not None and float(chunk[0][1]) > boundary:
             break                        # the whole chunk is past the boundary — do not read any of it
         bodies = dict(conn.execute(
             "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(chunk)),
             [row[0] for row in chunk]).fetchall())
         for ordinal, relevance in chunk:
-            bucket = round(float(relevance), _REL_DECIMALS)
-            if boundary is not None and bucket > boundary:
+            raw = float(relevance)
+            if boundary is not None and raw > boundary:
                 done = True
                 break
             record_json = bodies.get(ordinal)
             if record_json is None:
                 continue                 # an fts row with no `entries` row — what the old JOIN dropped silently
             record = json.loads(record_json)
-            if not _passes_filters(record, roles, tags, session):
+            if not _passes_filters(record, tags, session):
                 continue
             # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
-            keys.append((-float(relevance), _usage_of(record, access_index, now), ordinal))
+            keys.append((-raw, ordinal))
             if limit is not None and boundary is None and len(keys) >= limit:
-                boundary = bucket
+                boundary = raw
         bodies = None                    # release the chunk before reading the next one
     return _hydrate_winners(conn, keys, limit)
 
 
 def _hydrate_winners(conn, keys, limit):
-    """Turn the surviving sort keys back into the `(rel, usage, ord, record)` candidates `_rank_slice_score`
+    """Turn the surviving sort keys back into the `(rel, ord, record)` candidates `_rank_slice_score`
     expects, reading ONLY the records that can still make the answer. Sorts and slices by the same key that
     function does — doing it twice costs nothing and is what lets the walk above keep no record bodies at all."""
-    keys.sort(key=lambda c: (round(-c[0], _REL_DECIMALS), -c[1], c[2]))
+    keys.sort(key=lambda c: (-c[0], -c[1]))
     if limit is not None:
         keys = keys[:limit]
     if not keys:
@@ -746,15 +726,15 @@ def _hydrate_winners(conn, keys, limit):
     # times slower and reported only as `degraded`. Reproduced at 33,000 matches before this loop existed.
     bodies = {}
     for start in range(0, len(keys), _HYDRATE_CHUNK):
-        ords = [k[2] for k in keys[start:start + _HYDRATE_CHUNK]]
+        ords = [k[1] for k in keys[start:start + _HYDRATE_CHUNK]]
         bodies.update(conn.execute(
             "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(ords)),
             ords).fetchall())
     out = []
-    for rel, usage, ordinal in keys:
+    for rel, ordinal in keys:
         record_json = bodies.get(ordinal)
         if record_json is not None:
-            out.append((rel, usage, ordinal, json.loads(record_json)))
+            out.append((rel, ordinal, json.loads(record_json)))
     return out
 
 
@@ -790,14 +770,13 @@ def _heal_if_stale(src: str, dst: str) -> bool:
         return False
 
 
-def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
+def _ranked(tokens, src, dst, *, tags, session, limit, force_scan):
     """The shared ranked retrieval. Fast path: bm25 read from the FTS5 index (when present +
     generation-current); slow path: a full scan over the ledger computing THE SAME bm25 in plain Python. So the
     two paths agree on the matched set AND on its order — the availability law now holds for the answer, not
     just for the fact that one comes back. NEITHER truncates in ledger order. The fast path stops walking its
     (already relevance-ordered) matches once no unread row could reach the top `limit` — a bound on work, never
     on the answer; see `_fast_candidates`. Returns a QueryResult."""
-    access_index = forget._access_index(src)
     if not force_scan:
         _heal_if_stale(src, dst)
     # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
@@ -807,8 +786,7 @@ def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
             conn = sqlite3.connect(dst)
             try:
                 if _index_is_current(conn, src):
-                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, session=session, limit=limit,
-                                                  access_index=access_index, now=now)
+                    candidates = _fast_candidates(conn, match, tags=tags, session=session, limit=limit)
                     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
             finally:
                 conn.close()
@@ -832,7 +810,7 @@ def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
         present = set(body_tokens)
         for term in wanted & present:
             doc_freq[term] += 1
-        if not (wanted <= present) or not _passes_filters(record, roles, tags, session):
+        if not (wanted <= present) or not _passes_filters(record, tags, session):
             continue
         # Per-term counts as a flat TUPLE in `want` order, not a dict keyed by the term strings. A matched
         # record has to be held until the pass ends (its score depends on statistics only the end of the pass
@@ -850,65 +828,13 @@ def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
         for ordinal, doc_len, tfs, record in matched:
             norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / avgdl)
             rel = sum(idf * (tf * (_BM25_K1 + 1)) / (tf + norm) for idf, tf in zip(idfs, tfs))
-            candidates.append((rel, _usage_of(record, access_index, now), ordinal, record))
+            candidates.append((rel, ordinal, record))
     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
-
-
-# --- The cold-start recent-decisions pull (#394) -------------------------------------------------------
-# The roles that ARE the decision record — what "recent decisions" means when boot pulls recall into the cold
-# -start pack. A recorded build-spec leaf: the decision itself plus the reasoning/pushback behind
-# it. A lesson, dead-end, preference, intent or observation is recall, but it is not a DECISION, so it does not
-# compete for this partition's slice. Members of the closed role vocabulary (score.ROLE_WEIGHTS).
-_DECISION_ROLES = ("decision", "rationale/pushback")
-# How many the reader scans back for; how many SURFACE is the attention policy's budget_recent_decisions slice.
-_RECENT_DECISIONS_LIMIT = 20
-
-
-def recent_decisions(*, limit: int = _RECENT_DECISIONS_LIMIT, roles=_DECISION_ROLES,
-                     ledger_file: "str | None" = None) -> list[dict]:
-    """The most recently RECORDED decisions, newest first — the memory half of attention's recent-decisions
-    partition (that partition draws from recently merged pull requests plus what the memory-recall boot assembles
-    into the pack; at cold start boot pulls memory recall when their servers are up).
-
-    NON-QUERY by construction, and that is the point: a cold start has no prompt yet to match against, so this
-    is RECENCY-ordered, not lexical. Lexical recall against the operator's words is `search`'s job, reached
-    through the recall workflow; this answers the different question boot asks at orientation — "what was
-    decided lately?".
-
-    Reads through `forget.live_records`, the one shared read path, and filters to the decision-bearing ROLES.
-    That role filter is now what keeps the recorded conversation out of this partition — captured turns carry
-    no role, and they ARE reachable through search. The exclusion this reader depends on used to come for free
-    from the shared stream and no longer does, so the filter is load-bearing rather than incidental.
-    SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
-    orienting must not silently re-rank what recall surfaces later.
-
-    Deterministic: ordered by the record's own recorded `ts` (newest first), ties broken by record id, so the
-    same ledger always yields the same list — the ranking downstream stays reproducible. Records with no usable
-    `ts` sort last rather than crash the sort. Degrades to [] on any read fault: recall is orientation context,
-    and boot surfaces an unreadable store separately (its own memory-offline notice), never from here."""
-    def _order(record):
-        # A TOTAL key: a `ts` that is not a real number (absent, a string, a bool, NaN) sorts into the
-        # unusable bucket and carries a fixed 0, so tuples of mixed records only ever compare like with like.
-        # Falling back to the raw value instead would compare a str against an int the moment one record's ts
-        # was a string and another's was absent — raising, from a function whose whole contract is that a
-        # damaged record costs its own place in the order and nothing else.
-        ts = record.get("ts")
-        usable = isinstance(ts, (int, float)) and not isinstance(ts, bool) and math.isfinite(ts)
-        return usable, (ts if usable else 0), str(record.get(records.RECORD_ID_KEY) or "")
-
-    wanted = set(roles)
-    try:
-        out = [r for r in forget.live_records(ledger_file) if r.get("role") in wanted]
-        out.sort(key=_order, reverse=True)   # inside the guard: the contract is [] on ANY read fault
-    except Exception:  # noqa: BLE001 — an unreadable/degraded store costs the digest, never the pack
-        return []
-    return out[:limit]
 
 
 def search(
     query_text: str,
     *,
-    roles: "list | None" = None,
     tags: "list | None" = None,
     session: "str | None" = None,
     limit: "int | None" = None,
@@ -917,30 +843,27 @@ def search(
     index_file: "str | None" = None,
 ) -> QueryResult:
     """Ranked, filtered recall — the `search` interface (search.json). Every query word must appear (implicit AND),
-    and the matches come back BEST-FIRST: by lexical relevance (the SAME bm25 on both paths — read from FTS5 on
-    the fast one, recomputed in plain Python on the slow backup), with usage (frecency × role-weight × recency)
-    breaking near-ties but never overriding a clearly-stronger match. Optional `roles` (the closed vocabulary; an unknown role raises
-    ValueError) and `tags` (any-match) narrow. Each result is a shallow copy carrying `records.SCORE_KEY` (the
-    lexical relevance). `degraded` is True when answered by the slow backup scan.
+    and the matches come back BEST-FIRST by lexical relevance — the SAME bm25 on both paths, read from FTS5 on
+    the fast one and recomputed in plain Python on the slow backup — with equally-relevant matches ordered
+    newest first. Optional `tags` (any-match) narrows. Each result is a shallow copy carrying
+    `records.SCORE_KEY` (the lexical relevance). `degraded` is True when answered by the slow backup scan.
 
     `session` narrows to ONE conversation — the second move of a recall, once the first has named which
     conversation to look in (`_passes_filters` carries why this is a filter rather than a second operation).
     A blank string is treated as no filter rather than as a session nothing can match, so a caller passing an
     empty value through gets the whole store instead of a silent nothing.
 
-    SIDE-EFFECT-FREE: never reinforces, never writes the ledger — the live reinforcement-on-recall caller is the
-    engine-memory MCP server, at the recall boundary, not here."""
+    SIDE-EFFECT-FREE, and now free of the ledger entirely on the fast path: it reads no records the index does
+    not already hold, so what a search costs tracks how much it matched rather than how much is stored."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
-    roles_set = _validate_roles(roles)
     tags_set = set(tags) if tags is not None else None
     session_key = session if isinstance(session, str) and session else None
     tokens = _query_terms(query_text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
-    now = int(time.time())
-    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, session=session_key,
-                   limit=limit, force_scan=force_scan, now=now)
+    return _ranked(tokens, src, dst, tags=tags_set, session=session_key,
+                   limit=limit, force_scan=force_scan)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

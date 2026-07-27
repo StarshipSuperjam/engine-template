@@ -22,39 +22,34 @@ the operator's withholds as the index itself recorded them — so the incrementa
 rebuild would drop. That second half is what keeps "forget this conversation", said while the conversation is
 still going, from being undone by its own next turn. stdlib-only.
 
-**Reinforcement, and the age-out that used to ride on it**. A record is reinforced each time it is recalled — an
-append-only `reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds those
-reinforcements into a **frecency x role-weight x recency** score, which RANKS what recall returns (index.py's
-usage tiebreak) and which `rollup.py` reads to pick cold summaries to fold.
+**Nothing here decides membership by age, and nothing scores a record.** `live_records` once dropped whatever a
+frecency score put in an "archived" tier, retiring a never-recalled record somewhere between 26 and 33 days old.
+That is gone for every kind, and so is the score itself: the canonical record is now the conversation
+(eADR-0038), and a captured turn could never have earned its way out of an age-out, because nothing reinforces
+what nothing could recall. Membership no longer depends on the clock at all.
 
-It no longer decides MEMBERSHIP. `live_records` used to drop whatever that score put in the **archived** tier,
-which retired a never-reinforced record at somewhere between 26 and 33 days depending on its role. That is gone,
-for every kind. Two reasons, and the second is why the exemption could not stay narrow: the canonical record is
-now the conversation (eADR-0038), and a captured turn can never earn its way out of an age-out — nothing
-reinforces what nothing could recall — so the ratchet would have made the transcript searchable for its first
-month and silently invisible after; and exempting only the conversation would have left the summaries that carry
-the decisions aging out from underneath it, which is the worse half of the same mechanism, not a safer one. What
-`live_records` still drops is the reinforcement markers themselves (pure derivation fuel, never recall results).
-The live caller that appends a marker on recall is **the search server**; this module ships the marker kind and
-the `record_access` appender. eADR-0038's end state has no tiered demotion at all.
+**Reinforcement markers are a legacy shape, not a live mechanism.** Recall used to append a `reinforcement`
+marker naming each record it returned, and that record's own module ranked by it. Nothing writes one any more.
+`live_records` still drops them, because a store that has been running holds thousands and none of them is a
+recall result — the same reason it drops every other bookkeeping marker.
 
-The **logical retirement of gist-rolled-up episodes**. A separate AI-judged pass (`rollup.py`)
-consolidates old, low-frecency EPISODIC summaries of one session into a compact GIST and supersedes the raws — a
-per-raw `superseded` marker (records.py) names the raw by its stable id and the gist by `superseded_by`, under a
-roll-up `batch` closed by a `rolled-up` marker. `live_records` retires a raw whose supersession's batch is CLOSED
-(its gist is intact) — keyed on the ROLL-UP closed set (`_closed_rollup_batches`), NOT the consolidation set — so a
-crash before the closing marker leaves every supersession inert and no raw is hidden without its gist. An orphaned
-GIST of a crashed roll-up is itself retired (`_is_gist_orphan`), mirror of the crash-duplicate episodic orphan. The retired raw
-stays resident + fully recoverable; physical erasure is Layer-2.
+The **logical retirement of gist-rolled-up episodes** is legacy in exactly the same way. An AI-judged pass once
+folded old EPISODIC summaries of one session into a compact GIST and superseded the raws — a per-raw
+`superseded` marker naming the raw by its stable id and the gist by `superseded_by`, under a roll-up `batch`
+closed by a `rolled-up` marker. Nothing writes those either. `live_records` still retires a raw whose
+supersession's batch is CLOSED (its gist is intact), keyed on the ROLL-UP closed set (`_closed_rollup_batches`),
+so a crash before the closing marker leaves every supersession inert and no raw is hidden without its gist; an
+orphaned GIST of a crashed roll-up is itself retired (`_is_gist_orphan`). Those two predicates stay because the
+records they govern are in every store that has been running — dropping them would surface a summary alongside
+the source it replaced. On a store that never had a roll-up they cost nothing and match nothing. The retired raw
+stays resident and fully recoverable; physical erasure is Layer-2.
 
-The stable, content-free record id is minted in the record factories (records/capture/consolidate),
-not here; this module hosts its operator demo (the `identity` verb). Ledger compaction — the rebuild-and-swap
-that folds the reinforcement markers into a carried frecency snapshot AND a closed-batch supersession into a carried
-`superseded_by` field — lives in `compact.py` (it needs the atomic file-replace primitive the
-Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is the separate, gated path. `record_access` (the reinforcement appender) is held under the shared single-writer lock so a
-compaction swap can never race it. Cost: the access-index and supersession passes add O(ledger) passes to
-`live_records` (the access index over the reinforcement markers; the supersession passes over the markers).
-Compaction is what bounds that — it folds those markers into carried fields, so the passes stay cheap.
+The stable, content-free record id is minted in the record factories (records/capture), not here; this module
+hosts its operator demo (the `identity` verb). Ledger compaction — the rebuild-and-swap that physically removes
+what a merged erasure pull request authorised — lives in `compact.py` (it needs the atomic file-replace
+primitive the Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is that separate, gated
+path. Cost: `_derive_membership` makes ONE raw pass collecting every exclusion set, and `live_records` streams a
+second applying them.
 """
 
 from __future__ import annotations
@@ -105,7 +100,7 @@ def _closed_rollup_batches(src: str) -> set:
 def _superseded_by_map(src: str, closed_rollup: set) -> dict:
     """Map each raw episode's id -> the gist id that superseded it, from `superseded` markers whose roll-up
     `batch` is CLOSED. One pass over the **RAW** ledger — `ledger.iter_records`, NOT
-    `live_records` — exactly as `_closed_batches`/`_access_index` read markers raw: a `superseded` marker is
+    `live_records` — exactly as `_closed_batches` reads markers raw: a `superseded` marker is
     itself dropped from recall (`_is_bookkeeping`), so deriving the supersession off the filtered stream would
     find no markers at all and silently un-hide every folded raw. A marker in an un-closed (crashed-pass)
     batch is INERT and never enters the map — the load-bearing crash-safety:
@@ -123,24 +118,6 @@ def _superseded_by_map(src: str, closed_rollup: set) -> dict:
         if isinstance(raw_id, str) and raw_id and isinstance(gist_id, str) and gist_id:
             out[raw_id] = gist_id
     return out
-
-
-def _access_index(src: str) -> dict:
-    """Map each reinforced record's id -> the wall-clock `ts` of every `reinforcement` marker that names it. One pass over the **RAW** ledger — `ledger.iter_records`, NOT `live_records` — exactly as
-    `_closed_batches` reads markers raw. This is load-bearing: a `reinforcement` marker is itself dropped by
-    `live_records` (it is never a recall result), so scoring off the filtered stream would find no accesses at
-    all and every record would rank as if it had never been used. Nothing about RETENTION rides on this any
-    more — the scorer's readers are index.py's usage tiebreak and rollup.py's candidate selection.
-    Skips malformed entries (a fallen line never costs the records after it)."""
-    index: dict = {}
-    for record in ledger.iter_records(path=src):
-        if not isinstance(record, dict) or record.get("kind") != records.REINFORCEMENT_KIND:
-            continue
-        target = record.get(records.TARGET_KEY)
-        ts = record.get("ts")
-        if isinstance(target, str) and target and isinstance(ts, int) and not isinstance(ts, bool):
-            index.setdefault(target, []).append(ts)
-    return index
 
 
 def _is_retired(record, closed: set) -> bool:
@@ -305,48 +282,12 @@ def is_withheld(record, withheld_ids: set, withheld_sessions: set) -> bool:
     return False
 
 
-def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:
-    """Append a `reinforcement` (access) marker naming `target_id` — the move recall makes on every
-    hit, recorded so demotion can score usage by the stable record id. A no-op on a blank/non-str
-    target. APPENDS ONLY; it never deletes or rewrites (the Layer-1 erasure-free invariant — a test source-
-    scans this module). Reuses the crash-safe `ledger.append` primitive; the marker is an ordinary record.
-
-    Held under the shared single-writer `.capture.lock`: it is the one live writer that would
-    otherwise append lock-free, so a compaction swap (which holds that lock across its whole fold-and-swap) could
-    race it and lose the marker as the ledger is renamed away. On contention the call is a clean no-op — a
-    missed access marker is harmless bookkeeping (recall reinforces again on the next hit); it NEVER
-    writes lock-free. The lock lives in the SAME directory the write resolves to (so the lock and the file never
-    diverge under a `path` override)."""
-    if not isinstance(target_id, str) or not target_id:
-        return
-    from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
-    target = path if path is not None else ledger.ledger_path()
-    data_dir = os.path.dirname(target) or "."
-    os.makedirs(data_dir, exist_ok=True)
-    lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
-    if lock_fd is None:
-        return  # a compaction or a live capture holds the single-writer lock — skip this marker, never write lock-free
-    try:
-        marker = {
-            "v": capture.RECORD_VERSION,
-            "kind": records.REINFORCEMENT_KIND,
-            records.RECORD_ID_KEY: records.new_record_id(),
-            records.TARGET_KEY: target_id,
-            "ts": int(time.time()) if now is None else now,
-            "tags": [records.REINFORCEMENT_TAG],
-        }
-        ledger.append(marker, path=path)
-    finally:
-        capture._release_lock(lock_fd)
-
-
 class ControlNotRecorded(RuntimeError):
     """A withhold or restore could not be written. Carries the plain-language reason.
 
-    This RAISES where `record_access` silently no-ops, and the difference is deliberate: a missed reinforcement
-    marker is bookkeeping the next recall re-derives, while a missed withhold is the operator's instruction
-    quietly not happening. Reporting "done" over a write that did not land is the failure eADR-0034 exists to
-    forbid, and the operator would have no way to tell."""
+    This RAISES rather than degrading quietly, because a missed withhold is the operator's instruction not
+    happening. Reporting "done" over a write that did not land is the failure eADR-0034 exists to forbid, and
+    the operator would have no way to tell."""
 
 
 def _target_state(src: str, rid, sid) -> tuple:
