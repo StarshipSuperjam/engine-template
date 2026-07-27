@@ -4,6 +4,8 @@ description: Before a change you've asked for gets built, checks how the plan co
 role: plan-review
 lens: risk-governance
 model-tier: judgment
+model: opus
+effort: high
 permissions: read-only
 output-contract: plan-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash]

@@ -66,6 +66,8 @@
       ".engine/policies/contract-threshold.md",
       ".engine/policies/escalation.md",
       ".engine/policies/finding-disposition.md",
+      ".engine/policies/model-bindings.json",
+      ".engine/policies/model-routing.md",
       ".engine/policies/triage-threshold.md"
     ],
     "conduct": [

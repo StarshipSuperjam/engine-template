@@ -4,6 +4,8 @@ description: After a change you've asked for is built, checks whether it is safe
 role: pre-submission-review
 lens: security-governance
 model-tier: judgment
+model: opus
+effort: high
 permissions: read-only
 output-contract: pre-submission-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit]

@@ -81,6 +81,22 @@ class TestRenderTransforms(_FixtureTree):
                       "a Bash-denylisting source renders the no-shell instruction line")
         self.assertIn("Review the widget.", data["developer_instructions"])
 
+    def test_stamped_effort_sources_from_frontmatter_and_model_never_leaks(self):
+        # A persona stamped with model:/effort: by agent_bindings render — Codex takes the effort from the
+        # stamped frontmatter (not the tier fallback, which would be 'high'), and STILL emits no model id
+        # (a pinned model in a persona rots). This guards the codex_gen change + the no-model-leak rule.
+        stamped = AGENT_SRC.replace("model-tier: judgment\n",
+                                    "model-tier: judgment\nmodel: sonnet\neffort: low\n")
+        _write(os.path.join(self.root, ".claude", "agents", "qa-review-widget.md"), stamped)
+        codex_gen.generate(self.root)
+        path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+        self.assertNotIn("model", data, "the stamped model alias must never leak into the Codex render")
+        self.assertNotIn("sonnet", validate.read(path), "no model alias appears anywhere in the render")
+        self.assertEqual(data["model_reasoning_effort"], "low",
+                         "effort comes from the stamped frontmatter, not the judgment-tier fallback (high)")
+
     def test_skill_render_rewrites_the_verb_and_strips_the_session_flag(self):
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".agents", "skills", "engine-widget", "SKILL.md")

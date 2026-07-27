@@ -117,7 +117,10 @@ def render_agent(src_path: str, root: str | None = None) -> str:
     fm, body = _split_frontmatter(src_path)
     rel_src = os.path.relpath(src_path, root or validate.ROOT).replace(os.sep, "/")
     instructions = _routing_lines(fm) + "\n\n" + body.strip() + "\n"
-    effort = _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
+    # The reasoning effort is the one the bindings stamped into the persona's frontmatter (model-bindings.json
+    # -> agent_bindings render -> frontmatter), so both platforms read one rendered source; the tier map is a
+    # fallback for a persona not yet stamped. Codex still emits NO model — a pinned model id in a persona rots.
+    effort = fm.get("effort") or _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
     return "\n".join([
         _TOML_BANNER.format(src=rel_src),
         f"name = {json.dumps(fm.get('name'))}",

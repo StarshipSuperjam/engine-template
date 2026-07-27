@@ -4,6 +4,8 @@ description: After a change you've asked for is built, checks whether the softwa
 role: pre-submission-review
 lens: technical-integrity
 model-tier: judgment
+model: sonnet
+effort: high
 permissions: read-only
 output-contract: pre-submission-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit]

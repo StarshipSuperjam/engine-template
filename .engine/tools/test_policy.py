@@ -63,7 +63,7 @@ EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-man
 FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
 OPTIONAL_MODULE_POLICIES = {"dependency-discipline", "migration-discipline", "external-contribution",
                             "spec-structure-integrity"}
-EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"} | OPTIONAL_MODULE_POLICIES
+EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention", "model-routing"} | OPTIONAL_MODULE_POLICIES
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).
 VALID_FM = {"title": "Contract threshold", "status": "accepted", "date": "2026-06-03"}
@@ -229,8 +229,8 @@ class TestPolicyShapeRule(unittest.TestCase):
     def test_the_committed_policies_exist_and_pass_the_live_rule(self):
         slugs = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(POLICIES_DIR, "*.md"))}
         self.assertEqual(slugs, EXPECTED_POLICIES,
-                         "the committed policies must be the foundational four, the attention policy, and the "
-                         "optional dependency-discipline policy")
+                         "the committed policies must be the foundational four, the attention policy, the "
+                         "model-routing policy, and the optional dependency-discipline policy")
         passed, found = validate.kind_shape(SHAPE_RULE, {})        # the REAL rule over the REAL policies
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])

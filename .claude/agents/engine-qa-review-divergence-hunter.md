@@ -4,6 +4,8 @@ description: After a change you've asked for is built, this is the second, adver
 role: pre-submission-review
 lens: divergence-hunter
 model-tier: judgment
+model: opus
+effort: high
 permissions: read-only
 output-contract: pre-submission-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit]

@@ -87,6 +87,7 @@ import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE
 import first_run_health  # noqa: E402  (#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
 import greenfield_intake  # noqa: E402  (the first-engagement "no description yet" detector; boot relays + offers)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
+import execution_environment  # noqa: E402  (which runtime/environment is qualified; the posture the engine runs itself under)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
@@ -1177,7 +1178,7 @@ def hooks_health_line() -> "str | None":
             "it runs as a plain command.")
 
 
-def gather_signals(session_id: str | None = None) -> dict:
+def gather_signals(session_id: str | None = None, payload: dict | None = None) -> dict:
     """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
     relays (it computes no new state). Each read is best-effort upstream and degrades that signal only.
     Returns a flat dict consumed by render_dashboard / present_marker_line / must_push — the single place
@@ -1477,6 +1478,18 @@ def gather_signals(session_id: str | None = None) -> dict:
             live_standing = standing_situation.derive_standing_situation(telemetry.GitHubIssues(repo, token))
         except Exception:  # noqa: BLE001 — a read failure degrades to the cached line, never breaks the pack
             live_standing = None
+
+    # The execution posture: which runtime is doing the work and whether it matches the operator's committed
+    # qualification baseline (.engine/state/execution.json). The deriver owns the decision AND the posture text
+    # (read from model-routing.md, fail-open to the conservative default); boot only relays. It is total by
+    # construction — a missing/unreadable baseline degrades to a conservative posture, never a broken pack.
+    try:
+        # provider from the payload (detect is env-first, payload is its Codex fallback); repo is the slug boot
+        # already resolved (GITHUB_REPOSITORY-anchored, stronger than the deriver's git-only read) — passing it
+        # avoids a second git call and closes the CI path where the deriver's own read would return None.
+        execution = execution_environment.derive(provider=providers.detect(payload), repo=repo)
+    except Exception:  # noqa: BLE001 — belt: the deriver already catches, but boot never breaks on this signal
+        execution = None
     return {
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
@@ -1583,6 +1596,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
         "live_standing": live_standing,
+        # the execution posture {runtime, posture, drift, lines}, or None on a total failure. The `lines` are
+        # AI-facing self-instructions relayed in Tier 0; a `changed` posture also pushes an operator alarm.
+        "execution": execution,
     }
 
 
@@ -2370,6 +2386,29 @@ def _pushed_alarms(s: dict) -> list:
         # "unchanged" when the set churns at equal count. `.get` keeps synthetic test dicts fail-soft.
         alarms.append({"key": "findings", "value": s.get("blocking_finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
+    # The execution-drift alarm, LAST so it ranks behind the governance-critical alarms above (eADR-0033: a new
+    # operator alarm arrives ranked behind the safety-critical ones — a re-qualify reminder is not safety-critical).
+    # Only a `changed` posture pushes: qualified-here but a checked component drifted. unqualified/unknown are calm
+    # (no alarm — a fresh or foreign baseline is not a problem to relay). Collapsible: a standing condition the
+    # anti-habituation ledger relays terse once seen. The value is the drift set, so re-drift after a fix relays full.
+    ex = s.get("execution")
+    if ex and ex.get("posture") == "changed":
+        runtime = ex.get("runtime") or "claude"
+        # Lead with what actually moved (usually an instruction-floor file the operator edited — e.g. a conduct
+        # code — NOT "the runtime changed"). Defang each drifted component through _one_line: the floors map is
+        # an open committed surface, and a crafted newline in a key must never open its own line in the
+        # operator's card in the engine's voice (the scrub boot gives every machine-supplied value).
+        drift = _one_line(", ".join(ex.get("drift") or [])) or "a file it was based on"
+        cmd = f"uv run --directory .engine -- python tools/execution_environment.py record {runtime}"
+        full = (f"{RELAY_MARKER} a file the qualification for this repository was based on has changed since it "
+                f"was qualified ({drift}) — so the engine is running its careful default rather than the "
+                f"qualified posture; if that change is intended, they can re-qualify by running `{cmd}` and "
+                f"merging the diff (the merge is the qualification).")
+        terse = (f"{RELAY_MARKER} a file the qualification was based on still differs from when it was qualified "
+                 f"(unchanged since last session — {drift}); the fix still stands: re-qualify with `{cmd}` and "
+                 f"merge when ready.")
+        alarms.append({"key": "execution", "value": ["changed", sorted(ex.get("drift") or [])],
+                       "collapsible": True, "full": full, "terse": terse, "worse": full})
     return alarms
 
 
@@ -2577,7 +2616,7 @@ def render_recognition_slice() -> "list[str]":
             + entries + ".", ""]
 
 
-def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
+def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
     block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
@@ -2589,7 +2628,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
     debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
     collapse: only the must-push relay payload behind the marker varies."""
-    s = gather_signals(session_id)
+    s = gather_signals(session_id, payload)
     marker = present_marker_line(s)
     push = _relay_lines(s) if use_ledger else must_push(s)
     # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
@@ -2689,6 +2728,19 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
             out.append(grounding)
             out.append("")
 
+    # The EXECUTION POSTURE (AI-facing, Tier 0 so it is never shed): how the engine operates ITSELF under the
+    # runtime doing the work. The deriver already resolved the posture and its self-instruction lines (matched ->
+    # the qualified posture; every other posture -> the conservative default); boot only relays them. Self-labelled
+    # AI-facing so it never enters the operator relay — the operator sees the behaviour (careful ceremony), not this
+    # instruction, consistent with the machinery-out-of-operator-narration rule. The one operator-facing part, the
+    # drift alarm on a `changed` posture, rides the push relay near the top of the pack, not here.
+    ex = s.get("execution")
+    if ex and ex.get("lines"):
+        out.append("EXECUTION POSTURE (for you, not the operator — how to operate under the current execution "
+                   "environment; not a status line for their screen):")
+        out.extend(f"  {line}" for line in ex["lines"])
+        out.append("")
+
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
     # knowledge-faculty advertisement, the surface-catalog recognition slice, the structural neighborhood
     # of the work in hand, and the recently-decided memory recall.
@@ -2762,7 +2814,7 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
-    pack = assemble_pack(session_id, use_ledger=True)
+    pack = assemble_pack(session_id, use_ledger=True, payload=payload)
     return hooks.inject(pack) if pack else hooks.proceed()
 
 
