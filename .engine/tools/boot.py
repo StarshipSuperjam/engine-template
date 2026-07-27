@@ -883,7 +883,10 @@ def _set_aside_recall(read=None) -> "dict | None":
         report = (read or _forget.set_aside)()
         rows = [r for r in report.get("rows", [])
                 if isinstance(r.get("id"), str) and r.get("id") and isinstance(r.get("text"), str) and r["text"].strip()]
-        return {"rows": rows, "totals": report.get("totals", {"summarised": 0}),
+        # The fallback carries every class the readout knows how to render, so a report missing its totals
+        # degrades to "nothing in either class" rather than to a shape the render has to guess at.
+        return {"rows": rows,
+                "totals": report.get("totals", {"summarised": 0, "withheld_notes": 0, "withheld_sessions": 0}),
                 "identity": report.get("identity", [])}
     except Exception:  # noqa: BLE001 — the readout is orientation context; its loss never breaks the pack
         return None

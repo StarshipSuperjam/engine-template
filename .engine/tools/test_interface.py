@@ -116,15 +116,21 @@ class TestDeclaration(unittest.TestCase):
             self.assertIn(decl["status"], STATUS_ENUM, os.path.basename(path))
 
     def test_search_op_set_and_signature(self):
-        """11b: the recall contract is TWO read-only ops — the ranked search (query + role/tag/limit) and the
-        transcript window that reads one named session back. The window is a FETCH, so it adds no second
-        ranking; declaring it here is what keeps a core-owned recall workflow from depending on a private
-        detail of one implementation's server (a richer swap-in must answer both)."""
+        """11b: the recall contract's read-only ops — the ranked search (query, role/tag/session/limit), the
+        transcript window that reads one named session back, and the meaning-based sibling. The window is a
+        FETCH, so it adds no second ranking; declaring them here is what keeps a core-owned recall workflow
+        from depending on a private detail of one implementation's server (a richer swap-in must answer all).
+
+        `session` narrows the ranked search to ONE conversation. It is part of the SIGNATURE rather than a
+        server's private convenience because it is the second move of a recall — a hit that carries no
+        position is otherwise only reachable by reading its whole session — so a substitute implementation
+        that could not answer it would leave a caller with no way in."""
         self.assertEqual({op["name"] for op in SEARCH["operations"]},
                          {"search", "recall-window", "recall-by-meaning"})
         op = next(o for o in SEARCH["operations"] if o["name"] == "search")
         self.assertEqual(op["input_schema"]["required"], ["query"])
-        self.assertEqual(set(op["input_schema"]["properties"]), {"query", "roles", "tags", "limit"})
+        self.assertEqual(set(op["input_schema"]["properties"]),
+                         {"query", "roles", "tags", "session", "limit"})
         self.assertEqual(op["output_schema"]["required"], ["results"])
 
     def test_recall_window_op_signature(self):

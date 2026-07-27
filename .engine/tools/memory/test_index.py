@@ -560,7 +560,8 @@ class BoundedFastPathTests(IndexTestCase):
         self.rebuild()
         read = []
         real = index._passes_filters                 # called exactly once per record actually parsed
-        index._passes_filters = lambda r, roles, tags: (read.append(r), real(r, roles, tags))[1]
+        index._passes_filters = (lambda r, roles, tags, session=None:
+                                 (read.append(r), real(r, roles, tags, session))[1])
         try:
             self.assertEqual(len(self.s("quokka", limit=5).records), 5)
         finally:

@@ -198,10 +198,12 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertIn("schema:interface.v1", self.by_id)
         chk = self.by_id.get("check:interface-declaration")
         self.assertIsNotNone(chk, "expected a check:interface-declaration entity")
-        # the check globs .engine/interfaces/*.json, so its derived `targets` are BOTH declarations
-        # (sorted) — adding search.json widened this edge, the graph delta the operator eyeballs.
+        # the check globs .engine/interfaces/*.json, so its derived `targets` are EVERY declaration
+        # (sorted) — each new one widens this edge, the graph delta the operator eyeballs. `memory-control`
+        # is deliberately its own declaration rather than more operations on `search`: recall's contract says
+        # it never changes what is stored, so the writes could not be declared there without falsifying it.
         self.assertEqual(chk["predicates"].get("targets"),
-                         ["interface:knowledge-retrieval", "interface:search"])
+                         ["interface:knowledge-retrieval", "interface:memory-control", "interface:search"])
         self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
 
     def test_schema_surface_files_have_no_governed_by(self):

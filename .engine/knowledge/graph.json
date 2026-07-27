@@ -5922,7 +5922,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:7ca9795df1eca86b63582658ed2251b09b8973d1d9c00b4cf339c81cfb793517",
+        "fingerprint": "sha256:d3819b9fa72991c7893706e889e7ee486306359e09c2c0532725bf94c8847403",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9611,7 +9611,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:59d8a1346c8b8cc6db20b5dfc4fa7ab0dd102d2ac8f7ada11c0a6be287b69c20",
+        "fingerprint": "sha256:ae15347dbc4b460d3822faf64747ef6d8826760925f761d9b73f2f3d51959c35",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -9645,7 +9645,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:867d8ab1d9b358440bef8c66beaad627130f238d7a32ce1baf93a68b79d9c189",
+        "fingerprint": "sha256:16bef966373cb12fbf25663a2166c2fe0591f3330506c6bf713c66764497a442",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -9730,7 +9730,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:1d0ded98e484c2586556f5134911820a8bc298d45e449f7e66ccddf5f57f22a9",
+        "fingerprint": "sha256:a9d518669e66137b0c9d737ddd8ba21b660b5a85d0e56abc619895fe1c80c328",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
