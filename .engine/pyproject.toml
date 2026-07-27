@@ -5,8 +5,8 @@
 # gitignored .engine/.venv/ is materialized by `uv sync` — derived, never committed.
 #
 # Dependency groups are added append-as-built, one per dependency-carrying
-# module (named by the module's id, PEP 735 normalized), as packages land
-# one group per dependency-carrying module. The `core` group carries the first:
+# module (named by the module's id, PEP 735 normalized), as packages land.
+# The `core` group carries the first:
 # the `jsonschema` validator the `core` validation engine's `schema` kind needs
 # to enforce JSON Schema 2020-12 (the locked schemas design requires the standard
 # built-in meta-schema, not bespoke meta-machinery), and `pyyaml`, which that same
