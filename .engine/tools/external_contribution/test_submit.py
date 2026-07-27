@@ -23,6 +23,12 @@ from external_contribution import submit  # noqa: E402
 import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import telemetry  # noqa: E402
 
+# A declaration path that cannot exist. submit() defaults to reading the HOST repository's own
+# `.engine/operator-local-references.json` — correct in production, and exactly the coupling this suite
+# exists to keep out of shipped tests: a project that switches the feature on would otherwise red every
+# flow test below, which is the defect class this whole change was built to fix.
+NO_DECLARATION = os.path.join(tempfile.gettempdir(), "engine-no-such-local-references.json")
+
 OWNED = [
     ".engine/check/upstream-clean.json",
     ".engine/tools/external_contribution/submit.py",
@@ -195,7 +201,8 @@ class TestSubmitFlow(unittest.TestCase):
     # home=None keeps the flow tests hermetic (no real-manifest read) and on the non-home path (no narrowing);
     # the home-narrowing tests below pass home= explicitly to drive the engine's-own-home branch.
     BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
-                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None)
+                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None,
+                local_references_path=NO_DECLARATION)
 
     def setUp(self):
         # An empty template root injected into every flow call, so template detection never reads the real
@@ -344,7 +351,7 @@ class TestSubmitFlow(unittest.TestCase):
         # would reject an unfilled body) → HELD before the one-way open, regardless of confirm=True, so the
         # consent-critical disclosure can't be routed past. gh pr create is never reached; the remedy is named.
         rec = {}
-        r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+        r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
                           head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                           home="StarshipSuperjam/engine-template", run=_run(["src/app.py"]), owned=OWNED,
                           root=self._gated_root(), gh_run=_gh_ok(rec), github=None, confirm=True)
@@ -381,7 +388,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         self.addCleanup(__import__("shutil").rmtree, self.root, True)
 
     def _submit(self, changed, *, home, upstream="StarshipSuperjam/engine-template"):
-        return submit.submit(upstream_repo=upstream, base="main", remote="origin", head="me:fix",
+        return submit.submit(local_references_path=NO_DECLARATION, upstream_repo=upstream, base="main", remote="origin", head="me:fix",
                              title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                              run=_run(changed), owned=self.OWNED, root=self.root, gh_run=_gh_ok({}),
                              github=None, home=home, confirm=False)
@@ -405,7 +412,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         import repo_identity
         from unittest import mock
         with mock.patch.object(repo_identity, "_manifest", side_effect=ValueError("bad json")):
-            r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+            r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
                               head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                               run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
                               gh_run=_gh_ok({}), github=None, confirm=False)   # home defaults to _UNSET -> real
@@ -429,7 +436,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
     def test_lookalike_home_does_not_relax(self):
         # slug_eq is an EXACT full-slug match: a look-alike owner must NOT satisfy the home switch, or the whole
         # engine could travel to an arbitrary repo. upstream is the look-alike; home is the real one.
-        r = submit.submit(upstream_repo="attacker/engine-template", base="main", remote="origin", head="me:fix",
+        r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="attacker/engine-template", base="main", remote="origin", head="me:fix",
                           title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                           run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
                           gh_run=_gh_ok({}), github=None, home=self.HOME, confirm=False)
@@ -489,6 +496,8 @@ class TestLocalReferenceGate(unittest.TestCase):
     on a repository they do not own, and the difference between "checked and clean", "nothing to check
     against" and "could not check" decides whether what they are told is true."""
 
+    # No pinned declaration here: every case in this class supplies its own, because the declaration IS
+    # what each one is exercising.
     BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                 title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None)
 
@@ -601,6 +610,28 @@ class TestLocalReferenceGate(unittest.TestCase):
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes_on_real_logic(self):
         self.assertEqual(quiet_call.run(submit.demo), 0)
+
+    def test_the_demo_never_reads_the_host_repositorys_own_declaration(self):
+        """A shipped demo must depend on nothing but itself.
+
+        `submit()` defaults to reading the host repository's `.engine/operator-local-references.json` — right
+        in production, fatal in a showcase: a project that switched the feature on watched the demo it was
+        told to run pick up that project's real declaration and crash with a raw traceback. This spy fails
+        the moment any demo submission falls back to that default, so the fix cannot silently rot."""
+        import local_references
+        real = local_references.load_vocabulary
+        leaked = []
+
+        def _spy(path=None):
+            if path is None:
+                leaked.append("host default")
+            return real(path)
+        local_references.load_vocabulary = _spy
+        try:
+            self.assertEqual(quiet_call.run(submit.demo), 0)
+        finally:
+            local_references.load_vocabulary = real
+        self.assertEqual(leaked, [], "the demo read the host repository's own declaration")
 
 
 if __name__ == "__main__":

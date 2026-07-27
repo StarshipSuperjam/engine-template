@@ -32,7 +32,7 @@ by presence, so tuning how a phrase matches never costs a deliberate guardrail a
 
 WHAT A GREEN SCAN DOES AND DOES NOT MEAN. It means no DECLARED reference was found in what was read. It is
 not a claim that the work carries nothing foreign — an undeclared vocabulary is unmatched by construction.
-Callers must narrate the FOUR read states apart, and only one of them licenses "I checked and found none":
+Callers must narrate the FIVE read states apart, and only one of them licenses "I checked and found none":
 
   - DECLARED   — entries were compiled and the change was scanned against them. A real claim.
   - EMPTY      — a declaration exists and lists nothing at all. A deliberate "this project has no shorthand",
@@ -44,7 +44,7 @@ Callers must narrate the FOUR read states apart, and only one of them licenses "
   - UNREADABLE — a declaration exists and could not be parsed. The worst state to report as clean, because
                  the operator believes a check is protecting them.
 
-Reporting any of the last three as "clean" would be a false claim of cleanliness.
+Only DECLARED was scanned against. Reporting any of the other four as "clean" would be a false claim.
 
 CLI (operator-runnable):
   uv run --directory .engine -- python tools/local_references.py demo
@@ -64,7 +64,7 @@ import validate  # noqa: E402  (the finding constructor + ROOT)
 DECLARATION_REL = ".engine/operator-local-references.json"
 DECLARED_KEYS = ("id_prefixes", "phrases", "section_refs")
 
-# Read states, told apart so a caller can narrate them honestly rather than collapsing all three to "clean".
+# Read states, told apart so a caller can narrate them honestly rather than collapsing them into "clean".
 ABSENT = "absent"          # no declaration — the starting state; the engine offers to set one up
 EMPTY = "empty"            # a declaration that deliberately lists nothing — "this project has no shorthand"
 DECLARED = "declared"      # a declaration with entries; a scan against it is a real claim
@@ -114,7 +114,7 @@ def compile_vocabulary(decl) -> list:
 
 
 def load_vocabulary(path: str | None = None) -> tuple:
-    """Read the deployment's declaration. Returns `(compiled, state)` — one of the four states in the module
+    """Read the deployment's declaration. Returns `(compiled, state)` — one of the five states in the module
     docstring, of which only DECLARED lets a caller say "I checked and found none".
 
     Every state but DECLARED yields an empty vocabulary, and they are told apart precisely so that a caller

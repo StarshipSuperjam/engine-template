@@ -939,6 +939,12 @@ def demo() -> int:
         "CLAUDE.md",
     ]
     now = "2026-01-01T00:00:00Z"
+    # A guaranteed-absent declaration path, threaded through EVERY submission below. submit() defaults
+    # to reading the HOST repository's own declaration — right in production, wrong for a showcase: a
+    # project that switched this feature on would otherwise watch the demo it was told to run pick up
+    # that project's real declaration, take the diff-read branch against this demo's synthetic ref,
+    # and fail. A demo must depend on nothing but itself.
+    _ABSENT_DECL = os.path.join(tempfile.mkdtemp(prefix="engine-submit-demo-nodecl-"), "absent.json")
 
     def run_with(paths):
         return lambda args: "\n".join(paths)  # a fake git that returns the given diff regardless of args
@@ -974,7 +980,7 @@ def demo() -> int:
     try:
         # Case 0 — git can't be read: the diff is UNINSPECTED, so the flow refuses to narrate cleanliness
         #          and never opens a PR, even with the decision given (confirm=True).
-        r0 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r0 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=lambda args: None,  # a git that fails on every call
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -989,7 +995,7 @@ def demo() -> int:
         # Case 1 — a leaked engine path PAUSES for a decision (not a terminal halt), fires telemetry-on-fire,
         #          and never opens a PR while the leak is unacknowledged (even with confirm=True).
         leak_diff = run_with(["src/app.py", ".engine/tools/external_contribution/submit.py"])
-        r1 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r1 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=leak_diff,
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -1004,7 +1010,7 @@ def demo() -> int:
 
         # Case 1b — the operator OVERRIDES the leak (proceed_despite_leak=True): the flow no longer terminates;
         #           it carries on to the ordinary human gate (here confirm=False -> prepared, still not opened).
-        r1b = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r1b = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                      title="Fix the thing", summary="Fixes the thing.",
                      run=leak_diff,
                      root=root_without, owned=owned, gh_run=gh_ok, github=None,
@@ -1014,7 +1020,7 @@ def demo() -> int:
                             f"{r1b['status']} / recorded={recorded}")
 
         # Case 2 — a clean diff with NO decision PREPARES; it must NOT open a pull request.
-        r2 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r2 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=False, now=now)
@@ -1026,7 +1032,7 @@ def demo() -> int:
             failures.append("prepared case: the body did not follow the upstream's template")
 
         # Case 3 — clean + decision + a present upstream template: SUBMITS, follows the host's form.
-        r3 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r3 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -1046,7 +1052,7 @@ def demo() -> int:
 
         # Case 4 — clean + decision but NO upstream template: falls back to the engine's own shape.
         recorded.clear()
-        r4 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r4 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -1056,7 +1062,7 @@ def demo() -> int:
             failures.append("fallback case: the engine's fallback section shape was not used")
 
         # Case 5 — clean + decision but the upstream is unreachable: degrades to a drafted submission.
-        r5 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r5 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_fail, github=None, confirm=True, now=now)
@@ -1088,7 +1094,7 @@ def demo() -> int:
         home = "StarshipSuperjam/engine-template"
         home_owned = [".engine/tools/boot.py", ".engine/state/state.json"]   # product + instance-state
         home_diff = run_with([".engine/tools/boot.py", ".engine/state/state.json"])
-        r7 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+        r7 = submit(local_references_path=_ABSENT_DECL, upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
                     summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
                     github=None, home=home, confirm=False, now=now)
         print("--- contributing to the engine's OWN home: product travels, this deployment's state stays flagged ---")
@@ -1099,7 +1105,7 @@ def demo() -> int:
             failures.append("home case: the deployment's own state.json was NOT flagged (an instance-state leak)")
         if ".engine/tools/boot.py" in r7.get("offending", []):
             failures.append("home case: product code was over-flagged — the #556 bug this fixes")
-        r7s = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+        r7s = submit(local_references_path=_ABSENT_DECL, upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
                      summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
                      github=None, home=home, confirm=False, now=now)
         if r7s["status"] != "leak-decision-needed" or ".engine/tools/boot.py" not in r7s.get("offending", []):
@@ -1155,7 +1161,7 @@ def demo() -> int:
         #          <placeholder> survives, and the #562 review note still leads it.
         authored = ("## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n\n"
                     "## Validation\n\n**Tests pass.**\n\n*Impact: green.*\n")
-        r8 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r8 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
                     root=root_gated, owned=owned, gh_run=gh_ok, github=None, authored_body=authored,
                     home=None, confirm=False, now=now)
@@ -1174,7 +1180,7 @@ def demo() -> int:
         #          unfilled template to a stranger's repo is only ADVISED (opening a template for completion is
         #          normal there).
         recorded.clear()
-        r9 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+        r9 = submit(local_references_path=_ABSENT_DECL, upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
                     summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
                     github=None, home=home, confirm=True, now=now)
         print("--- an unfilled body to the engine's OWN home: held before opening, remedy named ---")
@@ -1182,7 +1188,7 @@ def demo() -> int:
         if r9["status"] != "body-incomplete" or "args" in recorded:
             failures.append(f"unfilled-home case: expected body-incomplete and NO pr create, got {r9['status']} "
                             f"/ recorded={recorded}")
-        r9f = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+        r9f = submit(local_references_path=_ABSENT_DECL, upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
                      summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
                      github=None, home=home, confirm=False, now=now)
         if r9f["status"] != "prepared" or not r9f["pr"]["body_unfilled"]:
