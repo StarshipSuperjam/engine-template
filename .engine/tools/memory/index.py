@@ -431,12 +431,19 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
     Rejecting is cheap and keeps the invariant true rather than merely usually-true.
 
     BEST-EFFORT BY CONTRACT: every failure path returns 0 and leaves the index untouched, because the caller is
-    end-of-turn capture and ambient capture must never gate a turn's close. A skipped extend is self-healing —
-    the next full rebuild (consolidation, roll-up, compaction, restore) reconstructs from the ledger, the one
-    source of truth. Declines silently when this machine has no FTS5, when no index exists yet, or when the
-    index's stamped generation no longer matches the ledger's: in that last case the index is already stale and
-    `query` is already falling back to the scan, so extending it would be writing into a file no reader trusts.
-    """
+    end-of-turn capture and ambient capture must never gate a turn's close. Declines silently when this machine
+    has no FTS5, when no index exists yet, or when the index's stamped epoch/generation no longer matches the
+    ledger's: in that last case the index is already stale and every reader already knows it, so extending it
+    would be writing into a file none of them trusts.
+
+    A FAULT MARKS THE INDEX STALE RATHER THAN LEAVING A HOLE. This used to say a skipped extend was
+    self-healing, because the next full rebuild — consolidation, roll-up, compaction or restore — would
+    reconstruct from the ledger. Three of those four are gone with the curation lifecycle, and the fourth is
+    operator-initiated, so nothing routinely rebuilds any more. That turned a transient fault here (a locked
+    database, a disk hiccup) into a PERMANENT hole: the turn would sit in the ledger while the index stayed
+    stamped CURRENT, so the fast path would answer authoritatively without it and report `degraded=False`,
+    while the plain scan found it. So a fault now bumps the index epoch, which makes `_index_is_current` false
+    and the next search rebuild. Costs one rebuild; the alternative is a silently missing turn forever."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
     if not new_records or not fts5_available() or not os.path.exists(dst):
@@ -474,6 +481,12 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
         finally:
             conn.close()
     except Exception:  # noqa: BLE001 — the index is derived and rebuildable; capture must never fail for it
+        # The turn is in the ledger and may not be in the index. Say so, so the next search repairs it: this
+        # runs inside the capture lock the caller already holds, which is what the epoch bump requires.
+        try:
+            ledger.bump_index_epoch(for_path=src)
+        except Exception:  # noqa: BLE001 — even the honesty is best-effort; capture still must not fail
+            pass
         return 0
     return inserted
 

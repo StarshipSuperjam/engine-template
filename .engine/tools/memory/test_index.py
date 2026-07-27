@@ -672,3 +672,47 @@ class IndexFreshnessAndExtendTests(IndexTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtendFaultHealsTests(IndexTestCase):
+    """A failed incremental update must leave the index STALE, not silently short a turn.
+
+    `extend` is best-effort because it runs at end-of-turn capture, which must never be gated on it. That was
+    survivable while consolidation, roll-up and compaction all rebuilt routinely — they are gone, so a fault
+    here would otherwise leave the turn in the ledger, absent from an index still stamped current, answered
+    authoritatively without it.
+    """
+
+    def test_a_faulting_extend_marks_the_index_stale_so_the_next_search_repairs_it(self):
+        import sqlite3
+        from unittest import mock
+        self.file({"body": "an existing memory"})
+        self.rebuild()
+        epoch_before = ledger.index_epoch(for_path=self.ledger)
+        turn = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+                "session_id": "s-1", "seq": 0, "speaker": "user", "ts": 1785000000,
+                "text": "the quokka turn that must not vanish"}
+        ledger.append(turn, path=self.ledger)
+        # The fault is injected INSIDE the guarded block, where a real one lands (a locked database, a
+        # truncated file). Breaking the FTS5 probe instead would exercise the no-fast-search path, which is a
+        # different case and correctly does not bump.
+        with mock.patch.object(index, "_stamped_withholds", side_effect=sqlite3.Error("disk hiccup")):
+            self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index), 0)
+        self.assertGreater(ledger.index_epoch(for_path=self.ledger), epoch_before,
+                           "a faulting extend left the index stamped current — the turn is now invisible")
+        # And the repair is real: the next search heals and finds it.
+        found = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual([r.get("text") for r in found.records], [turn["text"]])
+        self.assertFalse(found.degraded)
+
+    def test_an_already_stale_index_is_not_bumped_again(self):
+        # Declining because the index is ALREADY stale is not a fault — every reader knows, and a bump there
+        # would just churn a rebuild the next search was going to do anyway.
+        self.file({"body": "an existing memory"})
+        self.rebuild()
+        ledger.bump_index_epoch(for_path=self.ledger)          # something else already invalidated it
+        epoch = ledger.index_epoch(for_path=self.ledger)
+        turn = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+                "session_id": "s-1", "seq": 0, "speaker": "user", "ts": 1785000000, "text": "a turn"}
+        self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index), 0)
+        self.assertEqual(ledger.index_epoch(for_path=self.ledger), epoch)

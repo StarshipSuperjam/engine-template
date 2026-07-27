@@ -186,6 +186,31 @@ def _connect(path: str) -> sqlite3.Connection:
     return conn
 
 
+# The last derivation, keyed by everything that can invalidate it. `search` is the only caller and this
+# module is loaded inside the long-lived recall server, so a session that asks several meaning-based questions
+# in a row re-derives once instead of once per question.
+#
+# WHY THESE FOUR KEYS ARE SUFFICIENT, which is the whole safety argument. A record can only enter the live set
+# by being APPENDED (the file grows, so size changes) and can only leave it by being withheld (which bumps the
+# index epoch), by an erasure compaction, or by the operator's re-scrub (both of which rewrite the file, and
+# the first bumps the generation). Size plus mtime catches every append including a same-size rewrite; the two
+# counters catch every removal. Miss any of them and this would serve a withheld record from cache, so the
+# cache is deliberately dropped on ANY doubt rather than refreshed cleverly.
+_LIVE_CACHE: dict = {}
+
+
+def _live_key(path: "str | None") -> tuple:
+    """The identity of the ledger's current content, or a never-matching key when it cannot be read."""
+    from memory import ledger as _ledger
+    target = path or _ledger.ledger_path()
+    try:
+        stat = os.stat(target)
+        return (target, stat.st_size, stat.st_mtime_ns,
+                _ledger.generation(for_path=target), _ledger.index_epoch(for_path=target))
+    except Exception:  # noqa: BLE001 — unreadable: never reuse a cache against a ledger we cannot identify
+        return (target, None, None, None, None)
+
+
 def _live_text(path: "str | None" = None) -> dict:
     """{record_id: (record, searchable_text)} for everything recall is allowed to surface.
 
@@ -193,7 +218,15 @@ def _live_text(path: "str | None" = None) -> dict:
     record the same way, and a harness-inserted block is excluded from meaning-based reach exactly as it is
     excluded from keyword reach. A record whose projection is empty is skipped outright: it has no meaning
     to match, and an all-zero vector would otherwise be a row that matches everything equally.
+
+    CACHED on the ledger's identity (see `_live_key`), because this is a full pass over the whole store and it
+    ran on EVERY meaning-based question — measured at 215 ms of a 334 ms query on a 30 MB store, with a further
+    48 ms re-hashing every record behind it. A miss re-derives from scratch; there is no partial update, so a
+    stale cache cannot survive any change that could remove a record from recall.
     """
+    key = _live_key(path)
+    if key[1] is not None and _LIVE_CACHE.get("key") == key:
+        return _LIVE_CACHE["value"]
     out = {}
     for record in forget.live_records(path):
         if not isinstance(record, dict):
@@ -204,6 +237,9 @@ def _live_text(path: "str | None" = None) -> dict:
         text = index._record_text(record)
         if text.strip():
             out[rid] = (record, text)
+    if key[1] is not None:
+        _LIVE_CACHE.clear()
+        _LIVE_CACHE.update({"key": key, "value": out})
     return out
 
 
