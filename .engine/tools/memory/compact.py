@@ -75,7 +75,7 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 import hooks  # noqa: E402 — the PreCompact entry point
-from memory import forget, ledger, records  # noqa: E402
+from memory import forget, ledger, legacy_shapes as _legacy, records  # noqa: E402
 
 _TEMP_PREFIX = ".compact-"          # the in-dir swap temp; NEVER the canonical name, so it is reapable
 _TEMP_SUFFIX = ".ndjson"
@@ -443,7 +443,7 @@ def enact_erasure(target_id: str, merge_sha: str, *, path: "str | None" = None, 
     Returns the appended marker dict, or None on a no-op. APPENDS ONLY; never deletes or rewrites — the physical
     removal is `compact`'s, gated on this marker. A blank target OR a blank merge SHA is a no-op (the
     consent-provenance floor: no merge identity, no marker). Held under the shared single-writer `.capture.lock`
-    (like `forget.record_access`): on contention it is a clean no-op (the observer re-mints next session — the
+    on contention it is a clean no-op (the observer re-mints next session — the
     marker is idempotent), NEVER writing lock-free."""
     if not isinstance(target_id, str) or not target_id:
         return None
@@ -548,8 +548,7 @@ def _cabinet_whole() -> "tuple[bool, int]":
 def _make_episodic(text: str, age_days: int, role: str = "decision", batchless: bool = True) -> dict:
     """A real episodic through the live factory, back-dated by `age_days`. `batchless` makes it always-live (not
     a crashed-pass orphan); pass batchless=False to leave its batch unclosed (a retired duplicate)."""
-    from memory import consolidate
-    rec = consolidate._make_episodic(_DEMO_SESSION, {"role": role, "text": text}, "demo-batch")
+    rec = _legacy.episodic(_DEMO_SESSION, role, text, "demo-batch")
     if batchless:
         rec.pop(records.BATCH_KEY, None)
     rec["ts"] = int(time.time()) - age_days * _DEMO_DAY
@@ -601,7 +600,7 @@ def _demo_body(data_dir: str) -> bool:
     keep_id = keep[records.RECORD_ID_KEY]
     ledger.append(keep)
     for _ in range(_DEMO_USED_TIMES):
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     book_before = _bookkeeping_count()
     fresh_before = _freshness(keep)
@@ -625,7 +624,7 @@ def _demo_body(data_dir: str) -> bool:
     print("-" * 88)
     ledger.append(_make_episodic(_DEMO_KEEP2_TEXT, age_days=0))      # a second real note, so 'N of N' is plural
     for _ in range(_DEMO_USED_TIMES):                  # pile the bookkeeping back up so there is something to tidy
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     ids_before = _content_ids()
     print(f"  before the power-cut: {len(ids_before)} real notes in the cabinet, bookkeeping piled up again")
@@ -751,7 +750,7 @@ def _demo_trigger_body() -> bool:
     keep_id = keep[records.RECORD_ID_KEY]
     ledger.append(keep)
     for _ in range(_DEMO_TRIGGER_BELOW):
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     waste_below = reclaimable_waste()
     version_before = ledger.generation()
@@ -770,7 +769,7 @@ def _demo_trigger_body() -> bool:
     print("-" * 88)
     ledger.append(_make_episodic("Decided the south jetty repaint waits for calmer weather.", age_days=0))
     for _ in range(_DEMO_TRIGGER_ABOVE):               # pile MORE on top of Part 1's, well over the line
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     waste_above = reclaimable_waste()
     content_before = _content_ids()
@@ -792,7 +791,7 @@ def _demo_trigger_body() -> bool:
     print("\nPART 3 — if the tidy ever hits a snag, the engine carries on and loses nothing")
     print("-" * 88)
     for _ in range(_DEMO_TRIGGER_ABOVE):               # pile the bookkeeping back up so the tidy WOULD fire
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     ids_pre_fault = _content_ids()
     with mock.patch.object(sys.modules[__name__], "compact",

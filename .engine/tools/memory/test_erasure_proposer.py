@@ -23,7 +23,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
-from memory import compact, consolidate, erasure_observer as obs  # noqa: E402
+from memory import compact, erasure_observer as obs, legacy_shapes as legacy  # noqa: E402
 from memory import erasure_proposer as emit, forget, ledger, records  # noqa: E402
 
 _DAY = 86400
@@ -58,16 +58,16 @@ class _Base(unittest.TestCase):
     def _retired(self, text, *, role="lesson", age_days=60, batch="b", session="S", tags=None):
         """Plant a real, back-dated, logically-retired note (an episodic with an OPEN batch — a crash-duplicate
         orphan recall hides). Returns its content-free id."""
-        rec = consolidate._make_episodic(session, {"role": role, "text": text, "tags": tags or []}, batch)
+        rec = legacy.episodic(session, role, text, batch, tags=tags or [])
         rec["ts"] = int(time.time()) - age_days * _DAY
         ledger.append(rec)
         return rec[records.RECORD_ID_KEY]
 
     def _completed(self, text, *, role="decision", batch="bc", session="Sc"):
         """Plant a COMPLETED pass (episodic + its closing marker) — never retired. Returns the episodic's id."""
-        rec = consolidate._make_episodic(session, {"role": role, "text": text}, batch)
+        rec = legacy.episodic(session, role, text, batch)
         ledger.append(rec)
-        ledger.append(consolidate._make_marker(session, batch))
+        ledger.append(legacy.marker(session, batch))
         return rec[records.RECORD_ID_KEY]
 
     def _consolidated_raw(self, *, n=2, age_days=60, session="Scr", batch="bcr", text="a consolidated raw note"):
@@ -76,10 +76,10 @@ class _Base(unittest.TestCase):
         for erasure: the conversation is the canonical record, and a summary standing in for it is not a reason to
         delete it (`earned_targets`)."""
         m_ts = int(time.time()) - age_days * _DAY
-        ep = consolidate._make_episodic(session, {"role": "decision", "text": "a summary stands in"}, batch)
+        ep = legacy.episodic(session, "decision", "a summary stands in", batch)
         ep["ts"] = m_ts
         ledger.append(ep)
-        mk = consolidate._make_marker(session, batch)
+        mk = legacy.marker(session, batch)
         mk["ts"] = m_ts
         ledger.append(mk)
         ids = []
@@ -135,7 +135,7 @@ class ProbeTests(_Base):
 
 class ProposalTests(_Base):
     def test_proposal_is_exactly_targets_and_costs(self):
-        rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
+        rec = legacy.episodic("S", "lesson", "x", "b")
         proposal = emit.build_proposal([rec])
         self.assertEqual(set(proposal), {"targets", "costs"})
         self.assertEqual(proposal["targets"], [rec[records.RECORD_ID_KEY]])
@@ -143,7 +143,7 @@ class ProposalTests(_Base):
         self.assertTrue(proposal["costs"][0])
 
     def test_a_batch_carries_one_cost_per_target_in_order(self):
-        recs = [consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, f"b{i}") for i in range(3)]
+        recs = [legacy.episodic("S", "lesson", "x", f"b{i}") for i in range(3)]
         proposal = emit.build_proposal(recs)
         self.assertEqual(proposal["targets"], [r[records.RECORD_ID_KEY] for r in recs])
         self.assertEqual(len(proposal["costs"]), len(proposal["targets"]))    # one-to-one, order preserved
@@ -154,8 +154,8 @@ class ProposalTests(_Base):
         # Scanned over a BATCH, so a leak from ANY note in the batch flips it red.
         recs = []
         for i, marker in enumerate(("qwerty", "floodgate", "zzsessionzz", "mytagxyz")):
-            rec = consolidate._make_episodic(
-                f"zzsession{marker}", {"role": "lesson", "text": f"the {marker} recipe", "tags": [f"tag{marker}"]}, f"b{i}")
+            rec = legacy.episodic(f"zzsession{marker}", "lesson", f"the {marker} recipe", f"b{i}",
+                                  tags=[f"tag{marker}"])
             rec["ts"] = int(time.time()) - 60 * _DAY
             recs.append(rec)
         blob = json.dumps(emit.build_proposal(recs), ensure_ascii=False).lower()
@@ -166,22 +166,22 @@ class ProposalTests(_Base):
         # The COMPOUND role tokens (engine shorthand — a slash or a hyphen) must be mapped to plain words, never
         # surfaced raw. (Plain single words like "decision"/"lesson" are ordinary English and may appear.) Every cost
         # is non-empty and carries no slash.
-        for role in consolidate.ROLE_VOCABULARY:
-            rec = consolidate._make_episodic("S", {"role": role, "text": "x"}, "b")
+        for role in legacy.ROLE_VOCABULARY:
+            rec = legacy.episodic("S", role, "x", "b")
             cost = emit.build_proposal([rec])["costs"][0].lower()
             self.assertTrue(cost)
             self.assertNotIn("/", cost, f"a slash from {role!r} surfaced in operator copy")
         for compound in ("rationale/pushback", "dead-end"):
-            rec = consolidate._make_episodic("S", {"role": compound, "text": "x"}, "b")
+            rec = legacy.episodic("S", compound, "x", "b")
             self.assertNotIn(compound, emit.build_proposal([rec])["costs"][0].lower())
 
     def test_an_unknown_role_degrades_to_a_neutral_phrase(self):
-        rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
+        rec = legacy.episodic("S", "lesson", "x", "b")
         rec["role"] = "some-future-role"
         self.assertIn("a note", emit.build_proposal([rec])["costs"][0])
 
     def test_build_proposal_refuses_a_record_without_a_content_free_id(self):
-        rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
+        rec = legacy.episodic("S", "lesson", "x", "b")
         rec[records.RECORD_ID_KEY] = "not-a-uuid"
         with self.assertRaises(ValueError):
             emit.build_proposal([rec])
@@ -193,7 +193,7 @@ class ProposalTests(_Base):
 
 class WriteProposalTests(_Base):
     def test_writes_the_two_keys_at_the_observer_path(self):
-        recs = [consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, f"b{i}") for i in range(2)]
+        recs = [legacy.episodic("S", "lesson", "x", f"b{i}") for i in range(2)]
         dest = emit.write_proposal(emit.build_proposal(recs), root=self._tmp.name)
         self.assertEqual(dest, os.path.join(self._tmp.name, obs._PROPOSAL_PATH))
         with open(dest, encoding="utf-8") as fh:

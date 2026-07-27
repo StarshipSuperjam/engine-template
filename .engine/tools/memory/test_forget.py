@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import capture, compact, consolidate, forget, index, ledger, records, rollup, score  # noqa: E402
+from memory import capture, compact, forget, index, ledger, legacy_shapes as legacy, records  # noqa: E402
 
 
 class _Base(unittest.TestCase):
@@ -34,10 +34,10 @@ class _Base(unittest.TestCase):
 
     def _episodic(self, session, text, batch, role="decision"):
         """Append an episodic carrying `batch` (a crashed pass leaves this with no closing marker)."""
-        ledger.append(consolidate._make_episodic(session, {"role": role, "text": text}, batch))
+        ledger.append(legacy.episodic(session, role, text, batch))
 
     def _marker(self, session, batch):
-        ledger.append(consolidate._make_marker(session, batch))
+        ledger.append(legacy.marker(session, batch))
 
     def _episodics(self):
         return [r for r in ledger.iter_records() if r.get("kind") == records.EPISODIC_KIND]
@@ -61,9 +61,9 @@ class LiveRecordsTests(_Base):
     def test_two_consolidated_markers_per_session_keep_both_passes_live(self):
         # #446: a re-swept session carries more than one `consolidated` marker (one per pass). Both passes' batches
         # are closed, so neither pass's episodic is orphaned — the recall-closure keying tolerates multiple markers.
-        consolidate.store_episodic("S", [{"role": "decision", "text": "first pass summary"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "first pass summary"}])
         ledger.append(capture._make_record("S", 1, "user", "a later turn"))
-        consolidate.store_episodic("S", [{"role": "lesson", "text": "second pass summary"}])
+        legacy.store_episodic("S", [{"role": "lesson", "text": "second pass summary"}])
         self.assertEqual(len(self._records_of(records.MARKER_KIND)), 2)
         live = {r["text"] for r in self._live_episodics()}
         self.assertEqual(live, {"first pass summary", "second pass summary"})   # both stay live, neither orphaned
@@ -126,8 +126,10 @@ class LiveRecordsTests(_Base):
             kinds = {r.get("kind") for r in hits}
             self.assertIn(records.EPISODIC_KIND, kinds)               # the curated summary surfaces...
             self.assertIn(capture.RECORD_KIND, kinds)                 # ...and so does the conversation itself
-        self.assertEqual([r.get("text") for r in consolidate.read_deltas("S")],
-                         ["a quokka turn note"])                      # sweep input intact (orthogonality)
+        raw_turns = [r for r in ledger.iter_records()
+                     if r.get("kind") == capture.RECORD_KIND and r.get("session_id") == "S"]
+        self.assertEqual([r.get("text") for r in raw_turns],
+                         ["a quokka turn note"])                      # the conversation itself is untouched
 
     def test_every_chunk_of_a_legacy_injected_message_is_excluded_not_just_the_first(self):
         # Capture splits a long message into several records sharing one `seq`. For a message captured BEFORE
@@ -156,14 +158,14 @@ class LiveRecordsTests(_Base):
         turn = capture._make_record("S", 0, "user", "an ancient quokka turn note")
         turn["ts"] = ancient
         ledger.append(turn)
-        for role in sorted(consolidate.ROLE_VOCABULARY):
-            rec = consolidate._make_episodic("S", {"role": role, "text": f"an ancient {role} note"}, "b")
+        for role in sorted(legacy.ROLE_VOCABULARY):
+            rec = legacy.episodic("S", role, f"an ancient {role} note", "b")
             rec.pop(records.BATCH_KEY, None)              # batchless: always live, never a crash orphan
             rec["ts"] = ancient
             ledger.append(rec)
         texts = [r.get("text") for r in forget.live_records()]
         self.assertIn("an ancient quokka turn note", texts)
-        for role in consolidate.ROLE_VOCABULARY:
+        for role in legacy.ROLE_VOCABULARY:
             self.assertIn(f"an ancient {role} note", texts, f"a {role} record aged out of recall")
 
     def test_the_orphan_stays_in_the_raw_ledger_recoverable(self):
@@ -178,27 +180,17 @@ class LiveRecordsTests(_Base):
         self._marker("S", "batch-c")                           # ...with its marker
         self.assertEqual([r["text"] for r in self._live_episodics()], ["the good one"])
 
-    def test_store_idempotency_prevents_a_second_complete_pass(self):
-        # Two COMPLETE passes cannot both exist: once a session has a marker, store refuses
-        # (already-consolidated), so the only duplicate forget ever sees is an unmarked orphan — never two
-        # marked passes to choose between (so live_records needs no keep-latest tie-break).
-        consolidate.store_episodic("S", [{"role": "decision", "text": "first"}])
-        again = consolidate.store_episodic("S", [{"role": "decision", "text": "second"}])
-        self.assertEqual(again["status"], "already-consolidated")
-        self.assertEqual(len(self._live_episodics()), 1)
-
-
 class RecallRetirementTests(_Base):
     def test_a_crash_duplicate_surfaces_once_in_recall(self):
         self._episodic("S", "the sourdough decision", "the-pass-that-crashed")   # orphan
-        consolidate.store_episodic("S", [{"role": "decision", "text": "the sourdough decision retried"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "the sourdough decision retried"}])
         hits = [r for r in index.query("sourdough").records if r.get("kind") == records.EPISODIC_KIND]
         self.assertEqual(len(hits), 1)
         self.assertIn("retried", hits[0]["text"])              # the completed retry, not the orphan
 
     def test_fast_and_slow_recall_agree_after_retirement(self):
         self._episodic("S", "the quokka migration", "the-pass-that-crashed")
-        consolidate.store_episodic("S", [{"role": "decision", "text": "the quokka migration retried"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "the quokka migration retried"}])
         fast = sorted(r["text"] for r in index.query("quokka").records
                       if r.get("kind") == records.EPISODIC_KIND)
         slow = sorted(r["text"] for r in index.query("quokka", force_scan=True).records
@@ -207,7 +199,7 @@ class RecallRetirementTests(_Base):
         self.assertEqual(len(fast), 1)
 
     def test_the_batch_uuid_is_not_a_search_term(self):
-        consolidate.store_episodic("S", [{"role": "decision", "text": "a plain note"}])
+        legacy.store_episodic("S", [{"role": "decision", "text": "a plain note"}])
         ep = next(r for r in ledger.iter_records() if r.get("kind") == records.EPISODIC_KIND)
         self.assertEqual(index.query(ep[records.BATCH_KEY]).records, [])   # the uuid is provenance, not content
 
@@ -276,7 +268,7 @@ class SetAsideReportTests(_Base):
     def _aged(self, text, *, age_days=400, session="D"):
         """A never-reinforced episodic far older than any threshold the retired ratchet used. Batchless, so it
         is never a crash orphan either — it is simply an old note, and it must stay in recall."""
-        rec = consolidate._make_episodic(session, {"role": "decision", "text": text}, "b")
+        rec = legacy.episodic(session, "decision", text, "b")
         rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - age_days * _DAY
         ledger.append(rec)
@@ -285,7 +277,7 @@ class SetAsideReportTests(_Base):
     def _raws(self, n, *, age_days=25, session="S"):
         out = []
         for i in range(n):
-            rec = consolidate._make_episodic(session, {"role": "decision", "text": f"raw note {i} word{i}"}, "b")
+            rec = legacy.episodic(session, "decision", f"raw note {i} word{i}", "b")
             rec.pop(records.BATCH_KEY, None)
             rec["ts"] = int(time.time()) - age_days * _DAY
             ledger.append(rec)
@@ -294,8 +286,7 @@ class SetAsideReportTests(_Base):
 
     def _summarise(self, raw_ids, *, session="S"):
         """A COMPLETED roll-up: fold the raws into one gist so each raw is superseded out of recall."""
-        rollup.store_gist(session, [{"role": "lesson", "text": "rolled-up summary of the older notes",
-                                     records.SOURCE_IDS_KEY: list(raw_ids)}])
+        legacy.store_gist(session, "rolled-up summary of the older notes", list(raw_ids))
 
     def test_an_old_unused_note_is_not_set_aside_at_all(self):
         # The inversion of what this class used to assert. A note nobody has come back to in over a year is
@@ -322,9 +313,8 @@ class SetAsideReportTests(_Base):
     def test_crash_orphans_are_excluded_from_the_readout(self):
         # A consolidation orphan (unclosed batch) and a roll-up gist orphan are duplicates the good copy replaces,
         # not losses — deliberately NOT in the operator readout (an "undo" would re-admit a duplicate).
-        ledger.append(consolidate._make_episodic("S", {"role": "decision", "text": "orphaned episodic"}, "batch-x"))
-        rollup.store_gist("S", [{"role": "lesson", "text": "orphan gist",
-                                 records.SOURCE_IDS_KEY: ["nope"]}], _crash_after="marker")
+        ledger.append(legacy.episodic("S", "decision", "orphaned episodic", "batch-x"))
+        legacy.store_gist("S", "orphan gist", ["nope"], close=False)   # the closing marker never landed
         report = forget.set_aside()
         texts = {r["text"] for r in report["rows"]}
         self.assertNotIn("orphaned episodic", texts)
@@ -334,7 +324,7 @@ class SetAsideReportTests(_Base):
     def test_markers_and_turn_deltas_never_appear(self):
         self._summarise(self._raws(1))                  # one real set-aside row to prove the report is non-empty
         ledger.append(capture._make_record("S", 0, "user", "a raw turn note"))   # ambient turn-delta
-        forget.record_access("whatever")                # a reinforcement marker
+        ledger.append(legacy.reinforcement("whatever"))   # a reinforcement marker an older engine left
         report = forget.set_aside()
         self.assertTrue(report["rows"])
         self.assertEqual({r["reason"] for r in report["rows"]}, {forget.SET_ASIDE_SUMMARISED})
@@ -351,7 +341,7 @@ class SetAsideReportTests(_Base):
         old_but_live = self._aged("an old note nobody revisits", session="L2")
         raws = self._raws(2, session="R")
         self._summarise(raws, session="R")
-        ledger.append(consolidate._make_episodic("O", {"role": "decision", "text": "orphan"}, "orphan-batch"))
+        ledger.append(legacy.episodic("O", "decision", "orphan", "orphan-batch"))
         compact.compact()                                        # fold supersessions + prune markers
 
         src = ledger.ledger_path()
@@ -403,7 +393,7 @@ class SetAsideReportTests(_Base):
         self._aged("an old note nobody revisits")
         raws = self._raws(2, age_days=40)
         self._summarise(raws)
-        ledger.append(consolidate._make_episodic("O", {"role": "decision", "text": "aged orphan"}, "orphan-b"))
+        ledger.append(legacy.episodic("O", "decision", "aged orphan", "orphan-b"))
         compact.compact()
         rows = forget.set_aside()["rows"]
         self.assertTrue(rows)
@@ -426,21 +416,20 @@ class SetAsideReportTests(_Base):
         # raw carrying a damaged ts still belongs in the report — and the sort key must tolerate it, sorting it
         # last rather than raising mid-sort (the index.recent_decisions total-key guarantee). Hand-build a closed
         # supersession over a raw whose ts is a string, alongside a well-formed one.
-        good = consolidate._make_episodic("S", {"role": "decision", "text": "well-formed folded raw word1"}, "b")
+        good = legacy.episodic("S", "decision", "well-formed folded raw word1", "b")
         good.pop(records.BATCH_KEY, None)
         good["ts"] = int(time.time()) - 25 * _DAY
-        bad = consolidate._make_episodic("S", {"role": "decision", "text": "folded raw with a broken ts word2"}, "b")
+        bad = legacy.episodic("S", "decision", "folded raw with a broken ts word2", "b")
         bad.pop(records.BATCH_KEY, None)
         bad["ts"] = "not-a-number"
-        gist = rollup._make_gist("S", {"role": "lesson", "text": "the summary",
-                                       records.SOURCE_IDS_KEY: [good[records.RECORD_ID_KEY],
-                                                                bad[records.RECORD_ID_KEY]]}, "rb")
+        gist = legacy.gist("S", "the summary",
+                           [good[records.RECORD_ID_KEY], bad[records.RECORD_ID_KEY]], "rb")
         for rec in (good, bad, gist):
             ledger.append(rec)
         gid = gist[records.RECORD_ID_KEY]
-        ledger.append(rollup._make_superseded_marker(good[records.RECORD_ID_KEY], gid, "rb"))
-        ledger.append(rollup._make_superseded_marker(bad[records.RECORD_ID_KEY], gid, "rb"))
-        ledger.append(rollup._make_rollup_marker("S", "rb"))     # closes batch rb -> both supersessions live
+        ledger.append(legacy.superseded(good[records.RECORD_ID_KEY], gid, "rb"))
+        ledger.append(legacy.superseded(bad[records.RECORD_ID_KEY], gid, "rb"))
+        ledger.append(legacy.rollup_marker("S", "rb"))     # closes batch rb -> both supersessions live
         report = forget.set_aside()                              # no exception despite the string ts
         ids = [r["id"] for r in report["rows"]]
         self.assertIn(good[records.RECORD_ID_KEY], ids)
@@ -451,18 +440,17 @@ class SetAsideHandleTests(_Base):
     def test_a_folded_raw_stays_out_of_recall_and_its_wording_stays_readable(self):
         # The only handle a set-aside note has, now that the reversible class is gone: the summary stands in for
         # it in search, and its original wording is still there to be read word-for-word.
-        rec = consolidate._make_episodic("S", {"role": "decision", "text": "raw folded away word1"}, "b")
+        rec = legacy.episodic("S", "decision", "raw folded away word1", "b")
         rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - 25 * _DAY
         ledger.append(rec)
         raw_id = rec[records.RECORD_ID_KEY]
-        rollup.store_gist("S", [{"role": "lesson", "text": "the summary",
-                                 records.SOURCE_IDS_KEY: [raw_id]}])
+        legacy.store_gist("S", "the summary", [raw_id])
         self.assertNotIn(raw_id, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
         self.assertEqual(forget.recorded_text(raw_id)["text"], "raw folded away word1")
 
     def test_recorded_text_returns_the_exact_wording_and_does_not_reinforce(self):
-        rec = consolidate._make_episodic("S", {"role": "decision", "text": "the exact original wording"}, "b")
+        rec = legacy.episodic("S", "decision", "the exact original wording", "b")
         rec.pop(records.BATCH_KEY, None)
         ledger.append(rec)
         rid = rec[records.RECORD_ID_KEY]
@@ -675,8 +663,7 @@ class WithholdTests(_Base):
     def test_withholding_a_session_takes_its_summaries_with_it(self):
         # The curated layer written over a withheld conversation is written FROM it, so leaving it surfaced
         # would defeat the control by paraphrase.
-        rec = consolidate._make_episodic("s-summary", {"role": "decision", "text": f"decided about {self.WORD}"},
-                                         "b-1")
+        rec = legacy.episodic("s-summary", "decision", f"decided about {self.WORD}", "b-1")
         rec.pop(records.BATCH_KEY, None)
         ledger.append(rec)
         self._turns("s-summary")

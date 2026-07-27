@@ -6179,7 +6179,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:583f06ca64f04583bb368869115474832f481215f1bb66e948fb4a55bb122c0f",
+        "fingerprint": "sha256:c7d8361bd1fb9823f702ac164f2de3ee2c5d713ff22829258b07c2a80156ef3b",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -7631,6 +7631,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:legacy_shapes",
+      "name": ".engine/tools/memory/legacy_shapes.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "legacy_shapes",
+      "source": {
+        "fingerprint": "sha256:8ec90c47e8e08bc6760cb2d8137e5a631813bb758fd57ff34a9004263a0dfc4d",
+        "path": ".engine/tools/memory/legacy_shapes.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:lens_consumption_check",
       "name": ".engine/tools/lens_consumption_check.py",
       "owner": "core",
@@ -9018,7 +9035,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:f05597e66628c7d9b8588c205a3b8afb9477a248e0bd76fc27cab6e79acf6511",
+        "fingerprint": "sha256:b21da09f350c5185db4ce7005bf2137cd1f46026a7414248165027d38119e03b",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -9035,7 +9052,7 @@
       },
       "slug": "test_compact_trigger",
       "source": {
-        "fingerprint": "sha256:0bb8ec0d202bde2f329dbd381bcf2c8c10a0db6dad35a91999eb83ecacb70064",
+        "fingerprint": "sha256:21a5ddbcead1d1867cebc8bb5d0e3a36486c6bc4e9dfb677010fba46f598f48a",
         "path": ".engine/tools/memory/test_compact_trigger.py"
       },
       "status": "active",
@@ -9341,7 +9358,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:44cb762c29610764f2776d76160b9a9f1563e0b2ac7ed8867d18406cf982b29c",
+        "fingerprint": "sha256:87842031e12199cda5a235c0d2fd505ac04d845e1a97d827e79a1fd24ce55716",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
@@ -9409,7 +9426,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:1058afeaaa26598f4d43f17f66595af86558e10fd3d90d0314c8fa8410428e3e",
+        "fingerprint": "sha256:84d7b1493255b420ce85962e6e8e3ca28d6ccb095489062fc6e1a38e3e231015",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -10208,7 +10225,7 @@
       },
       "slug": "test_records",
       "source": {
-        "fingerprint": "sha256:9de63493f58e6f81c70dfaf7a11bb73ca557e97a68a6182b9dd247e215cb35a3",
+        "fingerprint": "sha256:30f2d843a398d1ffc22c34a11c1b4f923e1e30975f101d16d80ac788f0834e48",
         "path": ".engine/tools/memory/test_records.py"
       },
       "status": "active",
@@ -10429,7 +10446,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:e17709e365bf603a8fda1bacf22fa59bce8768294c94cc63e4511171b4e41e13",
+        "fingerprint": "sha256:25a6db2a3e697b7393f4bef13e4620464ea89c65d34c35e4ccccbfadd05983bb",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
