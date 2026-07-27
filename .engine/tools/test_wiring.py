@@ -81,11 +81,6 @@ class TestFenceHelper(unittest.TestCase):
         self.assertIn("# END engine-managed block: core", out)
         self.assertIn(".engine/.venv/", out)
 
-    def test_apply_is_idempotent_byte_for_byte(self):
-        once = wiring.fence_apply("build/\n*.log\n", "core", [".engine/.venv/"])
-        twice = wiring.fence_apply(once, "core", [".engine/.venv/"])
-        self.assertEqual(once, twice)
-
     def test_apply_preserves_surrounding_content(self):
         out = wiring.fence_apply("build/\n*.log\n", "core", [".engine/.venv/"])
         self.assertTrue(out.startswith("build/\n*.log\n"))

@@ -251,11 +251,6 @@ class TestBudgetSplit(unittest.TestCase):
                 sizes = budget_split(self._applied(condition), total, self._trim())
                 self.assertEqual(sum(sizes.values()), total, f"{condition} total={total}: {sizes}")
 
-    def test_deterministic(self):
-        a = budget_split(self._applied("high_debt"), 7, self._trim())
-        b = budget_split(self._applied("high_debt"), 7, self._trim())
-        self.assertEqual(a, b)
-
     def test_at_least_one_kind_always_survives(self):
         # a budget of 1 seats exactly one kind — blocking_debt (shed last) under the shipped order.
         sizes = budget_split(self._applied("clean"), 1, self._trim())

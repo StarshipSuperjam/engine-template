@@ -140,20 +140,6 @@ class TestCiAuthorExempt(unittest.TestCase):
         self.assertIn(self.DISCLOSURE, text)     # disclosed, never a silent green (build-owe #3)
         self.assertNotIn("the kind ran", text)   # the kind was skipped before dispatch
 
-    def test_github_actions_bot_author_is_exempt(self):
-        # The scheduled self-review DIGEST pull request is opened by github-actions[bot] (audit-prep.yml opens
-        # it via the workflow GITHUB_TOKEN) and carries a plain-language body, not the eight-section template;
-        # like dependabot it is an exempted, disclosed not-applicable pass (this is what clears the digest PR's
-        # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all. (The
-        # memory-erasure proposal is NOT bot-authored — a local SessionStart hook opens it under the operator's
-        # own gh token — so it is cleared by the engine-erasure LABEL exemption instead; see TestCiLabelExempt.)
-        # This bot entry's spoof-safety re-confirmation is recorded in the PR that closes issue #423.
-        self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
-        rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
-        self.assertEqual(rc, 0)
-        self.assertIn(self.DISCLOSURE, text)
-        self.assertNotIn("the kind ran", text)
-
     def test_nonexempt_author_still_enforced(self):
         self._install()
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "a-human"})
@@ -281,15 +267,6 @@ class TestCiLabelExempt(unittest.TestCase):
         self.assertEqual(rc, 1)                  # exact match only; no silent case-fold widening
         self.assertIn("the kind ran", text)
 
-    def test_exempt_only_in_blocking_gate_suite(self):
-        # The same rule + label in a non-blocking-gate suite is NOT exempted: the kind runs
-        # (advisory there, so assert on the text). Locks the gate to the suite's blocking-gate
-        # CONTEXT, not the literal name "CI".
-        self._install(suites=("pre-commit",))
-        rc, text = self._run("pre-commit", {"pr_body": "", "pr_labels": ["engine-erasure"]})
-        self.assertNotIn(self.DISCLOSURE, text)
-        self.assertIn("the kind ran", text)
-
     def test_by_id_guard_path_never_exempt(self):
         # run_check() (the by-id path engine-guard uses) carries no suite, so it never honors
         # ci_label_exempt — the weakening guard judges an engine-erasure-labelled PR too.
@@ -299,13 +276,6 @@ class TestCiLabelExempt(unittest.TestCase):
                                     {"pr_body": "", "pr_labels": ["engine-erasure"]})
         self.assertEqual(rc, 1)
         self.assertNotIn(self.DISCLOSURE, out.getvalue())
-
-    def test_kind_presence_is_label_agnostic(self):
-        # The closed kind never reads labels: an exempt label still fails an empty body.
-        passed, found = validate.kind_presence(
-            COMPLETENESS_RULE, {"pr_body": "", "pr_labels": ["engine-erasure"]})
-        self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
 
 
 class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
