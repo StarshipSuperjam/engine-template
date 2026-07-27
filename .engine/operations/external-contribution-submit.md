@@ -48,13 +48,26 @@ open-the-pull-request step reaches the network only on a real submission — see
      it's allowed to travel — the check only flags what belongs to *this* copy and no one else: your saved
      memory and state, your project's own settings and identity, your private tuning, and your own decision
      records. Those never ride into the shared template, but the engine's code and its regenerated maps do.
-5. **Have the change looked over before you submit.** For a change to the engine's *own* project, the engine
+5. **Check it doesn't carry references only your project understands.** Every project has shorthand that
+   means something only inside it — its own decision numbers, spec sections, ticket prefixes. Sent to another
+   project, each one names a record nobody there can reach: a reader meets a bare identifier and has nowhere
+   to go. If you've told the engine what your project's own shorthand looks like, it checks the lines the
+   change adds, the file names it touches, and the pull-request text itself, and **pauses to show you
+   anything it finds** — rewriting each one to say what it *means* is the clean fix, or you can tell the
+   engine to go ahead as is. It is a decision, never a wall.
+   - You tell the engine your shorthand by listing it in `.engine/operator-local-references.json`: id
+     prefixes like `D-`, whole phrases, and document names that should only be flagged when a section number
+     follows them. There's no such list until you make one — just ask the engine to set it up.
+   - **If you haven't made that list, the engine says so** rather than telling you the contribution was
+     checked. Same if the list can't be read: it stops and says the check didn't run, because "I couldn't
+     look" and "I looked and it's clean" are not the same thing.
+6. **Have the change looked over before you submit.** For a change to the engine's *own* project, the engine
    runs a second, independent review that hunts for mistakes the tests can miss. That review does **not** run
    by itself on a contribution to another project — so for anything beyond a trivial change, ask the engine to
    run it before you send this (it uses the same review it runs on its own work). If it isn't run, the engine
    says so plainly — on the prepared pull request and in a note in the pull-request text — rather than letting
    the change look as reviewed as any other; **that note is a backstop, not a substitute for the review**.
-6. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
+7. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
    template** when it has one (a contributor follows the host's conventions), or a plain fallback shape when
    it doesn't. For a project whose template has sections to fill and a check that the pull-request text is
    complete — engine-template itself is one — the engine **writes those sections in full** (the same way it
@@ -66,7 +79,7 @@ open-the-pull-request step reaches the network only on a real submission — see
    the title, the text, which branch goes where, **and the branch it measured your change against** (the
    project's own default). That comparison is what the clean-check rests on, so if the branch it names isn't
    the project you're contributing to, say so before it opens — it's the one thing to glance at here.
-7. **Authorize the submission — your call.** The engine opens the pull request **only on your go-ahead**;
+8. **Authorize the submission — your call.** The engine opens the pull request **only on your go-ahead**;
    without it, the prepared request just waits. When it opens, it tells you plainly that *submitting is not
    the same as being accepted* — the project's maintainers decide, it may take a while or be declined, and
    either way your fork keeps the work.
@@ -74,6 +87,10 @@ open-the-pull-request step reaches the network only on a real submission — see
 ## Done when
 
 The engine reports the pull request is **open** and prints its link — or, if you haven't authorized it yet,
+that it is **held because it carries references only your project understands**, with each one named for you
+to rewrite or wave through — or that it is **held because that check could not run** (your list of local
+references couldn't be read, or the change itself couldn't be read), which the engine says plainly rather
+than calling the contribution clean — or
 that it is **prepared and waiting** for your go-ahead, its text either complete or plainly flagged as still
 needing sections filled — or, if the pull-request text isn't authored for a contribution to the engine's own
 home, that it is **held until that text is written** (with the engine offering to write it) — or, if the

@@ -505,12 +505,16 @@ class TestLiveDerivationAttributes(unittest.TestCase):
             if "title" in e:
                 self.assertIn(e["type"], ("policy", "interface", "skill"), e["id"])  # skill.name is a title
 
-    def test_supersedes_is_idle_in_this_repo(self):
-        # The leg is LIVE-CAPABLE for the deployment stream (see TestDeploymentStreamEntitization), but idle in
-        # THIS construction repo because it carries no deployment eADRs (`.engine/contracts/instance/` holds
-        # only its README) — every contract ENTITY here is canon, and canon never emits a supersedes edge.
-        self.assertFalse(any("supersedes" in e["predicates"] for e in self.by_id.values()),
-                         "no supersedes edge in this repo's live graph (no deployment eADRs present)")
+    def test_canon_never_emits_supersedes_in_the_live_graph(self):
+        # CANON never emits a supersedes edge — the structural invariant (`knowledge.v1.json` scopes the
+        # predicate to the deployment stream; the derivation suppresses canon on both sides). Asserted over
+        # the canon SLICE, not the whole graph: a deployment whose own records supersede one another emits
+        # the edge legitimately, so asserting the graph carries none would assert a fact about whichever
+        # repo the suite runs in and red a deployment's required self-tests for using the feature.
+        canon = [e for e in self.by_id.values() if "provided_by" in e["predicates"]]
+        self.assertTrue(canon, "the live graph must carry canon entities for this assertion to mean anything")
+        self.assertFalse(any("supersedes" in e["predicates"] for e in canon),
+                         "no canon entity emits a supersedes edge in the live graph")
 
     def test_no_placeholder_is_entitized(self):
         # issue #131: a .gitkeep is a directory placeholder, not a ratified instance — it must never appear

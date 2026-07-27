@@ -7,8 +7,10 @@ exists is surfaced; and the finding carries the plain `/engine-tune` fix guidanc
 """
 import contextlib
 import io
+import json
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -51,13 +53,41 @@ class TestFindings(unittest.TestCase):
 
 
 class TestCLI(unittest.TestCase):
-    def test_main_emits_json_array(self):
+    def _main_stdout(self, seeded_path):
+        """Run the CLI against a SEEDED saved-settings file and return its stdout. Driven through the
+        `ENGINE_OVERRIDE_PATH` seam rather than the default read: the default reads the HOST repository's
+        own `.engine/operator-overrides.json`, so pinning the output would pin a fact about whichever repo
+        the suite runs in — the class of coupling that reds a deployment's required self-tests for using a
+        shipped capability. The seam keeps the assertion exact instead of weakening it to 'some list'."""
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = poc.main([])
+        prior = os.environ.get("ENGINE_OVERRIDE_PATH")
+        os.environ["ENGINE_OVERRIDE_PATH"] = seeded_path
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = poc.main([])
+        finally:
+            if prior is None:
+                os.environ.pop("ENGINE_OVERRIDE_PATH", None)
+            else:
+                os.environ["ENGINE_OVERRIDE_PATH"] = prior
         self.assertEqual(rc, 0)
-        # On this construction repo there is no override file, so the array is empty.
-        self.assertEqual(buf.getvalue().strip(), "[]")
+        return buf.getvalue().strip()
+
+    def test_main_emits_an_empty_array_for_saved_settings_that_all_apply(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "operator-overrides.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump({}, fh)
+            self.assertEqual(self._main_stdout(p), "[]")
+
+    def test_main_emits_the_finding_array_for_a_stale_saved_setting(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "operator-overrides.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump({"made-up-policy": {"x": 1}}, fh)
+            emitted = json.loads(self._main_stdout(p))
+        self.assertEqual(len(emitted), 1, "one stale saved setting -> one finding on stdout")
+        self.assertEqual(emitted[0]["severity"], "hard")
 
     def test_demo_runs(self):
         buf = io.StringIO()

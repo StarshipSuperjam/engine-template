@@ -1316,7 +1316,6 @@
         ],
         "targets": [
           "interface:knowledge-retrieval",
-          "interface:memory-control",
           "interface:search"
         ]
       },
@@ -1669,6 +1668,31 @@
       "source": {
         "fingerprint": "sha256:6e85a2e398b413e38f4d5e43c66ccce5fcfb4b28603432c2f095b4c4e4972a3b",
         "path": ".engine/check/operator-guarded-paths.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:operator-local-references",
+      "kind": "custom/script",
+      "name": ".engine/check/operator-local-references.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "operator-local-references",
+      "source": {
+        "fingerprint": "sha256:b9b35663571307019d97656bc49361415e1abc1d51cc9017771b5fae1d73f74f",
+        "path": ".engine/check/operator-local-references.json"
       },
       "status": "active",
       "suites": [
@@ -3780,7 +3804,7 @@
       },
       "slug": "eADR-0037-upgrade-overwrite-disclosure",
       "source": {
-        "fingerprint": "sha256:64d43cfd1ffe40a68fca4aa70175247774ad6ff1fa3f8fc3b66e3a6975ddbdc1",
+        "fingerprint": "sha256:10b9b1f8f8a21aac173660f50656036dd2bf0d99b6590a0bf7a82c339a969612",
         "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
       },
       "status": "accepted",
@@ -3876,35 +3900,6 @@
     },
     {
       "fallback": "engine-memory",
-      "id": "interface:memory-control",
-      "name": ".engine/interfaces/memory-control.json",
-      "operations": [
-        "list-pins",
-        "list-withheld",
-        "pin",
-        "restore",
-        "withhold"
-      ],
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:interface.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "memory-control",
-      "source": {
-        "fingerprint": "sha256:bf9b1c38b378f90fed6c9da691da9a6e750bff346062cd34ffc9f16829fe39c1",
-        "path": ".engine/interfaces/memory-control.json"
-      },
-      "status": "active",
-      "title": "Memory controls",
-      "type": "interface"
-    },
-    {
-      "fallback": "engine-memory",
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
       "operations": [
@@ -3923,7 +3918,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:8b67248d9306eeee980aa2477605cc2f1a13640fa14c11112f2cc10bfff73d2a",
+        "fingerprint": "sha256:821c4e364869845ac4d4e416d2312e40197a788a5937929dfb57e22664d0641c",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -4154,7 +4149,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:75819307c472058ac80ef1fbbad6bc2a3b193b310f739719667e95578d8af120",
+        "fingerprint": "sha256:f94da8390092385598f76e1c2351569c4f059f0308271a97a3023810862d57ab",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4195,7 +4190,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:a0b02329ea6839d23a7f3c953474c55b7ab7297f306194eeffa2b7c7d2a555ce",
+        "fingerprint": "sha256:b9968b03676ff660847eac0b17a5b2ec5c85fd68df3ad054176028c5311ba886",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4415,7 +4410,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:f4cc7dfc2c2e4f02559d08ecf9b0c7d037b29f4b4eadfbd2b1c65d34152d8641",
+        "fingerprint": "sha256:5bb567c202e6985d9310cae053ea2433acf071ac41bcecac6996f30834ae15ce",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4475,7 +4470,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:0fc193df63407953f9a804221631a0ecea4fd46fb8885379f66a868679a182f7",
+        "fingerprint": "sha256:ec905dc984c1f0d40c3989325d1c5af21eca90739a6564ee637708ec68f7da63",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -4739,7 +4734,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:7d434a4a3f16d5988c112c02f811846f2914029d3c7cafdba8c28c53ac991c22",
+        "fingerprint": "sha256:0b776e65391cfb310a68cea279757e92bf99de5f3247cdec0c48e3e4b4e4f3ed",
         "path": ".engine/policies/external-contribution.md"
       },
       "status": "active",
@@ -4802,7 +4797,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:b39d5ca11b513115e342b4d8955e3a47f40d61e59874490f68d3f1b4e2b54e7c",
+        "fingerprint": "sha256:b1dc2da68dec0e3077eaeb2db03deacebb4f5c5ed47acbf47eaca6a3a73bce04",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -5924,7 +5919,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d1712d767c81cd0546929258afebb26f775eb7641888ecfc537b9600bba4685a",
+        "fingerprint": "sha256:a8076bb02fe9d2951f1dc943b54328988b84e6cb6e1d0eaa9cd389dd24fa526d",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6519,7 +6514,7 @@
       },
       "slug": "demo_boot_set_aside_readout",
       "source": {
-        "fingerprint": "sha256:d63b4a6b66c6856a6025a6a5c660663570507433d69b82e32156e85fcd5bd4ff",
+        "fingerprint": "sha256:18d49fa33e4f14bbed95b8043b99896988047d443c6a69a35243166588028026",
         "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
@@ -7257,23 +7252,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:export",
-      "name": ".engine/tools/memory/export.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "export",
-      "source": {
-        "fingerprint": "sha256:c9e2374cdb7672a2ceb73731fb1ed3ab789585cb60150c1c7e059345ab8983a8",
-        "path": ".engine/tools/memory/export.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:external_contribution.__init__",
       "name": ".engine/tools/external_contribution/__init__.py",
       "owner": "external-contribution",
@@ -7335,7 +7313,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:88e4db63c004fd508a248914c11c3df4be2a52b5ef232de7c0c81da3c8e705e0",
+        "fingerprint": "sha256:012613deb82423cced64ec792e9468147fe5cc991afd466c6e69c25f2d59c799",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7420,7 +7398,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:ef0f085ef6cf40341b4713e6e842d7a730cf83600756fecafde9805161811383",
+        "fingerprint": "sha256:aace77795524a1f3f6a8f648f3da51a1422bdef1eb57253032f291652d61a1d9",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7454,7 +7432,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:f6ca1545031f47db8b875cc6d168da1af7cc47f599d81b2a21541141161c07bc",
+        "fingerprint": "sha256:afa4bbd76b81ef249d92093c40710485d3766a89cd251e04c59b5edc0e67cc86",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7641,7 +7619,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:5d60386f6b2ce594495044b71983b924c37ed3ec98e969724d93e04bf928c592",
+        "fingerprint": "sha256:430f233cd482acc2bd0c11784c04ec899dd6b5c66a1cfa31321877c9238ff88e",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -7733,6 +7711,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:local_references",
+      "name": ".engine/tools/local_references.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "local_references",
+      "source": {
+        "fingerprint": "sha256:36dc54ac733cf72fe6bb82a2beb09a6aa7942e72d43b6cb69795a7694b8dd090",
+        "path": ".engine/tools/local_references.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:lock_integrity",
       "name": ".engine/tools/product_design/lock_integrity.py",
       "owner": "product-design",
@@ -7760,7 +7755,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:871dade4bde73a320c6ca9e24d40b9daf68496b95da4e45c23f2a8a6bfb7be63",
+        "fingerprint": "sha256:79104e1bde3e5343cbe6a543cef899b4379a41a7ba7eab1cb0bafeaf989f0585",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -7862,7 +7857,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:1de73a2a2db001e76e1b5f0c8a5c6a247a653a929979d4caeaa7226d23432577",
+        "fingerprint": "sha256:4f27413a09247580e23b12cd47b2cc233b0adfa7449c84d50f493cdf60298925",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -7896,7 +7891,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9dbf868325152766e10e1500b25ddd9fc16a4af85c51d6d30d225ce2907bc294",
+        "fingerprint": "sha256:4777f8feb4a3b548580b7f7aa3de0242351297a24d1b04098034a5c4e3f29145",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7954,6 +7949,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:operator_local_references_check",
+      "name": ".engine/tools/operator_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator_local_references_check",
+      "source": {
+        "fingerprint": "sha256:7dd30e0e19dcb74b8a3fef6e95d5fa28bf64018dd88c5958394ecab2a9c71f41",
+        "path": ".engine/tools/operator_local_references_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:operator_overrides",
       "name": ".engine/tools/operator_overrides.py",
       "owner": "core",
@@ -8000,23 +8012,6 @@
       "source": {
         "fingerprint": "sha256:81a31ffad972c52841900325c252b44d24cbec89a39e5daaa720bfa8e506c84c",
         "path": ".engine/tools/dependency_discipline/pinning.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:pins",
-      "name": ".engine/tools/memory/pins.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "pins",
-      "source": {
-        "fingerprint": "sha256:f5c25bd3b9bc62b8063962d8c73b76572fd3923784595d39fba563281444abc9",
-        "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
       "type": "tool"
@@ -8219,7 +8214,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:38035cbed3ac1a7d6276161657d7e1f29024559ae2e1412355f1a27a2e599558",
+        "fingerprint": "sha256:8b5d281e3a2894296bdbff146e273417e1c766cf894b6cc0a3b4d11ba2249df6",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -8236,7 +8231,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:00b1e756ab3a4f0578ad76338659a03f2dbd3c2bb7cfd7b5b839d4d5e784f55d",
+        "fingerprint": "sha256:506fb8f4b7f9e4543bb9973b11c7293dbda9d4b93b018a6299c48af213bfc433",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -8644,7 +8639,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:d98d5685a3ad0a47c84cf70dde5dbf88b4857bbd619722bb766446b7afd0da73",
+        "fingerprint": "sha256:4d40dd4e66d5b10b4da625f1dec61d9ad447da461fde89e5da77c89d853cd5e9",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -8916,7 +8911,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:e0ab676124a2b7d3595b3aebcf59b24e0d90d9799e7fac0c60b3c88ec30a96e7",
+        "fingerprint": "sha256:13b08cb3b11b9388fffcffd5802dd3f7bb4bb152c8cb999f01b03f15b60bc6b7",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9450,23 +9445,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:test_export",
-      "name": ".engine/tools/memory/test_export.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_export",
-      "source": {
-        "fingerprint": "sha256:8ca95394e3ebb6d11d456c1e0da93fa019f43fb14a5333a750b3582f38c6686f",
-        "path": ".engine/tools/memory/test_export.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:test_first_run_health",
       "name": ".engine/tools/test_first_run_health.py",
       "owner": "core",
@@ -9511,7 +9489,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:1058afeaaa26598f4d43f17f66595af86558e10fd3d90d0314c8fa8410428e3e",
+        "fingerprint": "sha256:8d15c97b894e30b174e51a632f65203a3ca1b47faad7be0a8ddedad66ea95499",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -9613,7 +9591,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:ae15347dbc4b460d3822faf64747ef6d8826760925f761d9b73f2f3d51959c35",
+        "fingerprint": "sha256:59d8a1346c8b8cc6db20b5dfc4fa7ab0dd102d2ac8f7ada11c0a6be287b69c20",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -9647,7 +9625,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:16bef966373cb12fbf25663a2166c2fe0591f3330506c6bf713c66764497a442",
+        "fingerprint": "sha256:867d8ab1d9b358440bef8c66beaad627130f238d7a32ce1baf93a68b79d9c189",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -9732,7 +9710,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:a9d518669e66137b0c9d737ddd8ba21b660b5a85d0e56abc619895fe1c80c328",
+        "fingerprint": "sha256:79fb36ae02577be5946dd97865e699226b3d0acf3b392df13f295a50c98aa046",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -9875,6 +9853,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_local_references",
+      "name": ".engine/tools/test_local_references.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_local_references",
+      "source": {
+        "fingerprint": "sha256:ad46794a68b907005d6f38c0c98df36e36ccd23d89bf2be25f238e001d1d7d44",
+        "path": ".engine/tools/test_local_references.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_lock_integrity",
       "name": ".engine/tools/product_design/test_lock_integrity.py",
       "owner": "product-design",
@@ -9902,7 +9897,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:f8f9377d458e2194ca24554de1da6ea3858acd899b451ea2f14e89f86d63c63f",
+        "fingerprint": "sha256:1e79a5ed66dacf50c533015c2bcccb5e42f549e319b37a92b21b245363627b28",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -10021,7 +10016,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f4483c45b3bdd21e732244260c15b75136226d1d386c3dee072871d9d427e552",
+        "fingerprint": "sha256:65e85b94e595e0b01249bc6c04fea697497dd8d9506d321b8e4c1e5fb4f002c1",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -10079,6 +10074,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_operator_local_references_check",
+      "name": ".engine/tools/test_operator_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_operator_local_references_check",
+      "source": {
+        "fingerprint": "sha256:25e86b82558982028e27b7e81cdefce5fe26b5a07e9346969247c9148796e417",
+        "path": ".engine/tools/test_operator_local_references_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_operator_overrides",
       "name": ".engine/tools/test_operator_overrides.py",
       "owner": "core",
@@ -10130,23 +10142,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:test_pins",
-      "name": ".engine/tools/memory/test_pins.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "test_pins",
-      "source": {
-        "fingerprint": "sha256:285827e2a49a6ba740de5ad44109e2cd4ec9e6f9d56f9c57bdd13471bd800043",
-        "path": ".engine/tools/memory/test_pins.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:test_policy",
       "name": ".engine/tools/test_policy.py",
       "owner": "core",
@@ -10174,7 +10169,7 @@
       },
       "slug": "test_policy_override_check",
       "source": {
-        "fingerprint": "sha256:f6fc4a62551256feec3265a7999bfa72fcc6d59ccc08046dee3d826369eb1d6b",
+        "fingerprint": "sha256:28dc8045734446d032e5f8a2ab478e963584882188503791370ef4fee056eca2",
         "path": ".engine/tools/test_policy_override_check.py"
       },
       "status": "active",
@@ -10650,7 +10645,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:75bc0e07a6ff204ab63e3771cc653582dd56141f963d6e483909b90f4d2173f2",
+        "fingerprint": "sha256:ba1e53280de489d3a5ce34c665a4abff8d6312452a48ca754033a6d28b52dee9",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10820,7 +10815,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:4a558aafdc6bb1613c29ed07ee6349635b87ba35e53718d9798a9796bcfcc7ae",
+        "fingerprint": "sha256:517ed89d91cd56726d1ad10bf8a8e6c8cc7c167aceafbdd1f7ca9d077040618c",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

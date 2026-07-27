@@ -315,6 +315,15 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   mechanic tree, so **run the product's index regeneration and validation EXPLICITLY as in-checkout subprocess
   steps**, never assumed. Branch from the checkout's default, implement, and run the plan-review and
   pre-submission passes above against the product diff in the checkout.
+- **Scan for this repo's OWN references before opening — run this one from the MECHANIC tree, not the
+  checkout.** Every other step above runs inside the product checkout; this one deliberately does not. Run
+  `uv run --directory .engine -- python tools/local_references.py scan --ref <the checkout's default branch>
+  --checkout <the emitted path>`. It reads the vocabulary from **here** — the repository whose shorthand
+  would dangle — and scans the diff **there**. Run it inside the checkout and it reads the product's own
+  declaration, which is empty by design, and reports clean forever. If it names anything, rewrite each one to
+  say what it MEANS rather than what it refers to; the operator may wave one through, and that is their call.
+  **This is a mandated step, not a wall:** the mechanic does not own the product's CI, so no merge gate is
+  available on this path — the discipline is the instrument, and a skipped step is a real gap, not a caught one.
 - **Open pinned to the verified slug.** `gh pr create --draft --repo <emitted slug>`, later `gh pr ready`.
   Passing the belt-verified slug as `--repo` makes the write target the verified repo — not a fresh read of the
   cwd's origin — which is what closes the gap between verify and write; a mid-session origin repoint cannot

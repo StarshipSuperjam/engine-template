@@ -131,7 +131,10 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # per-deployment operator policy-override of tunable policy values (.engine/operator-overrides.json, written
 # by /engine-tune) and the per-deployment instance guarded-paths declaration (.engine/operator-guarded-paths.json,
 # #532 — the deployment's own extra product-side paths for the weakening guard to watch, unioned in by
-# weakening_guard.is_guardrail and shape-gated by engine/check/operator-guarded-paths). It is operator-owned config preserved across an engine update — in NO module's
+# weakening_guard.is_guardrail and shape-gated by engine/check/operator-guarded-paths) and the per-deployment
+# local-reference vocabulary (.engine/operator-local-references.json — the references that mean something only
+# inside this deployment, read by local_references.py so an outbound contribution can be checked against them
+# and shape-gated by engine/check/operator-local-references). It is operator-owned config preserved across an engine update — in NO module's
 # `provides` and NOT a FOUNDATION_INFRA artifact (that set is overlay-REPLACED on upgrade, which would clobber
 # the operator's tuning). This is the LOCKED carve-out of module coherence: "Operator- and
 # deployment-authored committed content is outside this leg ... coherence does not read them as orphans, the
@@ -145,6 +148,7 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # live outside .engine/, so the ownership walk never reaches them; they are product territory preserved by the
 # overlay's "never touch product".)
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
+                   ".engine/operator-local-references.json",
                    ".engine/conduct/operator.md",
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
                    ".engine/provisioning/readme-seed.md"}

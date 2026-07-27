@@ -237,7 +237,7 @@ def inject(context: str) -> dict:
     return {"action": "inject", "context": context}
 
 
-# The platform's per-value output cap (#495, a pre-existing latent defect the D-309 pass surfaced): past
+# The platform's per-value output cap: past
 # 10,000 characters the platform saves the full payload to a file and substitutes a preview of the first
 # 2,000 characters (plus the file path) — both figures verified against the shipped Claude Code 2.1.185
 # binary. The boot pack's grounding marker sits near the top, so it
