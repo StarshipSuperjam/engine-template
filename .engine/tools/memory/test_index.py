@@ -47,74 +47,6 @@ class IndexTestCase(unittest.TestCase):
         return index.rebuild(ledger_file=self.ledger, index_file=self.index)
 
 
-class RecentDecisionsTests(IndexTestCase):
-    """`recent_decisions` — the memory half of attention's recent-decisions partition (#394), pulled by
-    boot at cold start. NON-lexical by construction: a cold start has no prompt to match against, so it asks
-    "what was decided lately?" (recency-ordered); "what relates to THIS?" is asked mid-session by the model
-    running the recall workflow, never by this pull."""
-
-    # Fresh moments: `live_records` surfaces the layer recall should show, so a 1970-epoch fixture would be
-    # correctly dropped as long-retired and prove nothing about the role filter.
-    _NOW = int(time.time())
-
-    def _rec(self, rid, role, ago=0, text="x", **kw):
-        return {records.RECORD_ID_KEY: rid, "role": role, "ts": self._NOW - ago, "text": text, **kw}
-
-    def _recent(self, **kw):
-        return index.recent_decisions(ledger_file=self.ledger, **kw)
-
-    def test_returns_only_the_decision_bearing_roles_newest_first(self):
-        self.file(self._rec("a", "decision", ago=300),
-                  self._rec("b", "observation", ago=200),   # recall, but not a DECISION -> not this partition
-                  self._rec("c", "rationale/pushback", ago=100),
-                  self._rec("d", "lesson", ago=50))
-        self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["c", "a"])
-
-    def test_a_captured_turn_never_competes_for_the_decisions_partition(self):
-        # A captured turn IS recall content now and search reaches it — but this partition answers a different
-        # question ("what was decided lately?") and filters to the decision-bearing ROLES. A turn is role-less,
-        # so it is excluded HERE by the role filter, not by any membership rule. Worth pinning: the exclusion
-        # this reader relies on used to come for free from the shared read path, and no longer does.
-        self.file(self._rec("keep", "decision", ago=300),
-                  {records.RECORD_ID_KEY: "raw", "kind": "turn-delta", "ts": self._NOW, "text": "verbatim"})
-        self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["keep"])
-
-    def test_the_limit_bounds_the_read(self):
-        self.file(*[self._rec(f"d{i}", "decision", ago=i) for i in range(10)])
-        self.assertEqual(len(self._recent(limit=3)), 3)
-
-    def test_a_damaged_timestamp_costs_its_own_place_and_never_the_whole_recall(self):
-        # The contract is that a record with no usable `ts` sorts LAST rather than crashing the sort. A key
-        # that fell back to the raw value would compare a str against an int the moment one record's ts was a
-        # string and another's was absent — losing every recalled decision to a TypeError, from a function
-        # whose whole point is that a damaged record costs only its own place.
-        self.file(self._rec("good", "decision", ago=100),
-                  self._rec("stringy", "decision", **{"ts": "2026-07-01T00:00:00Z"}),
-                  self._rec("missing", "decision", **{"ts": None}),
-                  self._rec("nonsense", "decision", **{"ts": float("nan")}))
-        got = [r[records.RECORD_ID_KEY] for r in self._recent()]
-        self.assertEqual(got[0], "good", "the one usable moment still leads")
-        self.assertEqual(sorted(got[1:]), ["missing", "nonsense", "stringy"])
-
-    def test_an_absent_store_degrades_to_empty_rather_than_raising(self):
-        # Recall is orientation context: an unreadable store costs the recall, never the pack (boot surfaces an
-        # unreadable store as its own plain-language memory-offline notice).
-        self.assertEqual(index.recent_decisions(ledger_file=os.path.join(self.tmp, "nope.ndjson")), [])
-
-    def test_is_deterministic_and_side_effect_free(self):
-        # Same ledger -> same list (the ranking downstream stays reproducible), and reading never reinforces:
-        # merely orienting must not silently re-rank what recall surfaces later.
-        self.file(self._rec("a", "decision", ago=100), self._rec("b", "decision", ago=100))  # equal ts -> id
-        before = _read_bytes(self.ledger)
-        self.assertEqual(self._recent(), self._recent())
-        self.assertEqual(_read_bytes(self.ledger), before)     # not one byte written
-
-
-def _read_bytes(path):
-    with open(path, "rb") as fh:
-        return fh.read()
-
-
 class Fts5DetectionTests(IndexTestCase):
     def test_fts5_available_true_on_this_runtime(self):
         # CI's SQLite has FTS5; the whole fast path depends on it.
@@ -560,8 +492,8 @@ class BoundedFastPathTests(IndexTestCase):
         self.rebuild()
         read = []
         real = index._passes_filters                 # called exactly once per record actually parsed
-        index._passes_filters = (lambda r, roles, tags, session=None:
-                                 (read.append(r), real(r, roles, tags, session))[1])
+        index._passes_filters = (lambda r, tags, session=None:
+                                 (read.append(r), real(r, tags, session))[1])
         try:
             self.assertEqual(len(self.s("quokka", limit=5).records), 5)
         finally:
@@ -570,10 +502,10 @@ class BoundedFastPathTests(IndexTestCase):
                         f"parsed {len(read)} of {self._MATCHES} matches to answer a limit of 5 — no early stop")
 
     def test_a_common_word_scores_every_match_but_keeps_none_of_them(self):
-        # A word in EVERY record collapses bm25's IDF to zero, so every match ties in one bucket and the boundary
-        # rule can skip nothing — the ranking really does depend on all of their usage scores. That is the query
-        # shape that produced the 134 MB spike, and the bound that has to hold for it is RETENTION: score each
-        # record and let it go, keeping only the sort key, then re-read the few that won.
+        # A word in EVERY record collapses bm25's IDF to zero, so every match ties and the boundary rule can
+        # skip nothing — the whole run of equals has to be read for the newest-first tiebreak to be honoured.
+        # That is the query shape that produced the 134 MB spike, and the bound that has to hold for it is
+        # RETENTION: parse each record and let it go, keeping only the sort key, then re-read the few that won.
         self.file(*({"body": f"quokka entry {n}"} for n in range(300)))
         self.rebuild()
         seen = {}
@@ -588,25 +520,25 @@ class BoundedFastPathTests(IndexTestCase):
             self.assertEqual(len(self.s("quokka", limit=5).records), 5)
         finally:
             index._hydrate_winners = real
-        self.assertEqual(len(seen["keys"]), 300, "a flat bucket has to score every match")
-        self.assertTrue(all(len(k) == 3 and not any(isinstance(f, (dict, str)) for f in k)
+        self.assertEqual(len(seen["keys"]), 300, "a flat run of equals has to be read whole")
+        self.assertTrue(all(len(k) == 2 and not any(isinstance(f, (dict, str)) for f in k)
                             for k in seen["keys"]),
                         "the walk held on to record bodies — the retention bound is what this shape is for")
 
     def test_a_filter_that_rejects_most_matches_still_returns_a_full_page(self):
         # The boundary is set from the limit-th record that PASSED the filter, so a query whose filter rejects
         # nearly everything keeps reading rather than quietly returning a short page.
-        self.file(*({"body": f"quokka entry {n}", "role": "decision" if n % 50 == 0 else "observation"}
+        self.file(*({"body": f"quokka entry {n}", "session_id": "s-keep" if n % 50 == 0 else "s-drop"}
                     for n in range(300)))
         self.rebuild()
-        self.assertEqual(len(self.s("quokka", roles=["decision"], limit=5).records), 5)
+        self.assertEqual(len(self.s("quokka", session="s-keep", limit=5).records), 5)
 
-    def test_usage_can_still_promote_a_match_from_deep_in_the_boundary_bucket(self):
-        # Equal-relevance matches all land in ONE bucket, where usage decides the order. A walk that stopped at
-        # the limit-th match would return the first in ledger order and never see the reinforced one — so this
-        # is the property the boundary rule (read the whole bucket, not just up to the limit) exists to keep.
+    def test_the_newest_of_equally_relevant_matches_wins_from_deep_in_the_run(self):
+        # Equal-relevance matches all tie, and the tiebreak — newest first — can only be honoured if the walk
+        # reads the WHOLE run of equals rather than stopping at the limit-th. The winner here is the last
+        # record filed, so a walk that stopped early would return the first in ledger order and never see it.
+        # This is the property the boundary rule exists to keep, and it did not go away with the usage term.
         self.file(*({records.RECORD_ID_KEY: f"r{n}", "body": "quokka sighting"} for n in range(120)))
-        forget.record_access("r119", path=self.ledger)
         self.rebuild()
         top = self.s("quokka", limit=1).records
         self.assertEqual([r[records.RECORD_ID_KEY] for r in top], ["r119"])

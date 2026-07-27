@@ -16,7 +16,7 @@ Operator-facing FLOORS that live here (Floor 3's restore-offer lives in restore_
 "Privacy is posture": the destination is created PRIVATE and verified; if it is ever flipped public out of band, the
 engine re-verifies on every push, DECLINES to send new memory to a public repo, and surfaces the flip in plain words.
 
-Posture: **pure GitHub API, hook-safe** (the erasure_proposer precedent). The automatic push runs on a throttled
+Posture: **pure GitHub API, hook-safe** (the erasure-request precedent). The automatic push runs on a throttled
 SessionStart hook, so it must NEVER touch local git (no branch switch, no `git push` hang) and must be
 timeout-bounded. The transport is a tightened 10s-per-call boundary (telemetry's shared `_http` is fixed at 30s),
 and the push is **cheap-probe-first** (a single repo GET — the privacy re-verify — gates the expensive blob work),
@@ -55,7 +55,7 @@ from memory import ledger, records  # noqa: E402 — the canonical store + the s
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
 # run, after the one-time consented setup. A politeness/cost guard only: failure-direction is benign both ways — too
 # short merely pushes more often (each push is an idempotent snapshot); too long leaves a staler backup, but the
-# local ledger stays canonical and intact. Mirrors the erasure_proposer's recorded-interval leaf convention.
+# local ledger stays canonical and intact. Mirrors the erasure observer's recorded-interval leaf convention.
 BACKUP_INTERVAL_HOURS = 24
 _HOUR = 3600
 

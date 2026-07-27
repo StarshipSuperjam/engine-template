@@ -75,7 +75,7 @@ CASES = [
      "gate (#467); an internal report format checked only by a test, e.g. plan-review-finding.v1.json, stays quiet"),
     ("a harmless helper (start-up)", ".engine/tools/boot.py", "modified", False,
      "session start-up briefing — not a safety gate; used to fire before #250"),
-    ("a harmless helper (memory)", ".engine/tools/memory/consolidate.py", "modified", False,
+    ("a harmless helper (memory)", ".engine/tools/memory/compact.py", "modified", False,
      "memory housekeeping — not a safety gate"),
     ("a harmless helper (status)", ".engine/tools/engine_status.py", "modified", False,
      "status dashboard — not a safety gate"),

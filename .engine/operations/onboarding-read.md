@@ -27,7 +27,7 @@ switch back to Explore first; nothing here needs to write a project file.
    what its main pieces are, how they fit together, how it is built and run, and the conventions it follows.
    Read enough to reason about the project; you are building understanding, not a catalog.
 3. **Write down what will matter next time — to the engine's memory, not the project.** Capture the durable
-   understanding through the engine's memory (its consolidation tool), so it survives into later sessions: what
+   understanding by pinning it (`pins.py add`), so it survives into later sessions: what
    the project is and does, how it is laid out, the conventions and decisions that are not obvious from any one
    file, and anything that would trip up a session that had not read it. Keep it to what is durable and
    non-obvious — not a restatement of what the code already says plainly.

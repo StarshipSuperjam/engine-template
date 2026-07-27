@@ -24,6 +24,5 @@ sessions. Canonical artifacts still outrank memory: a merged pull request, a dec
 itself is stronger evidence than a memory of it, so use recall to find the narrative and *which* artifact to
 read.
 
-Nothing in the project is changed or removed by this. Searching does record that the memories it returned were
-used — that is how the engine keeps what you rely on easy to find — and reading a conversation back writes
-nothing at all.
+Nothing in the project is changed or removed by this, and nothing is written either: searching your memory and
+reading a conversation back are both pure reads.

@@ -186,12 +186,12 @@ class ToolWiringTests(_ServerBase):
         lib_ids = [r.get(_ID) for r in index.search("export").records]
         self.assertEqual(tool_ids, lib_ids)   # the server is a thin pass-through over the ranked library
 
-    async def test_roles_tags_limit_pass_through(self):
-        d = self.add("we decided to ship export", role="decision", tags=["release"])
-        self.add("a lesson about export", role="lesson")
-        data = self._result_json(
-            await srv.server.call_tool("search", {"query": "export", "roles": ["decision"], "limit": 5}))
-        self.assertEqual([r.get(_ID) for r in data["results"]], [d])
+    async def test_tags_and_limit_pass_through(self):
+        d = self.add("we decided to ship export", tags=["release"])
+        self.add("a lesson about export")
+        capped = self._result_json(
+            await srv.server.call_tool("search", {"query": "export", "limit": 1}))
+        self.assertEqual(len(capped["results"]), 1)
         tagged = self._result_json(
             await srv.server.call_tool("search", {"query": "export", "tags": ["release"]}))
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
@@ -249,12 +249,6 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual(list(checker.iter_errors(empty)), [])         # an empty answer conforms
         self.assertTrue(list(checker.iter_errors({"results": [], "surprise": 1})))  # unknown keys still rejected
 
-    async def test_unknown_role_surfaces_as_a_tool_error(self):
-        self.add("a decision about export", role="decision")
-        with self.assertRaises(Exception) as cm:
-            await srv.server.call_tool("search", {"query": "export", "roles": ["banana"]})
-        self.assertIn("banana", str(cm.exception))
-
     async def test_search_still_answers_when_fts5_absent(self):
         # Availability law: with the fast lookup off, the server still returns recall (via the slow scan).
         self.add("export decision", role="decision")
@@ -265,53 +259,6 @@ class ToolWiringTests(_ServerBase):
             self.assertTrue(len(data["results"]) >= 1)
         finally:
             index.fts5_available = original
-
-
-class ReinforcementOnRecallTests(_ServerBase):
-    async def test_reinforces_one_marker_per_returned_result(self):
-        self.add("export one export two", role="decision")
-        self.add("export three")
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        after = _marker_count()
-        self.assertEqual(after - before, len(data["results"]))   # one access marker per RETURNED record
-
-    async def test_reinforces_only_the_post_slice_set(self):
-        # Three matches but limit=1 -> exactly ONE marker (the returned record), not three (the candidates).
-        for _ in range(3):
-            self.add("export mention here")
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export", "limit": 1}))
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(_marker_count() - before, 1)
-
-    async def test_reinforcement_is_fail_soft(self):
-        # A reinforcement fault must never convert a successful recall into an error.
-        self.add("export decision", role="decision")
-        with mock.patch.object(forget, "record_access", side_effect=RuntimeError("boom")):
-            data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        self.assertTrue(len(data["results"]) >= 1)   # the response is the contract
-
-    async def test_a_result_lacking_an_id_is_skipped(self):
-        self.add("export without an id", with_id=False)
-        before = _marker_count()
-        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-        self.assertTrue(len(data["results"]) >= 1)
-        self.assertEqual(_marker_count() - before, 0)   # no id -> record_access no-op, no marker, no error
-
-    async def test_reinforcement_is_lock_safe_no_lock_free_write(self):
-        # While the single-writer lock is held, recall still answers but appends ZERO markers (never lock-free).
-        self.add("export decision", role="decision")
-        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
-        held = capture._acquire_lock(lock_path)
-        self.assertIsNotNone(held)
-        try:
-            before = _marker_count()
-            data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
-            self.assertTrue(len(data["results"]) >= 1)
-            self.assertEqual(_marker_count() - before, 0)
-        finally:
-            capture._release_lock(held)
 
 
 class ControlToolTests(_ServerBase):

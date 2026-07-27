@@ -646,11 +646,11 @@ class TestSavedMemoryRender(unittest.TestCase):
         self.assertIn("could not be read", out)
 
     def test_plain_role_map_covers_the_canonical_role_vocabulary(self):
-        # Drift guard (the erasure_proposer._ROLE_PHRASE precedent): the plain-word role map must cover EXACTLY
+        # Drift guard: the plain-word role map must cover EXACTLY
         # memory's canonical role vocabulary, so a role added or renamed upstream fails LOUD here rather than
         # silently degrading a real saved decision to the bare "a note" default in the operator's audit feed.
-        from memory import consolidate
-        self.assertEqual(set(audit_digest._ROLE_PLAIN), set(consolidate.ROLE_VOCABULARY))
+        from memory import legacy_shapes as legacy
+        self.assertEqual(set(audit_digest._ROLE_PLAIN), set(legacy.ROLE_VOCABULARY))
 
     def test_as_of_validates_a_real_date_and_rejects_a_forged_one(self):
         # The header date is VALIDATED, not just defanged: a forged manifest timestamp that isn't a clean date

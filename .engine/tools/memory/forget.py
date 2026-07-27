@@ -4,15 +4,16 @@ Active forgetting is **two-layered**. This module is **Layer 1** — *reversible
 memory-autonomous* tidying that needs no human gate because **nothing is lost**: a forgotten record is
 excluded from recall but stays **resident and fully recoverable in the one canonical ledger**. (Layer 2 —
 irreversible physical erasure, gated on the operator's merge of a single-purpose erasure PR — lives in
-`compact.py` with `erasure_proposer.py` / `erasure_observer.py`; this module deliberately has **no** erasure /
+`compact.py` with `erase.py` / `erasure_observer.py`; this module deliberately has **no** erasure /
 ledger-delete code path, a build-conformance invariant a test pins.)
 
-The **logical retirement of crash-duplicate consolidations**. When a consolidation pass
-crashes after its episodic summaries are appended but before its `consolidated` marker lands (consolidate.py),
-the next sweep re-files the session — leaving two passes in the ledger for one session ("a duplicate, never a
-loss"). `live_records` retires the orphaned pass from recall: an episodic whose `batch` carries no closing
-marker is dropped, while the marked (completed) pass is kept. The retirement is **derived from the ledger**
-(the batch↔marker linkage), never stored only in the throwaway index, so it survives a rebuild.
+The **logical retirement of crash-duplicate summaries** — legacy, and still load-bearing. A summarising pass
+that crashed after its episodic summaries were appended but before its `consolidated` marker landed left two
+passes in the ledger for one session ("a duplicate, never a loss"). `live_records` retires the orphaned pass
+from recall: an episodic whose `batch` carries no closing marker is dropped, while the marked (completed) pass
+is kept. Nothing writes either shape now, but every store that has been running holds them, and the retirement
+is **derived from the ledger** (the batch↔marker linkage), never stored only in the throwaway index, so it
+survives a rebuild.
 
 Leaf discipline: this module RETURNS records / a report and renders no operator-facing prose
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
@@ -63,8 +64,8 @@ import time
 # file is run directly as the demo script. Imported as `memory.forget`, the parent is already on sys.path, so
 # this is a guarded no-op. Module-level imports stay limited to the cycle-free set `ledger` + `records` (neither
 # imports anything that reaches back to `forget`): `index` imports THIS module for the fold, so importing
-# `index`/`consolidate`/`capture` here would cycle — the demos import them lazily. `score` is no longer imported
-# at all: with the archived-tier age-out gone, nothing here scores a record.
+# `index`/`capture` here would cycle — the demos import them lazily. Nothing here scores a record at all
+# any more: the scorer is gone with the archived-tier age-out it fed.
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)

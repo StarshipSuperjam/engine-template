@@ -518,7 +518,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
                                      memory_recall=None, shipped=shipped_rows,
                                      budget_total=COLD_START_BUDGET)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
-        return [], ["attention"], None, [], [], []
+        return [], ["attention"], None, [], []
     # The finding names, from the SAME rows the ranking graded — so a line can never name a finding the
     # ranking did not rank, and no second read is made for the sake of the wording.
     finding_titles = {f"finding:{r.get('number')}": r.get("title") for r in (live_findings or [])}

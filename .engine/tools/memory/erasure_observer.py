@@ -305,8 +305,8 @@ def _stub_transport(*, target_id: str = None, targets: "list | None" = None, bod
 
 def _plant(text: str) -> str:
     """Plant one real, always-live note through the live factory; return its content-free id."""
-    from memory import consolidate
-    rec = consolidate._make_episodic(_DEMO_SESSION, {"role": "decision", "text": text}, "demo-batch")
+    from memory import legacy_shapes as _legacy
+    rec = _legacy.episodic(_DEMO_SESSION, "decision", text, "demo-batch")
     rec.pop(records.BATCH_KEY, None)               # always-live (not a crashed-pass orphan)
     ledger.append(rec)
     return rec[records.RECORD_ID_KEY]
