@@ -27,7 +27,7 @@ import knowledge_index as ki      # noqa: E402
 import knowledge_query as kq      # noqa: E402
 import knowledge_gen as kg        # noqa: E402
 
-D116_OPS = {"get-entity", "find", "neighbors", "relate"}
+D116_OPS = {"health", "get-entity", "find", "neighbors", "relate"}
 
 
 def _entity(eid, etype, owner, src, preds):
@@ -358,6 +358,12 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         import knowledge_mcp_server as srv
         names = {t.name for t in await srv.server.list_tools()}
         self.assertEqual(names, D116_OPS)
+
+    async def test_health_is_content_free_and_fixed_identity(self):
+        import knowledge_mcp_server as srv
+        with mock.patch.object(kq, "with_degrade", side_effect=AssertionError("health read graph")):
+            data = self._tool_result_json(await srv.server.call_tool("health", {}))
+        self.assertEqual(data, {"status": "ok", "server": "engine-knowledge-graph"})
 
     async def test_call_tool_get_entity_delegates(self):
         import knowledge_mcp_server as srv

@@ -31,7 +31,7 @@ KR = validate.load_json(KR_PATH)
 SEARCH_PATH = os.path.join(INTERFACES_DIR, "search.json")
 SEARCH = validate.load_json(SEARCH_PATH)
 RULE_PATH = os.path.join(validate.CHECK_DIR, "interface-declaration.json")
-D116_OPS = {"get-entity", "find", "neighbors", "relate"}
+D116_OPS = {"health", "get-entity", "find", "neighbors", "relate"}
 STATUS_ENUM = INTERFACE_SCHEMA["properties"]["status"]["enum"]
 
 
@@ -116,7 +116,7 @@ class TestDeclaration(unittest.TestCase):
             self.assertIn(decl["status"], STATUS_ENUM, os.path.basename(path))
 
     def test_search_op_set_and_signature(self):
-        """11b: the recall contract's read-only ops — the ranked search (query, tag/session/limit), the
+        """11b: the recall contract's content-free health probe plus read-only ops — ranked search, the
         transcript window that reads one named session back, and the meaning-based sibling. The window is a
         FETCH, so it adds no second ranking; declaring them here is what keeps a core-owned recall workflow
         from depending on a private detail of one implementation's server (a richer swap-in must answer all).
@@ -126,12 +126,23 @@ class TestDeclaration(unittest.TestCase):
         position is otherwise only reachable by reading its whole session — so a substitute implementation
         that could not answer it would leave a caller with no way in."""
         self.assertEqual({op["name"] for op in SEARCH["operations"]},
-                         {"search", "recall-window", "recall-by-meaning"})
+                         {"health", "search", "recall-window", "recall-by-meaning"})
         op = next(o for o in SEARCH["operations"] if o["name"] == "search")
         self.assertEqual(op["input_schema"]["required"], ["query"])
         self.assertEqual(set(op["input_schema"]["properties"]),
                          {"query", "tags", "session", "limit"})
         self.assertEqual(op["output_schema"]["required"], ["results"])
+
+    def test_each_live_helper_health_signature_is_fixed_and_content_free(self):
+        for declaration, server in ((SEARCH, "engine-memory"),
+                                    (KR, "engine-knowledge-graph")):
+            with self.subTest(interface=declaration["id"]):
+                op = next(o for o in declaration["operations"] if o["name"] == "health")
+                self.assertEqual(op["input_schema"]["properties"], {})
+                self.assertEqual(op["input_schema"]["additionalProperties"], False)
+                self.assertEqual(op["output_schema"]["required"], ["status", "server"])
+                self.assertEqual(op["output_schema"]["properties"]["status"]["const"], "ok")
+                self.assertEqual(op["output_schema"]["properties"]["server"]["const"], server)
 
     def test_recall_window_op_signature(self):
         """11b: the window op pins the session boundary — one named session in, its own turns out."""

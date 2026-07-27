@@ -66,6 +66,12 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ToolWiringTests(_ServerBase):
+    async def test_health_is_content_free_and_fixed_identity(self):
+        with mock.patch.object(index, "search", side_effect=AssertionError("health read memory")), \
+             mock.patch.object(ledger, "iter_records", side_effect=AssertionError("health read ledger")):
+            data = self._result_json(await srv.server.call_tool("health", {}))
+        self.assertEqual(data, {"status": "ok", "server": "engine-memory"})
+
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
         # The contract declares `additionalProperties: false`, so a key the server sends and the interface
@@ -253,7 +259,8 @@ class ToolWiringTests(_ServerBase):
         schema_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "interfaces", "search.json")
         with open(schema_path, encoding="utf-8") as fh:
-            out_schema = json.load(fh)["operations"][0]["output_schema"]
+            operations = json.load(fh)["operations"]
+            out_schema = next(op["output_schema"] for op in operations if op["name"] == "search")
         checker = validate.Draft202012Validator(out_schema)
         self.add("we decided to ship the export format", role="decision")
         answer = self._result_json(await srv.server.call_tool("search", {"query": "export"}))

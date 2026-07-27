@@ -363,10 +363,14 @@ operator's consent at the merge — never a new gate. If none is open, say nothi
 not a section to always fill.
 
 **An engine live-helper (MCP substrate) that is off is surfaced here too** — the submit-time half of boot's same
-notice (`.engine/tools/boot.py` `MCP_AVAILABILITY_CHECK`). Check
-your own tools for `mcp__engine-memory__*` and `mcp__engine-knowledge-graph__*`; for any absent, add a **named,
-non-blocking line** — which helper is off, that the change was authored on the committed-file fallback, and the
-fix (approve the servers when the Claude app prompts, then fully restart Claude). If both are live, say nothing.
+notice (`.engine/tools/boot.py` `mcp_availability_check`). Reuse the result of that current-provider procedure
+from this session; if it did not run, run that canonical procedure now — never substitute a check of the
+initially surfaced tool list. For any helper that failed, add a **named, non-blocking line** saying that the
+change was authored on the committed-file fallback and using the procedure's diagnosis: an undiscovered helper
+gets the provider's trust/approval-and-restart fix, while a discovered helper whose health call failed is named
+as registered-but-not-answering and offered diagnosis without falsely blaming trust. If both helpers passed,
+say nothing. This paragraph deliberately owns no second detection algorithm; boot's provider-specific procedure
+is the single source.
 
 **Build each slice to its full capability.** Each pull request drives the work it touches to its full agreed
 requirement — the settled description's acceptance criteria where one resolves, the slice's own complete

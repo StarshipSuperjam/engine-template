@@ -891,6 +891,47 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
                         "the consent-critical MCP notice must sit in the relay portion, above the AI-facing "
                         "orientation zone")
 
+    def test_codex_deferred_discovery_uses_exact_content_free_health_tools(self):
+        note = boot.MCP_AVAILABILITY_CHECK_CODEX
+        self.assertIn("omission from the initial tool summary is NOT evidence", note)
+        self.assertIn("engine memory health", note)
+        self.assertIn("mcp__engine_memory.health", note)
+        self.assertIn("engine knowledge graph health", note)
+        self.assertIn("mcp__engine_knowledge_graph.health", note)
+        self.assertIn("MCP payload decodes exactly", note)
+        self.assertIn('{"status":"ok","server":"engine-memory"}', note)
+        self.assertIn('{"status":"ok","server":"engine-knowledge-graph"}', note)
+        self.assertIn("accept only exact", note.lower())             # a look-alike cannot satisfy discovery
+
+    def test_codex_probe_is_bounded_untrusted_and_ordered_discovery_then_call(self):
+        note = boot.MCP_AVAILABILITY_CHECK_CODEX
+        self.assertIn("at most four", note)
+        self.assertIn("no retries", note)
+        self.assertIn("untrusted data", note)
+        self.assertLess(note.index("Search once for `engine memory health`"),
+                        note.index("then call it once"))
+        self.assertLess(note.index("Search once for `engine knowledge graph health`"),
+                        note.index("then call it once", note.index("engine knowledge graph health")))
+
+    def test_codex_decides_each_helper_independently_and_distinguishes_failures(self):
+        note = boot.MCP_AVAILABILITY_CHECK_CODEX
+        self.assertIn("decide the other helper separately", note)
+        self.assertIn("Continue the other helper's independent check", note)
+        self.assertIn("exact tool NOT discovered", note)
+        self.assertIn("trust this project (`.codex/config.toml`)", note)
+        self.assertIn("registered but did not answer its health check", note)
+        self.assertIn("do NOT claim project trust is missing", note)
+        self.assertIn("Say nothing about each helper that passes", note)
+        self.assertIn("if both pass, say nothing", note)
+
+    def test_provider_selection_changes_detection_without_changing_claude_copy(self):
+        self.assertIs(boot.mcp_availability_check(boot.providers.CODEX),
+                      boot.MCP_AVAILABILITY_CHECK_CODEX)
+        self.assertIs(boot.mcp_availability_check(boot.providers.CLAUDE),
+                      boot.MCP_AVAILABILITY_CHECK)
+        self.assertNotIn("deferred-tool discovery", boot.MCP_AVAILABILITY_CHECK)
+        self.assertNotIn(".health", boot.MCP_AVAILABILITY_CHECK)
+
 
 _GOOD_CURSOR = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
                 "integration_debt": {"open_count": 0, "as_of": None, "register": None}}
@@ -2980,6 +3021,13 @@ class TestPackCapGuard(unittest.TestCase):
         self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)
         self.assertIn("the full status (your grounding", pack)
         self.assertNotIn("left out this session", pack)
+
+    def test_real_platform_cap_keeps_the_status_dashboard_after_codex_probe_expansion(self):
+        with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
+            pack = self._pack(boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertLessEqual(len(pack), boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertIn("the full status (your grounding", pack)
+        self.assertIn("Project status", pack)
 
     def test_moderate_pressure_sheds_orientation_first_keeps_status(self):
         wide = self._pack(10**6)

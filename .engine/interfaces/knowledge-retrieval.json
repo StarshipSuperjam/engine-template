@@ -2,9 +2,27 @@
   "schema_version": 1,
   "id": "knowledge-retrieval",
   "title": "Knowledge graph retrieval",
-  "description": "Read-only structural queries over the engine's knowledge graph — how this project is wired: what surfaces and modules exist and how they relate. Every conforming implementation answers the same four operations over the committed entities, so a session can ask 'what is this entity', 'which entities match a selector', 'what is adjacent to this one', and 'how do these two relate' without knowing whether a built-in floor or a richer engine is answering. It returns structure only and never belief; a caller that wants the project's distilled decisions composes that itself by taking an entity id and querying memory at read time.",
+  "description": "Read-only structural queries over the engine's knowledge graph — how this project is wired: what surfaces and modules exist and how they relate. The content-free `health` operation proves only that this exact helper answered; it reads no graph and rebuilds no query cache, making it the safe availability probe before the first operator reply. Every conforming implementation answers the same four retrieval operations over the committed entities, so a session can ask 'what is this entity', 'which entities match a selector', 'what is adjacent to this one', and 'how do these two relate' without knowing whether a built-in floor or a richer engine is answering. It returns structure only and never belief; a caller that wants the project's distilled decisions composes that itself by taking an entity id and querying memory at read time.",
   "status": "active",
   "operations": [
+    {
+      "name": "health",
+      "description": "Prove that this exact MCP helper answered without reading the committed graph, rebuilding its SQLite cache, walking project files, or changing any state. This says the server is live; it does not claim the graph itself is fresh.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "server"],
+        "properties": {
+          "status": { "const": "ok" },
+          "server": { "const": "engine-knowledge-graph" }
+        }
+      }
+    },
     {
       "name": "get-entity",
       "description": "Fetch one entity by its id, with its declared attributes and outgoing edges. Returns the entity record (id, type, name, slug, source, owner, predicates, plus any declared attributes the surface carries — status, and where applicable tier, title, and per-surface discriminators) or null if no such entity exists. Consumer guidance (for the reading agent — advisory, not part of the conformance contract a swap-in implementation must answer): the declared attributes are AS-OF THE LAST GRAPH REGENERATION — treat status as last-known, and verify a supersession against the live source file before asserting it; and translate any internal lifecycle or tier token into plain language for the operator, never echoing a raw token (e.g. hard, soft, posture, retired, experimental) verbatim to them.",

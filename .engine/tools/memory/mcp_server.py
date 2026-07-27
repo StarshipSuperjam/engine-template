@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The engine-memory MCP server: the conforming fallback for memory recall (search.json).
 
-A thin MCP transport over the recall library: the declared operations of `search.json` — `search`, which
+A thin MCP transport over the recall library: the declared operations of `search.json` — the content-free
+`health` availability probe; `search`, which
 ranks (lexical relevance, equally-relevant matches newest first) and filters (tag, session) via
 `memory.index.search`;
 `recall-window`, which reads one past session's actual conversation back through `memory.recall.window`
@@ -54,6 +55,17 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 SERVER_NAME = "engine-memory"
 
 server = FastMCP(SERVER_NAME)
+
+
+@server.tool(
+    name="health",
+    description=(
+        "Content-free availability probe for this exact engine-memory server. Returns only its fixed identity "
+        "and status; reads no saved memory, rebuilds no index, and changes no state."
+    ),
+)
+def health() -> dict:
+    return {"status": "ok", "server": SERVER_NAME}
 
 
 # The cap applied when a caller omits `limit`. Search is unbounded by default in the library, which was
