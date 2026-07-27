@@ -902,6 +902,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn('{"status":"ok","server":"engine-memory"}', note)
         self.assertIn('{"status":"ok","server":"engine-knowledge-graph"}', note)
         self.assertIn("accept only exact", note.lower())             # a look-alike cannot satisfy discovery
+        self.assertIn("Memory passes only if its MCP payload", note)
+        self.assertIn("knowledge graph passes only if its payload", note)
+        self.assertIn("Otherwise fail that helper", note)            # a swapped server identity cannot pass
 
     def test_codex_probe_is_bounded_untrusted_and_ordered_discovery_then_call(self):
         note = boot.MCP_AVAILABILITY_CHECK_CODEX
@@ -918,8 +921,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn("decide the other helper separately", note)
         self.assertIn("Continue the other helper's independent check", note)
         self.assertIn("exact tool NOT discovered", note)
+        self.assertIn("fallback may be out of date", note)
         self.assertIn("trust this project (`.codex/config.toml`)", note)
-        self.assertIn("registered but did not answer its health check", note)
+        self.assertIn("registered but did not pass its health check", note)
         self.assertIn("do NOT claim project trust is missing", note)
         self.assertIn("Say nothing about each helper that passes", note)
         self.assertIn("if both pass, say nothing", note)
@@ -3026,6 +3030,7 @@ class TestPackCapGuard(unittest.TestCase):
         with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
             pack = self._pack(boot.hooks.HOOK_OUTPUT_CAP)
         self.assertLessEqual(len(pack), boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK_CODEX, pack)
         self.assertIn("the full status (your grounding", pack)
         self.assertIn("Project status", pack)
 

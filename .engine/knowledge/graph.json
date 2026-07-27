@@ -4479,7 +4479,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:793d23816892167714f025accdefbb9fbf23e5c9ce4226e201f500c01822d2d1",
+        "fingerprint": "sha256:89bf65fca4e2f7611064e1b82f57f1dc77a46cc3143efeab187e3035eda1264a",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6382,7 +6382,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:251baf293884688991a30ec0fe285561faeb2214db103918399654e063b668a9",
+        "fingerprint": "sha256:6e6e0587c4595e2ad286091b0285443f123eadf926ffef6edf5f0421bc1f6746",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -10662,7 +10662,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d11e094c9fd12c02ea2e5ffb60af65e834d64412ef07658a16463e51676cfcea",
+        "fingerprint": "sha256:53044d5abdaa074adb0a1994f11b3c8dd691f3b56c4c463ad2070344afa1cc19",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

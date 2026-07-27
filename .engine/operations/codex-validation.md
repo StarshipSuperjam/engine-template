@@ -35,16 +35,17 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
      initially, that helper's deferred-discovery branch was **not verified** — do not call it a pass; repeat on
      a build/session that actually defers it.
    - **Controlled failure matrix, only in throwaway project copies:** never edit this project's real
-     `.codex/config.toml`, trust state, or servers. In a temporary copy, exercise four fresh-session outcomes:
-     both exact health calls pass; only memory passes; only the knowledge graph passes; neither passes. An
-     undiscovered tool is produced by omitting only that server's temporary registration. A
-     discovered-but-failing tool is produced by pointing only that temporary registration at a temporary MCP
-     fixture which registers the exact `health` operation but returns an MCP error when called — never by
-     damaging a real store or server. In every mixed case the passing helper stays silent and only the failed
-     helper warns; a discovery miss gives the trust-and-restart diagnosis, while a discovered call failure says
-     registered-but-not-answering and does not blame trust. Remove the temporary copies and fixture after the
-     observations. If Codex cannot isolate these temporary registrations from the real project's trust state,
-     stop and record the negative arms as **not verified** rather than perturbing the real installation.
+     `.codex/config.toml`, trust state, or servers. Exercise these seven fresh-session cases explicitly:
+     (1) both pass; (2) memory passes and knowledge discovery misses; (3) memory passes and knowledge is
+     discovered but its call fails; (4) knowledge passes and memory discovery misses; (5) knowledge passes and
+     memory is discovered but its call fails; (6) both discovery checks miss; (7) both are discovered but both
+     calls fail. Produce a miss by omitting only that temporary registration. Produce a call failure by pointing
+     only that registration at a temporary MCP fixture which registers the exact `health` operation but returns
+     an MCP error — never damage a real store or server. In every mixed case the passing helper stays silent and
+     only the failed helper warns; a discovery miss gives the trust-and-restart diagnosis, while a discovered
+     call failure says registered-but-not-passing and does not blame trust. Remove temporary copies and fixtures
+     afterward. If Codex cannot isolate them from the real project's trust state, record the negative arms as
+     **not verified** rather than perturbing the real installation.
 7. Check memory capture: after a turn or two, `$engine-status` shows no memory-capture warning (a
    "conversation wasn't saved" line means the transcript reader needs updating — a defect, not a
    deferral).
