@@ -3140,7 +3140,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:d3a141664ba761165ca80a61fe7910a74be05d49d2e1ca21a8ab4ae8b4861c9a",
+        "fingerprint": "sha256:91b39348b7b3f24b465623b4e5a7a7e573ae2b5441ea42256265495649bd6036",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -7934,7 +7934,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:902fc4ef151cbbf6350b7fb7f8f76a68a5ba0ee26f37565420b584fc6e745386",
+        "fingerprint": "sha256:cb5f8dcf30dfae378b0b4369694d2b240cdee657edc0da45c52351b32605ea22",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
