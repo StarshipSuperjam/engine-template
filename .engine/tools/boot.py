@@ -931,6 +931,34 @@ def _n_notes(count: int) -> str:
     return f"{count} note" if count == 1 else f"{count} notes"
 
 
+def _withheld_line(totals: dict) -> str:
+    """The one line reporting what the OPERATOR withheld from recall, or "" when they have withheld nothing.
+
+    Counts only, never wording — quoting a withheld note back at every session start would defeat the control
+    it is reporting on. Notes and whole conversations are counted apart because that is what the operator
+    actually named, and the two read very differently.
+
+    The wording is deliberately far from the erasure vocabulary: "still saved" and an offer to bring it back,
+    so this can never be mistaken for the one irreversible act in the system."""
+    notes = totals.get("withheld_notes") or 0
+    sessions = totals.get("withheld_sessions") or 0
+    if not isinstance(notes, int) or isinstance(notes, bool) or notes < 0:
+        notes = 0
+    if not isinstance(sessions, int) or isinstance(sessions, bool) or sessions < 0:
+        sessions = 0
+    if not notes and not sessions:
+        return ""
+    parts = []
+    if notes:
+        parts.append(_n_notes(notes))
+    if sessions:
+        parts.append(f"{sessions} conversation" if sessions == 1 else f"{sessions} conversations")
+    subject = " and ".join(parts)
+    one = (notes + sessions) == 1
+    return (f"You've also asked me to keep {subject} out of recall — {'it is' if one else 'they are'} still "
+            f"saved, and I can put {'it' if one else 'them'} back whenever you say.")
+
+
 def _set_aside_snippet(text) -> str:
     """One defanged, length-bounded line of a set-aside note's own words — the same treatment
     render_recalled_decisions gives recall text, and load-bearing for the same reason: this readout replays
@@ -944,29 +972,36 @@ def _set_aside_snippet(text) -> str:
 
 def render_set_aside(sa: "dict | None") -> list:
     """The operator-facing readout of what memory has set aside from recall, so a quiet loss of the operator's
-    own notes never goes unseen. One thing it names, with an honest handle: notes folded into a shorter summary,
-    offered to show in their original wording. There is no un-fold — the summary stands in for them, and the
-    readout never pretends otherwise. Nothing is ever deleted; the readout says so. Permanent erasure is NOT
-    shown here — it is not a boot event and rides the audits digest instead.
+    own notes never goes unseen. Two things it names, each with an honest handle.
 
-    There used to be a second class, notes set aside because nothing had come back to them in a while, offered
-    to bring back. That was the archived-tier age-out, which is gone for every record kind (forget.py), so a
-    note is now only ever set aside by a roll-up that folded it — never by time passing.
+    NOTES FOLDED INTO A SUMMARY, offered to show in their original wording. There is no un-fold — the summary
+    stands in for them, and the readout never pretends otherwise.
+
+    WHAT THE OPERATOR THEMSELVES WITHHELD, offered to bring back, because that one genuinely reverses. It is
+    reported as a count and never quoted: the whole point of withholding something is not to see it again, so a
+    readout that printed the wording back every session start would undo the thing it is reporting. The count
+    still has to appear — a control whose effect is invisible is one the operator cannot tell worked.
+
+    Nothing in either class is ever deleted; the readout says so. Permanent erasure is NOT shown here — it is
+    not a boot event and rides the audits digest instead, and the wording here stays clear of it: withheld
+    means still saved and one word away from coming back.
 
     Bounded: a few most-recent notes plus the true total, so it never grows into noise. Repetition across
     sessions is handled by the caller (the same collapse machinery the pushed alarms use): `collapsed` renders
     one terse line that still carries the offer; `newly` names how many were set aside since the operator
-    last saw this. [] when there is nothing set aside (a fresh or tidy project, or an unread store) — no block,
-    never an empty heading.
+    last saw this. [] when there is nothing in either class (a fresh or tidy project, or an unread store) — no
+    block, never an empty heading.
 
     Every note's words go through `_set_aside_snippet`; no record id ever reaches this operator-facing text
     (the id is the machine binding the AI uses behind the scenes, never shown)."""
     if not sa:
         return []
+    totals = sa.get("totals") or {}
     rows = [r for r in (sa.get("rows") or []) if r.get("reason") == "summarised"]
-    total = (sa.get("totals") or {}).get("summarised", 0)
+    total = totals.get("summarised", 0)
+    withheld = _withheld_line(totals)
     if total == 0:
-        return []
+        return ["### Notes I've set aside", withheld, ""] if withheld else []
 
     offer = "You can ask me to show you the original wording of one whenever you like."
     # One class, so this reads as two plain sentences rather than a labelled category. A bullet naming the kind
@@ -975,9 +1010,13 @@ def render_set_aside(sa: "dict | None") -> list:
     if sa.get("collapsed"):
         standing = "a shorter summary standing in for it" if total == 1 else "shorter summaries standing in for them"
         kept = "it's" if total == 1 else "they're"
-        return ["### Notes I've set aside",
-                f"Still {_n_notes(total)} with {standing} (unchanged since last session). Nothing was deleted "
-                f"— {kept} still saved. {offer}", ""]
+        collapsed = ["### Notes I've set aside",
+                     f"Still {_n_notes(total)} with {standing} (unchanged since last session). Nothing was "
+                     f"deleted — {kept} still saved. {offer}"]
+        if withheld:
+            collapsed.append(withheld)
+        collapsed.append("")
+        return collapsed
 
     newly = sa.get("newly")
     lead = f"I've written a shorter summary over {_n_notes(total)}, so the summary is what I search now"
@@ -991,6 +1030,8 @@ def render_set_aside(sa: "dict | None") -> list:
     for r in rows[:_SET_ASIDE_SHOW]:
         out.append(f"  - {_set_aside_snippet(r.get('text'))}")
     out.append("Ask me to list them all whenever you like.")
+    if withheld:
+        out.append(withheld)
     out.append("")
     return out
 

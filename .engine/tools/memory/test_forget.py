@@ -304,7 +304,7 @@ class SetAsideReportTests(_Base):
         rid = self._aged("an old decision nobody revisits")
         report = forget.set_aside()
         self.assertEqual(report["rows"], [])
-        self.assertEqual(report["totals"], {"summarised": 0})
+        self.assertEqual(report["totals"], {"summarised": 0, "withheld_notes": 0, "withheld_sessions": 0})
         self.assertIn(rid, {r.get(records.RECORD_ID_KEY) for r in forget.live_records()})
 
     def test_a_summarised_raw_is_set_aside_and_not_reversible(self):
@@ -390,13 +390,16 @@ class SetAsideReportTests(_Base):
             self.assertIn(rid, rows, "a summarised raw vanished from the readout after compaction")
             self.assertEqual(rows[rid]["reason"], forget.SET_ASIDE_SUMMARISED)
             self.assertFalse(rows[rid]["reversible"])            # never a false bring-back offer post-compaction
-        self.assertEqual(report["totals"], {"summarised": 2})
+        self.assertEqual(report["totals"], {"summarised": 2, "withheld_notes": 0, "withheld_sessions": 0})
 
     def test_no_row_is_ever_offered_as_reversible(self):
-        # The honesty contract, and it is now absolute: the only thing that sets a note aside is a summary
-        # written over it, and there is no un-fold. Nothing in the readout may claim otherwise — which is why
-        # the restore that once backed `reversible=True` was removed with the class it reversed rather than
-        # left in place returning False.
+        # The honesty contract for the SUMMARISED class: a summary was written over the note, and there is no
+        # un-fold. Nothing in the readout may offer to bring one of those back.
+        #
+        # There IS a reversible class — what the operator withheld, which `forget.restore` genuinely reverses —
+        # and it is deliberately reported as a count rather than as rows (`set_aside`'s docstring says why:
+        # a row would quote withheld wording back into the briefing at every session start). So the invariant
+        # this test pins survives that feature intact: every ROW is a fold, and no row is ever reversible.
         self._aged("an old note nobody revisits")
         raws = self._raws(2, age_days=40)
         self._summarise(raws)
@@ -470,6 +473,141 @@ class SetAsideHandleTests(_Base):
         self.assertEqual(before, after)                          # merely looking never re-ranks recall
         self.assertIsNone(forget.recorded_text("no-such-id"))
         self.assertIsNone(forget.recorded_text(""))
+
+
+class WithholdTests(_Base):
+    """The operator's own reversible control: withhold takes a note or a whole conversation out of everything
+    recall surfaces, and restore puts it back. Nothing is deleted at any point."""
+
+    WORD = "marzipan"
+
+    def _turns(self, session: str, count: int = 4, ts: "int | None" = None) -> list:
+        """Append `count` genuine captured turns and return their record ids."""
+        base = int(time.time()) if ts is None else ts
+        ids = []
+        for n in range(count):
+            rid = records.new_record_id()
+            ids.append(rid)
+            ledger.append({"v": capture.RECORD_VERSION, "kind": records.AMBIENT_CAPTURE_KIND,
+                           records.RECORD_ID_KEY: rid, "session_id": session, "seq": n,
+                           "speaker": "user" if n % 2 == 0 else "assistant", "ts": base + n,
+                           "text": f"turn {n} about {self.WORD} and pastry"})
+        return ids
+
+    def _hits(self, *, force_scan: bool) -> int:
+        return len(index.search(self.WORD, force_scan=force_scan).records)
+
+    def test_withhold_reaches_the_fast_index_with_no_rebuild_in_between(self):
+        # THE load-bearing test, and the shape matters as much as the assertion. `ledger.append` does not move
+        # the generation stamp and `index.extend` accepts captured turns only, so an implementation that merely
+        # appended the marker would leave the fast index stamped current while holding the withheld record —
+        # and it would answer with `degraded=False`, i.e. claiming to be authoritative. Every ordinary cabinet
+        # test rebuilds before querying and would sail past that. This one must NOT rebuild after the withhold.
+        ids = self._turns("s-withhold")
+        index.rebuild()
+        self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (4, 4))
+
+        forget.withhold(record_id=ids[1])
+        self.assertEqual(self._hits(force_scan=True), 3)          # the scan reads membership directly
+        self.assertEqual(self._hits(force_scan=False), 3)         # and the fast path must agree, unprompted
+
+    def test_restore_brings_it_back_on_both_paths(self):
+        ids = self._turns("s-restore")
+        index.rebuild()
+        forget.withhold(record_id=ids[1])
+        self.assertEqual(self._hits(force_scan=False), 3)
+        forget.restore(record_id=ids[1])
+        self.assertEqual((self._hits(force_scan=False), self._hits(force_scan=True)), (4, 4))
+
+    def test_withholding_a_session_reaches_the_window_reader_and_the_briefing_too(self):
+        # A predicate applied only inside `live_records` would take the session out of search while the window
+        # reader read it back verbatim and the cold-start briefing kept quoting its opening line every session.
+        from memory import recall
+
+        self._turns("s-whole")
+        index.rebuild()
+        self.assertTrue(recall.session_turns("s-whole"))
+        self.assertTrue(recall.session_cards())
+
+        forget.withhold(session_id="s-whole")
+        self.assertEqual(self._hits(force_scan=False), 0)
+        self.assertEqual(self._hits(force_scan=True), 0)
+        self.assertEqual(recall.session_turns("s-whole"), [])
+        self.assertEqual(recall.session_cards(), [])
+
+        forget.restore(session_id="s-whole")
+        self.assertEqual(len(recall.session_turns("s-whole")), 4)
+        self.assertEqual(self._hits(force_scan=False), 4)
+
+    def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
+        # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by
+        # time would leave the operator's most recent instruction decided by a coin toss.
+        ids = self._turns("s-tie")
+        index.rebuild()
+        moment = int(time.time())
+        forget.withhold(record_id=ids[2], now=moment)
+        forget.restore(record_id=ids[2], now=moment)
+        self.assertEqual(self._hits(force_scan=False), 4)         # the LAST marker wins: restored
+        forget.withhold(record_id=ids[2], now=moment)
+        self.assertEqual(self._hits(force_scan=False), 3)         # and again, in the other direction
+
+    def test_nothing_is_deleted_by_either_verb(self):
+        ids = self._turns("s-intact")
+        before = sum(1 for _ in ledger.iter_records())
+        forget.withhold(session_id="s-intact")
+        forget.restore(record_id=ids[0])
+        after = [r for r in ledger.iter_records()]
+        self.assertEqual(len(after), before + 2)                  # two markers appended, nothing removed
+        self.assertEqual(sum(1 for r in after if r.get(records.RECORD_ID_KEY) in set(ids)), len(ids))
+
+    def test_a_marker_naming_both_or_neither_target_is_refused(self):
+        # One field carrying either a record id or a session id would be indistinguishable to every reader,
+        # so the shape is checked where it is written rather than guessed at where it is read.
+        for kwargs in ({}, {"record_id": "r", "session_id": "s"}, {"record_id": ""}, {"session_id": ""}):
+            with self.assertRaises(forget.ControlNotRecorded):
+                forget.withhold(**kwargs)
+
+    def test_a_corrupt_marker_surfaces_rather_than_hides(self):
+        # Failure direction: a marker that cannot be read must never take conversation out of recall on its own.
+        self._turns("s-corrupt")
+        index.rebuild()
+        for bad in ({records.TARGET_KEY: 7}, {records.TARGET_SESSION_KEY: None}, {}):
+            marker = {"v": capture.RECORD_VERSION, "kind": records.WITHHOLD_KIND,
+                      records.RECORD_ID_KEY: records.new_record_id(), "ts": int(time.time())}
+            marker.update(bad)
+            ledger.append(marker)
+        self.assertEqual(self._hits(force_scan=True), 4)
+
+    def test_the_markers_are_never_themselves_a_recall_result(self):
+        ids = self._turns("s-markers")
+        forget.withhold(record_id=ids[0])
+        forget.restore(record_id=ids[0])
+        kinds = {r.get("kind") for r in forget.live_records()}
+        self.assertNotIn(records.WITHHOLD_KIND, kinds)
+        self.assertNotIn(records.RESTORE_KIND, kinds)
+
+    def test_the_readout_counts_what_is_withheld_without_quoting_it(self):
+        ids = self._turns("s-readout")
+        forget.withhold(record_id=ids[0])
+        forget.withhold(session_id="s-other")
+        totals = forget.set_aside()["totals"]
+        self.assertEqual(totals["withheld_notes"], 1)
+        self.assertEqual(totals["withheld_sessions"], 1)
+        # Counted, never quoted: no row carries the withheld record, so the briefing cannot print it back.
+        self.assertNotIn(ids[0], {r["id"] for r in forget.set_aside()["rows"]})
+
+    def test_withholding_a_session_takes_its_summaries_with_it(self):
+        # The curated layer written over a withheld conversation is written FROM it, so leaving it surfaced
+        # would defeat the control by paraphrase.
+        rec = consolidate._make_episodic("s-summary", {"role": "decision", "text": f"decided about {self.WORD}"},
+                                         "b-1")
+        rec.pop(records.BATCH_KEY, None)
+        ledger.append(rec)
+        self._turns("s-summary")
+        index.rebuild()
+        self.assertEqual(self._hits(force_scan=True), 5)
+        forget.withhold(session_id="s-summary")
+        self.assertEqual(self._hits(force_scan=True), 0)
 
 
 if __name__ == "__main__":
