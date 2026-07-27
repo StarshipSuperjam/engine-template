@@ -8644,7 +8644,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:cdc38f421fa4b869125b257ef45370ecd6844ce539facdc4e2d89709e1818c39",
+        "fingerprint": "sha256:df450fc1442a572acd534238d9d88d4ae9e21e41056d0949f276d4b96342b8b0",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -11885,7 +11885,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:84406afc6d68ead40061882926a7b9b5a50fa077d8ae5eafc69e8160c0ec7623",
+        "fingerprint": "sha256:562234925e88ef9245a9017a0f9029e6755635c1f82b9e51e8c1ee23c00fdf02",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",

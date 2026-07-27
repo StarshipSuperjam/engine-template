@@ -346,9 +346,12 @@ class TestImportResolver(unittest.TestCase):
         self.assertEqual(self._resolve("from . import shared", pkg_mod), [".engine/tools/pkg/__init__.py"])
         # climbs above the tools root -> not an in-repo target, dropped (not raised)
         self.assertEqual(self._resolve("from ... import x", pkg_mod), [])
-        # a relative import that resolves to nothing in-repo raises loud, like any dangling import
-        with self.assertRaises(self.kg.DanglingImportError):
+        # a relative import that resolves to nothing in-repo raises loud, like any dangling import — and the
+        # message renders the spec cleanly (one dot, not two).
+        with self.assertRaises(self.kg.DanglingImportError) as cm:
             self._resolve("from . import ghost", pkg_mod)
+        self.assertIn(".ghost", str(cm.exception))
+        self.assertNotIn("..ghost", str(cm.exception))
 
     def test_star_reexport_in_init_resolves_instead_of_raising(self):
         # a package whose __init__ does `from .x import *` may expose any name; an otherwise-unresolvable

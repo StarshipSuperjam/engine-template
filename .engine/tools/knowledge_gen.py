@@ -483,8 +483,11 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
             elif modpath is not None and (a.name in syms or "*" in syms):
                 out.append(modpath)                        # a re-exported symbol -> the package itself
             else:
-                raise DanglingImportError(
-                    _dangling_import_message(source_rel, f"{label}.{a.name}" if parts else a.name))
+                # a clean spec for the message: top-level (no parts) -> the bare name; a dotted/relative
+                # label already ending in a dot -> no extra dot (so `from . import x` reads '.x', not '..x').
+                spec = a.name if not parts else (f"{label}{a.name}" if label.endswith(".")
+                                                 else f"{label}.{a.name}")
+                raise DanglingImportError(_dangling_import_message(source_rel, spec))
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
