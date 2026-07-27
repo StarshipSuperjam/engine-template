@@ -6380,7 +6380,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e646ac506a0bb597912d9dfec602e2577083e131b292dfbf69b78c5fe35f3aa9",
+        "fingerprint": "sha256:24bd0fce9b798649caa2dffeac093c3df011ed823103c66bda80bb86f994d3a6",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8644,7 +8644,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:057051c5f0f7500a4a711c7f253be6268fd40c15b0ea7c5736be08b7f6204a95",
+        "fingerprint": "sha256:cdc38f421fa4b869125b257ef45370ecd6844ce539facdc4e2d89709e1818c39",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -10660,7 +10660,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:1dc7973ed8d9df42c810332c040e903b1c6460d5165469044e401246026e1afb",
+        "fingerprint": "sha256:b786259fd686ab8110ee1d4d9a409a9c6a05723ce5a43c0937cf85687c32569c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11885,7 +11885,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:4b637fdda9fc1294ca4ee74dc83dc377f37c44e47f8d086dfac8f73bb2ea1bd8",
+        "fingerprint": "sha256:84406afc6d68ead40061882926a7b9b5a50fa077d8ae5eafc69e8160c0ec7623",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",

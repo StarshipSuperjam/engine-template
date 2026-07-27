@@ -587,7 +587,7 @@ _RELATION_PHRASE = {
     ("tests", "in"): "is exercised by",
     ("enforced_by", "out"): "is enforced by",
     ("enforced_by", "in"): "enforces",
-    ("wires_hook", "out"): "wires as a hook",
+    ("wires_hook", "out"): "hooks",
     ("wires_hook", "in"): "is wired as a hook by",
     ("implemented_by", "out"): "is implemented by",
     ("implemented_by", "in"): "implements",

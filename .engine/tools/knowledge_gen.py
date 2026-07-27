@@ -57,6 +57,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -343,12 +344,19 @@ _TOOLS_PY_IN_CMD = re.compile(r"\.engine/tools/[A-Za-z0-9_./-]+\.py")
 
 
 class DanglingImportError(ValueError):
-    """Raised (loud) when a tool imports an IN-REPO name that resolves to no file — a reference to a module or
-    name that does not exist (typically left behind when something was renamed or removed). A subclass of
-    ValueError so the CLI and the CI fingerprint gate catch it on their existing fail-closed paths, and the
-    commit-boundary hook proceeds best-effort; the message names the file and the exact import so the session
-    that introduced it knows the fix. Stdlib/external names never reach here — their head is not an in-repo
-    top-level module, so they are dropped, never raised on."""
+    """Raised (loud) when a tool imports something UNDER an in-repo package or module that resolves to no file
+    — `from <in-repo-pkg> import <gone>`, or `import <in-repo-pkg>.<gone>` — the residue a rename/removal
+    leaves in a still-present importer (e.g. `from memory import consolidate` after consolidate.py moved). A
+    subclass of ValueError so the CLI and the CI fingerprint gate catch it on their existing fail-closed paths,
+    and the commit-boundary hook proceeds best-effort; the message names the file and the exact import so the
+    session that introduced it knows the fix.
+
+    SCOPE, stated honestly: this fires only when the import's HEAD is an in-repo package/module. A bare
+    top-level `import <name>` whose head is not in-repo is indistinguishable from stdlib/external here (we do
+    not probe the environment, which would break byte-determinism), so a deleted TOP-LEVEL tool referenced by
+    a bare `import <it>` is dropped as if external, not raised on — that narrower case is backstopped by
+    Python's own ModuleNotFoundError when the file runs and by the test suite importing the tool modules, not
+    by this gate."""
 
 
 def _dangling_import_message(source_rel: str, name: str) -> str:
@@ -356,6 +364,19 @@ def _dangling_import_message(source_rel: str, name: str) -> str:
             f".engine/{TOOLS_DIRNAME}/. This is a dangling in-repo import — a reference to a module or name "
             f"that does not exist (often residue of a rename or removal). Fix or remove the import; the graph "
             f"refuses to record an edge to something that is not there. Regenerate with `{REGEN_CMD}`.")
+
+
+def _parse_tool_ast(abs_path: str):
+    """Parse a `.py` tool to an AST, or None if it is MALFORMED (a SyntaxError — its own lint/schema check is
+    the gate, so a broken tool still entitizes with `guarded` but harvests no imports/summary/entrypoint). A
+    read error is left to propagate: the file was already read to fingerprint it in Pass 1, so it is readable
+    here — this deliberately catches ONLY SyntaxError, never OSError."""
+    with open(abs_path, "rb") as fh:
+        data = fh.read()
+    try:
+        return ast.parse(data)
+    except SyntaxError:
+        return None
 
 
 def _py_declared_names(abs_init_path: str) -> frozenset:
@@ -372,8 +393,10 @@ def _py_declared_names(abs_init_path: str) -> frozenset:
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for a in node.names:
-                if a.name != "*":
-                    names.add((a.asname or a.name).split(".")[0])
+                # a `from .sub import *` re-export can expose any name; record the star so the resolver treats
+                # an otherwise-unresolvable `from pkg import x` as a re-export (edge to the package) rather than
+                # a dangling import — no tools package uses star imports today, so this only guards the future.
+                names.add("*" if a.name == "*" else (a.asname or a.name).split(".")[0])
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, ast.Assign):
@@ -412,9 +435,12 @@ def _tool_module_index(tools_root_abs: str):
 def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> list:
     """The IN-REPO import targets of one tool source, as repo-relative `.py` paths, from its parsed AST
     (`ast.walk` so a lazy in-function import counts too). `index` is `_tool_module_index`'s triple. Raises
-    `DanglingImportError` on an in-repo name that resolves to nothing; drops a name whose head is not an
-    in-repo top-level module (stdlib/external). Package-before-module, matching CPython's own resolution
-    order. Not deduped — the caller dedupes, drops self-edges, and maps through `path_to_id`."""
+    `DanglingImportError` on an in-repo name that resolves to nothing (so no silent in-repo miss); drops a
+    name whose head is not an in-repo top-level module (stdlib/external). A RELATIVE import is resolved
+    against the source file's own package (dropped only if it climbs above the tools root); the engine
+    convention is flat absolute imports, so none exist today, but resolving rather than skipping keeps the
+    no-silent-miss guarantee. Package-before-module, matching CPython's own resolution order. Not deduped —
+    the caller dedupes, drops self-edges, and maps through `path_to_id`."""
     packages, modules, init_symbols = index
 
     def _head_in_repo(parts) -> bool:
@@ -429,7 +455,37 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
             return tools_root_rel + "/" + "/".join(parts) + ".py"
         return None
 
+    # the importing file's own package parts (relative to the tools root), for relative-import resolution.
+    inside = source_rel[len(tools_root_rel) + 1:] if source_rel.startswith(tools_root_rel + "/") else source_rel
+    src_pkg = tuple(inside.split("/")[:-1])
     out: list = []
+
+    def _emit_from(parts, node_names, label):
+        """Emit the edges of a `from <parts> import <names>`. `parts` is the resolved (absolute) dotted target;
+        empty parts means the names are top-level (a relative import climbed to the tools root). Raises on a
+        name that resolves to nothing in-repo; `"*"` in a package `__init__` (a star re-export) lets an
+        otherwise-unresolvable name resolve to the package."""
+        modpath, syms = None, frozenset()
+        if parts:
+            modpath = _resolve(parts)
+            if modpath is None:
+                raise DanglingImportError(_dangling_import_message(source_rel, label))
+            if not modpath.endswith("/__init__.py"):       # a module file: imported names are its attributes
+                out.append(modpath)
+                return
+            syms = init_symbols.get(tuple(parts), frozenset())
+        for a in node_names:
+            if a.name == "*":
+                continue
+            sub = _resolve(list(parts) + [a.name])
+            if sub is not None:
+                out.append(sub)                            # a submodule
+            elif modpath is not None and (a.name in syms or "*" in syms):
+                out.append(modpath)                        # a re-exported symbol -> the package itself
+            else:
+                raise DanglingImportError(
+                    _dangling_import_message(source_rel, f"{label}.{a.name}" if parts else a.name))
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -441,29 +497,19 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
                     raise DanglingImportError(_dangling_import_message(source_rel, a.name))
                 out.append(resolved)
         elif isinstance(node, ast.ImportFrom):
-            if node.level != 0 or not node.module:
-                continue                                   # relative (none live) or bare `from . import` -> skip
-            parts = node.module.split(".")
-            if not _head_in_repo(parts):
-                continue
-            modpath = _resolve(parts)
-            if modpath is None:
-                raise DanglingImportError(_dangling_import_message(source_rel, node.module))
-            if modpath.endswith("/__init__.py"):           # a package: probe each imported name
-                syms = init_symbols.get(tuple(parts), frozenset())
-                for a in node.names:
-                    if a.name == "*":
-                        continue
-                    sub = _resolve(parts + [a.name])
-                    if sub is not None:
-                        out.append(sub)                    # a submodule
-                    elif a.name in syms:
-                        out.append(modpath)                # a re-exported symbol -> the package itself
-                    else:
-                        raise DanglingImportError(
-                            _dangling_import_message(source_rel, f"{node.module}.{a.name}"))
-            else:                                          # a module file: imported names are its attributes
-                out.append(modpath)
+            if node.level == 0:
+                if not node.module:
+                    continue
+                parts = node.module.split(".")
+                if not _head_in_repo(parts):
+                    continue                               # stdlib / external
+                _emit_from(parts, node.names, node.module)
+            else:                                          # a relative import: climb (level-1) packages up
+                if node.level - 1 > len(src_pkg):
+                    continue                               # climbs above the tools root -> not an in-repo target
+                base = list(src_pkg[: len(src_pkg) - (node.level - 1)])
+                parts = base + (node.module.split(".") if node.module else [])
+                _emit_from(parts, node.names, "." * node.level + (node.module or ""))
     return out
 
 
@@ -504,16 +550,21 @@ def _mcp_handle_to_tool(mcp_abs_path: str) -> dict:
 
 
 def _summary_for(tree) -> "str | None":
-    """The tool's one-line `summary`: the FIRST line of its module docstring, VERBATIM — control characters
-    stripped, inner whitespace collapsed, truncated to 160 chars. None when the module declares no docstring.
-    The file's own declared words, copied not interpreted."""
+    """The tool's one-line `summary`: the FIRST line of its module docstring, VERBATIM — control and format
+    characters stripped, inner whitespace collapsed, truncated to 160 chars. None when the module declares no
+    docstring. The file's own declared words, copied not interpreted. The scrub keeps ordinary spacing but
+    drops every Unicode control/format/separator character (`C*`, `Zl`, `Zp`) — so a bidi override, a
+    zero-width or DEL/C1 control in a docstring cannot ride invisible or direction-flipping text into the
+    committed graph and the cold-start readout. Whitespace (incl. tabs) is preserved as a separator and then
+    collapsed. Mirrors boot._one_line's category-based scrub."""
     doc = ast.get_docstring(tree)
     if not doc:
         return None
     lines = doc.strip().splitlines()
     first = lines[0] if lines else ""
-    first = " ".join("".join(ch for ch in first if ch >= " " or ch == "\t").split())
-    return first[:160].rstrip() or None
+    kept = "".join(ch for ch in first
+                   if ch.isspace() or unicodedata.category(ch)[0] != "C" and unicodedata.category(ch) not in ("Zl", "Zp"))
+    return " ".join(kept.split())[:160].rstrip() or None
 
 
 def _has_main_guard(tree) -> bool:
@@ -685,10 +736,17 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
     # default branch can never carry a dangling import.
     tools_root_abs = os.path.join(validate.ENGINE_DIR, TOOLS_DIRNAME)
     tools_root_rel = _rel(tools_root_abs)                  # ".engine/tools"
-    # Guardrail-classifier health canary: a synthetic NON-guarded tool path reads as guarded ONLY when the
-    # guard has collapsed to its blanket fail-safe (an unreadable check rule under .engine/check/). Refuse to
-    # bake a degraded, all-true `guarded` derivation into the committed graph — fail loud like a malformed source.
-    if weakening_guard.is_guardrail(tools_root_rel + "/__knowledge_guard_canary__.py"):
+    # Classify every tool's guarded-ness in ONE guard scan. `flagged_changes` derives the check-script set AND
+    # the instance floor once and threads them through is_guardrail (its own "one disk scan per run, not per
+    # file" contract), so this stays on the guard's PUBLIC seam yet avoids re-reading every check rule once per
+    # tool. A synthetic canary rides the same batch: it reads guarded ONLY under the classifier's blanket
+    # fail-safe (an unreadable check rule), so a degraded all-true `guarded` fails generation loud instead of
+    # landing in the committed graph.
+    guard_canary = tools_root_rel + "/__knowledge_guard_canary__.py"
+    _tool_paths = [entities[e]["source"]["path"] for e in entities if entities[e]["type"] == "tool"]
+    guarded_set = {name for _st, name in weakening_guard.flagged_changes(
+        [{"filename": p, "status": "modified"} for p in _tool_paths + [guard_canary]])}
+    if guard_canary in guarded_set:
         raise ValueError(
             "knowledge graph: the guardrail classifier is in its blanket fail-safe (a check rule under "
             ".engine/check/ could not be read), so every tool would be marked guarded. Refusing to record a "
@@ -736,13 +794,11 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         if ent["type"] != "tool":
             continue
         rel = ent["source"]["path"]
-        ent["guarded"] = weakening_guard.is_guardrail(rel)   # EVERY tool entity, incl. non-.py (e.g. .sh)
+        ent["guarded"] = rel in guarded_set                  # EVERY tool entity, incl. non-.py (e.g. .sh)
         if not rel.endswith(".py"):
             continue                                       # imports/summary/entrypoint are .py-only
-        try:
-            with open(os.path.join(validate.ROOT, rel), "rb") as fh:
-                tree = ast.parse(fh.read())
-        except SyntaxError:
+        tree = _parse_tool_ast(os.path.join(validate.ROOT, rel))
+        if tree is None:
             continue                                       # a malformed .py harvests nothing (its own gate)
         targets = _resolve_tool_imports(rel, tree, mod_index, tools_root_rel)
         predicate = "tests" if os.path.basename(rel).startswith("test_") else "imports"

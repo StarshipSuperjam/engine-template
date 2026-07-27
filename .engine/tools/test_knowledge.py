@@ -231,8 +231,10 @@ class TestLiveDerivation(unittest.TestCase):
 
 
 class TestAttributeHarvesters(unittest.TestCase):
-    """The declared-attribute harvesters — pure (IO-free), tested directly on parsed dicts so the
-    'declared, not interpreted / structure, not belief' gates are locked independently of any source tree."""
+    """The Pass-1 declared-attribute harvesters — pure (IO-free), tested directly on parsed dicts so the
+    'declared, not interpreted / structure, not belief' gates are locked independently of any source tree.
+    (The Pass-4 `summary` attribute copies a docstring line VERBATIM — mechanical self-description, not an
+    interpretation — a distinct carve-out within the same gate, tested in TestPass4Attributes below.)"""
 
     def test_status_is_modules_and_contracts_only_else_active(self):
         kg = knowledge_gen
@@ -307,8 +309,8 @@ class TestImportResolver(unittest.TestCase):
         )
         self.root = ".engine/tools"
 
-    def _resolve(self, src):
-        return self.kg._resolve_tool_imports("t.py", ast.parse(src), self.index, self.root)
+    def _resolve(self, src, source_rel="t.py"):
+        return self.kg._resolve_tool_imports(source_rel, ast.parse(src), self.index, self.root)
 
     def test_bare_module_and_package_imports(self):
         self.assertEqual(self._resolve("import top"), [".engine/tools/top.py"])
@@ -334,8 +336,27 @@ class TestImportResolver(unittest.TestCase):
     def test_lazy_in_function_import_is_counted(self):
         self.assertEqual(self._resolve("def f():\n    import top\n    return top"), [".engine/tools/top.py"])
 
-    def test_relative_import_is_skipped(self):
-        self.assertEqual(self._resolve("from . import x\nfrom .sib import y"), [])
+    def test_relative_imports_resolve_against_the_source_package(self):
+        # a relative import is resolved against the importing file's own package (no silent in-repo miss), not
+        # skipped. Source lives in the `pkg` package.
+        pkg_mod = ".engine/tools/pkg/mod.py"
+        self.assertEqual(self._resolve("from . import sub", pkg_mod), [".engine/tools/pkg/sub.py"])
+        self.assertEqual(self._resolve("from .sub import x", pkg_mod), [".engine/tools/pkg/sub.py"])
+        self.assertEqual(self._resolve("from .deep import leaf", pkg_mod), [".engine/tools/pkg/deep/leaf.py"])
+        self.assertEqual(self._resolve("from . import shared", pkg_mod), [".engine/tools/pkg/__init__.py"])
+        # climbs above the tools root -> not an in-repo target, dropped (not raised)
+        self.assertEqual(self._resolve("from ... import x", pkg_mod), [])
+        # a relative import that resolves to nothing in-repo raises loud, like any dangling import
+        with self.assertRaises(self.kg.DanglingImportError):
+            self._resolve("from . import ghost", pkg_mod)
+
+    def test_star_reexport_in_init_resolves_instead_of_raising(self):
+        # a package whose __init__ does `from .x import *` may expose any name; an otherwise-unresolvable
+        # `from p import anything` edges to the package rather than false-raising. (No tools package uses star
+        # imports today; this guards the future.)
+        index = ({("p",)}, {("p", "x")}, {("p",): frozenset({"*"})})
+        out = self.kg._resolve_tool_imports("t.py", ast.parse("from p import anything"), index, ".engine/tools")
+        self.assertEqual(out, [".engine/tools/p/__init__.py"])
 
     def test_dangling_from_name_raises_loud(self):
         with self.assertRaises(self.kg.DanglingImportError):
@@ -384,6 +405,27 @@ class TestPass4Attributes(unittest.TestCase):
         # illegal in Python source, the latter start a new line, which splitlines already ends the line at.)
         t = ast.parse('"""A\tsummary\x07 with  control\x1b chars and   spaces."""')
         self.assertEqual(self.kg._summary_for(t), "A summary with control chars and spaces.")
+
+    def test_summary_strips_bidi_zerowidth_and_c1_controls(self):
+        # the scrub drops format/control chars beyond C0 — a bidi override (RLO), a zero-width space, DEL, and
+        # a C1 control — so none can ride invisible or direction-flipping text into the committed graph.
+        t = ast.parse('"""safe\u202etext\u200b here\x7f and\x9b more."""')
+        s = self.kg._summary_for(t)
+        for bad in ("\u202e", "\u200b", "\x7f", "\x9b"):
+            self.assertNotIn(bad, s)
+        self.assertEqual(s, "safetext here and more.")
+
+    def test_parse_tool_ast_returns_none_on_malformed_source(self):
+        # the malformed-.py skip path: a broken tool parses to None (so it still entitizes with `guarded` but
+        # harvests no imports/summary/entrypoint), a good one parses to a tree; a read error is NOT swallowed.
+        with tempfile.TemporaryDirectory() as d:
+            good, bad = os.path.join(d, "good.py"), os.path.join(d, "bad.py")
+            with open(good, "w", encoding="utf-8") as fh:
+                fh.write("x = 1\n")
+            with open(bad, "w", encoding="utf-8") as fh:
+                fh.write("def (:\n")
+            self.assertIsNotNone(self.kg._parse_tool_ast(good))
+            self.assertIsNone(self.kg._parse_tool_ast(bad))
 
     def test_summary_truncates_to_160_chars(self):
         t = ast.parse('"""' + ("word " * 60).strip() + '"""')

@@ -1252,6 +1252,30 @@ class TestFocusedNeighborhood(unittest.TestCase):
         self.assertIn("attention, boot, close, hooks", block)
         self.assertNotIn("imports", block)                                # the raw predicate token never shows
 
+    def test_every_new_walk_phrase_reads_grammatically_with_a_trailing_count(self):
+        # the render slots a bare COUNT after the phrase on the truncated-hub path; each new (predicate,
+        # direction) must read naturally there, not merely EXIST in the table. wires_hook/out is the one that
+        # stranded a count under "wires as a hook" (a mid-phrase object slot) — pin the end-transitive forms
+        # so a future phrase edit can't reintroduce that class of defect.
+        cases = {
+            ("imports", "out"): "x imports 8 (showing",
+            ("imports", "in"): "x is imported by 8 (showing",
+            ("tests", "out"): "x exercises 8 (showing",
+            ("tests", "in"): "x is exercised by 8 (showing",
+            ("enforced_by", "out"): "x is enforced by 8 (showing",
+            ("enforced_by", "in"): "x enforces 8 (showing",
+            ("wires_hook", "out"): "x hooks 8 (showing",
+            ("wires_hook", "in"): "x is wired as a hook by 8 (showing",
+            ("implemented_by", "out"): "x is implemented by 8 (showing",
+            ("implemented_by", "in"): "x implements 8 (showing",
+        }
+        for (pred, direction), expected in cases.items():
+            summary = {"focus": ["tool:x"], "groups": [
+                {"source": "tool:x", "predicate": pred, "direction": direction,
+                 "total": 8, "sample": ["a", "b", "c", "d"]}]}
+            block = "\n".join(boot.render_neighborhood(summary))
+            self.assertIn(expected, block, f"({pred}, {direction}) rendered ungrammatically")
+
     def test_focus_truncation_is_disclosed_too(self):
         # the SAME honesty one level up (#165): when more was changed than FOCUS_CAP shows, the header discloses
         # the true count, so the shown focus is never passed off as the whole change.
