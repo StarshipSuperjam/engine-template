@@ -1155,6 +1155,31 @@
       "type": "check"
     },
     {
+      "id": "check:execution-state",
+      "kind": "schema",
+      "name": ".engine/check/execution-state.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "execution-state",
+      "source": {
+        "fingerprint": "sha256:73a11fe7918ddd56ac3801aaabfe0cee6c50b6ff441c443216c3db48cda922ff",
+        "path": ".engine/check/execution-state.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:first-run-assets",
       "kind": "schema",
       "name": ".engine/check/first-run-assets.json",
@@ -4181,7 +4206,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:f94da8390092385598f76e1c2351569c4f059f0308271a97a3023810862d57ab",
+        "fingerprint": "sha256:b0dc38eee367135b3a4b0c707a7a97dee5b09c365cd5b7be71009e08721a383b",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -5111,6 +5136,23 @@
       "source": {
         "fingerprint": "sha256:24120c8cbc500ed703952f2f161ecacbb64501dc74b71a9c7aa623bf88f9eedc",
         "path": ".engine/schemas/engine.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:execution-state.v1",
+      "name": ".engine/schemas/execution-state.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "execution-state.v1",
+      "source": {
+        "fingerprint": "sha256:338153af49a6f8e7f50ad1f31dfafcbed33b692d4fe56492da08526a25a2e2ca",
+        "path": ".engine/schemas/execution-state.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7228,6 +7270,23 @@
       "source": {
         "fingerprint": "sha256:7cdb6c0c38061a7524bcb08dce834823c28d24021ee5910e9c7a6f48d652ec0d",
         "path": ".engine/tools/memory/erasure_observer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:execution_environment",
+      "name": ".engine/tools/execution_environment.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "execution_environment",
+      "source": {
+        "fingerprint": "sha256:b488f358d165918a5316a5ec2775af40badaeef6a62b07d609828507494384bf",
+        "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
       "type": "tool"
@@ -9443,6 +9502,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_execution_environment",
+      "name": ".engine/tools/test_execution_environment.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_execution_environment",
+      "source": {
+        "fingerprint": "sha256:6ecd843b2ed844401d40ab4b46e12a85bd5390970acb07387f16dec71f152f47",
+        "path": ".engine/tools/test_execution_environment.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_export",
       "name": ".engine/tools/memory/test_export.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -10031,7 +10107,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:06a52516723aca3cc3a9343b70ed97d13c1eab5b92f19b6ebdde215a8065de81",
+        "fingerprint": "sha256:0a5d17dfceeb028ac264af6e0c0595755932bc43976988df845fa6f35d6dac0f",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -11102,7 +11178,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:62507c5fda57179c14de14ddb1aeb7b68ab8ea789c737b763c9051b89c83e55d",
+        "fingerprint": "sha256:31aabd40a4659377f4f456ab341a1b98e8cab91102424c246c9e2ceedd7866b5",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
