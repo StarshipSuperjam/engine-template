@@ -30,33 +30,6 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "clear",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py\" session-start"
       }
     },
@@ -76,33 +49,6 @@
       "hook": {
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "clear",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
       }
     },
     {
@@ -138,7 +84,7 @@
       "matcher": "",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" pre-compact"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/compact.py\" pre-compact"
       }
     },
     {
@@ -180,33 +126,6 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "clear",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/consolidate.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
         "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/erasure_observer.py\" session-start"
       }
     },
@@ -226,33 +145,6 @@
       "hook": {
         "type": "command",
         "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/erasure_observer.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/erasure_proposer.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/erasure_proposer.py\" session-start"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "clear",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/erasure_proposer.py\" session-start"
       }
     },
     {
@@ -287,7 +179,7 @@
       "event": "PreCompact",
       "hook": {
         "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/consolidate.py\" pre-compact"
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/memory/compact.py\" pre-compact"
       }
     }
   ]

@@ -1,7 +1,7 @@
 """Unit tests for the stable, content-free record id minted at capture.
 
 The id (`records.RECORD_ID_KEY`, a `uuid4().hex`) is stamped in every record factory — turn-deltas
-(`capture._make_record`), episodics and markers (`consolidate._make_episodic` / `_make_marker`). It is a
+(`capture._make_record`), and the legacy summary shapes (`legacy_shapes.episodic` / `_make_marker`). It is a
 durable, content-free NAME for a record: unique per record, never derived from content, kept OUT of the search
 body (`index._NON_BODY_KEYS`), and stable across an index rebuild and a ledger re-append (the compaction
 precursor). These tests exercise the real minter, the real factories, and the real recall paths through them,
@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import capture, consolidate, index, ledger, records  # noqa: E402
+from memory import capture, index, ledger, legacy_shapes as legacy, records  # noqa: E402
 
 _HEX = set(string.hexdigits.lower())
 
@@ -95,8 +95,8 @@ class MinterTests(unittest.TestCase):
 class FactoryTests(unittest.TestCase):
     def test_every_factory_stamps_a_unique_nonempty_id(self):
         td = capture._make_record("S", 0, "user", "a turn note")
-        ep = consolidate._make_episodic("S", {"role": "decision", "text": "an episode"}, "batch-x")
-        mk = consolidate._make_marker("S", "batch-x")           # markers carry an id too (uniform invariant)
+        ep = legacy.episodic("S", "decision", "an episode", "batch-x")
+        mk = legacy.marker("S", "batch-x")           # markers carry an id too (uniform invariant)
         ids = [r[records.RECORD_ID_KEY] for r in (td, ep, mk)]
         for rid in ids:
             self.assertIsInstance(rid, str)
@@ -113,9 +113,9 @@ class StabilityTests(_Base):
     def test_the_id_survives_an_index_rebuild_byte_for_byte(self):
         # The recall vehicle is a CURATED episodic (closed batch → live): ambient turn-deltas are not recall
         # content (#332). The id-stability property is record-kind-agnostic.
-        rec = consolidate._make_episodic("S", {"role": "decision", "text": "the quokka decision"}, "batch-x")
+        rec = legacy.episodic("S", "decision", "the quokka decision", "batch-x")
         ledger.append(rec)
-        ledger.append(consolidate._make_marker("S", "batch-x"))   # close the batch so the episodic is live
+        ledger.append(legacy.marker("S", "batch-x"))   # close the batch so the episodic is live
         index.rebuild()
         hits = [r for r in index.query("quokka").records if r.get("kind") == records.EPISODIC_KIND]
         self.assertEqual(len(hits), 1)
@@ -133,9 +133,9 @@ class StabilityTests(_Base):
 class NonSearchableTests(_Base):
     def test_the_id_is_not_a_search_term(self):
         # vehicle is a curated episodic (closed batch → live); ambient turn-deltas are not recall content (#332)
-        rec = consolidate._make_episodic("S", {"role": "decision", "text": "findable by its words"}, "batch-x")
+        rec = legacy.episodic("S", "decision", "findable by its words", "batch-x")
         ledger.append(rec)
-        ledger.append(consolidate._make_marker("S", "batch-x"))
+        ledger.append(legacy.marker("S", "batch-x"))
         index.rebuild()
         self.assertTrue(index.query("findable").records)              # the words ARE findable
         self.assertEqual(index.query(rec[records.RECORD_ID_KEY]).records, [])  # the id is NOT
@@ -168,9 +168,8 @@ class BackCompatTests(_Base):
 
 class SessionEnvFixTests(unittest.TestCase):
     def test_capture_session_env_is_the_live_platform_var(self):
-        # the folded-in fix: capture's env fallback must name the live var (matches consolidate's)
+        # the folded-in fix: capture's env fallback must name the live var (the shared convention)
         self.assertEqual(capture.SESSION_ENV, "CLAUDE_CODE_SESSION_ID")
-        self.assertEqual(capture.SESSION_ENV, consolidate.SESSION_ENV)
 
 
 class HarnessSpanTests(unittest.TestCase):

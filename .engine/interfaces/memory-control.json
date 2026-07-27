@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "memory-control",
   "title": "Memory controls",
-  "description": "The operator's own controls over what memory keeps and what it surfaces — deliberately a SEPARATE contract from recall. Recall is a read: `search` is described as never changing or removing what is stored, and that description has to stay true, so the operations that deliberately write belong under their own boundary rather than smuggled in beside the ones that do not. Three things a caller can ask for, each on the operator's explicit say-so and never inferred: pin something so it is kept and carried into later sessions; withhold a note or a whole conversation so recall stops surfacing it; and put a withheld thing back. Nothing here deletes: withholding leaves every record in the ledger exactly as it was, and restoring is always available. Permanent erasure is not part of this contract and is not reachable from it — it requires merging a single-purpose erasure pull request, which no caller of these operations can do. A pin records the route it arrived by rather than any claim about who authored it: a model calling `pin` is transcribing what the operator asked for, and its context may also hold text it recalled or read, so no reader may present a pin as verified wording.",
+  "description": "The operator's own controls over what memory keeps and what it surfaces — deliberately a SEPARATE contract from recall. Recall is a read: `search` is described as never changing or removing what is stored, and that description has to stay true, so the operations that deliberately write belong under their own boundary rather than smuggled in beside the ones that do not. Three things a caller can ask for, each on the operator's explicit say-so and never inferred: pin something so it is kept and carried into later sessions; withhold a note or a whole conversation so recall stops surfacing it; and put a withheld thing back. Nothing here deletes: withholding leaves every record in the ledger exactly as it was, and restoring is always available. Permanent erasure IS part of this contract — as a command-line verb that no tool serves, so it is not reachable from any of the served operations — it requires merging a single-purpose erasure pull request, which no caller of these operations can do. A pin records the route it arrived by rather than any claim about who authored it: a model calling `pin` is transcribing what the operator asked for, and its context may also hold text it recalled or read, so no reader may present a pin as verified wording.",
   "status": "active",
   "operations": [
     {
@@ -178,6 +178,73 @@
             "type": "string"
           }
         }
+      }
+    },
+    {
+      "name": "erase",
+      "description": "Permanently erase what the operator names — the one act in this contract with no undo, and the only one that is NOT reachable from a tool. It is a command-line verb that refuses unless it is attached to a controlling terminal, prints the target's own words, and waits for a typed confirmation. That refusal is the barrier, not a courtesy: an automated caller has no terminal, so no model path reaches the confirmation. It is declared here because it is one of the operator's controls and a reader of this contract must know it exists and where it is; it is declared as NOT SERVED because an implementation that exposed it as a callable tool would defeat the thing that makes it safe. Nothing is erased when it runs: it writes a content-free proposal and opens a single-purpose pull request, and only the operator's merge of that pull request carries the erasure out, in a later session. The target must already be withheld from recall — the reversible act always precedes the irreversible one, though that is a guard against a mistake rather than a gate against an attacker, because nothing downstream re-checks it. NOT SERVED AS A TOOL: it is reached only from the command line only (tools/memory/erase.py), by a person at a terminal.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "A record id, or a session id to erase a whole conversation."
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "proposed | declined | written | retry — never 'erased', because this operation never erases."
+          },
+          "proposed": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "rescrub",
+      "description": "Run every stored record back through the secret masking. Capture masks secret-shaped text before anything is written, but only for what was captured after that masking existed; everything stored before it went in raw. This is the operator-asked verb that fixes that, and it is a verb rather than something that runs on upgrade because it rewrites the operator's own conversation and should ask first. It refuses unless a backup destination is configured, takes a copy before touching anything, holds the single-writer lock across the whole rewrite so no turn captured meanwhile is lost, and verifies the result three ways before replacing the original. It refuses outright if any line of the store cannot be parsed, rather than dropping it. Declared NOT SERVED for the same reason as erase: it rewrites stored data, and the consent for that belongs with a person, not a tool call. NOT SERVED AS A TOOL: it is reached only from the command line only (tools/memory/rescrub.py plan | run).",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "ok | empty"
+          },
+          "records": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ]
       }
     }
   ],

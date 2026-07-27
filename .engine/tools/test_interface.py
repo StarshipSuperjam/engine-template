@@ -116,7 +116,7 @@ class TestDeclaration(unittest.TestCase):
             self.assertIn(decl["status"], STATUS_ENUM, os.path.basename(path))
 
     def test_search_op_set_and_signature(self):
-        """11b: the recall contract's read-only ops — the ranked search (query, role/tag/session/limit), the
+        """11b: the recall contract's read-only ops — the ranked search (query, tag/session/limit), the
         transcript window that reads one named session back, and the meaning-based sibling. The window is a
         FETCH, so it adds no second ranking; declaring them here is what keeps a core-owned recall workflow
         from depending on a private detail of one implementation's server (a richer swap-in must answer all).
@@ -130,7 +130,7 @@ class TestDeclaration(unittest.TestCase):
         op = next(o for o in SEARCH["operations"] if o["name"] == "search")
         self.assertEqual(op["input_schema"]["required"], ["query"])
         self.assertEqual(set(op["input_schema"]["properties"]),
-                         {"query", "roles", "tags", "session", "limit"})
+                         {"query", "tags", "session", "limit"})
         self.assertEqual(op["output_schema"]["required"], ["results"])
 
     def test_recall_window_op_signature(self):

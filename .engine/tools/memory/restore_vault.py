@@ -207,10 +207,24 @@ def read_saved_memory(*, transport=None) -> dict:
 
 def _project_beliefs(ledger_bytes: bytes) -> list:
     """Decode the backed-up ledger bytes (a temp sibling, never the live ledger) and return the durable saved
-    beliefs newest-first. `forget.live_records` is memory's own recall authority — it drops the provenance
-    markers, the crashed-pass orphans and the gist-superseded raws — so we reimplement none of that; we only
-    keep the human-content kinds (episodic + gist) and project the few fields the audit reads. It takes no
-    clock: membership stopped depending on one when the archived-tier age-out was removed."""
+    content newest-first, for the scheduled self-review to judge for staleness.
+
+    WHAT COUNTS AS DURABLE CHANGED, and leaving it alone would have made the review lie. It kept only the two
+    AI-written summary kinds, which was right while a background pass wrote them. Nothing writes either any
+    more, and a repository the engine deploys into starts empty — so this would have returned nothing forever,
+    and the digest would have told an operator whose store was full of their own conversation that it "holds no
+    saved decisions or notes yet to review". So it keeps what a store actually holds now: the operator's pins
+    first — the one kind that IS a durable standing statement and the one most worth re-reading for staleness —
+    then the older summaries, which real stores still carry.
+
+    NOT the raw conversation, deliberately. A review asks "is this belief still true?", and a turn in a
+    conversation is not a belief; it is a record of a moment, true forever by construction. Including it would
+    also push tens of thousands of records at a digest that truncates oldest-first, burying the few records the
+    review is actually for.
+
+    `forget.live_records` is memory's own recall authority — it drops the provenance markers, the crashed-pass
+    orphans and the gist-superseded raws — so we reimplement none of that. It takes no clock: membership
+    stopped depending on one when the archived-tier age-out was removed."""
     import tempfile
     from memory import forget                    # lazy: forget pulls score/index — keep it off the module-load path
     from memory import records as rec
@@ -221,18 +235,20 @@ def _project_beliefs(ledger_bytes: bytes) -> list:
         live = list(forget.live_records(path=tmp))
     finally:
         _quiet_remove(tmp)
+    keep = (rec.PIN_KIND, rec.EPISODIC_KIND, rec.GIST_KIND)
     durable = []
     for r in live:
-        if r.get("kind") not in (rec.EPISODIC_KIND, rec.GIST_KIND):
+        if r.get("kind") not in keep:
             continue
         text = r.get("text")
         if not isinstance(text, str) or not text.strip():
             continue
         recorded = r.get("ts") if isinstance(r.get("ts"), int) else None
-        last_access = r.get(rec.LAST_ACCESS_TS_KEY) if isinstance(r.get(rec.LAST_ACCESS_TS_KEY), int) else None
         durable.append({"text": text, "kind": r.get("kind"), "role": r.get("role"),
-                        "recorded_ts": recorded, "last_access_ts": last_access})
-    durable.sort(key=lambda b: (b["last_access_ts"] or b["recorded_ts"] or 0), reverse=True)  # newest-first
+                        "recorded_ts": recorded, "last_access_ts": None})
+    # Newest first. It used to sort by last-use, falling back to when the record was written; nothing tracks
+    # use any more, so the fallback is now the whole rule and the field is carried as None rather than read.
+    durable.sort(key=lambda b: b["recorded_ts"] or 0, reverse=True)
     return durable
 
 

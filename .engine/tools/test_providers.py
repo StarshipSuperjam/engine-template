@@ -250,14 +250,14 @@ class TestCodexRegistrationDrift(unittest.TestCase):
                 if wire.get("type") == "codex-hook":
                     total += 1
                     self._assert_rendered(wire["hook"]["command"], os.path.basename(os.path.dirname(mpath)))
-        self.assertGreaterEqual(total, 30, "the codex-hook wires exist and were all checked")
+        self.assertGreaterEqual(total, 24, "the codex-hook wires exist and were all checked")
 
     def test_every_committed_hooks_json_command_matches_the_renderer(self):
         import validate
         data = validate.load_json(os.path.join(validate.ROOT, ".codex", "hooks.json"))
         commands = [h["command"] for groups in data["hooks"].values()
                     for g in groups for h in g["hooks"]]
-        self.assertGreaterEqual(len(commands), 30)
+        self.assertGreaterEqual(len(commands), 24)
         for command in commands:
             self._assert_rendered(command, ".codex/hooks.json")
 

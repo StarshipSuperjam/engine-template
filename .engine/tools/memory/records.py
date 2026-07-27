@@ -227,7 +227,7 @@ PIN_TAG = "pin"                     # the pin's tag (kept out of the search body
 # The withhold vocabulary — the operator's own REVERSIBLE control over what recall may surface.
 #
 # WHY "WITHHELD" AND NOT "HIDDEN". "Hidden from recall" is already spoken for: it is the phrase the
-# erasure consent copy uses for a note queued for PHYSICAL, irreversible removal (`erasure_proposer`), and
+# erasure consent copy uses for a note queued for PHYSICAL, irreversible removal (`erase`), and
 # "set aside" is already the roll-up's summarised-and-unfoldable class (`forget.set_aside`). A third control
 # wearing either word would blur the one distinction that must never blur — what comes back and what does
 # not. Withholding keeps the record exactly where it is, byte for byte, and stops recall returning it.

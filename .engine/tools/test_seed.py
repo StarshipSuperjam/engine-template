@@ -591,7 +591,7 @@ class TestWeakeningClassifier(unittest.TestCase):
         # attention) are NOT guarded when the derived set does not name them — the whole point of the narrowing.
         derived = frozenset({".engine/tools/protection_guard.py"})
         for p in (".engine/tools/boot.py", ".engine/tools/engine_status.py",
-                  ".engine/tools/memory/consolidate.py", ".engine/tools/telemetry.py",
+                  ".engine/tools/memory/compact.py", ".engine/tools/telemetry.py",
                   ".engine/tools/self_map.py", ".engine/tools/scent.py",
                   ".engine/tools/audit_digest.py", "README.md", "src/app.py"):
             self.assertFalse(weakening_guard.is_guardrail(p, derived_scripts=derived), p)

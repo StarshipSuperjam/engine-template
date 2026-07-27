@@ -49,12 +49,11 @@ keyword side, and skipping it is still what makes recall fail.
    terms), then `append only`, `newline delimited`, `ledger format`, `git native`.
 3. **Search each phrase separately** with the memory search tool (`mcp__engine-memory__search`), and **set a
    limit on each call** (10 is the default it applies if you do not) — a piece of a long message runs to a few
-   thousand characters, so an unbounded pool is genuinely expensive. **Neither filter is a plain narrowing any
-   more — both silently drop the conversation.** Captured turns carry no role, and their only tags are
-   transcript ones, never an entity id — so a `roles` *or* `tags` filter returns the curated summaries alone,
-   and a silent drop looks exactly like "there is nothing there". That bites hardest on the case you most want
-   them for ("what did we decide about eADR-0038?"). Search unfiltered first; reach for a filter only to narrow
-   a flood, knowing what it costs you.
+   thousand characters, so an unbounded pool is genuinely expensive. **The `tags` filter is not a plain
+   narrowing — it silently drops the conversation.** Captured turns carry only transcript tags, never an entity
+   id, so a tag filter returns the older curated records alone, and a silent drop looks exactly like "there is
+   nothing there". That bites hardest on the case you most want it for ("what did we decide about eADR-0038?").
+   Search unfiltered first; reach for the filter only to narrow a flood, knowing what it costs you.
 4. **Ask the same question by meaning** with `mcp__engine-memory__recall-by-meaning`, passing the question in
    ordinary words — not the short phrases, which are for keyword search. Do this whenever step 3 came back
    thin or empty, and always on the forwards-facing shape, where the wording is guaranteed not to match. Each
@@ -99,9 +98,8 @@ keyword side, and skipping it is still what makes recall fail.
 
 The question is answered from what the project actually recorded, with its source named — or you have said
 plainly that memory does not hold it. Every promising hit was read in its real conversation rather than trusted
-as a summary, and where exact wording mattered it was offered. Nothing was changed or removed — though a
-search is not free: each one records that the memories it returned were used, which is how the engine keeps
-what you rely on easy to find. Reading a conversation back writes nothing at all.
+as a summary, and where exact wording mattered it was offered. **Nothing was changed, removed, or written at
+all** — searching and reading a conversation back are both pure reads.
 
 ## Notes
 

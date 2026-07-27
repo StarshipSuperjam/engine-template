@@ -74,7 +74,8 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, ledger, records, score  # noqa: E402
+import hooks  # noqa: E402 — the PreCompact entry point
+from memory import forget, ledger, legacy_shapes as _legacy, records  # noqa: E402
 
 _TEMP_PREFIX = ".compact-"          # the in-dir swap temp; NEVER the canonical name, so it is reapable
 _TEMP_SUFFIX = ".ndjson"
@@ -172,38 +173,17 @@ def _reap_temps(data_dir: str) -> int:
     return reaped
 
 
-def _fold_record(record, access_index: dict, t0: int):
-    """`record` with its reinforcement history folded into carried current-state fields, or unchanged
-    when it has nothing to fold. Only a record whose id is an access-index key — necessarily a recall-content
-    record, since only recall results are reinforced — gets a snapshot; everything else (markers, un-reinforced
-    records) is returned verbatim, its content-free id preserved either way."""
-    if not isinstance(record, dict):
-        return record
-    rid = record.get(records.RECORD_ID_KEY)
-    accesses = access_index.get(rid) if isinstance(rid, str) and rid else None
-    if not accesses:
-        return record
-    snap, last = score.mint_snapshot(record, accesses, t0)
-    folded = dict(record)
-    folded[records.FRECENCY_SNAPSHOT_KEY] = snap
-    folded[records.SNAPSHOT_TS_KEY] = t0
-    folded[records.LAST_ACCESS_TS_KEY] = last
-    # The snapshot-time TIER is deliberately NOT written. The three fields above are read back by `score.score`,
-    # which resumes the frecency recurrence from them; the tier never was — it was stamped for legibility, on
-    # the reasoning that a human reading the ledger could see why a record had stopped surfacing. No record stops
-    # surfacing for its tier any more, so the field would name a scale that decides nothing while reading as if
-    # it did ("archived" looks like hidden). A record an older engine compacted still carries one; that is why
-    # `records.TIER_KEY` still exists and why `index._NON_BODY_KEYS` still keeps it out of the search body.
-    return folded
-
-
 def _fold_supersession(record, superseded_by_map: dict):
     """`record` with a CLOSED-batch gist supersession folded into its carried `superseded_by` field,
     or unchanged when nothing supersedes it. `superseded_by_map` (forget._superseded_by_map) maps a raw
     episode's id -> its gist id, built ONLY from closed-batch markers — so a raw enters it (and gets the carried
     field) only when its gist's roll-up completed. After the marker is pruned, `forget.live_records` still
-    retires the raw via this field. The content-free id and every other field are preserved; layers cleanly with
-    `_fold_record` (a superseded-AND-archived raw carries both the snapshot and the supersession)."""
+    retires the raw via this field. The content-free id and every other field are preserved.
+
+    THIS FOLD IS WHY THE PRUNE IS SAFE. Pruning a closed-batch `superseded` marker without writing this field
+    would un-hide the raw episode the marker retired, surfacing a summary beside the source it replaced. The
+    sibling fold that carried a frecency snapshot had no such duty and is gone with the scoring it fed:
+    nothing reads a per-record score any more, so those markers are pruned outright."""
     if not isinstance(record, dict):
         return record
     rid = record.get(records.RECORD_ID_KEY)
@@ -215,7 +195,7 @@ def _fold_supersession(record, superseded_by_map: dict):
     return folded
 
 
-def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int,
+def _write_compacted_temp(data_dir: str, raw_records,
                           closed_rollup: set, superseded_by_map: dict, erasure_targets: set,
                           torn_raw: "bytes | None" = None) -> str:
     """Write the folded, marker-pruned ledger to a fresh temp in `data_dir`, fsynced. Drops ONLY `reinforcement`
@@ -238,8 +218,7 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
                 continue  # reinforcement / closed-batch supersession: folded into carried fields, then pruned
             if _is_erased(record, erasure_targets):
                 continue  # Layer-2: a valid merge-gated erasure marker targets this record -> physically removed
-            folded = _fold_record(record, access_index, t0)
-            folded = _fold_supersession(folded, superseded_by_map)
+            folded = _fold_supersession(record, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
             os.write(fd, line.encode("utf-8"))
         if torn_raw:
@@ -296,17 +275,14 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         # erasing recoverable recall with erased:0. `records` is byte-identical to the old iter_records list here.
         health = ledger.read(path=target)
         raw = health.records
-        access_index = forget._access_index(target)
         closed_rollup = forget._closed_rollup_batches(target)          # roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
         erasure_targets = _erasure_targets(raw)        # ids a VALID merge-gated marker authorises removing
         pruned = sum(1 for r in raw if _is_foldable(r, closed_rollup))
         erased = sum(1 for r in raw if _is_erased(r, erasure_targets))   # recall content physically removed (Layer-2)
         folded = sum(1 for r in raw if isinstance(r, dict)
-                     and isinstance(r.get(records.RECORD_ID_KEY), str)
-                     and (access_index.get(r.get(records.RECORD_ID_KEY))
-                          or r.get(records.RECORD_ID_KEY) in superseded_by_map))
-        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map,
+                     and r.get(records.RECORD_ID_KEY) in superseded_by_map)
+        tmp = _write_compacted_temp(data_dir, raw, closed_rollup, superseded_by_map,
                                     erasure_targets, torn_raw=health.torn_raw)
         if _crash_after == "write":
             raise _InjectedCrash("write")              # power-cut: temp left, OLD ledger intact, gen unbumped
@@ -467,7 +443,7 @@ def enact_erasure(target_id: str, merge_sha: str, *, path: "str | None" = None, 
     Returns the appended marker dict, or None on a no-op. APPENDS ONLY; never deletes or rewrites — the physical
     removal is `compact`'s, gated on this marker. A blank target OR a blank merge SHA is a no-op (the
     consent-provenance floor: no merge identity, no marker). Held under the shared single-writer `.capture.lock`
-    (like `forget.record_access`): on contention it is a clean no-op (the observer re-mints next session — the
+    on contention it is a clean no-op (the observer re-mints next session — the
     marker is idempotent), NEVER writing lock-free."""
     if not isinstance(target_id, str) or not target_id:
         return None
@@ -554,19 +530,6 @@ def _in_cabinet(record_id: str) -> int:
     return sum(1 for r in _all_records() if r.get(records.RECORD_ID_KEY) == record_id)
 
 
-# Plain-language names for the freshness tiers — what the operator sees instead of hot/warm/cold/archived. None
-# of them hides a note: the age-out that once dropped an `archived` record from search is gone, so the coldest
-# label says "long unused" and nothing more.
-_FRESHNESS = {score.HOT: "fresh", score.WARM: "getting stale", score.COLD: "stale",
-              score.ARCHIVED: "long unused"}
-
-
-def _freshness(record: dict) -> str:
-    """The plain-language freshness of `record`, scored against its real (post-tidy) state + the real clock."""
-    accesses = forget._access_index(_ledger_path()).get(record.get(records.RECORD_ID_KEY), ())
-    return _FRESHNESS[score.tier(record, accesses)]
-
-
 def _scratch_copies(data_dir: str) -> int:
     try:
         return sum(1 for n in os.listdir(data_dir) if n.startswith(_TEMP_PREFIX) and n.endswith(_TEMP_SUFFIX))
@@ -585,8 +548,7 @@ def _cabinet_whole() -> "tuple[bool, int]":
 def _make_episodic(text: str, age_days: int, role: str = "decision", batchless: bool = True) -> dict:
     """A real episodic through the live factory, back-dated by `age_days`. `batchless` makes it always-live (not
     a crashed-pass orphan); pass batchless=False to leave its batch unclosed (a retired duplicate)."""
-    from memory import consolidate
-    rec = consolidate._make_episodic(_DEMO_SESSION, {"role": role, "text": text}, "demo-batch")
+    rec = _legacy.episodic(_DEMO_SESSION, role, text, "demo-batch")
     if batchless:
         rec.pop(records.BATCH_KEY, None)
     rec["ts"] = int(time.time()) - age_days * _DEMO_DAY
@@ -638,31 +600,32 @@ def _demo_body(data_dir: str) -> bool:
     keep_id = keep[records.RECORD_ID_KEY]
     ledger.append(keep)
     for _ in range(_DEMO_USED_TIMES):
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     book_before = _bookkeeping_count()
-    fresh_before = _freshness(keep)
     found_before = _recall_count(_DEMO_KEEP_WORD)
-    print(f'  a note you use a lot: "{_snippet(_DEMO_KEEP_TEXT)}"')
-    print(f"  private 'used it' bookkeeping piled up behind it: {book_before}")
-    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_before}    freshness: {fresh_before}')
+    print(f'  a note from an older engine, with its private bookkeeping behind it: "{_snippet(_DEMO_KEEP_TEXT)}"')
+    print(f"  spent 'used it' entries piled up behind it: {book_before}")
+    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_before}')
     report = compact()
     book_after = _bookkeeping_count()
-    fresh_after = _freshness(keep)
     found_after = _recall_count(_DEMO_KEEP_WORD)
     print(f"  ...tidied. status: {report['status']}")
-    print(f"  private 'used it' bookkeeping now: {book_after}   (folded away — no longer cluttering the cabinet)")
-    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_after}    freshness: {fresh_after}')
+    print(f"  spent 'used it' entries now: {book_after}   (reclaimed — no longer cluttering the cabinet)")
+    print(f'  search "{_DEMO_KEEP_WORD}" -> found {found_after}')
+    # The note must come out BYTE-IDENTICAL: the tidy reclaims spent bookkeeping and carries nothing onto the
+    # record itself, so this compares the whole thing rather than a summary of it.
+    kept_after = next((r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == keep_id), None)
     part1 = (book_before >= _DEMO_USED_TIMES and book_after == 0 and found_after == 1
-             and fresh_after == fresh_before)
-    print(f"  => {'tidied the bookkeeping; the note and its freshness are intact.' if part1 else '!!! the note or its freshness changed'}")
+             and kept_after == keep)
+    print(f"  => {'reclaimed the bookkeeping; the note itself is untouched, byte for byte.' if part1 else '!!! the note changed or the bookkeeping was not reclaimed'}")
 
     # --- PART 2 ------------------------------------------------------------------------------------------
     print("\nPART 2 — a power-cut in the MIDDLE of the tidy never loses or corrupts your memory")
     print("-" * 88)
     ledger.append(_make_episodic(_DEMO_KEEP2_TEXT, age_days=0))      # a second real note, so 'N of N' is plural
     for _ in range(_DEMO_USED_TIMES):                  # pile the bookkeeping back up so there is something to tidy
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     ids_before = _content_ids()
     print(f"  before the power-cut: {len(ids_before)} real notes in the cabinet, bookkeeping piled up again")
@@ -708,12 +671,10 @@ def _demo_body(data_dir: str) -> bool:
     # is why this plants a real roll-up rather than an old note. That is also the harder case for the rewrite:
     # compaction folds the supersession onto the note and prunes the marker that recorded it, so "still hidden
     # afterwards" is a genuine property to check rather than a restatement of the note's age.
-    from memory import rollup                       # lazy: rollup imports forget/score, not needed at load
     aside = _make_episodic(_DEMO_SET_ASIDE_TEXT, age_days=_DEMO_SET_ASIDE_AGE_DAYS, role="lesson")
     aside_id = aside[records.RECORD_ID_KEY]
     ledger.append(aside)
-    rollup.store_gist(_DEMO_SESSION, [{"role": "lesson", "text": _DEMO_SET_ASIDE_SUMMARY,
-                                       records.SOURCE_IDS_KEY: [aside_id]}])
+    _legacy.store_gist(_DEMO_SESSION, _DEMO_SET_ASIDE_SUMMARY, [aside_id])
     dup = _make_episodic(_DEMO_DUP_TEXT, age_days=0, batchless=False)   # a crashed-pass orphan (batch never closed)
     dup_id = dup[records.RECORD_ID_KEY]
     ledger.append(dup)
@@ -788,7 +749,7 @@ def _demo_trigger_body() -> bool:
     keep_id = keep[records.RECORD_ID_KEY]
     ledger.append(keep)
     for _ in range(_DEMO_TRIGGER_BELOW):
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     waste_below = reclaimable_waste()
     version_before = ledger.generation()
@@ -807,7 +768,7 @@ def _demo_trigger_body() -> bool:
     print("-" * 88)
     ledger.append(_make_episodic("Decided the south jetty repaint waits for calmer weather.", age_days=0))
     for _ in range(_DEMO_TRIGGER_ABOVE):               # pile MORE on top of Part 1's, well over the line
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     waste_above = reclaimable_waste()
     content_before = _content_ids()
@@ -829,7 +790,7 @@ def _demo_trigger_body() -> bool:
     print("\nPART 3 — if the tidy ever hits a snag, the engine carries on and loses nothing")
     print("-" * 88)
     for _ in range(_DEMO_TRIGGER_ABOVE):               # pile the bookkeeping back up so the tidy WOULD fire
-        forget.record_access(keep_id)
+        ledger.append(_legacy.reinforcement(keep_id))
     _rebuild()
     ids_pre_fault = _content_ids()
     with mock.patch.object(sys.modules[__name__], "compact",
@@ -965,8 +926,27 @@ def _demo_erase_body() -> bool:
     return part1 and part2 and part3 and part4
 
 
+def _pre_compact_handler(payload) -> dict:
+    """The PreCompact hook: deterministic ledger housekeeping at a tolerable moment, never on the hot path.
+
+    It rode the consolidation sweep's module until that module was deleted with the curation lifecycle, and it
+    is HERE now because it was that sweep's only surviving job — and a load-bearing one. `maybe_compact` is the
+    single production trigger for physical erasure: the cross-session observer mints an
+    `operator-adjudicated-erasure` marker when the operator merges an erasure pull request, and this is what
+    then removes the bytes. Left unwired, an approved erasure would be recorded and never carried out.
+
+    Fires regardless of accumulated waste when an erasure is pending, so an approved deletion never waits on
+    unrelated housekeeping. `maybe_compact` is fail-open and never raises; this handler ALWAYS proceeds —
+    PreCompact must never block the squash."""
+    maybe_compact()               # a pending merged erasure, or the waste gate; report dropped (a leaf renders
+                                  # no prose); fail-open
+    return hooks.proceed()
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
+    if cmd == "pre-compact":
+        return hooks.run_hook("PreCompact", _pre_compact_handler)
     if cmd == "run":                                   # the manual lever: a REAL gated compaction on the real ledger
         report = maybe_compact()
         print(json.dumps(report, ensure_ascii=False))
@@ -977,7 +957,8 @@ def main(argv: list) -> int:
         return _demo_trigger()
     if cmd == "demo-erase":
         return _demo_erase()
-    print(f"usage: compact.py [run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}", file=sys.stderr)
+    print(f"usage: compact.py [pre-compact|run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}",
+          file=sys.stderr)
     return 2
 
 

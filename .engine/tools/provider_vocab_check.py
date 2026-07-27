@@ -32,8 +32,7 @@ ALLOWLIST = {
         "modes.py",                # the CLI flag's documented expansion source
         "engine_status.py",        # the skill-passed flag's documented source
         "codex_gen.py",            # the render transform that strips the flag from skill bodies
-        "memory/capture.py",       # the historical session/transcript env names (superset chain)
-        "memory/consolidate.py",   # the historical session env name (superset chain)
+        "memory/capture.py",       # the historical session/transcript env names (superset chain)   # the historical session env name (superset chain)
     },
     "ENGINE_PROVIDER": {
         "providers.py",            # the seam: detection itself
