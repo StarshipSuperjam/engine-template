@@ -200,6 +200,30 @@ SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of t
 # unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
 SUPERSEDED_BY_KEY = "superseded_by"
 
+# The pin vocabulary — durable operator intent that has no better canonical home (eADR-0038). A pin is
+# CONTENT, not a marker: it carries `text` and rides ordinary recall, and it is a record-type inside this one
+# substrate rather than a second store.
+#
+# PROVENANCE IS RECORDED BECAUSE IT CANNOT BE VERIFIED. A pin is minted when the operator says "remember
+# this", but what lands in the ledger is whatever the calling session passed — and a session's context can
+# contain a page it recalled, a file it read, or tool output, any of which may be shaped like an instruction.
+# Nothing downstream can tell those apart from something the operator typed. So a pin records the ROUTE it
+# arrived by and nothing stronger, and every reader presents it as "saved when you asked me to remember
+# this" rather than as a verified quotation. PIN_VIA_ASSISTANT is a model calling the write tool;
+# PIN_VIA_CLI is the command line. Neither proves a person: an AI session runs commands here too (the actor
+# model), so the field distinguishes paths, never authorities.
+#
+# WHY A PIN IS SCRUBBED ON THE WAY IN. Capture scrubs secret-shaped text as it stores conversation, but a pin
+# does not come through capture — it is written directly by a verb. A credential pasted into a session and
+# then pinned would otherwise be stored unscrubbed AND read back into the briefing of every future session,
+# which is a worse exposure than the one capture's scrub exists to prevent. `pins.add` runs the same scrubber.
+PIN_KIND = "pin"                    # the record kind: durable operator intent, surfaced by ordinary recall
+PIN_VIA_KEY = "pinned_via"          # how it arrived — a route, never a claim about who authored it
+PIN_VIA_ASSISTANT = "assistant"     # a model called the write tool, transcribing what the operator asked
+PIN_VIA_CLI = "cli"                 # typed at the command line
+PIN_SOURCE_SESSION_KEY = "source_session"   # the session it was asked for in (a session id; kept non-body)
+PIN_TAG = "pin"                     # the pin's tag (kept out of the search body like every tag)
+
 # The withhold vocabulary — the operator's own REVERSIBLE control over what recall may surface.
 #
 # WHY "WITHHELD" AND NOT "HIDDEN". "Hidden from recall" is already spoken for: it is the phrase the

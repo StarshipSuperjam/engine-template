@@ -7407,7 +7407,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:afa4bbd76b81ef249d92093c40710485d3766a89cd251e04c59b5edc0e67cc86",
+        "fingerprint": "sha256:f894b785ca20efac0e9df395e5bc657b80b654138edfaa0a1f56c43d67ab3a20",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -7958,6 +7958,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:pins",
+      "name": ".engine/tools/memory/pins.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "pins",
+      "source": {
+        "fingerprint": "sha256:426e70bd77b29f40fe4d6ac595269bc0aa163bee356ffcbef0ca0dedf10c2c4d",
+        "path": ".engine/tools/memory/pins.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:policy_override_check",
       "name": ".engine/tools/policy_override_check.py",
       "owner": "core",
@@ -8172,7 +8189,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:af767a6ad7bc65ec2b26de97e811392836c967bc16c282c1b3ac93e951eab0b0",
+        "fingerprint": "sha256:00b1e756ab3a4f0578ad76338659a03f2dbd3c2bb7cfd7b5b839d4d5e784f55d",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -10044,6 +10061,23 @@
       "source": {
         "fingerprint": "sha256:9722bc1fe98753f890fbbef7ce3b5e868ba0a59d76daa2d698c4895bbe5bbe73",
         "path": ".engine/tools/dependency_discipline/test_pinning.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_pins",
+      "name": ".engine/tools/memory/test_pins.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_pins",
+      "source": {
+        "fingerprint": "sha256:285827e2a49a6ba740de5ad44109e2cd4ec9e6f9d56f9c57bdd13471bd800043",
+        "path": ".engine/tools/memory/test_pins.py"
       },
       "status": "active",
       "type": "tool"
