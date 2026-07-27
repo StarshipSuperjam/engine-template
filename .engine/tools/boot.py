@@ -2636,7 +2636,7 @@ def _relay_lines(s: dict) -> list:
 
 
 def render_recognition_slice() -> "list[str]":
-    """The surface catalog's RECOGNITION slice (D-309 / #495): the NAME and LOCATION of every surface,
+    """The surface catalog's RECOGNITION slice: the NAME and LOCATION of every surface,
     re-read and re-rendered on every pack build — deliberately NO dedup mechanism (it is a few hundred
     characters, and the platform re-issues session ids on resume, so a once-per-session latch cannot
     hold; earlier drafts of the owe said "once per session" and that was withdrawn). The authoring
@@ -2771,8 +2771,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
             out.append("")
 
     # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
-    # knowledge-faculty advertisement (#92), the surface-catalog recognition slice (D-309 / #495), the
-    # structural neighborhood of the work in hand (#37), and the recently-decided memory recall (#394).
+    # knowledge-faculty advertisement, the surface-catalog recognition slice, the structural neighborhood
+    # of the work in hand, and the recently-decided memory recall.
     orientation: list[str] = []
     orientation.append(KNOWLEDGE_FACULTY_NOTE)
     orientation.append("")
@@ -2791,9 +2791,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
 
     status = ["--- the full status (your grounding for this session) ---", dashboard]
 
-    # Measure before injecting (#495 — owed regardless of D-309): past the platform's per-value output
-    # cap it saves the full value to a file and substitutes a preview of the first 2,000 characters (plus
-    # the file path). The grounding marker near the top of the pack survives inside that preview; what drops
+    # Measure before injecting: past the platform's per-value output cap it saves the full value to a file
+    # and substitutes a preview of the first 2,000 characters (plus the file path). The grounding marker near the top of the pack survives inside that preview; what drops
     # from the injected context is the material past it — the status headline and dashboard. So Tier 0
     # (the governance instructions, marker, and alarm relay) is never shed; the orientation tier goes
     # first, the status dashboard only after it, keeping the essential content within the surviving

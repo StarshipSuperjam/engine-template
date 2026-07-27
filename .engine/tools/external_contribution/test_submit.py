@@ -23,6 +23,12 @@ from external_contribution import submit  # noqa: E402
 import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import telemetry  # noqa: E402
 
+# A declaration path that cannot exist. submit() defaults to reading the HOST repository's own
+# `.engine/operator-local-references.json` — correct in production, and exactly the coupling this suite
+# exists to keep out of shipped tests: a project that switches the feature on would otherwise red every
+# flow test below, which is the defect class this whole change was built to fix.
+NO_DECLARATION = os.path.join(tempfile.gettempdir(), "engine-no-such-local-references.json")
+
 OWNED = [
     ".engine/check/upstream-clean.json",
     ".engine/tools/external_contribution/submit.py",
@@ -195,7 +201,8 @@ class TestSubmitFlow(unittest.TestCase):
     # home=None keeps the flow tests hermetic (no real-manifest read) and on the non-home path (no narrowing);
     # the home-narrowing tests below pass home= explicitly to drive the engine's-own-home branch.
     BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
-                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None)
+                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None,
+                local_references_path=NO_DECLARATION)
 
     def setUp(self):
         # An empty template root injected into every flow call, so template detection never reads the real
@@ -344,7 +351,7 @@ class TestSubmitFlow(unittest.TestCase):
         # would reject an unfilled body) → HELD before the one-way open, regardless of confirm=True, so the
         # consent-critical disclosure can't be routed past. gh pr create is never reached; the remedy is named.
         rec = {}
-        r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+        r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
                           head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                           home="StarshipSuperjam/engine-template", run=_run(["src/app.py"]), owned=OWNED,
                           root=self._gated_root(), gh_run=_gh_ok(rec), github=None, confirm=True)
@@ -381,7 +388,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         self.addCleanup(__import__("shutil").rmtree, self.root, True)
 
     def _submit(self, changed, *, home, upstream="StarshipSuperjam/engine-template"):
-        return submit.submit(upstream_repo=upstream, base="main", remote="origin", head="me:fix",
+        return submit.submit(local_references_path=NO_DECLARATION, upstream_repo=upstream, base="main", remote="origin", head="me:fix",
                              title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                              run=_run(changed), owned=self.OWNED, root=self.root, gh_run=_gh_ok({}),
                              github=None, home=home, confirm=False)
@@ -405,7 +412,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         import repo_identity
         from unittest import mock
         with mock.patch.object(repo_identity, "_manifest", side_effect=ValueError("bad json")):
-            r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+            r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
                               head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                               run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
                               gh_run=_gh_ok({}), github=None, confirm=False)   # home defaults to _UNSET -> real
@@ -429,7 +436,7 @@ class TestEngineHomeNarrowing(unittest.TestCase):
     def test_lookalike_home_does_not_relax(self):
         # slug_eq is an EXACT full-slug match: a look-alike owner must NOT satisfy the home switch, or the whole
         # engine could travel to an arbitrary repo. upstream is the look-alike; home is the real one.
-        r = submit.submit(upstream_repo="attacker/engine-template", base="main", remote="origin", head="me:fix",
+        r = submit.submit(local_references_path=NO_DECLARATION, upstream_repo="attacker/engine-template", base="main", remote="origin", head="me:fix",
                           title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
                           run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
                           gh_run=_gh_ok({}), github=None, home=self.HOME, confirm=False)
@@ -482,9 +489,149 @@ class TestStatus(unittest.TestCase):
         self.assertEqual(r["status"], "unknown")
 
 
+class TestLocalReferenceGate(unittest.TestCase):
+    """The deployment's OWN declared vocabulary, checked before a contribution leaves.
+
+    Every state here is about HONESTY at the authorize gate: the operator is about to take a one-way action
+    on a repository they do not own, and the difference between "checked and clean", "nothing to check
+    against" and "could not check" decides whether what they are told is true."""
+
+    # No pinned declaration here: every case in this class supplies its own, because the declaration IS
+    # what each one is exercising.
+    BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None)
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="engine-submit-lr-empty-")
+        self.addCleanup(__import__("shutil").rmtree, self.root, True)
+        self.tmp = tempfile.mkdtemp(prefix="engine-submit-lr-decl-")
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+
+    def _declare(self, obj):
+        p = os.path.join(self.tmp, "operator-local-references.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(obj if isinstance(obj, str) else __import__("json").dumps(obj))
+        return p
+
+    @staticmethod
+    def _diff(added_line):
+        return lambda *_a, **_k: (b"+++ b/src/app.py\n@@ -0,0 +1 @@\n+" + added_line.encode() + b"\n")
+
+    def _submit(self, decl, added="a plain line", **kw):
+        kw.setdefault("run", _run(["src/app.py"]))
+        kw.setdefault("github", None)
+        return submit.submit(**self.BASE, owned=OWNED, root=self.root,
+                             local_references_path=decl, lr_git=self._diff(added), **kw)
+
+    def test_a_declared_reference_in_an_added_line_pauses_for_a_decision(self):
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}), added="restore it (ACME-309)")
+        self.assertEqual(r["status"], "local-reference-decision-needed")
+        self.assertEqual([h["token"] for h in r["offending"]], ["ACME-309"])
+        self.assertEqual(r["findings"][0]["severity"], "soft")
+        self.assertIn("nowhere to go", r["narration"])
+
+    def test_a_reference_in_the_pull_request_prose_is_caught_on_a_clean_diff(self):
+        # The body travels to the other repository exactly as the diff does, and is where this project's own
+        # convention parks decision references — so a clean diff is not by itself a clean contribution.
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}), authored_body="Restores it per ACME-309.")
+        self.assertEqual(r["status"], "local-reference-decision-needed")
+        self.assertEqual([h["where"] for h in r["offending"]], ["the pull-request description"])
+
+    def test_the_override_falls_through_to_the_ordinary_confirm_gate(self):
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}), added="restore it (ACME-309)",
+                         proceed_despite_local_references=True)
+        self.assertEqual(r["status"], "prepared")
+
+    def test_the_prepared_narration_never_claims_clean_after_an_override(self):
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}), added="restore it (ACME-309)",
+                         proceed_despite_local_references=True)
+        self.assertIn("chosen to go ahead with the references I flagged", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
+    def test_a_clean_scan_against_a_real_declaration_says_it_checked(self):
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}))
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("found none of them", r["narration"])
+
+    def test_no_declaration_is_not_narrated_as_checked_and_clean(self):
+        # The single most important assertion here: telling the operator their work was checked against a
+        # vocabulary that does not exist is a false claim of cleanliness, not a harmless simplification.
+        r = self._submit(os.path.join(self.tmp, "absent.json"))
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("haven't listed any references", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
+    def test_an_empty_declaration_is_not_narrated_as_checked_and_clean(self):
+        # A declaration listing nothing passes the hard shape gate cleanly and forever, and an empty skeleton
+        # is the natural first thing an operator writes after being offered one. Reporting it as "checked and
+        # found none" would be a false claim of cleanliness on the likeliest path to reach it.
+        r = self._submit(self._declare({"id_prefixes": [], "phrases": [], "section_refs": []}),
+                         added="restore it (ACME-309)")
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("no shorthand of its own", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
+    def test_a_list_whose_entries_were_all_discarded_is_not_narrated_as_having_none(self):
+        r = self._submit(self._declare({"ticket_ids": ["ACME-"]}), added="restore it (ACME-309)")
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("couldn't use", r["narration"])
+        self.assertNotIn("no shorthand of its own", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
+    def test_an_unreadable_declaration_stops_rather_than_checking_nothing(self):
+        r = self._submit(self._declare("{not json"))
+        self.assertEqual(r["status"], "local-references-unreadable")
+        self.assertIn("not the same as this contribution being clean", r["narration"])
+
+    def test_an_unreadable_diff_stops_even_though_the_path_list_read_fine(self):
+        # The path-list read succeeding does not license a claim about the lines: two reads, two answers.
+        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root, github=None,
+                          local_references_path=self._declare({"id_prefixes": ["ACME-"]}),
+                          lr_git=lambda *_a, **_k: None)
+        self.assertEqual(r["status"], "local-references-unverified")
+        self.assertIn("won't tell you it's clean when I couldn't look", r["narration"])
+
+    def test_the_engine_file_leak_gate_still_runs_first(self):
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}), added="restore it (ACME-309)",
+                         run=_run([".engine/check/upstream-clean.json"]))
+        self.assertEqual(r["status"], "leak-decision-needed")
+
+    def test_the_telemetry_message_carries_the_token_not_the_source_line(self):
+        opened = []
+        r = self._submit(self._declare({"id_prefixes": ["ACME-"]}),
+                         added="SECRET = 'xyz'  # per ACME-309", github=_fake_github(opened))
+        self.assertEqual(r["status"], "local-reference-decision-needed")
+        self.assertTrue(opened, "a carried local reference is worth a durable trace")
+        published = __import__("json").dumps(opened)
+        self.assertIn("ACME-309", published)
+        self.assertNotIn("SECRET", published)
+
+
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes_on_real_logic(self):
         self.assertEqual(quiet_call.run(submit.demo), 0)
+
+    def test_the_demo_never_reads_the_host_repositorys_own_declaration(self):
+        """A shipped demo must depend on nothing but itself.
+
+        `submit()` defaults to reading the host repository's `.engine/operator-local-references.json` — right
+        in production, fatal in a showcase: a project that switched the feature on watched the demo it was
+        told to run pick up that project's real declaration and crash with a raw traceback. This spy fails
+        the moment any demo submission falls back to that default, so the fix cannot silently rot."""
+        import local_references
+        real = local_references.load_vocabulary
+        leaked = []
+
+        def _spy(path=None):
+            if path is None:
+                leaked.append("host default")
+            return real(path)
+        local_references.load_vocabulary = _spy
+        try:
+            self.assertEqual(quiet_call.run(submit.demo), 0)
+        finally:
+            local_references.load_vocabulary = real
+        self.assertEqual(leaked, [], "the demo read the host repository's own declaration")
 
 
 if __name__ == "__main__":

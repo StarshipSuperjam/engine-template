@@ -1678,6 +1678,31 @@
       "type": "check"
     },
     {
+      "id": "check:operator-local-references",
+      "kind": "custom/script",
+      "name": ".engine/check/operator-local-references.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "operator-local-references",
+      "source": {
+        "fingerprint": "sha256:5267b13379eb93812f32241f983c17ef58f9cd1940d6b065c07ab4d9a0423669",
+        "path": ".engine/check/operator-local-references.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:policy-frontmatter",
       "kind": "schema",
       "name": ".engine/check/policy-frontmatter.json",
@@ -3780,7 +3805,7 @@
       },
       "slug": "eADR-0037-upgrade-overwrite-disclosure",
       "source": {
-        "fingerprint": "sha256:64d43cfd1ffe40a68fca4aa70175247774ad6ff1fa3f8fc3b66e3a6975ddbdc1",
+        "fingerprint": "sha256:10b9b1f8f8a21aac173660f50656036dd2bf0d99b6590a0bf7a82c339a969612",
         "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
       },
       "status": "accepted",
@@ -4154,7 +4179,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:75819307c472058ac80ef1fbbad6bc2a3b193b310f739719667e95578d8af120",
+        "fingerprint": "sha256:f94da8390092385598f76e1c2351569c4f059f0308271a97a3023810862d57ab",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4195,7 +4220,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:a0b02329ea6839d23a7f3c953474c55b7ab7297f306194eeffa2b7c7d2a555ce",
+        "fingerprint": "sha256:1424329a5d0fd05b8dc8d0e3177daa0e4fbb2d44eb6f71830dbdc5ecd28a9b3a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4415,7 +4440,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:f4cc7dfc2c2e4f02559d08ecf9b0c7d037b29f4b4eadfbd2b1c65d34152d8641",
+        "fingerprint": "sha256:43193f57ad9304b9e0e4a9427a54c9efceb397cbd30ff42deaa4968628cb5eba",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4739,7 +4764,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:7d434a4a3f16d5988c112c02f811846f2914029d3c7cafdba8c28c53ac991c22",
+        "fingerprint": "sha256:a64240f2614eb3f9c30087d6a5812abac30a5a69f10b4feecae7e812e4f9a3fa",
         "path": ".engine/policies/external-contribution.md"
       },
       "status": "active",
@@ -5924,7 +5949,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d1712d767c81cd0546929258afebb26f775eb7641888ecfc537b9600bba4685a",
+        "fingerprint": "sha256:e3b589ddb093406ef468d07ca20ee08527284e89c1bac67cf7c696ab0cf26b96",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7420,7 +7445,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:ef0f085ef6cf40341b4713e6e842d7a730cf83600756fecafde9805161811383",
+        "fingerprint": "sha256:b070b6d45a60cce40f256c86def95857e8215983cc40b63f4afd7d043611912f",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7733,6 +7758,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:local_references",
+      "name": ".engine/tools/local_references.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "local_references",
+      "source": {
+        "fingerprint": "sha256:d7d0028e7551a24bb1b35e7be7a75d270d3392a4aa4b9a9f8c0a7a719546784b",
+        "path": ".engine/tools/local_references.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:lock_integrity",
       "name": ".engine/tools/product_design/lock_integrity.py",
       "owner": "product-design",
@@ -7896,7 +7938,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9dbf868325152766e10e1500b25ddd9fc16a4af85c51d6d30d225ce2907bc294",
+        "fingerprint": "sha256:4777f8feb4a3b548580b7f7aa3de0242351297a24d1b04098034a5c4e3f29145",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7949,6 +7991,23 @@
       "source": {
         "fingerprint": "sha256:42c81842ca7438a890ee9b6d3a906ed015dd237c89408c9989b4f40c6e206af4",
         "path": ".engine/tools/operator_guarded_paths_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:operator_local_references_check",
+      "name": ".engine/tools/operator_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator_local_references_check",
+      "source": {
+        "fingerprint": "sha256:ffa2920177f56e01f76389aebb0b55327355271baa250727dc338a107d275858",
+        "path": ".engine/tools/operator_local_references_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -8644,7 +8703,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:d98d5685a3ad0a47c84cf70dde5dbf88b4857bbd619722bb766446b7afd0da73",
+        "fingerprint": "sha256:8f2254396925db418e86d60f15a7663e339bed017c830e6a156f7f664bddfe83",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -8916,7 +8975,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:e0ab676124a2b7d3595b3aebcf59b24e0d90d9799e7fac0c60b3c88ec30a96e7",
+        "fingerprint": "sha256:b91a97d565b010067061d6f41752491c01fdb3e06534c0d3af03e83711f953fd",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9290,7 +9349,7 @@
       },
       "slug": "test_design_review",
       "source": {
-        "fingerprint": "sha256:241517b0b1052070e5fcd4507e63b91bf6eb83b07024ac219c9bc92b495a18af",
+        "fingerprint": "sha256:4f139ff27786a763fce892f4d8345170031339859f9bdfdfa3ab124cf9c53f24",
         "path": ".engine/tools/test_design_review.py"
       },
       "status": "active",
@@ -9579,7 +9638,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d509cca15ead4f5265d55a7c83e28ae36914f0e01784736dd2beb762b77897b3",
+        "fingerprint": "sha256:033a1f2bed0742a32c64f7860e0c966bb15e400bafbab881cd8e9407deeff13e",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -9732,7 +9791,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:a9d518669e66137b0c9d737ddd8ba21b660b5a85d0e56abc619895fe1c80c328",
+        "fingerprint": "sha256:8b1b99a01c89f4a84bc0eebb6957aa10431fb598252340adf6c57fd95f37ff41",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -9870,6 +9929,23 @@
       "source": {
         "fingerprint": "sha256:1007f51a48427a427c34446a4c4af3b4deb8d9f55f07d816a04fdc084f26855f",
         "path": ".engine/tools/test_license_seeds.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_local_references",
+      "name": ".engine/tools/test_local_references.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_local_references",
+      "source": {
+        "fingerprint": "sha256:35c737e2d57dcb9269a5f8f90afa17cfb26271234d3d5929dbafd252916f29d4",
+        "path": ".engine/tools/test_local_references.py"
       },
       "status": "active",
       "type": "tool"
@@ -10021,7 +10097,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f4483c45b3bdd21e732244260c15b75136226d1d386c3dee072871d9d427e552",
+        "fingerprint": "sha256:06a52516723aca3cc3a9343b70ed97d13c1eab5b92f19b6ebdde215a8065de81",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -10074,6 +10150,23 @@
       "source": {
         "fingerprint": "sha256:ddc65d0d81c853f7d0599a091b21079c7beb682325d53195a4b5d90a46342d10",
         "path": ".engine/tools/test_operator_guarded_paths_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_operator_local_references_check",
+      "name": ".engine/tools/test_operator_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_operator_local_references_check",
+      "source": {
+        "fingerprint": "sha256:ca9256d34a280d4d80bd5a03a4aa03752722b1d3e07f344cea7bd079220f9236",
+        "path": ".engine/tools/test_operator_local_references_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -10174,7 +10267,7 @@
       },
       "slug": "test_policy_override_check",
       "source": {
-        "fingerprint": "sha256:f6fc4a62551256feec3265a7999bfa72fcc6d59ccc08046dee3d826369eb1d6b",
+        "fingerprint": "sha256:28dc8045734446d032e5f8a2ab478e963584882188503791370ef4fee056eca2",
         "path": ".engine/tools/test_policy_override_check.py"
       },
       "status": "active",
@@ -10259,7 +10352,7 @@
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:aa87228f2f42e8ffe95cdec274318367b2bc6c156a0b19138d04d4b732f10973",
+        "fingerprint": "sha256:8b24c57614734a59e9da7cb06e0c9f23d236e07f5c87102cf1f130b31c62f18e",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
@@ -10650,7 +10743,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:75bc0e07a6ff204ab63e3771cc653582dd56141f963d6e483909b90f4d2173f2",
+        "fingerprint": "sha256:ba1e53280de489d3a5ce34c665a4abff8d6312452a48ca754033a6d28b52dee9",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10820,7 +10913,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:4a558aafdc6bb1613c29ed07ee6349635b87ba35e53718d9798a9796bcfcc7ae",
+        "fingerprint": "sha256:0bafa33fb476c9b48fd79157f4a82c29d007dec0876b0cf8c682bcb976eaa60d",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

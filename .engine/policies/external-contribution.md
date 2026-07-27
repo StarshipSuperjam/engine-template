@@ -53,6 +53,15 @@ everything you own.
   honest; the safeguard is the engine following this habit and you reading what it tells you.
 - **The submission runbook carries the same line at the point of submission**, so the honesty sits where the
   act is, not parked in this document alone.
+- **One part of it IS mechanical now, and only one.** If your project has listed the references that mean
+  something only inside it, the engine scans what a contribution would carry — the lines it adds, the file
+  names it touches, and the pull-request text — and pauses to show you anything it finds. That much is a real
+  detector, not posture. What stays posture is everything around it: the check is only as good as the list you
+  gave it, it never blocks, and on the path where the engine builds a product it owns there is no merge gate
+  at the far end at all — only a step the engine is trusted to run. And a *silent* result is not a clean one:
+  when there is no list, when the list is deliberately empty, when nothing in it could be used, and when it
+  can't be read at all, the engine says which of those it is instead of reporting clean. Only a list with
+  usable entries in it earns "I checked".
 - **The live step runs on first real use.** The cross-fork path's final open-the-pull-request step reaches the
   network only on a real submission; the engine says so at install, and your first real contribution is the first
   time that live step runs on your setup — being straight that a released feature's live path runs the first time

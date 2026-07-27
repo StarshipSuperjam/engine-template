@@ -74,7 +74,7 @@ The rejected alternative was the original proposal: **repurpose the `guardrail-a
 every file an update overwrites — one broadened guardrail instead of a new, separate signal. It lost on two
 counts. First, it would delete eADR-0011's one irreducible promise: the guarded set exists to make
 *weakening a protection* non-silent, and pointing it at the overwrite set would drop that meaning. Second, it
-would re-create the exact over-firing that #250 (D-268) removed — flagging routine engine-file edits with the
+would re-create the exact over-firing that an earlier narrowing removed — flagging routine engine-file edits with the
 heavy, deliberate acknowledgment trains the rubber-stamping the guard exists to prevent. A distinct,
 non-blocking notice keeps the heavy consent act rare and meaningful and lets the routine heads-up be routine.
 The narrower rejected option — detecting edits *inside* the keyed-merge fences of CLAUDE.md/AGENTS.md/

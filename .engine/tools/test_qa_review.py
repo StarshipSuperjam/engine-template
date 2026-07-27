@@ -35,6 +35,10 @@ CATALOG_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "provisio
 AGENT_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "agent.v1.json"))
 
 MODULE_DIR = os.path.join(validate.ENGINE_DIR, "modules", "qa-review")
+# The qa-review pack is OPTIONAL. Loading its manifest at import time errors the WHOLE suite out in a
+# deployment that declined it — a supported choice — rather than skipping the cases that need it.
+if not os.path.exists(os.path.join(MODULE_DIR, "manifest.json")):
+    raise unittest.SkipTest("the qa-review pack is not installed in this repository")
 MANIFEST = validate.load_json(os.path.join(MODULE_DIR, "manifest.json"))
 ENGINE_JSON = validate.load_json(os.path.join(validate.ENGINE_DIR, "engine.json"))
 CATALOG = validate.load_json(os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json"))

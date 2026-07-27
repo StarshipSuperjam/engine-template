@@ -386,6 +386,18 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         for rel, owners in check_owner.items():
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
 
+        def optional_owner(module_id, expected, why):
+            """The checks an OPTIONAL module owns: the exact list when that module is installed, and
+            nothing when it is not. Conditional on presence rather than assuming it — an optional module is
+            offered at first-run setup and can be removed afterwards, so pinning its list unconditionally
+            would assert a fact about which add-ons the HOST repository happens to carry. That reds a
+            deployment's required self-tests for merely declining an add-on, with no fix but patching an
+            engine-owned test the next upgrade reverts. The partition below accounts for every check
+            either way, so the real boundary this test pins is unweakened."""
+            owned = sorted(r for r, o in check_owner.items() if o == [module_id])
+            self.assertEqual(owned, expected if module_id in ids else [], why)
+            return owned
+
         core_checks = sorted(r for r, o in check_owner.items() if o == ["core"])
         vc_checks = sorted(r for r, o in check_owner.items() if o == ["validators-core"])
         self.assertEqual(core_checks, [
@@ -436,6 +448,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/operation-frontmatter.json",
             ".engine/check/operation-shape.json",
             ".engine/check/operator-guarded-paths.json",
+            ".engine/check/operator-local-references.json",
             ".engine/check/policy-frontmatter.json",
             ".engine/check/policy-override-stale.json",
             ".engine/check/policy-shape.json",
@@ -453,11 +466,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 60 corpus rules")
+        ], "validators-core owns exactly the 61 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
-        dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])
-        self.assertEqual(dd_checks, [
+        dd_checks = optional_owner("dependency-discipline", [
             ".engine/check/dependency-pinning.json",
             ".engine/check/dependency-review.json",
         ], "dependency-discipline owns exactly its pinning and review checks")
@@ -466,8 +478,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # checks it is an optional-module-owned check, neither core's guard nor validators-core's
         # self-validation corpus; the partition must admit it. The real boundary is unchanged — exactly one
         # owner per check, core frozen at its two guards, no wildcard re-claiming the corpus.
-        ec_checks = sorted(r for r, o in check_owner.items() if o == ["external-contribution"])
-        self.assertEqual(ec_checks, [
+        ec_checks = optional_owner("external-contribution", [
             ".engine/check/upstream-clean.json",
         ], "external-contribution owns exactly the upstream-clean nudge")
         # migration-discipline (an optional module) owns the rollback-presence nudge — a check that inspects
@@ -476,8 +487,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # guard nor validators-core's self-validation corpus; the partition must admit it. The real boundary
         # is unchanged — exactly one owner per check, core frozen at its two guards, no wildcard re-claiming
         # the corpus.
-        md_checks = sorted(r for r, o in check_owner.items() if o == ["migration-discipline"])
-        self.assertEqual(md_checks, [
+        md_checks = optional_owner("migration-discipline", [
             ".engine/check/migration-rollback.json",
         ], "migration-discipline owns exactly the rollback-presence nudge")
         # product-design (an optional module) owns the spec-form check — a check that inspects the PRODUCT's
@@ -488,8 +498,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # admit it. The real boundary is unchanged — exactly one owner per check, core frozen at its two
         # guards, no wildcard re-claiming the corpus. (This exact list extends as the
         # acceptance-criteria-coverage check lands.)
-        pd_checks = sorted(r for r, o in check_owner.items() if o == ["product-design"])
-        self.assertEqual(pd_checks, [
+        pd_checks = optional_owner("product-design", [
             ".engine/check/product-adr-form.json",
             ".engine/check/product-design-form.json",
             ".engine/check/product-lock-integrity.json",
@@ -602,7 +611,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # operation/build-orchestration copy, not this provides list.
         manifests = module_coherence.discover_manifests()
         pd = next((m for _p, m in manifests if m.get("id") == "product-design"), None)
-        self.assertIsNotNone(pd, "product-design must be a present module")
+        if pd is None:
+            # product-design is OPTIONAL — offered at first-run setup and removable afterwards. Requiring it
+            # to be present would assert a fact about which add-ons the HOST repository carries, reddening a
+            # deployment's required self-tests for declining one. Absent is a legitimate installed shape;
+            # there is simply no footprint to pin, and the ownership partition already proves nothing is
+            # left unclaimed in that shape.
+            self.skipTest("product-design is not installed in this repository")
         self.assertEqual(pd.get("status"), "optional")
         # product-design's first wire (Slice: obligation-matrix): a PreToolUse regen hook that refreshes the
         # committed obligation matrix at the git-commit boundary, mirroring core's graph/self-map regen hooks.
@@ -654,8 +669,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
                          [".engine/docs/getting-started.md"], "core owns exactly the getting-started doc")
+        # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
+        # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
+        # a deployment's required self-tests for declining an add-on it was offered at setup.
+        installed = {m.get("id") for _p, m in module_coherence.discover_manifests()}
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["product-design"]),
-                         [".engine/docs/product-design.md"], "product-design owns exactly its orientation doc")
+                         [".engine/docs/product-design.md"] if "product-design" in installed else [],
+                         "product-design owns exactly its orientation doc when it is installed")
 
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect

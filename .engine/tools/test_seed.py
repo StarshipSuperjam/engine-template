@@ -634,8 +634,14 @@ class TestWeakeningClassifier(unittest.TestCase):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset(), instance_guards=(set(), ())), p)
 
     def test_instance_read_is_empty_and_silent_and_filters_degenerate(self):
-        # Absent declaration (the steady state in this construction repo) -> the empty pair, silently.
-        self.assertEqual(weakening_guard._read_instance_guards(), (set(), ()))
+        # An ABSENT declaration -> the empty pair, silently. Driven through an explicit path that cannot
+        # exist rather than the no-argument default: the default reads the HOST repository's own
+        # declaration, so asserting it is empty asserts a fact about whichever repo the suite runs in —
+        # true here, false in a deployment that uses the feature, which would red its required self-tests
+        # over adopting a shipped capability. The property under test is the reader's, not the repo's.
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(weakening_guard._read_instance_guards(
+                os.path.join(d, "no-such-declaration.json")), (set(), ()))
         # Defensive parse behind the CI shape gate: non-string / empty / degenerate members are dropped so the
         # catastrophic empty-prefix (`startswith("")` guards everything) can never take effect even off-gate.
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:

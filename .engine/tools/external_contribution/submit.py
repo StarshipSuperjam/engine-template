@@ -71,6 +71,7 @@ for _p in (_HERE, _PARENT):
         sys.path.insert(0, _p)
 
 import upstream_clean_check  # noqa: E402 — the upstream-clean predicate, reused unchanged
+import local_references  # noqa: E402 — the deployment's own declared vocabulary + the outbound scan
 import validate  # noqa: E402 — validate.ROOT (the live tree root) for template detection
 import module_coherence  # noqa: E402 — engine_owned_paths: the file-precise engine-owned set
 import telemetry  # noqa: E402 — promote_finding (telemetry-on-fire), utc_now, GitHubIssues, severities
@@ -336,7 +337,8 @@ def _body_incomplete_narration(upstream_repo: str) -> str:
 
 def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
                         leak_overridden: bool = False, reviewed: bool = False,
-                        body_unfilled: bool = False) -> str:
+                        body_unfilled: bool = False, local_references_state: str = None,
+                        local_references_overridden: bool = False) -> str:
     # Never assert "carries no engine files" when the operator reached here by OVERRIDING a leak
     # (proceed_despite_leak=True, confirm=False) — that would be a false-clean claim at the authorize gate.
     cleanliness = (
@@ -344,6 +346,39 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         if leak_overridden else
         "the changes carry no engine files"
     )
+    # The SAME honesty rule for the local-reference scan, whose outcomes must not collapse into one. "Checked and found nothing" is a claim; "you declared nothing to check against" and "your list
+    # couldn't be read" are NOT — reporting either as clean would tell the operator a check ran that did not.
+    if local_references_overridden:
+        lr_line = (" You've chosen to go ahead with the references I flagged that mean something only in "
+                   "your project.")
+    elif local_references_state == local_references.DECLARED:
+        lr_line = (" I also checked it against the references you've said mean something only in your own "
+                   "project, and found none of them.")
+    elif local_references_state == local_references.UNREADABLE:
+        lr_line = (f" One thing I could NOT check: your list of local references "
+                   f"({local_references.DECLARATION_REL}) couldn't be read, so nothing was compared against "
+                   "it — that isn't the same as clean.")
+    elif local_references_state == local_references.UNUSABLE:
+        # NOT the same as "you have none": the operator DID state their shorthand and the engine discarded
+        # it. Telling them they said they have none would misreport their own instruction back to them, at
+        # the moment they are deciding whether to take a one-way action on someone else's project.
+        lr_line = (" One thing I could NOT check: your list of local references has entries I couldn't use — "
+                   "one the engine doesn't recognise, or one too short to be a reference — so none of them "
+                   "were applied and nothing was compared against them. That isn't the same as clean; tell "
+                   "me and I'll put the list right.")
+    elif local_references_state == local_references.EMPTY:
+        # A deliberate "we have none" is an ANSWER, not a gap — so it reads as settled and stops asking.
+        # Without this state the only way to silence the offer below would be an empty list, which used to
+        # be narrated as "checked and found none": the escape hatch and a false claim were the same door.
+        lr_line = (" You've told me this project has no shorthand of its own, so there was nothing of that "
+                   "kind to look for.")
+    elif local_references_state == local_references.ABSENT:
+        lr_line = (" Worth knowing: you haven't listed any references that mean something only in your own "
+                   "project, so I couldn't check for those — if this project uses its own decision ids or "
+                   "spec names, tell me and I'll set that list up. If it has none, tell me that instead and "
+                   "I'll record it, so I stop raising this.")
+    else:
+        lr_line = ""
     # The review line states the TRUTH about this contribution (reviewed or not) and, when NOT reviewed, names
     # WHY it matters at the actual decision moment — not a vague "if this matters". (#562)
     review_line = (
@@ -379,8 +414,54 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         f"I've prepared the contribution to {upstream_repo} ({head} → {base}): I compared it against "
         f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and "
         f"{ready}. If that isn't the branch this should be measured against, tell me before "
-        f"I open it.{review_line}{unfilled_line} I won't open it until you say so — opening a pull request on a "
+        f"I open it.{lr_line}{review_line}{unfilled_line} I won't open it until you say so — opening a pull request on a "
         f"project you don't own is your call. {closing}"
+    )
+
+
+def _local_reference_narration(upstream_repo: str, hits: list) -> str:
+    """The pause narration when the outbound work carries the deployment's own declared references. Like the
+    engine-file leak, this is a DECISION, not a halt: it names what was found and both ways forward, because
+    opening a pull request on a project the operator doesn't own cannot be undone."""
+    ordered = local_references.ordered(hits)
+    where = "; ".join(
+        f"“{h['token']}” in {h['where']}" + (f" line {h['line']}" if h.get("line") else "")
+        for h in ordered[:6])
+    more = f" (and {len(ordered) - 6} more)" if len(ordered) > 6 else ""
+    # The operator reads the SAME breadth diagnosis the recorded finding carries — otherwise, at the one
+    # moment they are staring at an obviously over-firing check, the engine has written the explanation and
+    # shown them a different string that does not contain it.
+    breadth = local_references.too_broad_note(hits)
+    return (
+        f"Before opening the pull request, I checked what it would carry to {upstream_repo} against the list "
+        f"of references you've said mean something only in your own project — and found some: {where}{more}.{breadth} "
+        "These read as ordinary shorthand at home, but over there they name a record nobody can reach: a "
+        "reader meets a bare identifier and has nowhere to go. I'd rewrite each one to say what it MEANS "
+        "rather than what it refers to, and then prepare this again — or, if you're sure they belong, tell me "
+        "to go ahead and I'll open it as it is. I've paused rather than send them on my own, because opening "
+        "a pull request on a project you don't own can't be undone — so it's your call."
+    )
+
+
+def _local_reference_unverified_narration(upstream_repo: str, diff_ref: str) -> str:
+    """The pause narration when the local-reference scan could not read the change. Same honesty rule as the
+    unreadable-diff hold: an unread change is an unknown change, never a clean one."""
+    return (
+        f"I couldn't read the lines this contribution would add to {upstream_repo} — I compared against "
+        f"`{diff_ref}` and git didn't answer — so I could not check it against the list of references that "
+        "mean something only in your project. I won't tell you it's clean when I couldn't look. This is "
+        "usually a temporary git hiccup; sort that out and tell me, and I'll re-check."
+    )
+
+
+def _local_reference_unreadable_narration(upstream_repo: str) -> str:
+    """The pause narration when the declaration itself cannot be parsed. Distinct from 'none declared': here
+    the operator BELIEVES they have a list, so silently checking nothing would be the worst of the states."""
+    return (
+        f"Before opening the pull request to {upstream_repo} I went to check it against your list of local "
+        f"references ({local_references.DECLARATION_REL}) — and couldn't read the file. So that check did not "
+        "run, which is not the same as this contribution being clean. Fix the file and tell me, and I'll "
+        "check properly before anything is sent."
     )
 
 
@@ -470,6 +551,24 @@ def _leak_record(finding: dict, now: str) -> dict:
     }
 
 
+def _local_reference_record(finding: dict, now: str) -> dict:
+    """A finding-record.v1 for when the outbound work carries a reference the deployment declared as its own.
+    Persistent-but-benign — a recurring authoring habit worth a durable trace, not a trust weakening.
+
+    The message is bounded by construction upstream: it names the matched TOKEN and where it sits, never the
+    surrounding source line. That bound is load-bearing here rather than cosmetic — this string is published,
+    because telemetry uses its first sentence verbatim as an Issue title and embeds the whole of it in the
+    body, so a message carrying arbitrary diff content would put arbitrary diff content in a GitHub Issue."""
+    return {
+        "source_id": "external-contribution/local-reference-leak",
+        "severity": telemetry.PERSISTENT_BENIGN,
+        "message": finding.get("message"),
+        "location": finding.get("location"),
+        "first_seen": now,
+        "last_seen": now,
+    }
+
+
 def _unverified_record(now: str) -> dict:
     """A finding-record.v1 for when the outgoing diff could not be inspected (git unavailable). Fail-open-AND-
     flag: the submission is held rather than opened on an unread diff, and the failure is promoted so it is
@@ -538,6 +637,7 @@ def _run_gh(args: list):
 def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str, summary: str,
            run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET, home=_UNSET,
            authored_body: str | None = None, confirm: bool = False, proceed_despite_leak: bool = False,
+           proceed_despite_local_references: bool = False, local_references_path=None, lr_git=None,
            reviewed: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
@@ -574,9 +674,20 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
         operator decision ("not a hard gate"), not a terminal halt. Carries the findings, the plain-language
         `narration`, and `promoted` (the telemetry-on-fire result). The operator clears the files, or re-calls
         with `proceed_despite_leak=True` to carry on to the ordinary `confirm` gate.
+      - `"local-reference-decision-needed"` — the outbound work carries a reference this deployment declared
+        as meaning something only inside it (`.engine/operator-local-references.json`), found in the lines it
+        adds, the paths it changes, or the pull-request title/description. PAUSED as an operator decision,
+        exactly like the engine-file leak beside it: rewrite each to say what it MEANS, or re-call with
+        `proceed_despite_local_references=True` to carry on to the ordinary `confirm` gate.
+      - `"local-references-unverified"` — a vocabulary IS declared but the added lines could not be read;
+        STOPPED. An unread change is an unknown change, never a clean one.
+      - `"local-references-unreadable"` — a declaration is present but unparseable; STOPPED. Distinct from
+        having none: the operator believes a check is protecting them, so silently checking nothing is the
+        one outcome worse than no declaration at all.
       - `"prepared"`       — clean (or leak-acknowledged), but no affirmative decision yet; the pull request is
         NOT opened. Carries the assembled `pr` (repo/base/head/title/body) the engine WOULD open and the
-        prepared `narration`.
+        prepared `narration`, which states which of the three local-reference outcomes applies rather than
+        collapsing "nothing declared" into "checked and clean".
       - `"body-incomplete"` — clean, but the assembled body is the engine home's own template with sections
         still to fill (#557), and the target IS the engine's home — whose completeness gate this engine
         enforces would reject it. HELD before the one-way open regardless of `confirm`, so the consent-critical
@@ -697,6 +808,47 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
           "followed_template": template_text is not None, "body_unfilled": body_unfilled,
           "contributing": contributing}
 
+    # 2a-bis. The deployment's OWN local references (#639). A repository's decision ids, spec sections and
+    #    ticket prefixes read as ordinary shorthand at home and name nothing a reader of the target can
+    #    reach. Scanned over three surfaces, because a contribution carries its references in three places:
+    #    the lines it ADDS (never whole files — the target's own existing content is not this contribution's
+    #    doing), the paths it changes, and the pull-request title and description, which travel to the other
+    #    repository exactly as the diff does. Placed AFTER the body is assembled so the prose is in scope,
+    #    and BEFORE the completeness hold so a contribution is never held for a missing section while
+    #    carrying an unresolvable reference nobody has mentioned.
+    lr_vocabulary, lr_state = local_references.load_vocabulary(local_references_path)
+    lr_hits, lr_findings = [], []
+    if lr_state == local_references.UNREADABLE:
+        # A declaration the operator BELIEVES is protecting them, which cannot be read. Silently checking
+        # nothing here is the one outcome worse than having no declaration at all.
+        return {"status": "local-references-unreadable", "pr": pr,
+                "narration": _local_reference_unreadable_narration(upstream_repo)}
+    if lr_vocabulary:
+        added, lr_inspected = local_references.added_lines(
+            diff_ref, run=(lr_git or local_references._git))
+        if not lr_inspected:
+            # An unread change is an unknown change, never a clean one — the same rule the path-list read
+            # already follows. The path list succeeding does not license a claim about the lines.
+            return {"status": "local-references-unverified", "pr": pr,
+                    "narration": _local_reference_unverified_narration(upstream_repo, diff_ref)}
+        lr_hits = local_references.scan(
+            lr_vocabulary, lines=added, paths=changed,
+            blobs={"the pull-request title": title, "the pull-request description": body})
+    if lr_hits:
+        lr_findings = local_references.findings("soft", lr_hits)
+        # Telemetry-on-fire fires whichever way the operator decides, like the engine-file leak beside it.
+        lr_promoted = _promote(_local_reference_record(lr_findings[0], now), now, github=github)
+        if not proceed_despite_local_references:
+            return {
+                "status": "local-reference-decision-needed",
+                "pr": pr,
+                "findings": lr_findings,
+                "offending": lr_hits,
+                "promoted": lr_promoted,
+                "narration": _local_reference_narration(upstream_repo, lr_hits),
+            }
+        # proceed_despite_local_references: acknowledged — fall through to the human confirm gate.
+
     # 2b. #557 — don't open the engine's OWN home a pull-request body that is still its unfilled template. When
     #     the target is the engine's home (whose completeness gate this engine ships) and the assembled body
     #     still carries a leftover template prompt, HOLD before the one-way open — regardless of `confirm`, so a
@@ -717,7 +869,9 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
         return {"status": "prepared", "pr": pr,
                 "narration": _prepared_narration(upstream_repo, head, base, diff_ref,
                                                   leak_overridden=bool(findings), reviewed=reviewed,
-                                                  body_unfilled=body_unfilled)}
+                                                  body_unfilled=body_unfilled,
+                                                  local_references_state=lr_state,
+                                                  local_references_overridden=bool(lr_hits))}
 
     # 4. Open the pull request (the one boundary that acts on the network). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
@@ -785,6 +939,12 @@ def demo() -> int:
         "CLAUDE.md",
     ]
     now = "2026-01-01T00:00:00Z"
+    # A guaranteed-absent declaration path, threaded through EVERY submission below. submit() defaults
+    # to reading the HOST repository's own declaration — right in production, wrong for a showcase: a
+    # project that switched this feature on would otherwise watch the demo it was told to run pick up
+    # that project's real declaration, take the diff-read branch against this demo's synthetic ref,
+    # and fail. A demo must depend on nothing but itself.
+    _ABSENT_DECL = os.path.join(tempfile.mkdtemp(prefix="engine-submit-demo-nodecl-"), "absent.json")
 
     def run_with(paths):
         return lambda args: "\n".join(paths)  # a fake git that returns the given diff regardless of args
@@ -820,7 +980,7 @@ def demo() -> int:
     try:
         # Case 0 — git can't be read: the diff is UNINSPECTED, so the flow refuses to narrate cleanliness
         #          and never opens a PR, even with the decision given (confirm=True).
-        r0 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r0 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=lambda args: None,  # a git that fails on every call
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -835,7 +995,7 @@ def demo() -> int:
         # Case 1 — a leaked engine path PAUSES for a decision (not a terminal halt), fires telemetry-on-fire,
         #          and never opens a PR while the leak is unacknowledged (even with confirm=True).
         leak_diff = run_with(["src/app.py", ".engine/tools/external_contribution/submit.py"])
-        r1 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r1 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=leak_diff,
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -850,7 +1010,7 @@ def demo() -> int:
 
         # Case 1b — the operator OVERRIDES the leak (proceed_despite_leak=True): the flow no longer terminates;
         #           it carries on to the ordinary human gate (here confirm=False -> prepared, still not opened).
-        r1b = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r1b = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                      title="Fix the thing", summary="Fixes the thing.",
                      run=leak_diff,
                      root=root_without, owned=owned, gh_run=gh_ok, github=None,
@@ -860,7 +1020,7 @@ def demo() -> int:
                             f"{r1b['status']} / recorded={recorded}")
 
         # Case 2 — a clean diff with NO decision PREPARES; it must NOT open a pull request.
-        r2 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r2 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=False, now=now)
@@ -872,7 +1032,7 @@ def demo() -> int:
             failures.append("prepared case: the body did not follow the upstream's template")
 
         # Case 3 — clean + decision + a present upstream template: SUBMITS, follows the host's form.
-        r3 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r3 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -892,7 +1052,7 @@ def demo() -> int:
 
         # Case 4 — clean + decision but NO upstream template: falls back to the engine's own shape.
         recorded.clear()
-        r4 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r4 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -902,7 +1062,7 @@ def demo() -> int:
             failures.append("fallback case: the engine's fallback section shape was not used")
 
         # Case 5 — clean + decision but the upstream is unreachable: degrades to a drafted submission.
-        r5 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r5 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_fail, github=None, confirm=True, now=now)
@@ -934,7 +1094,7 @@ def demo() -> int:
         home = "StarshipSuperjam/engine-template"
         home_owned = [".engine/tools/boot.py", ".engine/state/state.json"]   # product + instance-state
         home_diff = run_with([".engine/tools/boot.py", ".engine/state/state.json"])
-        r7 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+        r7 = submit(local_references_path=_ABSENT_DECL, upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
                     summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
                     github=None, home=home, confirm=False, now=now)
         print("--- contributing to the engine's OWN home: product travels, this deployment's state stays flagged ---")
@@ -945,17 +1105,63 @@ def demo() -> int:
             failures.append("home case: the deployment's own state.json was NOT flagged (an instance-state leak)")
         if ".engine/tools/boot.py" in r7.get("offending", []):
             failures.append("home case: product code was over-flagged — the #556 bug this fixes")
-        r7s = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+        r7s = submit(local_references_path=_ABSENT_DECL, upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
                      summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
                      github=None, home=home, confirm=False, now=now)
         if r7s["status"] != "leak-decision-needed" or ".engine/tools/boot.py" not in r7s.get("offending", []):
             failures.append("stranger case: engine source MUST be flagged for a third-party target (safety case)")
 
+        # Case 7b — the deployment's OWN declared references. Shows the outcomes that must never be
+        #           collapsed into one: caught and paused, checked and clean, "you declared nothing, so I
+        #           checked nothing", and "you declared something I couldn't use" — only the second is clean.
+        import json as _json
+        import tempfile as _tempfile
+        _lrdir = _tempfile.mkdtemp(prefix="engine-submit-demo-lr-")
+        _decl = os.path.join(_lrdir, "operator-local-references.json")
+        with open(_decl, "w", encoding="utf-8") as _fh:
+            _json.dump({"id_prefixes": ["ACME-"], "section_refs": ["acme-topology"]}, _fh)
+
+        def _lrdiff(text):
+            return lambda *_a, **_k: (b"+++ b/src/app.py\n@@ -0,0 +1 @@\n+" + text.encode() + b"\n")
+
+        lr_kw = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+                     title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
+                     root=root_without, owned=owned, gh_run=gh_ok, github=None, home=None, now=now)
+        r7b = submit(**lr_kw, local_references_path=_decl,
+                     lr_git=_lrdiff("# kept out of git (acme-topology Law 5; ACME-156)"))
+        print("--- the contribution carries THIS project's own shorthand: paused for your decision ---")
+        print(r7b["narration"], "\n")
+        if r7b["status"] != "local-reference-decision-needed":
+            failures.append(f"local-reference case: expected a pause, got {r7b['status']}")
+        if sorted(h["token"] for h in r7b.get("offending", [])) != ["ACME-156", "acme-topology Law 5"]:
+            failures.append(f"local-reference case: wrong hits {r7b.get('offending')}")
+        r7c = submit(**lr_kw, local_references_path=_decl,
+                     lr_git=_lrdiff("# the acme-topology rule: your checkout stays a viewing surface"))
+        print("--- the same document named as a CAPABILITY rather than cited: left alone ---")
+        print(r7c["narration"], "\n")
+        if r7c["status"] != "prepared" or "found none of them" not in r7c["narration"]:
+            failures.append(f"local-reference prose case: expected a clean prepared, got {r7c['status']}")
+        _bad = os.path.join(_lrdir, "unusable.json")
+        with open(_bad, "w", encoding="utf-8") as _fh:
+            _json.dump({"ticket_ids": ["ACME-"]}, _fh)      # a key the engine does not recognise
+        r7e = submit(**lr_kw, local_references_path=_bad,
+                     lr_git=_lrdiff("# kept out of git (acme-topology Law 5; ACME-156)"))
+        print("--- the list was written, but nothing in it could be used: NOT reported as clean ---")
+        print(r7e["narration"], "\n")
+        if "couldn't use" not in r7e["narration"] or "found none of them" in r7e["narration"]:
+            failures.append("unusable-declaration case: a discarded list must not be narrated as checked")
+        r7d = submit(**lr_kw, local_references_path=os.path.join(_lrdir, "absent.json"),
+                     lr_git=_lrdiff("# kept out of git (acme-topology Law 5; ACME-156)"))
+        if r7d["status"] != "prepared" or "found none of them" in r7d["narration"]:
+            failures.append("no-declaration case: an unchecked contribution must NOT be narrated as clean")
+        if "haven't listed any references" not in r7d["narration"]:
+            failures.append("no-declaration case: the narration did not say the check could not run")
+
         # Case 8 — #557: an AUTHORED body is carried VERBATIM (the mergeable path against a gated host), no raw
         #          <placeholder> survives, and the #562 review note still leads it.
         authored = ("## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n\n"
                     "## Validation\n\n**Tests pass.**\n\n*Impact: green.*\n")
-        r8 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+        r8 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
                     root=root_gated, owned=owned, gh_run=gh_ok, github=None, authored_body=authored,
                     home=None, confirm=False, now=now)
@@ -974,7 +1180,7 @@ def demo() -> int:
         #          unfilled template to a stranger's repo is only ADVISED (opening a template for completion is
         #          normal there).
         recorded.clear()
-        r9 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+        r9 = submit(local_references_path=_ABSENT_DECL, upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
                     summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
                     github=None, home=home, confirm=True, now=now)
         print("--- an unfilled body to the engine's OWN home: held before opening, remedy named ---")
@@ -982,7 +1188,7 @@ def demo() -> int:
         if r9["status"] != "body-incomplete" or "args" in recorded:
             failures.append(f"unfilled-home case: expected body-incomplete and NO pr create, got {r9['status']} "
                             f"/ recorded={recorded}")
-        r9f = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+        r9f = submit(local_references_path=_ABSENT_DECL, upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
                      summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
                      github=None, home=home, confirm=False, now=now)
         if r9f["status"] != "prepared" or not r9f["pr"]["body_unfilled"]:

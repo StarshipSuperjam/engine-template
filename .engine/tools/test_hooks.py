@@ -410,14 +410,19 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                                           "erasure-proposer SessionStart sweeps + three backup-vault SessionStart pushes")
         self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
 
-        projects = validate.load_json(
-            os.path.join(validate.ROOT, ".engine/modules/github-projects-sync/manifest.json"))
+        # Both modules below are OPTIONAL — declined at setup or removed later, their manifests are simply
+        # gone. Reading one unconditionally raises a bare FileNotFoundError in a deployment that made a
+        # supported choice, which reds its required self-tests over an add-on it never wanted.
+        projects_path = os.path.join(validate.ROOT, ".engine/modules/github-projects-sync/manifest.json")
+        pd_path = os.path.join(validate.ROOT, ".engine/modules/product-design/manifest.json")
+        if not (os.path.exists(projects_path) and os.path.exists(pd_path)):
+            self.skipTest("board-sync and/or product-design are not installed in this repository")
+        projects = validate.load_json(projects_path)
         p_cmds = self._hook_cmds(projects)
         self.assertEqual(len(p_cmds), 2, "the board refresh on two SessionStart matchers (startup + resume)")
         self.assertEqual(set(p_cmds), expected_projects, "every board-sync manifest hook command is hook_command's output")
 
-        product_design = validate.load_json(
-            os.path.join(validate.ROOT, ".engine/modules/product-design/manifest.json"))
+        product_design = validate.load_json(pd_path)
         pd_cmds = self._hook_cmds(product_design)
         self.assertEqual(len(pd_cmds), 1, "product-design's one obligation-matrix commit-boundary regen hook")
         self.assertEqual(set(pd_cmds), expected_product_design,

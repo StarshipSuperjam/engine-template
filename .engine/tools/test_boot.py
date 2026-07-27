@@ -3070,7 +3070,7 @@ class TestGreenfieldIntakeOffer(unittest.TestCase):
 
 
 class TestRecognitionSlice(unittest.TestCase):
-    """D-309 / #495: the pack reads the surface catalog's recognition slice — name and location per
+    """The pack reads the surface catalog's recognition slice — name and location per
     surface, none of the authoring fields — on every render, and a broken catalog renders nothing."""
 
     def test_slice_names_every_surface_with_location_only(self):
