@@ -4904,7 +4904,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:76b8c6ab10bbf439f4999650b44aff962e077e56490e8c46e0f2a418c6841dd9",
+        "fingerprint": "sha256:3b6c309d7dc338ff9123ab624cbdd6432ae8837f463a245a1e362b1ee42392d2",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -5222,7 +5222,7 @@
       },
       "slug": "execution-state.v1",
       "source": {
-        "fingerprint": "sha256:338153af49a6f8e7f50ad1f31dfafcbed33b692d4fe56492da08526a25a2e2ca",
+        "fingerprint": "sha256:113013d5fc35521afb43b42f0f3c7d731adca975b0806b7984adba5c8726367a",
         "path": ".engine/schemas/execution-state.v1.json"
       },
       "status": "active",
@@ -5324,7 +5324,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:a928c1844bc0aefce7c6d2e64903352ca0a8eec83d84b1dc5a5107a02a7fd37b",
+        "fingerprint": "sha256:83984976b40ea4f5a98aec2cb9ad19a90d334b00ed3d1ec524ab3ee0c758e010",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -5894,7 +5894,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:9f2038042eb0f002d9fdae6004e8c82de11b32e376333b12ced911970687e1d7",
+        "fingerprint": "sha256:813b776242ce7a62d9a7a63c0a27d7cadff6ff18de728741853e0783d29490cb",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -6098,7 +6098,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:bc812a334b5619482d1067effdc4aaf7ae0d20b0c5fdcc10e4eb302df433b2bc",
+        "fingerprint": "sha256:34a955c4c41905a0c698005f620eaee36ee942e59755068ecf2621cf98fcba66",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7390,7 +7390,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:ecd5a09fdc2aa6d897ae4a41b23c96ac234f051ba261d6295f6d8517c64c3a9f",
+        "fingerprint": "sha256:a946b580fceeae84e9e84c3ede9dc26a2ff11da8da90a690422c892dffda9b21",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -9277,7 +9277,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:39b0ddf7c3edf9c104c60a8190067968b1943d700441d09186a39422ca99a647",
+        "fingerprint": "sha256:55d9e363255c0df16bcc815f3e82aa99e4899c82ae5103d537e5aa98593b636b",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -9634,7 +9634,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:70b67ea0381052bf0a737fcf3c8f4458ea5936d48dd37f3ae18ab938b718285c",
+        "fingerprint": "sha256:4d28a6903b97977d655038989ba67b25fde628fca858cc6ab010cf78d8e6fe68",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -10382,7 +10382,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:27165c81131651b27fce7405dbb07d49330acccb227c738875753d9567f609cb",
+        "fingerprint": "sha256:6292cb46bafe02297b32758b696bc9d211d54339aeb2f7b73a1a6946a260f9e3",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",

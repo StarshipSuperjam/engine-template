@@ -49,15 +49,16 @@
           "minLength": 1
         },
         "floors": {
-          "description": "A per-file map from an instruction-floor file (its repo-relative path, e.g. 'CLAUDE.md', 'AGENTS.md', '.engine/conduct/defaults.md') to the sha256 of its bytes at qualification, written 'sha256:' + 64 hex, or null when that file could not be read at qualification time. This is deliberately an OPEN map, not a fixed set of keys, because the conduct floor is operator-variable (codes are added and removed) — a per-file map tracks the real set, names which floor drifted, and notices an added or removed floor file. Empty ({}) at genesis. A null value means 'recorded but unverifiable' and, on a qualified entry, forces the conservative posture rather than a false match — an un-checkable floor is never treated as a pass.",
+          "description": "A per-file map from an instruction-floor file (its repo-relative path, e.g. 'CLAUDE.md', 'AGENTS.md', '.engine/conduct/defaults.md') to the sha256 of its bytes at qualification, written 'sha256:' + 64 hex, or null when that file could not be read at qualification time. This is deliberately an OPEN map, not a fixed set of keys, because the conduct floor is operator-variable (codes are added and removed) — a per-file map tracks the real set, names which floor drifted, and notices an added or removed floor file. Keys are constrained to repo-relative path characters (no whitespace or newlines) so a crafted key can never inject a line into the drift alarm the engine relays to the operator. Empty ({}) at genesis. A null value means 'recorded but unverifiable' and, on a qualified entry, forces the conservative posture rather than a false match — an un-checkable floor is never treated as a pass.",
           "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z0-9._/-]+$" },
           "additionalProperties": {
             "type": ["string", "null"],
             "pattern": "^sha256:[0-9a-f]{64}$"
           }
         },
         "model_alias": {
-          "description": "The durable model alias (opus/sonnet/haiku — never a versioned id that rots) the operator recorded this environment as qualified for, or null. This is the operator's RECORDED assertion, not a live-observed value: the running model's identity is not reliably observable to the engine at session start, so this field is never used to raise a drift alarm. It is read by the periodic audit, which compares it against the current model landscape and proposes an update when it no longer fits. Null until qualified, and null-permitted afterwards.",
+          "description": "The durable model alias (opus/sonnet/haiku — never a versioned id that rots) the operator recorded this environment as qualified for, or null. This is the operator's RECORDED assertion, not a live-observed value: the running model's identity is not reliably observable to the engine at session start, so this field is never used to raise a drift alarm. It is the operator's own note of the model class they qualified against, changed by editing this file. Null until qualified, and null-permitted afterwards.",
           "type": ["string", "null"],
           "minLength": 1
         },

@@ -1178,7 +1178,7 @@ def hooks_health_line() -> "str | None":
             "it runs as a plain command.")
 
 
-def gather_signals(session_id: str | None = None) -> dict:
+def gather_signals(session_id: str | None = None, payload: dict | None = None) -> dict:
     """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
     relays (it computes no new state). Each read is best-effort upstream and degrades that signal only.
     Returns a flat dict consumed by render_dashboard / present_marker_line / must_push — the single place
@@ -1484,7 +1484,10 @@ def gather_signals(session_id: str | None = None) -> dict:
     # (read from model-routing.md, fail-open to the conservative default); boot only relays. It is total by
     # construction — a missing/unreadable baseline degrades to a conservative posture, never a broken pack.
     try:
-        execution = execution_environment.derive(provider=providers.detect())
+        # provider from the payload (detect is env-first, payload is its Codex fallback); repo is the slug boot
+        # already resolved (GITHUB_REPOSITORY-anchored, stronger than the deriver's git-only read) — passing it
+        # avoids a second git call and closes the CI path where the deriver's own read would return None.
+        execution = execution_environment.derive(provider=providers.detect(payload), repo=repo)
     except Exception:  # noqa: BLE001 — belt: the deriver already catches, but boot never breaks on this signal
         execution = None
     return {
@@ -2391,14 +2394,19 @@ def _pushed_alarms(s: dict) -> list:
     ex = s.get("execution")
     if ex and ex.get("posture") == "changed":
         runtime = ex.get("runtime") or "claude"
-        drift = ", ".join(ex.get("drift") or []) or "the execution environment"
-        full = (f"{RELAY_MARKER} the execution environment doing the work differs from the one qualified for "
-                f"this repository ({drift} changed since it was qualified); if that change is intentional, they "
-                f"can re-qualify by running `.engine/tools/execution_environment.py record {runtime}` and merging "
-                f"the diff — the merge is the qualification.")
-        terse = (f"{RELAY_MARKER} the execution environment still differs from the qualified baseline (unchanged "
-                 f"since last session — {drift}); the fix still stands: re-qualify with "
-                 f"`execution_environment.py record {runtime}` and merge when ready.")
+        # Lead with what actually moved (usually an instruction-floor file the operator edited — e.g. a conduct
+        # code — NOT "the runtime changed"). Defang each drifted component through _one_line: the floors map is
+        # an open committed surface, and a crafted newline in a key must never open its own line in the
+        # operator's card in the engine's voice (the scrub boot gives every machine-supplied value).
+        drift = _one_line(", ".join(ex.get("drift") or [])) or "a file it was based on"
+        cmd = f"uv run --directory .engine -- python tools/execution_environment.py record {runtime}"
+        full = (f"{RELAY_MARKER} a file the qualification for this repository was based on has changed since it "
+                f"was qualified ({drift}) — so the engine is running its careful default rather than the "
+                f"qualified posture; if that change is intended, they can re-qualify by running `{cmd}` and "
+                f"merging the diff (the merge is the qualification).")
+        terse = (f"{RELAY_MARKER} a file the qualification was based on still differs from when it was qualified "
+                 f"(unchanged since last session — {drift}); the fix still stands: re-qualify with `{cmd}` and "
+                 f"merge when ready.")
         alarms.append({"key": "execution", "value": ["changed", sorted(ex.get("drift") or [])],
                        "collapsible": True, "full": full, "terse": terse, "worse": full})
     return alarms
@@ -2608,7 +2616,7 @@ def render_recognition_slice() -> "list[str]":
             + entries + ".", ""]
 
 
-def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
+def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
     block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
@@ -2620,7 +2628,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
     debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
     collapse: only the must-push relay payload behind the marker varies."""
-    s = gather_signals(session_id)
+    s = gather_signals(session_id, payload)
     marker = present_marker_line(s)
     push = _relay_lines(s) if use_ledger else must_push(s)
     # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
@@ -2806,7 +2814,7 @@ def handler(payload: dict) -> dict:
         pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
-    pack = assemble_pack(session_id, use_ledger=True)
+    pack = assemble_pack(session_id, use_ledger=True, payload=payload)
     return hooks.inject(pack) if pack else hooks.proceed()
 
 

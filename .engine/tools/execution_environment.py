@@ -137,7 +137,9 @@ def _engine_release(root: str) -> str | None:
         return None
 
 
-_SLUG_RE = re.compile(r"(?:github\.com[:/])([^/]+/[^/]+?)(?:\.git)?/?$")
+# Host-anchored (^...) so a look-alike host (notgithub.com/owner/repo) can never match as a substring — the
+# same discipline boot's repo_slug uses, because a mis-parsed slug would scope a qualification to the wrong repo.
+_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
 
 
 def current_repo(root: str) -> str | None:
@@ -194,10 +196,13 @@ def compare(observed: dict, baseline: dict) -> dict:
     entry = (baseline.get("environments") or {}).get(env) or {}
     if entry.get("status") != "qualified":
         return {"runtime": env, "posture": "unqualified", "drift": []}
-    # A qualification counts only in the repo it was made for: a foreign/home-shipped baseline reads as
-    # not-ours (calm), never as drift (an alarm).
-    if entry.get("repo") and observed.get("repo") and entry["repo"] != observed["repo"]:
-        return {"runtime": env, "posture": "unqualified", "drift": []}
+    # A qualification counts only in the repo it was made for. If the live repo can't be resolved, the repo
+    # component is unverifiable — and Rule 1 says an un-checkable component never resolves to matched (a
+    # foreign baseline whose floor hashes happen to match must not slip through), so degrade to conservative.
+    # A resolved-but-different repo is a foreign/home-shipped baseline: calm (unqualified), never drift.
+    if entry.get("repo"):
+        if observed.get("repo") is None or entry["repo"] != observed["repo"]:
+            return {"runtime": env, "posture": "unqualified", "drift": []}
 
     drift: list[str] = []
     unverifiable = False
@@ -235,7 +240,8 @@ def _policy_posture_block(root: str, name: str) -> list[str] | None:
     tolerant: any miss returns None so resolve_posture falls back to the safe constant — the parse never
     raises into boot."""
     try:
-        text = open(os.path.join(root, _POLICY_REL), encoding="utf-8").read()
+        with open(os.path.join(root, _POLICY_REL), encoding="utf-8") as fh:
+            text = fh.read()
     except OSError:
         return None
     start = text.find(f"<!-- posture:{name} -->")

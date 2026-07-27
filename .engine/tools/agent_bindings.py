@@ -87,7 +87,8 @@ def render(root: str | None = None) -> list[str]:
     bindings = load_bindings(root)
     changed = []
     for path in _agent_files(root):
-        text = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
         parsed = _frontmatter(text)
         if not parsed:
             continue
@@ -108,7 +109,8 @@ def check(root: str | None = None) -> list[str]:
     bindings = load_bindings(root)
     problems, names = [], set()
     for path in _agent_files(root):
-        parsed = _frontmatter(open(path, encoding="utf-8").read())
+        with open(path, encoding="utf-8") as fh:
+            parsed = _frontmatter(fh.read())
         if not parsed:
             continue
         _, _, fm = parsed

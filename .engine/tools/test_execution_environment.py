@@ -325,6 +325,23 @@ class TestObserveAndRecord(unittest.TestCase):
             with self.assertRaises(ee.QualificationRefused):
                 ee.record_qualification("claude", root=d)
 
+    def test_record_writes_but_never_commits(self):
+        # The merge is the qualification act — record only writes the working-tree file, never a commit.
+        with tempfile.TemporaryDirectory() as d:
+            _fixture_root(d)
+            for args in (["init", "-q"], ["add", "-A"],
+                         ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base"]):
+                subprocess.run(["git", *args], cwd=d, check=True, capture_output=True)
+            head = lambda: subprocess.run(["git", "rev-parse", "HEAD"], cwd=d,
+                                          capture_output=True, text=True).stdout
+            before = head()
+            ee.record_qualification("claude", root=d, repo="o/r", now="2026-07-27T00:00:00Z")
+            self.assertEqual(before, head(), "record_qualification must not create a commit")
+            self.assertTrue(os.path.exists(os.path.join(d, ".engine", "state", "execution.json")))
+            status = subprocess.run(["git", "status", "--porcelain"], cwd=d,
+                                    capture_output=True, text=True).stdout
+            self.assertTrue(status.strip(), "record leaves an uncommitted change in the working tree")
+
 
 class TestDerive(unittest.TestCase):
     def test_genesis_baseline_is_unqualified(self):
