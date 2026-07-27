@@ -7424,7 +7424,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:7a5b96346d8a5d849e60f44866e58bd1fd472c6455817b43464de592887ad485",
+        "fingerprint": "sha256:714150c84a9ad7e1c00b5f4c4185cc818fef9fc03516ab353efcea0358c5b8f5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8563,7 +8563,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:8da852074aaf2114ffbc0c5a2aab1d537df04df4fa7e6cb1a36ef35778779b8e",
+        "fingerprint": "sha256:cc60b80a2f4604e022aa40028e1087e75f7756474552c8932f6be737221a8f9d",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -9549,7 +9549,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1b586ade6a9293e19851bbb05904ceb30f4e22c134390c9929beee3d823e45ce",
+        "fingerprint": "sha256:c51b4aed0b796a01f27862780dd428c9781f7c2499e34955d3d6d03275fd0379",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9821,7 +9821,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:07a1f18243157d3db651db8929d62e8869792e557072a486e24de7c37a770c6b",
+        "fingerprint": "sha256:1e79a5ed66dacf50c533015c2bcccb5e42f549e319b37a92b21b245363627b28",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -10195,7 +10195,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:3c9fcfca31d88f76a017a13a0fd46d2d53065c8be5e5fa4a88267e471158fe4d",
+        "fingerprint": "sha256:c84a2ef74d24b7881b9870aea4fc4637765db288640cc4980fd1a220cae083f5",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",
@@ -10603,7 +10603,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:52b03914ffc81750a92597d77763e2a4b0e10b5888c86fd73eb5f77418494ce2",
+        "fingerprint": "sha256:1851fccef891aee29b232a5741cbee156d8eae02d416d3b3b3066bc9943e21a3",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",

@@ -173,9 +173,16 @@ def _connect(path: str) -> sqlite3.Connection:
         conn.commit()
     elif tuple(row) != current:
         # A different table, or a different way of deriving a vector: every stored row is unusable.
-        conn.execute("DELETE FROM passages")
+        #
+        # DROP, never DELETE. A version bump can change the table's SHAPE, and `CREATE TABLE IF NOT EXISTS`
+        # is a no-op against a table that already exists — so emptying the rows would leave an OLD-shaped
+        # table stamped as current, and the next query would fail on a missing column, for good, with no
+        # path back. Dropping it forces the create above to run for real on the next connect.
+        conn.execute("DROP TABLE IF EXISTS passages")
         conn.execute("UPDATE meta SET schema_version = ?, table_fingerprint = ? WHERE rowid = 1", current)
         conn.commit()
+        conn.close()
+        return _connect(path)
     return conn
 
 
@@ -268,27 +275,6 @@ def sync(*, ledger_file: "str | None" = None, store_file: "str | None" = None) -
         return _reconcile(conn, live)
     finally:
         conn.close()
-
-
-def coverage(*, ledger_file: "str | None" = None, store_file: "str | None" = None) -> dict:
-    """How much of the store meaning-based recall can actually see.
-
-    This is what lets an empty answer say which kind of empty it is: nothing stored to search, or searched
-    and genuinely nothing close.
-    """
-    path = store_path(store_file)
-    records = len(_live_text(ledger_file))
-    if not os.path.exists(path):
-        return {"records_embedded": 0, "records": records, "passages": 0}
-    conn = _connect(path)
-    try:
-        # Reconcile first, or this counts records that have already left the ledger and reports a store that
-        # covers more than it does — the opposite of what a readout about coverage is for.
-        _reconcile(conn, _live_text(ledger_file))
-        held = conn.execute("SELECT COUNT(*), COUNT(DISTINCT record_id) FROM passages").fetchone()
-    finally:
-        conn.close()
-    return {"records_embedded": int(held[1]), "records": records, "passages": int(held[0])}
 
 
 def _best_by_record(cursor, live: dict, question):

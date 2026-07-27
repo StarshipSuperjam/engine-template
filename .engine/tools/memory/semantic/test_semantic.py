@@ -253,12 +253,19 @@ class StoreBehaviourTests(_Cabinet):
         self.assertTrue(found["passages"][0])
         self.assertEqual(len(found["passages"]), len(found["records"]))
 
-    def test_an_empty_store_reports_that_nothing_was_searched(self):
-        """Zero searched is a different answer from nothing being close, and callers must tell them apart."""
+    def test_an_empty_store_returns_the_same_shape_a_populated_one_does(self):
+        """A deployed repo starts EMPTY, so this is the first shape it ever sees — and a caller unpacks it.
+
+        An omitted key here was a crash on the very first question a new project asked, and it survived a
+        green suite because the empty case was only ever tested at this layer, never through the caller.
+        """
         open(self.ledger, "a").close()
-        found = self._search("anything at all")
-        self.assertEqual(found["records"], [])
-        self.assertEqual(found["searched"], 0)
+        empty = self._search("anything at all")
+        self._write("Something to find.")
+        populated = self._search("something to find")
+        self.assertEqual(set(empty), set(populated), "the empty answer must carry every key")
+        self.assertEqual(empty["records"], [])
+        self.assertEqual(empty["searched"], 0)
 
     def test_a_different_word_table_discards_every_stored_vector(self):
         """Vectors from two tables are not comparable; mixing them degrades ranking with no error."""

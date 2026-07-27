@@ -117,8 +117,10 @@ _STATUS_MARK = {
 }
 
 _DESELECT_PREFACE = (
-    "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
-    "are deleted, not just switched off. Wanting one later is a fresh request, not a checkbox you flip back."
+    "When you confirm: any add-on you did not ask for will be removed from this project — their files are\n"
+    "deleted, not just switched off. Wanting one later is a fresh request, not a checkbox you flip back.\n"
+    "The exception is an add-on marked [INCLUDED unless you say otherwise]: that one is kept if you say\n"
+    "nothing, so to leave it out you have to name it — just say so and it is removed the same way."
 )
 # The first-run WELCOME orientation — for someone who has already adopted the Engine and is now its operator,
 # not a prospect being convinced (that is the README's job). Fuller and more concrete than the README on
@@ -459,8 +461,8 @@ def optional_dependency_closure(manifests) -> dict:
 
     Empty today: the one selectable module that depends on more than core depends on a REQUIRED module, and
     required dependencies are deliberately excluded here, so every list comes back empty. The mechanism is
-    spec-mandated and armed for the first selectable module that depends on another selectable one — it ships
-    complete, not deferred."""
+    spec-mandated and covers every selectable status, so it is armed for the first selectable module that
+    depends on another selectable one — it ships complete, not deferred."""
     depends, status = {}, {}
     for _path, manifest in manifests:
         mid = manifest.get("id")
@@ -468,7 +470,10 @@ def optional_dependency_closure(manifests) -> dict:
             continue
         depends[mid] = manifest.get("depends") or {}
         status[mid] = manifest.get("status")
-    optional = {mid for mid, s in status.items() if s == "optional"}
+    # SELECTABLE, not just `optional`: a `default-on` module is offered and removable too, so its pull-ins
+    # have to be surfaced at the choice moment for the same reason. Required modules stay excluded — they are
+    # the spine, never a choice, and naming them would only add noise.
+    optional = {mid for mid, s in status.items() if s in ("optional", "default-on", "experimental")}
     closure = {}
     for mid in optional:
         seen, stack = set(), list(depends.get(mid, {}))
@@ -516,7 +521,8 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
     lines += [
         "",
         "Optional add-ons — include what you want now; you can add any later just by asking, and any is",
-        "removable. Leave out anything you don't need:",
+        "removable. Leave out anything you don't need. One or two are marked as included unless you say",
+        "otherwise — say so and they are left out:",
         "",
     ]
     grouped = selectable(module_catalog.entries(catalog_path))
@@ -551,6 +557,20 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
     return "\n".join(lines)
 
 
+def _existing_packages(root: str | None) -> dict:
+    """The packages map of an already-written engine manifest, or {} when there is none to read.
+
+    Used to tell "the operator has not chosen yet" from "the operator turned this down", which are the same
+    absence in the arguments and opposite meanings for a module that is on by default.
+    """
+    try:
+        path = os.path.join(root or validate.ROOT, ".engine", "engine.json")
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("packages") or {}
+    except Exception:
+        return {}
+
+
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
             default_branch: str | None = None, product_repository: str | None = None,
@@ -570,6 +590,13 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     kept = set(kept_optional_ids or [])
     declined = set(declined_ids or [])
     manifests = manifests if manifests is not None else module_coherence.discover_manifests()
+    # A default-on module missing from an already-written manifest was declined before. Only a manifest that
+    # actually records packages counts: an absent or empty one means no choice has been made yet, not that
+    # everything was refused.
+    recorded = _existing_packages(root)
+    previously_declined = {m.get("id") for _p, m in manifests
+                           if m.get("status") == "default-on" and m.get("id") not in recorded} if recorded \
+        else set()
     # Honor the dependency closure the gather step surfaced: keeping an optional module also installs the
     # optional modules it depends on (the pull-ins present_gather annotated with "Including this also turns
     # on: …"), so the written manifest never records a kept module without its optional dependency — the
@@ -586,7 +613,11 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
         # "included unless you say otherwise", and that promise has to be honoured by this step rather than by
         # whoever assembles the keep-list. Silence keeping the opposite of what the operator was told is the
         # failure this guards; the apply phase deletes the files of anything missing here.
-        default_on = status == "default-on" and mid not in declined
+        # A `default-on` module is kept unless the operator declined it — either in this call, or in an
+        # earlier one whose manifest is still on disk. Re-running confirm without flags must not silently
+        # reinstate something they turned down; the recorded manifest IS the record of that choice, and the
+        # home/product coordinates beside it are carried forward for exactly the same reason.
+        default_on = status == "default-on" and mid not in declined and mid not in previously_declined
         if status == "required" or default_on or mid in kept:
             packages[mid] = str(manifest.get("version") or "")
     release = engine_release or _existing_release(root) or "0.0.0-dev"

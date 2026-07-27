@@ -65,6 +65,27 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ToolWiringTests(_ServerBase):
+    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
+    async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
+        # The contract declares `additionalProperties: false`, so a key the server sends and the interface
+        # does not name is a contract breach. Nothing validated this operation's shape, which is why one
+        # survived until a cold review found it by hand.
+        import json as _json
+        import jsonschema
+
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        with open(os.path.join(root, ".engine", "interfaces", "search.json"), encoding="utf-8") as fh:
+            declared = _json.load(fh)
+        schema = next(op["output_schema"] for op in declared["operations"]
+                      if op["name"] == "recall-by-meaning")
+        self.add("We ruled out a cron job and hooked the calendar instead.", role="decision")
+        for query in ("did we consider running it on a timer",       # a hit
+                      "zzzqqx nothing here matches this at all"):    # and an empty answer
+            with self.subTest(query=query):
+                out = self._result_json(
+                    await srv.server.call_tool("recall-by-meaning", {"query": query}))
+                jsonschema.validate(out, schema)
+
     async def test_tools_list_is_exactly_the_declared_operations(self):
         # The server answers search.json's operation set and nothing else — an undeclared tool would be a
         # private detail no other conforming implementation would offer, breaking a caller that relied on it.
@@ -121,7 +142,9 @@ class ToolWiringTests(_ServerBase):
                              "an emptied module directory must not read as installed")
         finally:
             importlib.util.find_spec = real
-        self.assertTrue(srv._semantic_installed(), "and the real installation must still read as present")
+        # Deliberately NOT asserting the module is present afterwards: this test file is owned by the always-
+        # present memory module, so it also runs on a deployment where the operator declined the semantic
+        # add-on. Asserting its presence would fail in exactly the configuration the decline path exists for.
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so

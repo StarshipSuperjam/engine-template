@@ -497,6 +497,22 @@ class LeakGuardTests(unittest.TestCase):
     def test_allows_a_throwaway_path(self):
         recall.assert_not_live_store("/tmp/definitely-not-the-live-ledger.ndjson")  # no raise
 
+    def test_a_derived_file_inside_the_live_store_is_refused_too(self):
+        """The reason the guard is containment and not equality.
+
+        The saved-history folder holds several derived copies of the same conversation beside the ledger —
+        the keyword index, and the vectors where meaning-based recall is installed. Guarding one filename
+        would leave the others reachable by a demo that prints verbatim conversation to a log.
+        """
+        import os as _os
+
+        from memory import ledger as _ledger
+
+        live_dir = _ledger.ledger_dir()
+        for name in ("index.sqlite3", "vectors.sqlite3", "some-future-derivative.db"):
+            with self.subTest(name=name):
+                with self.assertRaises(SystemExit):
+                    recall.assert_not_live_store(_os.path.join(live_dir, name))
 
 class DemoTests(unittest.TestCase):
     def test_demo_passes(self):
