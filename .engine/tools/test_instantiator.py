@@ -2265,9 +2265,16 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
 
 class TestFinishCopy(unittest.TestCase):
     def test_template_carries_every_finish_section(self):
-        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        # Read the template's headings DIRECTLY — load_copy() silently substitutes the built-in fallback for a
+        # missing section, so routing through it makes this test vacuous on the template side (the same #514
+        # finding the apply-copy twin documents at TestApplyCopySurface). The name is only true against the raw
+        # template.
+        with open(inst.TEMPLATE_PATH, encoding="utf-8") as fh:
+            template = fh.read()
         for key in _FINISH_KEYS:
-            self.assertTrue(copy[key].strip(), f"finish copy section {key!r} missing from the template")
+            heading = inst.COPY_HEADINGS[key]
+            self.assertIn(f"## {heading}\n", template,
+                          f"finish copy section {key!r} ({heading!r}) missing from the template")
 
 
 class TestFinishDemoRunsGreen(unittest.TestCase):
@@ -2483,9 +2490,16 @@ class TestCollisionCheck(unittest.TestCase):
 
 class TestCollisionCopy(unittest.TestCase):
     def test_template_carries_every_collision_section(self):
-        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        # Read the template's headings DIRECTLY — load_copy() silently substitutes the built-in fallback for a
+        # missing section, so routing through it makes this test vacuous on the template side (the same #514
+        # finding the apply-copy twin documents at TestApplyCopySurface). The name is only true against the raw
+        # template.
+        with open(inst.TEMPLATE_PATH, encoding="utf-8") as fh:
+            template = fh.read()
         for key in _COLLISION_KEYS:
-            self.assertTrue(copy[key].strip(), f"overlap copy section {key!r} missing from the template")
+            heading = inst.COPY_HEADINGS[key]
+            self.assertIn(f"## {heading}\n", template,
+                          f"overlap copy section {key!r} ({heading!r}) missing from the template")
 
 
 class TestCollisionDemoRunsGreen(unittest.TestCase):

@@ -127,12 +127,13 @@ class TestSeverityRank(unittest.TestCase):
 
     _BAR = 2   # the shipped debt_blocking_threshold these grades are calibrated against
 
-    def test_trust_critical_grades_above_the_bar(self):
-        self.assertGreaterEqual(telemetry.severity_rank(telemetry.TRUST_CRITICAL, self._BAR), self._BAR)
-
-    def test_persistent_benign_grades_below_the_bar(self):
-        # Below the bar -> assign_partition returns None -> a deferral/backlog.
-        self.assertLess(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, self._BAR), self._BAR)
+    # NOTE: the fixed-bar grade cases (trust-critical above, benign below) are covered here by the
+    # tuned-bar tests below (test_trust_critical_clears_ANY_bar... and test_benign_stays_below_a_raised_bar...),
+    # and the BEHAVIORAL boundary — that a benign finding defers rather than blocks at the shipped bar — is
+    # guarded cross-file by the real severity_rank -> assign_partition pipeline in test_attention.py
+    # (TestLiveDebtRegister.test_a_benign_finding_is_a_deferral_and_a_trust_critical_one_blocks, on
+    # FIXTURE_POLICY's debt_blocking_threshold=2). Don't prune those attention tests assuming this file
+    # covers the boundary.
 
     def test_an_unmarked_finding_has_no_severity_to_report(self):
         # A pre-severity Issue (an audit-authored finding carries no severity marker): telemetry owns the class
@@ -169,10 +170,6 @@ class TestSeverityRank(unittest.TestCase):
         # surfaces it. This is what makes debt_blocking_threshold govern instead of compare itself to itself.
         self.assertLess(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, 5), 5)
         self.assertGreaterEqual(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, 1), 1)
-
-    def test_grading_is_pure_and_deterministic(self):
-        for sev in (telemetry.TRUST_CRITICAL, telemetry.PERSISTENT_BENIGN, None):
-            self.assertEqual(telemetry.severity_rank(sev, self._BAR), telemetry.severity_rank(sev, self._BAR))
 
 
 class TestPureHelpers(unittest.TestCase):

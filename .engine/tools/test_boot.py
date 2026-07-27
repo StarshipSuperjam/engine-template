@@ -32,6 +32,25 @@ import validate
 ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
 
+# Pin the saved-memory store to a throwaway dir for the whole module. Several boot paths (session cards, the
+# where-we-left-off block, pins) read ENGINE_MEMORY_DIR through gather_signals()/assemble_pack(); left unset it
+# resolves to the operator's real store, so local suite time scaled with the store's size. mock.patch.dict
+# auto-restores on stop, so this never leaks the var into a sibling module in the shared `discover` process.
+_MEM_TMP = None
+_MEM_PATCH = None
+
+
+def setUpModule():
+    global _MEM_TMP, _MEM_PATCH
+    _MEM_TMP = tempfile.TemporaryDirectory()
+    _MEM_PATCH = mock.patch.dict(os.environ, {"ENGINE_MEMORY_DIR": _MEM_TMP.name})
+    _MEM_PATCH.start()
+
+
+def tearDownModule():
+    _MEM_PATCH.stop()
+    _MEM_TMP.cleanup()
+
 
 def _floor_text() -> str:
     """The floor's text. Since #323 the committed root CLAUDE.md IS the adopter floor (the separate
@@ -42,8 +61,15 @@ def _floor_text() -> str:
 
 
 def _offline():
-    """Patch boot so no network is touched: no repo/token, a stable empty attention result, and a
-    fixed recently-shipped digest. Returns a list of started patchers the caller stops."""
+    """Patch boot so no network is touched: no repo/token, a stable empty attention result, a fixed
+    recently-shipped digest, and an offline checkout snapshot. Returns a list of started patchers the caller
+    stops.
+
+    The checkout-snapshot patch closes a real hole: gather_signals() calls checkout_health.checkout_snapshot(),
+    which does live `git ls-remote` + `git fetch` against origin (a network round-trip that also MUTATES the
+    real checkout's .git) — this stub keeps that off the wire. A test exercising the checkout-health integration
+    re-patches checkout_snapshot inside its own `with` block, which overrides this base stub for its scope.
+    """
     patchers = [
         mock.patch.object(boot, "repo_slug", return_value=None),
         mock.patch.object(boot, "gh_token", return_value=None),
@@ -60,6 +86,10 @@ def _offline():
         # boot's rung-1 slice read touches the real .cache/graph; pin it absent so offline tests are hermetic
         # (source=None -> the reads run on knowledge_query exactly as before; threading is tested explicitly).
         mock.patch.object(boot.boot_slice, "read", return_value=None),
+        # A concrete "current, on default branch" snapshot: gather_signals() calls .get() on it, so it must be a
+        # dict, and this shape resolves behind_origin/off_main cleanly to None. A surfacing test re-patches it.
+        mock.patch.object(boot.checkout_health, "checkout_snapshot",
+                          return_value={"state": "current", "on_default": True}),
     ]
     for p in patchers:
         p.start()
