@@ -2845,7 +2845,9 @@ class PinAndWithholdReadoutTests(unittest.TestCase):
         self.assertNotIn("in all", "\n".join(boot.render_pins(self._pins(3))))
         many = "\n".join(boot.render_pins(self._pins(9)))
         self.assertIn("9 in all", many)
-        self.assertEqual(many.count("standing instruction"), 5)
+        # Count the rendered ITEMS, not a substring: the block's closing sentence contains the phrase too
+        # ("the operator's standing instructions"), so a naive count reads six where five were shown.
+        self.assertEqual(sum(1 for line in many.splitlines() if line.startswith("- standing instruction")), 5)
 
     def test_no_block_is_rendered_when_nothing_is_pinned(self):
         self.assertEqual(boot.render_pins([]), [])
