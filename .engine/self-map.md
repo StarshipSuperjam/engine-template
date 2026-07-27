@@ -33,7 +33,7 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (12 installed).
+The packages your engine is assembled from, and how they wire together (13 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
@@ -43,6 +43,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `external-contribution` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
+- `memory-semantic-recall` → `core`, `memory-substrate-sqlite-fts5`
 - `migration-discipline` → `core`
 - `product-design` → `core`
 - `qa-review` → `core`
@@ -118,6 +119,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - erasures: `.engine/erasures/proposal.json`
   - tool: `.engine/tools/memory/*.py`
 - wires: codex-hook, codex-mcp, gitignore, hook, mcp
+
+### `memory-semantic-recall` — version `0.1.0` (default-on)
+
+- depends on: `core`, `memory-substrate-sqlite-fts5`
+- provides:
+  - asset: `.engine/tools/memory/semantic/NOTICE.txt`, `.engine/tools/memory/semantic/checksums.json`, `.engine/tools/memory/semantic/potion-retrieval-32m-int8.npz`, `.engine/tools/memory/semantic/vocab.txt`
+  - tool: `.engine/tools/memory/semantic/*.py`
+- wires: none (this module adds no shared-state edits)
 
 ### `migration-discipline` — version `0.1.0` (optional)
 

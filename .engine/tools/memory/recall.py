@@ -101,12 +101,20 @@ def assert_not_live_store(*paths) -> None:
     can be a CI log. Every worktree of one clone shares a single ledger (`_git_common_root`), so a missing
     environment override silently resolves to the operator's real store.
 
+    The whole memory DIRECTORY is refused, not just the ledger file: the store holds several derived files
+    beside it (the keyword index, and the vectors where meaning-based recall is installed), each a second
+    complete copy of the same conversation, so guarding one filename would leave the others reachable.
+
     HONEST TIER — belt-and-braces, not the protection. The real safeguard is that the demo threads an explicit
     `path=` into every call, so it never consults the default at all; this guard would only catch a future
     edit that stopped doing so. Called where the path is a fresh temp directory, it cannot fire today."""
-    live = os.path.realpath(ledger.ledger_path())
+    live_dir = os.path.realpath(ledger.ledger_dir())
     for p in paths:
-        if os.path.realpath(p) == live:
+        resolved = os.path.realpath(p)
+        # CONTAINMENT, not equality: the store holds several derived files beside the ledger, each a second
+        # complete copy of the same conversation. Matching only the directory or only one filename would let
+        # a path to any of them through, which is the leak this guard exists to refuse.
+        if resolved == live_dir or resolved.startswith(live_dir + os.sep):
             raise SystemExit("recall: refusing to run a throwaway window against the LIVE memory store")
 
 

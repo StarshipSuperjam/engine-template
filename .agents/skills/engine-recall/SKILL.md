@@ -10,10 +10,11 @@ description: Look up what this project already decided, tried, or learned — fo
 1. If no question came with the command, ask what they want looked up before searching — this command answers
    a question, so guessing one from recent context would search for the wrong thing.
 2. Enter and follow the procedure in `.engine/operations/memory-recall.md`. It rephrases the question into
-   several short search phrases (the step that makes recall work, since memory's search matches words rather
-   than meaning), searches each with a limit, pools and de-duplicates the hits, reads the actual conversation
-   behind the promising ones, and answers by meaning with the source named — offering the exact wording where
-   it matters, and saying plainly when memory does not hold the answer.
+   several short search phrases (what keyword search needs, since it matches words and finds nothing without
+   them), searches each with a limit, asks the same question by meaning where that operation is installed,
+   pools and de-duplicates the hits, reads the actual conversation behind the promising ones, and answers with
+   the source named — offering the exact wording where it matters, and saying plainly when memory does not
+   hold the answer.
 
 ## Notes
 

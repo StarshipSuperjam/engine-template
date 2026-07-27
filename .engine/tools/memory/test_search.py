@@ -207,13 +207,36 @@ class ParityAndDegradeTests(SearchTestCase):
         finally:
             index.fts5_available = original
 
-    def test_corrupt_index_falls_back_to_ranked_scan(self):
+    def test_a_corrupt_index_is_repaired_rather_than_left_slow_forever(self):
+        # An unusable index used to mean every later query took the full-ledger scan, correctly but far more
+        # slowly, with nothing bringing it back. Reading now repairs it, so the cost is paid once.
         a = self.add("export plans here")
         self.add("nothing relevant")
         self.rebuild()
         with open(self.index, "wb") as fh:
             fh.write(b"this is not a sqlite database at all")
         result = self.search("export")
+        self.assertIn(a, self.ids(result))
+        self.assertFalse(result.degraded, "an unusable index should have been rebuilt, not merely tolerated")
+
+    def test_when_the_repair_cannot_run_the_answer_still_comes_back(self):
+        # The availability law is what the repair rests on, not what it replaces: if rebuilding fails for any
+        # reason, recall must still answer from the scan rather than raise or return nothing.
+        a = self.add("export plans here")
+        self.add("nothing relevant")
+        self.rebuild()
+        with open(self.index, "wb") as fh:
+            fh.write(b"this is not a sqlite database at all")
+
+        def refuse(*args, **kwargs):
+            raise OSError("disk full")
+
+        original = index.rebuild
+        index.rebuild = refuse
+        try:
+            result = self.search("export")
+        finally:
+            index.rebuild = original
         self.assertTrue(result.degraded)
         self.assertIn(a, self.ids(result))
 

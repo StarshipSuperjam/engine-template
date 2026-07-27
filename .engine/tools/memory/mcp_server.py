@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """The engine-memory MCP server: the conforming fallback for memory recall (search.json).
 
-A thin MCP transport over the recall library: the two declared operations of `search.json` — `search`, which
-ranks (lexical relevance, reinforced by usage) and filters (role/tag) via `memory.index.search`; and
+A thin MCP transport over the recall library: the declared operations of `search.json` — `search`, which
+ranks (lexical relevance, reinforced by usage) and filters (role/tag) via `memory.index.search`;
 `recall-window`, which reads one past session's actual conversation back through `memory.recall.window`
-(a fetch, never a second ranking — the ranked contract stays single). `recall-window` is the read side of the
+(a fetch, never a second ranking — the ranked contract stays single); and `recall-by-meaning`, which finds
+records that mean the same thing as a question in different words, and is registered only where the optional
+semantic module is installed. `recall-window` is the read side of the
 transcript-first substrate: `search` now names a conversation and can return a piece of one message, and the
 window reads that message whole, in the order it happened, with its neighbours around it.
+
+The two ranked operations answer DIFFERENT questions and neither substitutes for the other. `search` matches
+words, so its empty answer means the words are absent — the property that makes an irrelevant question return
+nothing. `recall-by-meaning` always has a nearest neighbour, so it returns the matched passage, ordered nearest-first,
+and expects the caller to read it. No closeness figure is relayed: it ranks within one answer but does not
+track relevance, and a number beside a result is read as confidence whatever the surrounding words say. A
+caller chooses between the two; nothing here blends them or falls back from one to the other.
 On every hit it fires the live reinforcement that records the access (`forget.record_access`), so recall is
 self-reinforcing — the move reserved for "the search server" (records.py / forget.py). Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
@@ -14,8 +23,9 @@ fallback); the operator's one-time approval of the tool is the operator's own (n
 approve it the tool is simply switched off — recall never half-runs.
 
 Built on the official MCP SDK (the `mcp` package) so protocol conformance — the handshake, framing, and future
-protocol-version changes — is maintained upstream rather than hand-written; a richer semantic-recall implementation
-overrides this lexical floor by presence at the same engine-prefixed server name. Degrade-to-git-native: recall
+protocol-version changes — is maintained upstream rather than hand-written. Meaning-based recall does not replace
+the keyword operation and does not shadow it: it is a separate operation on this same server, offered alongside.
+Degrade-to-git-native: recall
 never blocks the session, and its being-down is surfaced in plain language by the part that can actually see it —
 NOT by this module. If the live server is simply switched off, the model's own live-helper check relays it
 (`boot.MCP_AVAILABILITY_CHECK` — boot reads committed files only and cannot detect MCP routing); if the local
@@ -143,7 +153,9 @@ _RECALL_COMPLETENESS_NOTE = (
         "summaries only. Returns narrative recall only, never structural fact (knowledge's job). Every result "
         "carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation hit ADDS `speaker` and `seq`, a "
         "summary ADDS `role` — that is how you tell them apart. Using a memory reinforces it, so what you rely "
-        "on stays easy to recall."
+        "on stays easy to recall. AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
+        "history on the subject: if `recall-by-meaning` is among your tools, ask it the same question in "
+        "ordinary words before concluding anything, because it reaches records that share no wording with you."
     ),
 )
 def search(query: str, roles: list[str] | None = None,
@@ -175,6 +187,74 @@ def recall_window(session_id: str, anchor_seq: int | None = None,
                   radius: int = recall.DEFAULT_RADIUS,
                   max_turns: int = recall.DEFAULT_MAX_TURNS) -> dict:
     return recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns)
+
+
+def _semantic_installed() -> bool:
+    """True when the optional meaning-based recall module is present.
+
+    `find_spec` LOCATES the module without importing or executing it, so a session that never asks a
+    meaning-based question never pays to load a 32 MB word table. The tool below is registered only when
+    this holds: where the module is absent the tool is absent too, rather than present and answering with
+    keyword results, which would be a lie about what it does.
+    """
+    import importlib.util
+
+    try:
+        spec = importlib.util.find_spec("memory.semantic.store")
+    except (ImportError, ValueError, ModuleNotFoundError):
+        return False
+    # `origin` is None for a namespace package — which is exactly what an uninstall leaves behind, because
+    # removing a module deletes its files and not the directory that held them. Probing the package alone
+    # therefore said "installed" for an empty folder, and the tool registered and failed on first call. A real
+    # module file has an origin; an empty directory does not.
+    return spec is not None and spec.origin is not None
+
+
+if _semantic_installed():
+
+    @server.tool(
+        name="recall-by-meaning",
+        description=(
+            "Find past conversation that MEANS the same thing as your question, even when it shares no words "
+            "with it. Use this when `search` came back empty but the project has probably been here before, or "
+            "when the question is a rephrasing — 'have we tried this?', 'did we rule this out?', 'is there a "
+            "stated preference about this?'. Use `search` instead when you need an exact phrase or a known "
+            "term: it matches words, so its empty answer genuinely means the words are absent. This one always "
+            "has a nearest neighbour, so results are ordered nearest-first and each carries the `passage` that "
+            "matched. THE PASSAGE IS THE ONLY EVIDENCE — read it and decide. Nearness was measured against real "
+            "history and does NOT track relevance: an irrelevant question scored higher on one shared word than "
+            "a correct reworded match did, so no closeness figure is reported, because any such figure would be "
+            "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
+            "carries the record's `session_id`, so take a "
+            "promising one to `recall-window` to read the conversation around it. Reads only; it changes "
+            "nothing. Searches the same records `search` does, so an erased memory is absent here too."
+        ),
+    )
+    def recall_by_meaning(query: str, limit: int = 10) -> dict:
+        from memory.semantic import embed as _embed
+        from memory.semantic import store as _store
+
+        reason = _embed.unavailable_reason()
+        if reason:
+            # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
+            return {"results": [], "unavailable": reason}
+        found = _store.search(query, limit=limit)
+        results = []
+        for record, passage in zip(found["records"], found["passages"]):
+            # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
+            # relevance across questions — measured, an irrelevant question outscored a correct reworded match
+            # — so reporting it would hand the caller a confidence signal that is not one, and a number beside
+            # a result is read as confidence no matter what the surrounding words say.
+            entry = dict(_without_harness_spans(record))
+            entry["passage"] = passage
+            results.append(entry)
+        out: dict = {"results": results, "passages_searched": found["searched"]}
+        if results:
+            out["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
+        elif not found["searched"]:
+            out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
+                                  "empty, so an empty answer here says nothing about what was discussed.")
+        return out
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

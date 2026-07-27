@@ -120,7 +120,8 @@ class TestDeclaration(unittest.TestCase):
         transcript window that reads one named session back. The window is a FETCH, so it adds no second
         ranking; declaring it here is what keeps a core-owned recall workflow from depending on a private
         detail of one implementation's server (a richer swap-in must answer both)."""
-        self.assertEqual({op["name"] for op in SEARCH["operations"]}, {"search", "recall-window"})
+        self.assertEqual({op["name"] for op in SEARCH["operations"]},
+                         {"search", "recall-window", "recall-by-meaning"})
         op = next(o for o in SEARCH["operations"] if o["name"] == "search")
         self.assertEqual(op["input_schema"]["required"], ["query"])
         self.assertEqual(set(op["input_schema"]["properties"]), {"query", "roles", "tags", "limit"})

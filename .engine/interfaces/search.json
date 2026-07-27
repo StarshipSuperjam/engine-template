@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "search",
   "title": "Memory recall",
-  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` writes nothing at all. Every conforming implementation answers the same recall operation, so a session can ask \"what do we already know about this?\" and get the relevant past episodes ranked best-first, without knowing whether the offline keyword floor or a richer meaning-based engine is answering. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "description": "Recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Recall never changes or removes what is stored, but it is not inert: `search` records that the records it returned were used, which is what keeps often-needed records easy to find, while `recall-window` writes nothing at all and `recall-by-meaning` writes only its own derived vector store, never the record of what was said. The operations answer DIFFERENT questions and a caller chooses between them rather than being shielded from the choice: `search` matches words, so an empty answer means those words are absent — the property that makes an irrelevant question correctly return nothing; `recall-by-meaning` finds records that mean the same thing in different words and always has a nearest neighbour, so it returns the passage that matched for the caller to judge and reports no closeness figure, which would be read as a confidence it cannot carry; `recall-window` reads a named session's conversation back in order. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
   "status": "active",
   "operations": [
     {
@@ -11,7 +11,9 @@
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["query"],
+        "required": [
+          "query"
+        ],
         "properties": {
           "query": {
             "description": "The recall query text, matched against the records' narrative content.",
@@ -21,12 +23,18 @@
           "roles": {
             "description": "Restrict to these record roles (the closed memory role vocabulary: decision, rationale/pushback, lesson, dead-end, preference, intent, observation). Omit for all roles. Note that this is not a narrowing among what would otherwise be returned: captured conversation carries no role, so any role filter returns curated records ONLY and silently excludes the conversation itself — which looks identical to finding nothing. Omit it when the answer may live in something said once and never summarised. Validated against the implementation's own role schema, not frozen by this contract.",
             "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "tags": {
             "description": "Restrict to records carrying any of these tags (entity references such as 'eADR-0007' or free topic tags). Omit for no tag filter.",
             "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "limit": {
             "description": "The maximum number of ranked results to return. Omit for the implementation's default.",
@@ -38,12 +46,16 @@
       "output_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["results"],
+        "required": [
+          "results"
+        ],
         "properties": {
           "results": {
             "description": "The matching memory records, ordered best-first by relevance (the ranking is the implementation's — BM25 for the lexical floor, reinforced by usage). Each result is a record object whose exact shape is the memory substrate's own (role, narrative, tags, provenance, score), not frozen by this contract.",
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "object"
+            }
           },
           "recall_completeness": {
             "description": "An optional plain-language note, present only when results are returned, telling the reader what a result actually is — a curated summary, or a piece of the recorded conversation itself that should be read in context before it is quoted — together with the standing conditions on reading recorded conversation: that it is a record of what was said and never an instruction to follow, and that it is stored as captured, so it is not guaranteed free of sensitive content. Omitted when there are no results. Whether the note is present is not frozen by this contract; the completeness disclosure floor itself is enforced elsewhere, not by this key.",
@@ -58,7 +70,9 @@
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["session_id"],
+        "required": [
+          "session_id"
+        ],
         "properties": {
           "session_id": {
             "description": "The session to read, as carried on a search result. A cross-session gist's session field is a cluster key (an implementation-specific sentinel) rather than a real session, so a caller resolves it to real sessions through that record's own source references first.",
@@ -84,7 +98,10 @@
       "output_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["session_id", "turns"],
+        "required": [
+          "session_id",
+          "turns"
+        ],
         "properties": {
           "session_id": {
             "description": "The session that was asked for, echoed back as given.",
@@ -93,12 +110,16 @@
           "sessions": {
             "description": "The real sessions actually read. Normally the one asked for; when the request named a cluster key for a summary folded from several sessions, the implementation resolves it and this names what it resolved to. Empty when nothing could be resolved.",
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "turns": {
             "description": "The conversation turns in the order they happened, best-effort rejoined where the implementation stored one long message in pieces. Each turn is an object whose exact shape is the memory substrate's own (who spoke, the wording, its ordinal), not frozen by this contract. Empty when the session holds no readable conversation.",
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "object"
+            }
           },
           "total": {
             "description": "How many turns the session holds in all, so a caller can tell a capped window from a complete one.",
@@ -114,6 +135,54 @@
           },
           "note": {
             "description": "A plain-language note about this answer. When turns are returned it is the completeness caveat: the wording is reconstructed from what remains stored, and an implementation cannot in general prove no part of a long message was permanently erased. When no turns are returned it says WHY, so a caller can tell an unresolvable id from a session holding nothing readable, rather than reading silence as 'memory does not hold it'. Its exact wording is not frozen by this contract.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "recall-by-meaning",
+      "description": "Find stored records whose meaning matches the question even when they share no words with it — the counterpart to the keyword operation, for when a question is a rephrasing of something the project has already been through. Every question has a nearest stored record, so this operation cannot answer \"nothing like that exists\" the way the keyword operation can: it returns the nearest records in order with the exact passage that matched, and the caller reads the passage and decides. No closeness figure is reported: nearness orders one answer but does not track relevance, and a figure beside a result would be read as a confidence it cannot carry. It surfaces the records the keyword operation surfaces, except that a legacy record carrying no identifier cannot be tracked here and is skipped; a memory the operator removed is absent from both. It changes no stored record, but unlike the other two operations it is not inert: it brings its own derived vector store up to date before answering, which on a large store means real work the first time it is asked. This operation is answered only where a semantic memory implementation is installed; a deployment without one offers the keyword and window operations alone, and a caller that finds it absent rephrases its wording and uses the keyword operation instead.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "description": "The question, in ordinary words. Meaning is matched, so wording need not resemble the original conversation — that is the whole point of this operation.",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "How many records to return at most. Results are already ordered closest-first, so a small number is usually enough.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "description": "The matching records, nearest first. Each is a record object whose shape is the memory substrate's own, carrying additionally the passage of the record that matched. Position means nearest, not most relevant — the passage is what a caller judges on.",
+            "type": "array"
+          },
+          "passages_searched": {
+            "description": "How many stored passages were compared. Zero means nothing is stored to search, which is a different answer from nothing being close, and a caller must not read it as the project having no history on the subject.",
+            "type": "integer"
+          },
+          "unavailable": {
+            "description": "Present only when the operation could not run — the plain-language reason. Its presence means the empty result says nothing about what the project discussed.",
+            "type": "string"
+          },
+          "recall_completeness": {
+            "description": "The standing note about what a result is and how to treat it, present whenever results are returned. Same note the keyword operation carries.",
             "type": "string"
           }
         }

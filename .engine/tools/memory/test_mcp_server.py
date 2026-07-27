@@ -65,11 +65,86 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
 
 
 class ToolWiringTests(_ServerBase):
+    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
+    async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
+        # The contract declares `additionalProperties: false`, so a key the server sends and the interface
+        # does not name is a contract breach. Nothing validated this operation's shape, which is why one
+        # survived until a cold review found it by hand.
+        import json as _json
+        import jsonschema
+
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        with open(os.path.join(root, ".engine", "interfaces", "search.json"), encoding="utf-8") as fh:
+            declared = _json.load(fh)
+        schema = next(op["output_schema"] for op in declared["operations"]
+                      if op["name"] == "recall-by-meaning")
+        self.add("We ruled out a cron job and hooked the calendar instead.", role="decision")
+        for query in ("did we consider running it on a timer",       # a hit
+                      "zzzqqx nothing here matches this at all"):    # and an empty answer
+            with self.subTest(query=query):
+                out = self._result_json(
+                    await srv.server.call_tool("recall-by-meaning", {"query": query}))
+                jsonschema.validate(out, schema)
+
     async def test_tools_list_is_exactly_the_declared_operations(self):
         # The server answers search.json's operation set and nothing else — an undeclared tool would be a
-        # private detail a richer swap-in could silently drop, breaking any caller that relied on it.
+        # private detail no other conforming implementation would offer, breaking a caller that relied on it.
+        #
+        # TWO SHAPES ARE REAL, so both are asserted rather than whichever this checkout happens to be:
+        # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
+        # deployment without it offers the other two alone. Pinning one literal would silently stop covering
+        # the other configuration the moment this repository's own module set changed.
         names = {t.name for t in await srv.server.list_tools()}
-        self.assertEqual(names, {"search", "recall-window"})
+        expected = {"search", "recall-window"}
+        if srv._semantic_installed():
+            expected.add("recall-by-meaning")
+        self.assertEqual(names, expected)
+
+    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
+    async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):
+        # Measured, nearness does not track relevance: an irrelevant question outscored a correct reworded
+        # match. A figure beside a result is read as confidence whatever the description says, so the
+        # transport relays the matched passage and the ordering and nothing that looks like a score.
+        self.add("We ruled out a cron job and hooked the calendar instead.", role="decision")
+        data = self._result_json(
+            await srv.server.call_tool("recall-by-meaning",
+                                       {"query": "did we consider running it on a timer"}))
+        self.assertTrue(data["results"], "expected the reworded question to reach the record")
+        for entry in data["results"]:
+            self.assertNotIn("score", entry)
+            self.assertTrue(entry.get("passage"))
+
+    async def test_an_uninstalled_module_reads_as_absent_even_though_its_folder_remains(self):
+        # The honest-absence law, tested against the way it actually breaks. Removing a module deletes its
+        # files and leaves the directory, and Python resolves an empty directory as a namespace package — so
+        # a plain "can I find this package?" probe answered YES for an uninstalled module, registered the
+        # tool, and crashed on the first call. A namespace package has no `origin`; a real module file does.
+        import importlib.util
+
+        real = importlib.util.find_spec
+
+        class _NamespaceLike:
+            """What importlib hands back for a directory with no module file in it: a spec with no origin."""
+
+            origin = None
+
+        def emptied(name, *args, **kwargs):
+            # A STAND-IN, never the real spec: importlib caches specs, so mutating one would leave
+            # `origin = None` set for the rest of the process and quietly fail every later check. Discovered
+            # by the full suite — this test passed alone and broke two others when run with them.
+            if name == "memory.semantic.store":
+                return _NamespaceLike()
+            return real(name, *args, **kwargs)
+
+        importlib.util.find_spec = emptied
+        try:
+            self.assertFalse(srv._semantic_installed(),
+                             "an emptied module directory must not read as installed")
+        finally:
+            importlib.util.find_spec = real
+        # Deliberately NOT asserting the module is present afterwards: this test file is owned by the always-
+        # present memory module, so it also runs on a deployment where the operator declined the semantic
+        # add-on. Asserting its presence would fail in exactly the configuration the decline path exists for.
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so

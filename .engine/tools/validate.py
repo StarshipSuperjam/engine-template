@@ -72,7 +72,7 @@ import re
 import subprocess
 import sys
 
-# yaml + jsonschema are the engine's ONLY third-party dependencies; they live in the
+# yaml + jsonschema are the third-party dependencies THIS module needs; they live in the
 # uv-managed tool-runtime (.engine/.venv/). They are bound LAZILY (PEP 562 module
 # __getattr__) rather than imported at module top, so `import validate` succeeds on the
 # Python standard library alone — before that runtime exists. This is load-bearing for

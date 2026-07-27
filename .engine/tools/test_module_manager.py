@@ -115,7 +115,8 @@ class TestUvGroupDerivation(unittest.TestCase):
     def test_derive_matches_committed_default_groups_on_the_real_repo(self):
         # The drift gate: the committed [tool.uv] default-groups equals what the present set derives.
         self.assertEqual(module_manager.derive_uv_groups(), module_manager.committed_default_groups())
-        self.assertEqual(module_manager.committed_default_groups(), ["core"])
+        # Two dependency-carrying modules ship today: core, and the semantic recall module (numpy).
+        self.assertEqual(module_manager.committed_default_groups(), ["core", "memory-semantic-recall"])
 
     def test_a_module_with_no_dependency_group_is_excluded(self):
         with tempfile.TemporaryDirectory() as d:
