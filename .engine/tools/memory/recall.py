@@ -150,14 +150,27 @@ def is_genuine_turn(record) -> bool:
 
 
 def session_turns(session_id: str, *, path: "str | None" = None) -> list:
-    """Every genuine turn of one session, in conversation order. A pure read over the raw ledger (the ranked
-    stream excludes turn-deltas by design, so this cannot go through `live_records`). Malformed legacy records
-    are skipped rather than crashing. The sort is STABLE on `seq`, preserving append order within a message."""
+    """Every genuine turn of one session, in conversation order — minus anything the operator has withheld.
+
+    A pure read over the RAW ledger rather than the ranked stream, because a window must show the conversation
+    as it was captured: `live_records` applies the whole recall-membership filter, and a window that silently
+    dropped a superseded episode's neighbours would misrepresent what was said. The one exclusion it does share
+    is the operator's own — `forget.is_withheld`. Withholding is an instruction about what may be surfaced at
+    all, so a reader that honoured it in search and ignored it here would read a withheld session back verbatim
+    the moment anyone named it, which is the opposite of what the operator asked for.
+
+    Malformed legacy records are skipped rather than crashing. The sort is STABLE on `seq`, preserving append
+    order within a message."""
     if not isinstance(session_id, str) or not session_id:
         return []
+    from memory import forget as _forget
     src = ledger.ledger_path() if path is None else path
+    withheld_ids, withheld_sessions = _forget.withheld_targets(src)
+    if session_id in withheld_sessions:
+        return []
     out = [r for r in ledger.iter_records(path=src)
-           if is_genuine_turn(r) and r.get("session_id") == session_id]
+           if is_genuine_turn(r) and r.get("session_id") == session_id
+           and not _forget.is_withheld(r, withheld_ids, withheld_sessions)]
     out.sort(key=_sort_key)
     return out
 
@@ -272,15 +285,22 @@ def session_cards(*, limit: int = DEFAULT_CARDS, exclude: "str | None" = None,
     # costs a second pass over the ledger (~0.1 s), paid once per session start.
     from memory import forget as _forget
     injected_messages = _forget._injected_message_keys(src)
+    # The operator's own withholds apply here too, and this is the place it matters most: these cards are what
+    # the cold-start briefing is built from, so a session the operator withheld would otherwise keep quoting its
+    # opening request at them at the top of every session, forever — the one place they would be certain the
+    # control had not worked.
+    withheld_ids, withheld_sessions = _forget.withheld_targets(src)
     by_session: dict = {}
     for record in ledger.iter_records(path=src):
         if not is_genuine_turn(record):
             continue
         sid = record.get("session_id")
-        if not isinstance(sid, str) or not sid or sid == exclude:
+        if not isinstance(sid, str) or not sid or sid == exclude or sid in withheld_sessions:
             continue
         if (sid, record.get("seq")) in injected_messages:
             continue        # a tail chunk of a harness-injected message travels with its head
+        if _forget.is_withheld(record, withheld_ids, withheld_sessions):
+            continue
         ts, seq = record.get("ts"), _seq_of(record)
         card = by_session.setdefault(sid, {"session_id": sid, "started": None, "ended": None, "count": 0,
                                            "first_ask": "", "last_ask": "",
@@ -588,9 +608,14 @@ def _demo() -> int:
 
 def main(argv: list) -> int:
     # `demo` only, deliberately. An earlier draft carried a `window <session-id>` verb that printed verbatim
-    # conversation from the LIVE store to stdout — a surface nothing asked for, on the one path where a stray
+    # conversation from the LIVE store to STDOUT — a surface nothing asked for, on the one path where a stray
     # invocation (or a CI log) leaks the operator's own words. Reading real memory goes through the MCP
     # operation, in a session the operator is present for.
+    #
+    # `export.py` is the deliberate exception, and the difference is the whole reason it is a separate tool:
+    # the operator asks for it by name, it writes to a file rather than to a log, and it refuses any
+    # destination inside a git working tree that git does not already ignore. Printing to stdout has none of
+    # those, which is why that verb stayed cut rather than being revived here.
     cmd = argv[0] if argv else "demo"
     if cmd == "demo":
         return _demo()

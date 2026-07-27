@@ -38,7 +38,7 @@
       "id": "engine-helper-tool-approval",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "The engine's two helper servers are registered on Codex with every tool auto-approved. Both servers are read-only today (memory exposes search; the wiring map exposes lookups), so nothing runs un-consented — but the grant is standing: a future tool added to either server would be auto-approved on Codex without a new consent moment, an asymmetry the Claude side (which approves per server, per app) does not share. Adding such a tool must revisit this entry and the approval mode together.",
+      "reason": "The engine's two helper servers are registered on Codex with every tool auto-approved. The memory server now exposes six operations, three of which WRITE on the operator's say-so — pin, withhold and restore, beside the reads list-pins and list-withheld — so on Codex a model can save a standing note or take one out of recall without a fresh consent moment, where the Claude side records approval per tool and would prompt. Weighed and accepted as bounded rather than removed: all three append to the ledger and none deletes, withholding is reversed by restore, and permanent erasure stays behind a merged single-purpose pull request no tool here can reach. The wiring map's server remains read-only. The grant is still standing, so any FURTHER tool — in particular anything that removes rather than appends — must revisit this entry and the approval mode together.",
       "contract_ref": "eADR-0034"
     },
     {

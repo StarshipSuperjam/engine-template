@@ -315,8 +315,10 @@ _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files
 # (NEVER the decision — the write stays denied) becomes memory-specific: it (a) confirms a competent
 # "noted", never a pull request; (b) names a correlate the operator can actually exercise ("ask me … and
 # I'll read it back" — the assistant performs the recall on request); (c) does not leak the two-store seam
-# — "this project's memory", never "harness vs engine memory". The durable capture itself
-# rides automatic memory upkeep (the Stop-hook + the consolidation sweep), which already passes the gate.
+# — "this project's memory", never "harness vs engine memory". The durable write itself
+# rides paths that already pass the gate: the Stop-hook capture of the conversation, and — when the operator
+# asks for something to be REMEMBERED specifically — the pin verb, which is the deliberate route for exactly
+# this and is what makes the "read it back" correlate below something the assistant can actually perform.
 _MEMORY_DENIAL = ("Noted — I've kept that in mind, and it's saved to this project's memory so it carries "
                   "across our sessions. Ask me anytime what I've remembered and I'll read it back.")
 

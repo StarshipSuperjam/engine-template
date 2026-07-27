@@ -17,8 +17,10 @@ marker is dropped, while the marked (completed) pass is kept. The retirement is 
 Leaf discipline: this module RETURNS records / a report and renders no operator-facing prose
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
 so the fast and slow lookups retire identically (the parity law, index.py). `index.extend` applies the same
-membership predicate when capture adds a turn to an already-built index, so the incremental path cannot admit
-what a full rebuild would drop. stdlib-only.
+membership predicates when capture adds a turn to an already-built index — the injected-capture exclusion, and
+the operator's withholds as the index itself recorded them — so the incremental path cannot admit what a full
+rebuild would drop. That second half is what keeps "forget this conversation", said while the conversation is
+still going, from being undone by its own next turn. stdlib-only.
 
 **Reinforcement, and the age-out that used to ride on it**. A record is reinforced each time it is recalled — an
 append-only `reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds those
@@ -187,11 +189,13 @@ def _is_superseded(record, superseded_ids: set) -> bool:
 
 
 def _is_bookkeeping(record) -> bool:
-    """True iff `record` is machinery rather than something recall should ever return. Four marker kinds carry no
+    """True iff `record` is machinery rather than something recall should ever return. Six marker kinds carry no
     recall text and exist only to be read BY the readers: `reinforcement` (derivation fuel for the scorer), the
-    two gist roll-up markers (`superseded` + `rolled-up`), and `operator-adjudicated-erasure` (it authorises
-    erasing its target; it is not itself a memory). `consolidated` markers stay live — they are structural and
-    the crash-duplicate retirement reads them in place. Everything else is content.
+    two gist roll-up markers (`superseded` + `rolled-up`), `operator-adjudicated-erasure` (it authorises
+    erasing its target; it is not itself a memory), and the `withheld`/`restored` pair (the operator's own
+    reversible control over what recall may surface — instructions about a record, never a record). `consolidated`
+    markers stay live — they are structural and the crash-duplicate retirement reads them in place. Everything
+    else is content.
 
     NO RECORD IS DROPPED HERE FOR BEING OLD. This predicate used to end by scoring the record and dropping
     whatever landed in the archived tier, which retired a never-reinforced record at 26.7 days (`dead-end`) to
@@ -202,7 +206,103 @@ def _is_bookkeeping(record) -> bool:
     if not isinstance(record, dict):
         return False
     return record.get("kind") in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND,
-                                  records.ROLLUP_KIND, records.ERASURE_KIND)
+                                  records.ROLLUP_KIND, records.ERASURE_KIND,
+                                  records.WITHHOLD_KIND, records.RESTORE_KIND)
+
+
+def withheld_targets(src: str) -> tuple:
+    """`({record_id, ...}, {session_id, ...})` — what the operator currently has withheld from recall.
+
+    LAST MARKER IN LEDGER ORDER WINS, which is why this is a positional pass and not a timestamp comparison.
+    Capture stamps whole seconds, so withholding something and restoring it moments later can share one `ts`;
+    sorting by time would leave that pair tied and resolve it arbitrarily — the operator's most recent
+    instruction is exactly the one that must not be decided by a coin toss. The ledger is append-only, so
+    reading it front to back and letting each marker overwrite the last is both the simplest rule and the
+    truthful one. `_closed_batches` derives closure from position for the same reason.
+
+    A marker names EITHER a record or a session, never both. The record key is checked first, so a marker
+    carrying both well-formed keys is read as naming the record. Be precise about the residual case rather than
+    overclaiming: a marker whose record key is malformed AND whose session key is valid does fall through to
+    the session leg. No write path can produce one — `_write_control` refuses both-or-neither, and a test pins
+    that — so this is the shape of a hand-edited or corrupted line, not of anything the engine mints.
+    Failure direction throughout is SURFACE, not hide — a marker missing or mistyping its target is skipped, so
+    a corrupt line can never take conversation out of recall on its own."""
+    withheld_ids, withheld_sessions = set(), set()
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        kind = record.get("kind")
+        if kind not in (records.WITHHOLD_KIND, records.RESTORE_KIND):
+            continue
+        hiding = kind == records.WITHHOLD_KIND
+        rid = record.get(records.TARGET_KEY)
+        sid = record.get(records.TARGET_SESSION_KEY)
+        if isinstance(rid, str) and rid:
+            withheld_ids.add(rid) if hiding else withheld_ids.discard(rid)
+        elif isinstance(sid, str) and sid:
+            withheld_sessions.add(sid) if hiding else withheld_sessions.discard(sid)
+    return withheld_ids, withheld_sessions
+
+
+def withheld_report(path: "str | None" = None) -> dict:
+    """`{"notes": [...], "sessions": [...]}` — what is currently withheld, named so it can be restored.
+
+    WHY THIS EXISTS. Every surface promises the operator that a withhold is reversible, and `restore` needs the
+    exact identifier the withhold named. Nothing else could supply one: the readout reports counts, search
+    excludes withheld records by construction, and the pin list shows only live pins. So the promise held only
+    while the session that performed the withhold still had the identifier in its context — after that, "put it
+    back" was unactionable short of hand-reading the store. A control that is reversible in principle and
+    one-way in practice is not the control the operator was told they had.
+
+    IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
+    reading withheld text back is exactly what the operator asked not to happen. A note carries its kind and
+    the date it was withheld, which is enough to say which one you mean without saying what it said."""
+    src = ledger.ledger_path() if path is None else path
+    withheld_ids, withheld_sessions = withheld_targets(src)
+    when: dict = {}
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict) or record.get("kind") != records.WITHHOLD_KIND:
+            continue
+        target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
+        if isinstance(target, str) and target:
+            when[target] = record.get("ts")
+    kinds: dict = {}
+    for record in ledger.iter_records(path=src):
+        rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+        if isinstance(rid, str) and rid in withheld_ids:
+            kinds[rid] = record.get("kind") or "note"
+    return {
+        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid)}
+                         for rid in withheld_ids), key=lambda r: r["id"]),
+        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid)}
+                            for sid in withheld_sessions), key=lambda r: r["session_id"]),
+    }
+
+
+def is_withheld(record, withheld_ids: set, withheld_sessions: set) -> bool:
+    """True iff the operator has withheld this record — by its own id, or by withholding its whole session.
+
+    THE ONE DEFINITION, deliberately shared. Recall reaches conversation three ways: the ranked search paths
+    (through `live_records`), the transcript-window reader, and the session cards the cold-start briefing is
+    built from. The last two read the RAW ledger by design, because a window must show a conversation as it was
+    captured. So a predicate applied only inside `live_records` would take a withheld session out of search
+    while the window reader still quoted it back verbatim and the briefing still greeted the operator with its
+    opening line every morning. All three readers ask this same question instead."""
+    if not (withheld_ids or withheld_sessions) or not isinstance(record, dict):
+        return False
+    rid = record.get(records.RECORD_ID_KEY)
+    if isinstance(rid, str) and rid in withheld_ids:
+        return True
+    # BOTH session keys, because a pin does not carry `session_id` — it records where it was asked for under
+    # `source_session`. Matching only the first meant a pin made during a conversation survived that
+    # conversation being withheld: the operator watched it vanish from search, from the reader and from the
+    # briefing, while the one fragment of it still read into every future session was the one place they would
+    # never think to look. A pin is up to a thousand characters of whatever they asked to be remembered.
+    for key in ("session_id", records.PIN_SOURCE_SESSION_KEY):
+        sid = record.get(key)
+        if isinstance(sid, str) and sid in withheld_sessions:
+            return True
+    return False
 
 
 def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:
@@ -238,6 +338,152 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
         ledger.append(marker, path=path)
     finally:
         capture._release_lock(lock_fd)
+
+
+class ControlNotRecorded(RuntimeError):
+    """A withhold or restore could not be written. Carries the plain-language reason.
+
+    This RAISES where `record_access` silently no-ops, and the difference is deliberate: a missed reinforcement
+    marker is bookkeeping the next recall re-derives, while a missed withhold is the operator's instruction
+    quietly not happening. Reporting "done" over a write that did not land is the failure eADR-0034 exists to
+    forbid, and the operator would have no way to tell."""
+
+
+def _target_state(src: str, rid, sid) -> tuple:
+    """`(exists, already_withheld)` for one named target, in a single pass over the ledger.
+
+    WHY EXISTENCE IS CHECKED AT ALL. Appending a marker always succeeds — it names a target and says nothing
+    about whether that target is real — so an id that matches nothing produced a confident "that note is out
+    of recall now" over a note still fully searchable. The id comes from a search result by way of a model, so
+    a stale, mistyped or invented one is an ordinary occurrence, and this is the one class of report where
+    being wrong is silent: the operator has no way to notice that the thing they asked to be private is not.
+
+    The asymmetry with `restore` is deliberate and runs the other way. An unverified restore under-promises —
+    the worst case is that something already reachable stays reachable — so it is reported rather than
+    refused. An unverified withhold over-promises privacy, which is why it refuses."""
+    exists = False
+    withheld_ids, withheld_sessions = set(), set()
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        kind = record.get("kind")
+        if kind in (records.WITHHOLD_KIND, records.RESTORE_KIND):
+            hiding = kind == records.WITHHOLD_KIND
+            t_rid, t_sid = record.get(records.TARGET_KEY), record.get(records.TARGET_SESSION_KEY)
+            if isinstance(t_rid, str) and t_rid:
+                withheld_ids.add(t_rid) if hiding else withheld_ids.discard(t_rid)
+            elif isinstance(t_sid, str) and t_sid:
+                withheld_sessions.add(t_sid) if hiding else withheld_sessions.discard(t_sid)
+            continue
+        if rid is not None and record.get(records.RECORD_ID_KEY) == rid:
+            exists = True
+        elif sid is not None and record.get("session_id") == sid:
+            exists = True
+    return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
+
+
+def _write_control(kind: str, *, record_id=None, session_id=None,
+                   path: "str | None" = None, now: "int | None" = None) -> dict:
+    """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
+
+    Exactly ONE target, checked here rather than at each caller: a marker naming both would be ambiguous to
+    every reader, and one naming neither would sit in the ledger doing nothing.
+
+    THE INDEX-EPOCH BUMP IS THE LOAD-BEARING HALF. `ledger.append` alone would leave the fast index stamped
+    current while its rows no longer match what recall may surface — so `search` would keep returning, as an
+    authoritative answer, the very record the operator just withheld, while the plain scan correctly dropped it.
+    That is the fast/slow divergence in its worse direction, and it would resurface withheld content rather
+    than merely miss new content. `index.extend` cannot help: it accepts captured turns only, and no incremental
+    update can express a REMOVAL anyway. Bumping the index epoch is what makes the index honestly stale, so the
+    next ranked read heals it (`index._heal_if_stale`) and every read before that heals falls to the scan, which
+    reads through `live_records` and is already correct. Held under the single-writer lock, and bumped BEFORE
+    the append for the same reason compaction does it: every crash window then leaves the index stamped stale,
+    which is always the safe way to be wrong.
+
+    THE EPOCH, NOT THE CONTENT GENERATION, and that distinction is not cosmetic. `generation` means content was
+    rewritten or removed, and `restore_vault` reads it that way: a local generation ahead of a backup's makes it
+    refuse the restore and raise a trust-critical finding saying deliberate removals would be undone. Since
+    backups are throttled to about a day, using `generation` here would have told any operator who withheld or
+    pinned something in the last day that their backup could not be restored, for a removal that never
+    happened — on the day they needed it. Withholding removes nothing, so it moves the counter that means only
+    "the index may no longer hold the right set" (`ledger.index_epoch`)."""
+    from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
+    rid = record_id if isinstance(record_id, str) and record_id else None
+    sid = session_id if isinstance(session_id, str) and session_id else None
+    if (rid is None) == (sid is None):
+        raise ControlNotRecorded("name exactly one thing to act on — a single note, or a whole session.")
+    target = path if path is not None else ledger.ledger_path()
+    exists, already = _target_state(target, rid, sid)
+    if not exists:
+        noun = "note" if rid is not None else "conversation"
+        raise ControlNotRecorded(
+            f"there is no {noun} in memory with that identifier, so nothing was changed. Check it against a "
+            "search result — the identifier has to be one memory actually holds."
+        )
+    if kind == records.WITHHOLD_KIND and already:
+        noun = "note" if rid is not None else "conversation"
+        raise ControlNotRecorded(f"that {noun} is already out of recall — nothing needed changing.")
+    data_dir = os.path.dirname(target) or "."
+    os.makedirs(data_dir, exist_ok=True)
+    lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+    if lock_fd is None:
+        # A `None` here does NOT prove contention — the same value comes back when the store cannot be opened
+        # at all, which is what a permissions problem, a full disk or an unmounted volume looks like. Saying
+        # "try again in a moment" over one of those sends the operator into a retry that can never succeed, so
+        # the message names both possibilities and points at the one they can act on.
+        writable = os.access(data_dir, os.W_OK)
+        raise ControlNotRecorded(
+            "another memory write is in progress, so nothing was changed. Try again in a moment."
+            if writable else
+            f"memory could not be written to ({data_dir} is not writable), so nothing was changed. This will "
+            "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
+        )
+    try:
+        marker = {
+            "v": capture.RECORD_VERSION,
+            "kind": kind,
+            records.RECORD_ID_KEY: records.new_record_id(),
+            "ts": int(time.time()) if now is None else now,
+            "tags": [records.WITHHOLD_TAG],
+        }
+        if rid is not None:
+            marker[records.TARGET_KEY] = rid
+        else:
+            marker[records.TARGET_SESSION_KEY] = sid
+        ledger.bump_index_epoch(for_path=target)
+        ledger.append(marker, path=path)
+        return marker
+    except ControlNotRecorded:
+        raise
+    except Exception as exc:
+        raise ControlNotRecorded(f"the change could not be saved ({exc}).") from exc
+    finally:
+        capture._release_lock(lock_fd)
+
+
+def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
+             now: "int | None" = None) -> dict:
+    """Take one note, or one whole session's conversation, out of everything recall surfaces. Reversible.
+
+    NOTHING IS DELETED and nothing becomes unrecoverable: the records stay in the ledger byte for byte, and
+    `restore` brings them back. This is Layer-1 — the operator's own reversible control. Physical erasure is a
+    different act entirely, reachable only by merging a single-purpose erasure pull request, and the two are
+    kept apart in vocabulary as well as in mechanism (`records.WITHHOLD_KIND`)."""
+    return _write_control(records.WITHHOLD_KIND, record_id=record_id, session_id=session_id,
+                          path=path, now=now)
+
+
+def restore(*, record_id=None, session_id=None, path: "str | None" = None,
+            now: "int | None" = None) -> dict:
+    """Undo a withhold, by the same target the withhold named. Appends; it never edits the earlier marker.
+
+    Restoring something that was never withheld is harmless rather than an error — the marker simply names a
+    target no withhold covers, and `withheld_targets` discards what is not there. That keeps "put it back"
+    safe to say twice, which is how an operator actually talks to it. The target must still be something
+    memory holds: an identifier matching nothing is a mistake worth telling them about rather than a silent
+    no-op dressed as success (`_target_state`)."""
+    return _write_control(records.RESTORE_KIND, record_id=record_id, session_id=session_id,
+                          path=path, now=now)
 
 
 def _injected_message_keys(src: str) -> set:
@@ -300,6 +546,61 @@ def _is_excluded_capture(record, injected_keys: "set | None" = None) -> bool:
     return False
 
 
+def _derive_membership(src: str) -> tuple:
+    """Every exclusion `live_records` needs, from ONE traversal of the ledger.
+
+    WHY THIS EXISTS. The five derivations below are each a full sequential read: the consolidation closed set,
+    the roll-up closed set, the supersession map, the injected-message keys, and the operator's withholds. Run
+    separately they re-read and re-parse every line five times, and `live_records` sits on the recall hot path
+    AND inside every index rebuild. Measured on a 30 MB / 28,000-record store, folding them took `live_records`
+    from 0.434 s to 0.098 s — the same answer, a third of a second cheaper, every time it is called.
+
+    The one ordering constraint is that supersession is only in force once its roll-up batch is CLOSED, and the
+    closing markers can appear anywhere in the file. That is why the markers are COLLECTED here and resolved
+    after the pass rather than during it: a single read cannot know, at the moment it meets a supersession,
+    whether the batch that closes it comes later. Resolving afterwards is what keeps the crash-safety exact —
+    a marker whose pass never finished stays inert, so no raw is ever hidden without its gist.
+
+    Each individual helper is kept and still used by the other readers that need one derivation alone; this is
+    the composite for the one caller that needs all five."""
+    closed: set = set()
+    closed_rollup: set = set()
+    supersessions: list = []
+    injected_keys: set = set()
+    withheld_ids: set = set()
+    withheld_sessions: set = set()
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        kind = record.get("kind")
+        if kind == records.MARKER_KIND:
+            batch = record.get(records.BATCH_KEY)
+            if isinstance(batch, str) and batch:
+                closed.add(batch)
+        elif kind == records.ROLLUP_KIND:
+            batch = record.get(records.BATCH_KEY)
+            if isinstance(batch, str) and batch:
+                closed_rollup.add(batch)
+        elif kind == records.SUPERSEDED_KIND:
+            supersessions.append((record.get(records.BATCH_KEY), record.get(records.TARGET_KEY),
+                                  record.get(records.SUPERSEDED_BY_KEY)))
+        elif kind in (records.WITHHOLD_KIND, records.RESTORE_KIND):
+            hiding = kind == records.WITHHOLD_KIND
+            rid, sid = record.get(records.TARGET_KEY), record.get(records.TARGET_SESSION_KEY)
+            if isinstance(rid, str) and rid:
+                withheld_ids.add(rid) if hiding else withheld_ids.discard(rid)
+            elif isinstance(sid, str) and sid:
+                withheld_sessions.add(sid) if hiding else withheld_sessions.discard(sid)
+        elif kind == records.AMBIENT_CAPTURE_KIND and records.is_injected_record(record):
+            sid, seq = record.get("session_id"), record.get("seq")
+            if isinstance(sid, str) and sid and isinstance(seq, int) and not isinstance(seq, bool):
+                injected_keys.add((sid, seq))
+    superseded = {raw for batch, raw, gist in supersessions
+                  if isinstance(batch, str) and batch in closed_rollup
+                  and isinstance(raw, str) and raw and isinstance(gist, str) and gist}
+    return closed, closed_rollup, superseded, injected_keys, withheld_ids, withheld_sessions
+
+
 def live_records(path: "str | None" = None):
     """Yield the ledger records recall should surface.
 
@@ -314,27 +615,34 @@ def live_records(path: "str | None" = None):
     kind is an episodic-shaped recall record and stays surfaced. A future kind that is fuel rather than content
     must be added to `_is_excluded_capture` to stay out of recall.
 
-    The remaining exclusions trim a record that is machinery or superseded: (a) an episodic a crashed
+    The remaining exclusions trim a record that is machinery, superseded, or withheld: (a) an episodic a crashed
     consolidation pass orphaned (logical retirement); (b) a bookkeeping marker, which is never a recall result
     (`_is_bookkeeping`); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's orphaned
-    gist, and the roll-up markers. A dropped record stays in the ledger, fully recoverable; this generator just
-    doesn't surface it. NOTHING IS DROPPED FOR BEING OLD — the archived-tier age-out that used to sit here is
-    gone for every kind (module docstring), and with it the `now` this took: membership no longer depends on
-    the clock at all, so the same ledger yields the same records whenever it is read.
+    gist, and the roll-up markers; (d) anything the operator has WITHHELD, by its own id or by withholding its
+    session (`is_withheld`) — the one exclusion here that a person chose rather than the machinery deriving. A
+    dropped record stays in the ledger, fully recoverable; this generator just doesn't surface it. NOTHING IS
+    DROPPED FOR BEING OLD — the archived-tier age-out that used to sit here is gone for every kind (module
+    docstring), and with it the `now` this took: membership no longer depends on the clock at all, so the same
+    ledger yields the same records whenever it is read.
 
-    Cheap sequential passes over the RAW ledger (never the filtered stream): the consolidation + roll-up closed
-    sets and the supersession map; then stream, dropping a record if ANY exclusion fires (they OR together — any
-    one reason hides it). Mutates nothing — never writes, never deletes."""
+    Withholding a SESSION reaches every record carrying that session id, so the curated summaries written over
+    a withheld conversation go with it. A cross-session gist is the deliberate exception: its `session_id` is a
+    `tag:` cluster sentinel rather than any one session (`records.is_cross_session_sentinel`), so withholding
+    one contributing session does not silently retract a summary drawn from several.
+
+    ONE derivation pass over the RAW ledger (never the filtered stream) collects every exclusion — the
+    consolidation and roll-up closed sets, the supersession map, the injected-message keys and the withhold
+    set (`_derive_membership`, which carries why they are folded rather than read five times) — then a second
+    pass streams, dropping a record if ANY exclusion fires (they OR together — any one reason hides it).
+    Mutates nothing — never writes, never deletes."""
     src = ledger.ledger_path() if path is None else path
-    closed = _closed_batches(src)
-    closed_rollup = _closed_rollup_batches(src)
-    superseded = set(_superseded_by_map(src, closed_rollup))
-    injected_keys = _injected_message_keys(src)
+    closed, closed_rollup, superseded, injected_keys, withheld_ids, withheld_sessions = _derive_membership(src)
     for record in ledger.iter_records(path=src):
         if (not _is_excluded_capture(record, injected_keys)
                 and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)
+                and not is_withheld(record, withheld_ids, withheld_sessions)
                 and not _is_bookkeeping(record)):
             yield record
 
@@ -367,18 +675,27 @@ def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> di
     """What `live_records` drops from recall for a reason the operator has a handle on — a READ-ONLY report the
     boot readout relays. Mutates NOTHING: every record named here is still resident and fully recoverable in the
     one ledger; recall just doesn't surface it. Returns
-        {"rows": [...bounded newest-first...], "totals": {"summarised": int},
+        {"rows": [...bounded newest-first...],
+         "totals": {"summarised": int, "withheld_notes": int, "withheld_sessions": int},
          "identity": [every set-aside id, sorted — the FULL population, independent of `limit`]}
     so a render can tell "there is none of this" apart from "there is, and it did not all fit", and a caller
     watching for change compares the full id set, not the bounded sample.
 
-    ONE class, and NOT the union of every `live_records` exclusion — SUMMARISED: a raw episode a COMPLETED
-    roll-up folded into a gist. There is no un-fold, so the honest handle is `recorded_text`, which reads its
-    original wording; the row carries `reversible=False` so the readout never offers to bring one back.
+    TWO classes, and NOT the union of every `live_records` exclusion.
 
-    There used to be a second, reversible class — a record the archived-tier ratchet aged out of recall, which
-    recording an access brought straight back. The ratchet is gone (module docstring), so that class no longer
-    exists and neither does the restore that reversed it. Nothing about this report is time-dependent any more.
+    SUMMARISED — a raw episode a COMPLETED roll-up folded into a gist. There is no un-fold, so the honest handle
+    is `recorded_text`, which reads its original wording; the row carries `reversible=False` so the readout
+    never offers to bring one back. This is the class the `rows` carry.
+
+    WITHHELD — what the operator themselves took out of recall, which `restore` puts straight back. It is
+    reported as a COUNT ONLY, deliberately: a row would carry the record's own text, and printing withheld
+    wording back into the briefing at every session start is precisely what the operator asked not to happen.
+    A count tells them the state exists and is reversible without re-surfacing the thing itself. Sessions and
+    single notes are counted apart because they are what the operator named, and "two conversations" reads very
+    differently from "two notes".
+
+    Nothing about this report is time-dependent: the archived-tier ratchet that once aged records out of recall
+    is gone (module docstring), so no row here appears or disappears with the clock.
 
     A crash-orphaned record (a consolidation or roll-up that did not finish) is DELIBERATELY excluded: it is a
     duplicate the good copy already replaces, not something the operator lost, so an "undo" would only re-admit a
@@ -417,11 +734,19 @@ def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> di
 
         rows: list = []
         summarised = 0
+        # The withheld set is needed BEFORE the rows are built, not only for the counts: a summary the
+        # operator withheld — by its own id, or by withholding the conversation it was written over — must
+        # not appear as a row, because a row carries the record's own `text` and the readout prints that into
+        # the briefing at every session start. Reporting a withhold and quoting the withheld wording in the
+        # same block is the exact outcome the count-only design exists to prevent.
+        withheld_ids, withheld_sessions = withheld_targets(src)
         for record in ledger.iter_records(path=src):
             if not isinstance(record, dict):
                 continue
             if record.get("kind") not in (records.EPISODIC_KIND, records.GIST_KIND):
                 continue                                   # only recall content — never a marker or a turn-delta
+            if is_withheld(record, withheld_ids, withheld_sessions):
+                continue
             rid = record.get(records.RECORD_ID_KEY)
             text = record.get("text")
             if not (isinstance(rid, str) and rid) or not (isinstance(text, str) and text.strip()):
@@ -446,9 +771,13 @@ def set_aside(path: "str | None" = None, *, limit: int = _SET_ASIDE_LIMIT) -> di
 
         rows.sort(key=_order, reverse=True)
         identity = sorted(r["id"] for r in rows)
-        return {"rows": rows[:limit], "totals": {"summarised": summarised}, "identity": identity}
+        return {"rows": rows[:limit],
+                "totals": {"summarised": summarised, "withheld_notes": len(withheld_ids),
+                           "withheld_sessions": len(withheld_sessions)},
+                "identity": identity}
     except Exception:  # noqa: BLE001 — an unreadable/degraded store costs the readout, never the session
-        return {"rows": [], "totals": {"summarised": 0}, "identity": []}
+        return {"rows": [], "totals": {"summarised": 0, "withheld_notes": 0, "withheld_sessions": 0},
+                "identity": []}
 
 
 def recorded_text(record_id: str, *, path: "str | None" = None) -> "dict | None":

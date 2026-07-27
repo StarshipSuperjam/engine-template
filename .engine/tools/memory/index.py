@@ -58,7 +58,9 @@ INDEX_FILENAME = "index.sqlite3"
 #   2 — captured conversation admitted (harness-injected pseudo-turns excluded); contentless FTS table.
 #   3 — fused harness blocks removed from the searchable projection.
 #   4 — the archived-tier age-out removed, so records an older index left out are now members.
-INDEX_SCHEMA_VERSION = 4
+#   5 — the operator's withholds are members of the index's own state: it stamps what was withheld when it
+#       was built, so the incremental update can honour a withhold it did not itself see.
+INDEX_SCHEMA_VERSION = 5
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -84,7 +86,11 @@ _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
     {"tags", "session_id", "kind", "speaker", "role",
      records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY,
-     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY, records.SCORE_KEY, records.MERGE_SHA_KEY}
+     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY, records.SCORE_KEY, records.MERGE_SHA_KEY,
+     # A withhold marker's session target and a pin's source session are both uuid hex — the same
+     # fragments-are-real-words problem every id field has. A pin's route is worse still: "assistant" and
+     # "cli" are ordinary words, so indexing that field would make every pin match a search for either.
+     records.TARGET_SESSION_KEY, records.PIN_SOURCE_SESSION_KEY, records.PIN_VIA_KEY}
 )
 
 
@@ -246,8 +252,15 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # previous version over a store holding one 60-day-old note answered a query for that note with nothing and
     # `degraded=False`, while the plain scan answered with the note. A change to what recall MAY reach is
     # exactly a change to what the index is allowed to contain, even when no line of the build code moved.
+    # `withheld` carries the operator's withholds AS OF THIS BUILD, as JSON. It is state the index needs about
+    # itself, not a second copy of the ledger's truth: `extend` inserts a freshly captured turn without ever
+    # reading the ledger, so without this it re-admits turns from a conversation the operator withheld — and
+    # it does so on the fast path only, which is the divergence direction that RESURFACES withheld content.
+    # Stamping is sound precisely because `extend` refuses to touch an index whose generation no longer
+    # matches, and a withhold bumps the generation: so whenever `extend` runs at all, this stamp is current.
     conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL, "
-                 "schema_version INTEGER NOT NULL DEFAULT 0)")
+                 "schema_version INTEGER NOT NULL DEFAULT 0, withheld TEXT NOT NULL DEFAULT '[]', "
+                 "index_epoch INTEGER NOT NULL DEFAULT 0)")
 
 
 def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
@@ -258,8 +271,37 @@ def _index_is_current(conn: sqlite3.Connection, src: str) -> bool:
     different, which no generation bump would ever signal. A missing or unreadable stamp reads as stale, so an
     index built before this stamp existed falls back to the always-correct scan rather than answering
     confidently from the wrong set."""
+    if _index_epoch_of(conn) != ledger.index_epoch(for_path=src):
+        return False
     return (_index_schema_version(conn) == INDEX_SCHEMA_VERSION
             and _index_generation(conn) == ledger.generation(for_path=src))
+
+
+def _index_epoch_of(conn: sqlite3.Connection) -> int:
+    """The index epoch this index was built against. Guarded like `_index_schema_version`: an index built by an
+    older engine has no such column, and reading -1 there makes it honestly stale rather than raising."""
+    try:
+        row = conn.execute("SELECT index_epoch FROM meta WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return -1
+    val = row[0] if row else None
+    return val if isinstance(val, int) and not isinstance(val, bool) else -1
+
+
+def _stamped_withholds(conn: sqlite3.Connection) -> tuple:
+    """`({record_id}, {session_id})` the index was built under, from its own `meta` row.
+
+    Guarded exactly the way `_index_schema_version` is: an older index has no such column, and a read that
+    raised here would land inside the incremental update, whose whole contract is that it never gates a turn's
+    close. Failure returns EMPTY sets, which is the direction that admits a record rather than dropping one —
+    safe because a withhold bumps the generation, so an index that has not seen it is already refused by
+    `_index_is_current` before this is consulted."""
+    try:
+        row = conn.execute("SELECT withheld FROM meta WHERE rowid = 1").fetchone()
+        data = json.loads(row[0]) if row and row[0] else {}
+        return set(data.get("ids") or ()), set(data.get("sessions") or ())
+    except (sqlite3.Error, ValueError, TypeError, IndexError):
+        return set(), set()
 
 
 def _index_schema_version(conn: sqlite3.Connection) -> int:
@@ -315,6 +357,14 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
         conn = sqlite3.connect(tmp)
         try:
             _build_schema(conn)
+            # READ THE LINEAGE BEFORE STREAMING, never after. This build takes over a second on a real store
+            # and holds no lock, so a withhold landing mid-stream would otherwise be stamped as though the
+            # index had seen it — leaving a withheld record in the fast answer, reported `degraded=False`,
+            # with nothing to invalidate it until the next bump. Reading first makes that race stamp the index
+            # honestly STALE instead, which costs one wasted rebuild and never a wrong answer.
+            built_generation = ledger.generation(for_path=src)
+            built_epoch = ledger.index_epoch(for_path=src)
+            w_ids, w_sessions = forget.withheld_targets(src)
             ordinal = 0
             # `live_records` excludes logically-retired duplicates (a crashed pass's orphans) — the SAME shared
             # filter the slow `_scan` uses, so the fast and slow lookups retire identically (parity).
@@ -335,8 +385,13 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
             # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
             # store's generation.
-            conn.execute("INSERT INTO meta (rowid, generation, schema_version) VALUES (1, ?, ?)",
-                         (ledger.generation(for_path=src), INDEX_SCHEMA_VERSION))
+            conn.execute(
+                "INSERT INTO meta (rowid, generation, schema_version, withheld, index_epoch) "
+                "VALUES (1, ?, ?, ?, ?)",
+                (built_generation, INDEX_SCHEMA_VERSION,
+                 json.dumps({"ids": sorted(w_ids), "sessions": sorted(w_sessions)}, separators=(",", ":")),
+                 built_epoch),
+            )
             conn.commit()
         finally:
             conn.close()
@@ -391,6 +446,11 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
         try:
             if not _index_is_current(conn, src):
                 return 0
+            # The operator's withholds, as the index itself recorded them. A withheld SESSION is the case that
+            # matters: withholding a conversation the operator is still in is the most natural way to use the
+            # control, and every turn captured after it would otherwise be inserted straight back here — found
+            # by the fast path, absent from the scan, and reported as an authoritative answer.
+            w_ids, w_sessions = _stamped_withholds(conn)
             row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
             ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
             for record in new_records:
@@ -398,6 +458,9 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
                     continue          # the narrow contract: captured turns only (see the docstring)
                 if forget._is_excluded_capture(record):
                     continue
+                if forget.is_withheld(record, w_ids, w_sessions):
+                    continue          # the operator took this conversation out of recall; a new turn in it is
+                    # not a new exception to that
                 tokens = _tokenize(_record_text(record))
                 conn.execute(
                     "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
@@ -529,16 +592,27 @@ def _query_terms(text: str) -> list:
     return list(dict.fromkeys(_tokenize(text)))
 
 
-def _passes_filters(record, roles, tags) -> bool:
-    """The structured POST-FETCH filters (role/tags are non-body — never FTS MATCH terms). `roles`: the record's
-    `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags. Both apply
-    identically on the fast and slow paths, so the degraded path returns the same FILTERED set."""
+def _passes_filters(record, roles, tags, session=None) -> bool:
+    """The structured POST-FETCH filters (role/tags/session are non-body — never FTS MATCH terms). `roles`: the
+    record's `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags.
+    `session`: the record belongs to that one conversation. All apply identically on the fast and slow paths, so
+    the degraded path returns the same FILTERED set.
+
+    WHY SESSION IS A FILTER AND NOT A SECOND SEARCH. Reaching a remembered thing has two moves: find which
+    conversation it was in, then find the moment inside it. The first was already answered; the second had no
+    answer at all, so a hit that carried no position sent the reader to the start of the session to page
+    forward — against a median session of well over a hundred records here, with the largest past what one
+    window can hold. Scoping the SAME ranked search to one conversation makes the second move the same shape as
+    the first, and being a filter rather than a new operation is what keeps one ranking and one seam."""
     if roles is not None:
         if not isinstance(record, dict) or record.get("role") not in roles:
             return False
     if tags is not None:
         have = record.get("tags") if isinstance(record, dict) else None
         if not isinstance(have, (list, tuple)) or not (set(have) & tags):
+            return False
+    if session is not None:
+        if not isinstance(record, dict) or record.get("session_id") != session:
             return False
     return True
 
@@ -596,7 +670,7 @@ _HYDRATE_CHUNK = 200
 _HYDRATE_MIN = 32
 
 
-def _fast_candidates(conn, match, *, roles, tags, limit, access_index, now):
+def _fast_candidates(conn, match, *, roles, tags, session, limit, access_index, now):
     """The fast path's candidate list — ranked WITHOUT holding the whole matched set in memory.
 
     The old shape fetched every matching row up front and parsed each one into a record dict before ranking. On
@@ -646,7 +720,7 @@ def _fast_candidates(conn, match, *, roles, tags, limit, access_index, now):
             if record_json is None:
                 continue                 # an fts row with no `entries` row — what the old JOIN dropped silently
             record = json.loads(record_json)
-            if not _passes_filters(record, roles, tags):
+            if not _passes_filters(record, roles, tags, session):
                 continue
             # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
             keys.append((-float(relevance), _usage_of(record, access_index, now), ordinal))
@@ -716,7 +790,7 @@ def _heal_if_stale(src: str, dst: str) -> bool:
         return False
 
 
-def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
+def _ranked(tokens, src, dst, *, roles, tags, session, limit, force_scan, now):
     """The shared ranked retrieval. Fast path: bm25 read from the FTS5 index (when present +
     generation-current); slow path: a full scan over the ledger computing THE SAME bm25 in plain Python. So the
     two paths agree on the matched set AND on its order — the availability law now holds for the answer, not
@@ -733,7 +807,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
             conn = sqlite3.connect(dst)
             try:
                 if _index_is_current(conn, src):
-                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, limit=limit,
+                    candidates = _fast_candidates(conn, match, roles=roles, tags=tags, session=session, limit=limit,
                                                   access_index=access_index, now=now)
                     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
             finally:
@@ -758,7 +832,7 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
         present = set(body_tokens)
         for term in wanted & present:
             doc_freq[term] += 1
-        if not (wanted <= present) or not _passes_filters(record, roles, tags):
+        if not (wanted <= present) or not _passes_filters(record, roles, tags, session):
             continue
         # Per-term counts as a flat TUPLE in `want` order, not a dict keyed by the term strings. A matched
         # record has to be held until the pass ends (its score depends on statistics only the end of the pass
@@ -836,6 +910,7 @@ def search(
     *,
     roles: "list | None" = None,
     tags: "list | None" = None,
+    session: "str | None" = None,
     limit: "int | None" = None,
     force_scan: bool = False,
     ledger_file: "str | None" = None,
@@ -848,17 +923,24 @@ def search(
     ValueError) and `tags` (any-match) narrow. Each result is a shallow copy carrying `records.SCORE_KEY` (the
     lexical relevance). `degraded` is True when answered by the slow backup scan.
 
+    `session` narrows to ONE conversation — the second move of a recall, once the first has named which
+    conversation to look in (`_passes_filters` carries why this is a filter rather than a second operation).
+    A blank string is treated as no filter rather than as a session nothing can match, so a caller passing an
+    empty value through gets the whole store instead of a silent nothing.
+
     SIDE-EFFECT-FREE: never reinforces, never writes the ledger — the live reinforcement-on-recall caller is the
     engine-memory MCP server, at the recall boundary, not here."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
     roles_set = _validate_roles(roles)
     tags_set = set(tags) if tags is not None else None
+    session_key = session if isinstance(session, str) and session else None
     tokens = _query_terms(query_text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
     now = int(time.time())
-    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, limit=limit, force_scan=force_scan, now=now)
+    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, session=session_key,
+                   limit=limit, force_scan=force_scan, now=now)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

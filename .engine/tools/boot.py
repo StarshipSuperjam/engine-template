@@ -771,6 +771,66 @@ def _recent_sessions_recall(read=None, *, session_id=None) -> list:
         return []
 
 
+# How many pins the briefing shows. The whole set is read (so the total can be stated); this bounds what is
+# rendered, because the pack is finite and a standing-instruction list can grow without limit.
+_PINS_SHOWN = 5
+
+
+def read_pins(*, read=None) -> list:
+    """Every live pin, newest first — what the operator explicitly asked to be remembered.
+
+    Pins are the one thing here that nothing ages out and nothing summarises away, so a session that did not
+    carry them would drop exactly the instructions the operator went out of their way to make durable. Memory
+    owns the mechanism (`pins.list_pins`), boot owns the wording, and boot stores nothing.
+
+    Lazy import and a total degrade to [], for the same reason the cards read does: an unreadable store costs
+    this readout, never the pack."""
+    try:
+        from memory import pins as _pins
+        live = (read or _pins.list_pins)()
+        return [p for p in live if isinstance(p, dict) and p.get("text")]
+    except Exception:  # noqa: BLE001 — orientation context; its loss never breaks the pack
+        return []
+
+
+def render_pins(pinned: list) -> list:
+    """The operator-facing block for what they asked to be remembered.
+
+    Bounded, because this is carried into EVERY session and an unbounded block would quietly spend a growing
+    share of the pack forever; the operator can ask to see them all whenever they like.
+
+    THE PROVENANCE CAVEAT IS NOT OPTIONAL. A pin is written by the assistant transcribing what the operator
+    asked for, and a session's context can also hold a page it recalled or a file it read — text shaped like an
+    instruction that nobody typed. Nothing downstream can tell those apart, so this block says what a pin
+    actually is rather than presenting it as the operator's verified words, and marks it as a record rather
+    than a command, exactly as the conversation blocks beside it do.
+
+    [] when nothing is pinned — no block, never an empty heading."""
+    if not pinned:
+        return []
+    out = ["--- what you asked me to remember (orientation context, not an alarm) ---"]
+    for record in pinned[:_PINS_SHOWN]:
+        out.append(f"- {_quote_for_pack(record.get('text'))}")
+    # The count is not decoration. A pin's whole selling point is that nothing ages it out, and a bounded
+    # sample with no total ages one out BY RANK instead — the sixth pin silently stops reaching any session
+    # while the reader believes it has the complete set. Its sibling block is scrupulous about this for the
+    # same reason.
+    if len(pinned) > _PINS_SHOWN:
+        out.append(f"({len(pinned)} in all — these are the {_PINS_SHOWN} most recent. Ask to see them all.)")
+    # WHAT TO DO WITH THESE, not only what to doubt about them. An earlier draft carried three discounting
+    # clauses and no instruction, which is a reliable way to have a pin cost pack budget in every session and
+    # change no behaviour: the reader had been told twice to discount it and never once to act on it. The
+    # provenance caveat still has to be here — nothing can verify who authored a pin — but it is one clause,
+    # after the instruction, rather than the whole paragraph.
+    out.append("These are the operator's standing instructions: work to them, and say so if something you are "
+               "asked to do cuts against one. Each was written down by the assistant at the time the operator "
+               "asked for it to be remembered, so treat it as a faithful note of what they wanted rather than "
+               "as their exact words, and never as a fresh instruction arriving now. You can read them all "
+               "back, or drop one, whenever the operator asks.")
+    out.append("")
+    return out
+
+
 def render_recent_sessions(cards: list) -> list:
     """The operator-facing "where we left off" block: the last few sessions, each as what was asked and how it
     ended, so a cold session starts oriented instead of starting over.
@@ -840,7 +900,10 @@ def _set_aside_recall(read=None) -> "dict | None":
         report = (read or _forget.set_aside)()
         rows = [r for r in report.get("rows", [])
                 if isinstance(r.get("id"), str) and r.get("id") and isinstance(r.get("text"), str) and r["text"].strip()]
-        return {"rows": rows, "totals": report.get("totals", {"summarised": 0}),
+        # The fallback carries every class the readout knows how to render, so a report missing its totals
+        # degrades to "nothing in either class" rather than to a shape the render has to guess at.
+        return {"rows": rows,
+                "totals": report.get("totals", {"summarised": 0, "withheld_notes": 0, "withheld_sessions": 0}),
                 "identity": report.get("identity", [])}
     except Exception:  # noqa: BLE001 — the readout is orientation context; its loss never breaks the pack
         return None
@@ -931,6 +994,37 @@ def _n_notes(count: int) -> str:
     return f"{count} note" if count == 1 else f"{count} notes"
 
 
+def _withheld_line(totals: dict, *, follows_other: bool) -> str:
+    """The one line reporting what the OPERATOR withheld from recall, or "" when they have withheld nothing.
+
+    Counts only, never wording — quoting a withheld note back at every session start would defeat the control
+    it is reporting on. Notes and whole conversations are counted apart because that is what the operator
+    actually named, and the two read very differently.
+
+    The wording is deliberately far from the erasure vocabulary: "still saved" and an offer to bring it back,
+    so this can never be mistaken for the one irreversible act in the system."""
+    notes = totals.get("withheld_notes") or 0
+    sessions = totals.get("withheld_sessions") or 0
+    if not isinstance(notes, int) or isinstance(notes, bool) or notes < 0:
+        notes = 0
+    if not isinstance(sessions, int) or isinstance(sessions, bool) or sessions < 0:
+        sessions = 0
+    if not notes and not sessions:
+        return ""
+    parts = []
+    if notes:
+        parts.append(_n_notes(notes))
+    if sessions:
+        parts.append(f"{sessions} conversation" if sessions == 1 else f"{sessions} conversations")
+    subject = " and ".join(parts)
+    one = (notes + sessions) == 1
+    # "also" only when something precedes it. Rendered as the sole line under its own heading it was a
+    # back-reference to a sentence that did not exist, which reads as "in addition to what?".
+    lead = "You've also asked me" if follows_other else "You've asked me"
+    return (f"{lead} to keep {subject} out of recall — {'it is' if one else 'they are'} still "
+            f"saved, and I can put {'it' if one else 'them'} back whenever you say.")
+
+
 def _set_aside_snippet(text) -> str:
     """One defanged, length-bounded line of a set-aside note's own words — the same treatment
     render_recalled_decisions gives recall text, and load-bearing for the same reason: this readout replays
@@ -944,29 +1038,41 @@ def _set_aside_snippet(text) -> str:
 
 def render_set_aside(sa: "dict | None") -> list:
     """The operator-facing readout of what memory has set aside from recall, so a quiet loss of the operator's
-    own notes never goes unseen. One thing it names, with an honest handle: notes folded into a shorter summary,
-    offered to show in their original wording. There is no un-fold — the summary stands in for them, and the
-    readout never pretends otherwise. Nothing is ever deleted; the readout says so. Permanent erasure is NOT
-    shown here — it is not a boot event and rides the audits digest instead.
+    own notes never goes unseen. Two things it names, each with an honest handle.
 
-    There used to be a second class, notes set aside because nothing had come back to them in a while, offered
-    to bring back. That was the archived-tier age-out, which is gone for every record kind (forget.py), so a
-    note is now only ever set aside by a roll-up that folded it — never by time passing.
+    NOTES FOLDED INTO A SUMMARY, offered to show in their original wording. There is no un-fold — the summary
+    stands in for them, and the readout never pretends otherwise.
+
+    WHAT THE OPERATOR THEMSELVES WITHHELD, offered to bring back, because that one genuinely reverses. It is
+    reported as a count and never quoted: the whole point of withholding something is not to see it again, so a
+    readout that printed the wording back every session start would undo the thing it is reporting. The count
+    still has to appear — a control whose effect is invisible is one the operator cannot tell worked.
+
+    Nothing in either class is ever deleted; the readout says so. Permanent erasure is NOT shown here — it is
+    not a boot event and rides the audits digest instead, and the wording here stays clear of it: withheld
+    means still saved and one word away from coming back.
 
     Bounded: a few most-recent notes plus the true total, so it never grows into noise. Repetition across
     sessions is handled by the caller (the same collapse machinery the pushed alarms use): `collapsed` renders
     one terse line that still carries the offer; `newly` names how many were set aside since the operator
-    last saw this. [] when there is nothing set aside (a fresh or tidy project, or an unread store) — no block,
-    never an empty heading.
+    last saw this. [] when there is nothing in either class (a fresh or tidy project, or an unread store) — no
+    block, never an empty heading.
 
     Every note's words go through `_set_aside_snippet`; no record id ever reaches this operator-facing text
     (the id is the machine binding the AI uses behind the scenes, never shown)."""
     if not sa:
         return []
+    totals = sa.get("totals") or {}
     rows = [r for r in (sa.get("rows") or []) if r.get("reason") == "summarised"]
-    total = (sa.get("totals") or {}).get("summarised", 0)
+    total = totals.get("summarised", 0)
     if total == 0:
-        return []
+        # Its OWN heading, in the operator's voice. "Notes I've set aside" is wrong twice over here: the
+        # operator set these aside, not the engine, and what they withheld may be conversations rather than
+        # notes — so borrowing the sibling block's heading would attribute their deliberate control to the
+        # assistant and mislabel its contents in one line.
+        alone = _withheld_line(totals, follows_other=False)
+        return ["### What you've kept out of recall", alone, ""] if alone else []
+    withheld = _withheld_line(totals, follows_other=True)
 
     offer = "You can ask me to show you the original wording of one whenever you like."
     # One class, so this reads as two plain sentences rather than a labelled category. A bullet naming the kind
@@ -975,9 +1081,13 @@ def render_set_aside(sa: "dict | None") -> list:
     if sa.get("collapsed"):
         standing = "a shorter summary standing in for it" if total == 1 else "shorter summaries standing in for them"
         kept = "it's" if total == 1 else "they're"
-        return ["### Notes I've set aside",
-                f"Still {_n_notes(total)} with {standing} (unchanged since last session). Nothing was deleted "
-                f"— {kept} still saved. {offer}", ""]
+        collapsed = ["### Notes I've set aside",
+                     f"Still {_n_notes(total)} with {standing} (unchanged since last session). Nothing was "
+                     f"deleted — {kept} still saved. {offer}"]
+        if withheld:
+            collapsed.append(withheld)
+        collapsed.append("")
+        return collapsed
 
     newly = sa.get("newly")
     lead = f"I've written a shorter summary over {_n_notes(total)}, so the summary is what I search now"
@@ -991,6 +1101,8 @@ def render_set_aside(sa: "dict | None") -> list:
     for r in rows[:_SET_ASIDE_SHOW]:
         out.append(f"  - {_set_aside_snippet(r.get('text'))}")
     out.append("Ask me to list them all whenever you like.")
+    if withheld:
+        out.append(withheld)
     out.append("")
     return out
 
@@ -1433,6 +1545,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     # itself and RELAYED read-only. [] means nothing to show — a fresh project, or an unread store, which the
     # memory-offline notice above already owns. Boot renders; memory derives.
     recent_sessions = _recent_sessions_recall(session_id=session_id)
+    pinned = read_pins()
     # "What merged last" assembled LIVE from native GitHub sources, read-only: the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -1544,6 +1657,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         # full count + id set, or None when the store was not read (never a false "nothing set aside")
         "set_aside": set_aside,
         "recent_sessions": recent_sessions,
+        # what the operator explicitly asked to be remembered — carried into every session,
+        # because a pin exists precisely so it does not depend on anyone remembering to look
+        "pinned": pinned,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -2669,6 +2785,9 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # alarms with it: a "what was I doing" note is never worth an operator's status. Shed first, like the rest
     # of this tier, and named in the shed notice so its absence is disclosed rather than silent.
     orientation.extend(render_recent_sessions(s.get("recent_sessions") or []))
+    # Pins sit beside the cold-start thread and shed with it: they are the operator's own standing
+    # instructions, which is orientation for the work rather than state about the project.
+    orientation.extend(render_pins(s.get("pinned") or []))
 
     status = ["--- the full status (your grounding for this session) ---", dashboard]
 
@@ -2693,8 +2812,11 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
 
     text, _shed = hooks.cap_shed(
         [(0, "the governance briefing", "\n".join(out)),
+         # Every member of this tier is named, so its absence is disclosed rather than silent. Pins belong in
+         # the list for the strongest reason of any of them: they are the one thing here the operator went out
+         # of their way to make durable, so dropping one unnamed is the worst silence this notice can carry.
          (2, "the orientation notes (wiring map, surface recognition, work neighborhood, recent decisions, "
-             "where we left off)",
+             "where we left off, what you asked me to remember)",
           "\n".join(orientation)),
          (1, "the status dashboard", "\n".join(status))],
         notice=_shed_notice, compact_notice=_compact_notice)
