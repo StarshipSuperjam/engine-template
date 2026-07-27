@@ -320,7 +320,8 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   `uv run --directory .engine -- python tools/local_references.py scan --ref <the checkout's default branch>
   --checkout <the emitted path>`. It reads the vocabulary from **here** — the repository whose shorthand
   would dangle — and scans the diff **there**. Run it inside the checkout and it reads the product's own
-  declaration, which is empty by design, and reports clean forever. If it names anything, rewrite each one to
+  declaration — which ships ABSENT — so it would report that nothing was checked, on the one path with
+  no merge gate behind it. If it names anything, rewrite each one to
   say what it MEANS rather than what it refers to; the operator may wave one through, and that is their call.
   **This is a mandated step, not a wall:** the mechanic does not own the product's CI, so no merge gate is
   available on this path — the discipline is the instrument, and a skipped step is a real gap, not a caught one.

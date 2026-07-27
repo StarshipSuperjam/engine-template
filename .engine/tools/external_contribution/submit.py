@@ -346,8 +346,7 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         if leak_overridden else
         "the changes carry no engine files"
     )
-    # The SAME honesty rule for the local-reference scan, which has three outcomes that must not collapse into
-    # one. "Checked and found nothing" is a claim; "you declared nothing to check against" and "your list
+    # The SAME honesty rule for the local-reference scan, whose outcomes must not collapse into one. "Checked and found nothing" is a claim; "you declared nothing to check against" and "your list
     # couldn't be read" are NOT — reporting either as clean would tell the operator a check ran that did not.
     if local_references_overridden:
         lr_line = (" You've chosen to go ahead with the references I flagged that mean something only in "
@@ -359,6 +358,14 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         lr_line = (f" One thing I could NOT check: your list of local references "
                    f"({local_references.DECLARATION_REL}) couldn't be read, so nothing was compared against "
                    "it — that isn't the same as clean.")
+    elif local_references_state == local_references.UNUSABLE:
+        # NOT the same as "you have none": the operator DID state their shorthand and the engine discarded
+        # it. Telling them they said they have none would misreport their own instruction back to them, at
+        # the moment they are deciding whether to take a one-way action on someone else's project.
+        lr_line = (" One thing I could NOT check: your list of local references has entries I couldn't use — "
+                   "one the engine doesn't recognise, or one too short to be a reference — so none of them "
+                   "were applied and nothing was compared against them. That isn't the same as clean; tell "
+                   "me and I'll put the list right.")
     elif local_references_state == local_references.EMPTY:
         # A deliberate "we have none" is an ANSWER, not a gap — so it reads as settled and stops asking.
         # Without this state the only way to silence the offer below would be an empty list, which used to
@@ -1098,9 +1105,9 @@ def demo() -> int:
         if r7s["status"] != "leak-decision-needed" or ".engine/tools/boot.py" not in r7s.get("offending", []):
             failures.append("stranger case: engine source MUST be flagged for a third-party target (safety case)")
 
-        # Case 7b — the deployment's OWN declared references. Shows the three outcomes that must never be
-        #           collapsed into one: caught and paused, checked and clean, and "you declared nothing, so
-        #           I checked nothing" — the last of which is NOT a clean result.
+        # Case 7b — the deployment's OWN declared references. Shows the outcomes that must never be
+        #           collapsed into one: caught and paused, checked and clean, "you declared nothing, so I
+        #           checked nothing", and "you declared something I couldn't use" — only the second is clean.
         import json as _json
         import tempfile as _tempfile
         _lrdir = _tempfile.mkdtemp(prefix="engine-submit-demo-lr-")
@@ -1128,6 +1135,15 @@ def demo() -> int:
         print(r7c["narration"], "\n")
         if r7c["status"] != "prepared" or "found none of them" not in r7c["narration"]:
             failures.append(f"local-reference prose case: expected a clean prepared, got {r7c['status']}")
+        _bad = os.path.join(_lrdir, "unusable.json")
+        with open(_bad, "w", encoding="utf-8") as _fh:
+            _json.dump({"ticket_ids": ["ACME-"]}, _fh)      # a key the engine does not recognise
+        r7e = submit(**lr_kw, local_references_path=_bad,
+                     lr_git=_lrdiff("# kept out of git (acme-topology Law 5; ACME-156)"))
+        print("--- the list was written, but nothing in it could be used: NOT reported as clean ---")
+        print(r7e["narration"], "\n")
+        if "couldn't use" not in r7e["narration"] or "found none of them" in r7e["narration"]:
+            failures.append("unusable-declaration case: a discarded list must not be narrated as checked")
         r7d = submit(**lr_kw, local_references_path=os.path.join(_lrdir, "absent.json"),
                      lr_git=_lrdiff("# kept out of git (acme-topology Law 5; ACME-156)"))
         if r7d["status"] != "prepared" or "found none of them" in r7d["narration"]:

@@ -51,8 +51,16 @@ class TestReaderStates(unittest.TestCase):
         # into `declared` would let a caller say "I checked and found none" with no pattern compiled and the
         # change never read — the exact false claim of cleanliness this module exists to prevent.
         with tempfile.TemporaryDirectory() as d:
-            for decl in ({}, {"id_prefixes": [], "phrases": [], "section_refs": []}, {"phrases": ["a"]}):
+            for decl in ({}, {"id_prefixes": [], "phrases": [], "section_refs": []}):
                 self.assertEqual(lr.load_vocabulary(_decl(d, decl)), ([], lr.EMPTY), decl)
+
+    def test_entries_that_were_listed_and_discarded_are_not_reported_as_none(self):
+        # "nothing compiled" is NOT "nothing listed". An unrecognised key, a too-short entry or a non-string
+        # was still something the operator stated; reporting it back as "you told me you have none" would
+        # misstate their own instruction at the moment they authorise a one-way act on someone else's repo.
+        with tempfile.TemporaryDirectory() as d:
+            for decl in ({"ticket_ids": ["ACME-"]}, {"phrases": ["A"]}, {"phrases": [123]}):
+                self.assertEqual(lr.load_vocabulary(_decl(d, decl)), ([], lr.UNUSABLE), decl)
 
     def test_a_real_declaration_compiles_and_reports_declared(self):
         with tempfile.TemporaryDirectory() as d:
@@ -292,6 +300,24 @@ class TestAgainstRealGit(unittest.TestCase):
         lines, inspected = self._added()
         self.assertTrue(inspected)
         self.assertIn("cites ACME-999", [t for _p, _n, t in lines])
+
+    def test_a_page_separator_does_not_truncate_the_rest_of_a_file(self):
+        # A form feed is the conventional page separator in Python and C source, and a lone carriage return
+        # turns up in any file with mixed line endings. Python's splitlines() breaks on both; git counts a
+        # line as ending at a newline and nothing else. Counting with the wrong notion of "line" desyncs the
+        # hunk count and silently discards the rest of the file — while still reporting it inspected.
+        self._commit("src.py", "harmless\npage\x0cbreak\ncites ACME-156\nand ACME-999\n")
+        lines, inspected = self._added()
+        self.assertTrue(inspected)
+        vocab = lr.compile_vocabulary({"id_prefixes": ["ACME-"]})
+        self.assertEqual(sorted(h["token"] for h in lr.scan(vocab, lines=lines)),
+                         ["ACME-156", "ACME-999"], "content after a page separator must still be scanned")
+
+    def test_a_lone_carriage_return_does_not_truncate_the_rest_of_a_file(self):
+        self._commit("src.py", "harmless\nmixed\rendings\ncites ACME-156\n")
+        lines, _ = self._added()
+        vocab = lr.compile_vocabulary({"id_prefixes": ["ACME-"]})
+        self.assertEqual([h["token"] for h in lr.scan(vocab, lines=lines)], ["ACME-156"])
 
     def test_the_end_to_end_scan_finds_a_real_reference_through_the_real_transport(self):
         self._commit("docs/ACME-156-migration.md", "see acme-topology Law 5\nthe acme-topology rule\n")

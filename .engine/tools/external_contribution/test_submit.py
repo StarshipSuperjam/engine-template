@@ -562,6 +562,13 @@ class TestLocalReferenceGate(unittest.TestCase):
         self.assertIn("no shorthand of its own", r["narration"])
         self.assertNotIn("found none of them", r["narration"])
 
+    def test_a_list_whose_entries_were_all_discarded_is_not_narrated_as_having_none(self):
+        r = self._submit(self._declare({"ticket_ids": ["ACME-"]}), added="restore it (ACME-309)")
+        self.assertEqual(r["status"], "prepared")
+        self.assertIn("couldn't use", r["narration"])
+        self.assertNotIn("no shorthand of its own", r["narration"])
+        self.assertNotIn("found none of them", r["narration"])
+
     def test_an_unreadable_declaration_stops_rather_than_checking_nothing(self):
         r = self._submit(self._declare("{not json"))
         self.assertEqual(r["status"], "local-references-unreadable")

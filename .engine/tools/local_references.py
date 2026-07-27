@@ -35,8 +35,11 @@ not a claim that the work carries nothing foreign — an undeclared vocabulary i
 Callers must narrate the FOUR read states apart, and only one of them licenses "I checked and found none":
 
   - DECLARED   — entries were compiled and the change was scanned against them. A real claim.
-  - EMPTY      — a declaration exists and lists nothing. A deliberate "this project has no shorthand", so it
-                 is an answer rather than a gap; nothing was scanned, so nothing may be claimed.
+  - EMPTY      — a declaration exists and lists nothing at all. A deliberate "this project has no shorthand",
+                 so it is an answer rather than a gap; nothing was scanned, so nothing may be claimed.
+  - UNUSABLE   — entries WERE listed and none survived (an unrecognised key, a too-short or non-text entry).
+                 Distinct from EMPTY because the operator did state their shorthand and it was discarded;
+                 telling them they said they have none would misreport their own instruction.
   - ABSENT     — no declaration at all. The engine offers to set one up.
   - UNREADABLE — a declaration exists and could not be parsed. The worst state to report as clean, because
                  the operator believes a check is protecting them.
@@ -65,6 +68,7 @@ DECLARED_KEYS = ("id_prefixes", "phrases", "section_refs")
 ABSENT = "absent"          # no declaration — the starting state; the engine offers to set one up
 EMPTY = "empty"            # a declaration that deliberately lists nothing — "this project has no shorthand"
 DECLARED = "declared"      # a declaration with entries; a scan against it is a real claim
+UNUSABLE = "unusable"      # entries were listed but none survived — NEVER report this as "you have none"
 UNREADABLE = "unreadable"  # a declaration is present but could not be parsed — NEVER report this as clean
 
 # A reference sits on its own boundary: not butted against a letter, digit or underscore. A HYPHEN is
@@ -115,8 +119,8 @@ def load_vocabulary(path: str | None = None) -> tuple:
 
     Every state but DECLARED yields an empty vocabulary, and they are told apart precisely so that a caller
     cannot narrate an unscanned contribution as clean. ABSENT is the steady state before a first declaration;
-    EMPTY is a deliberate "this project has no shorthand"; UNREADABLE is the worst to misreport, because the
-    operator believes a check is protecting them."""
+    EMPTY is a deliberate "this project has no shorthand"; UNUSABLE means entries were listed and discarded;
+    UNREADABLE is the worst to misreport, because the operator believes a check is protecting them."""
     path = path if path is not None else os.path.join(validate.ROOT, DECLARATION_REL)
     if not os.path.exists(path):
         return [], ABSENT
@@ -128,6 +132,11 @@ def load_vocabulary(path: str | None = None) -> tuple:
     if not isinstance(decl, dict):
         return [], UNREADABLE
     compiled = compile_vocabulary(decl)
+    # Counted across EVERY key, not just the recognised ones: an entry typed under `ticket_ids` was still
+    # something the operator told the engine, and it was thrown away.
+    listed = sum(len(v) for v in decl.values() if isinstance(v, list))
+    if not compiled and listed:
+        return [], UNUSABLE
     if not compiled:
         # A declaration that lists nothing is NOT a declaration that was checked against. Collapsing it into
         # DECLARED would let a caller say "I checked and found none" when no pattern was compiled and the
@@ -199,7 +208,12 @@ def _parse_added(text: str) -> list:
     the published finding. Counting from the header makes that unreachable: inside a hunk, content is content.
     """
     out, path = [], None
-    lines = iter(text.splitlines())
+    # split("\n"), NOT splitlines(): git counts a line as ending at a newline and nothing else, while
+    # splitlines() also breaks on form feed, vertical tab, a lone carriage return and four Unicode
+    # separators. Any of those inside an added line would make this parser see one more "line" than the hunk
+    # header promised, desync the count, and silently discard the rest of that file — a form feed is the
+    # conventional page separator in Python and C source, so this is ordinary content, not an attack.
+    lines = iter(text.split("\n"))
     for line in lines:
         if line.startswith("diff --git "):
             path = None                                  # a new file's headers follow; forget the last one
@@ -363,6 +377,11 @@ def _scan_cli(argv: list) -> int:
               f"against. To declare one, write {DECLARATION_REL} with any of: "
               + ", ".join(DECLARED_KEYS) + ".")
         return 0
+    if state == UNUSABLE:
+        print("Your list of local references has entries the engine could not use — an entry it does not "
+              "recognise, or one too short to be a reference — so none of them were applied and nothing was "
+              "checked. That is not the same as this contribution being clean.", file=sys.stderr)
+        return 1
     if state == EMPTY:
         # Handled distinctly for the same reason the prepared narration does: this path is the one the
         # owned-product runbook MANDATES, and that path has no merge gate behind it — so a confident green

@@ -4190,7 +4190,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:b9968b03676ff660847eac0b17a5b2ec5c85fd68df3ad054176028c5311ba886",
+        "fingerprint": "sha256:1424329a5d0fd05b8dc8d0e3177daa0e4fbb2d44eb6f71830dbdc5ecd28a9b3a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4410,7 +4410,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:ca3c4156a5a1234bd2fab7081c9c7213dcd86d716d5657c0ae3466edd3f8dd73",
+        "fingerprint": "sha256:43193f57ad9304b9e0e4a9427a54c9efceb397cbd30ff42deaa4968628cb5eba",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4734,7 +4734,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:6279f05af18e010796d06926350ad74cf664e5ed98ff9d138d45416fdc35029b",
+        "fingerprint": "sha256:a64240f2614eb3f9c30087d6a5812abac30a5a69f10b4feecae7e812e4f9a3fa",
         "path": ".engine/policies/external-contribution.md"
       },
       "status": "active",
@@ -7721,7 +7721,7 @@
       },
       "slug": "local_references",
       "source": {
-        "fingerprint": "sha256:a30e55325356daf5268eea548b04109366444903fb7dff0b8f8ded3cd181cc20",
+        "fingerprint": "sha256:e8f00817bf9459c17025f21527e6ed2951c5478afdec8d3d31738d4502df2d65",
         "path": ".engine/tools/local_references.py"
       },
       "status": "active",
@@ -8639,7 +8639,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:64ef78b907bc31bb2d7c26305b72ef4a3000e206a8eb50a4269734103f1854ae",
+        "fingerprint": "sha256:b8d30bab628e61a441dd592aa42287e6e8229df9c1c70f8ad65261654e300db2",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -9863,7 +9863,7 @@
       },
       "slug": "test_local_references",
       "source": {
-        "fingerprint": "sha256:bdbca364c67d75f65e9d09b44fe290a148ba32497c021785621045b2746f7f71",
+        "fingerprint": "sha256:35c737e2d57dcb9269a5f8f90afa17cfb26271234d3d5929dbafd252916f29d4",
         "path": ".engine/tools/test_local_references.py"
       },
       "status": "active",
@@ -10815,7 +10815,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:e4221c320b3b036906b0b2b8ebf04ec200b1745fafe6ab09031add68c8d4b939",
+        "fingerprint": "sha256:c10e9559302b61a5fa785da07aad600bb2337e2c8196877febed26b717b74c90",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

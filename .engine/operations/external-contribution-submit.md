@@ -62,8 +62,11 @@ open-the-pull-request step reaches the network only on a real submission — see
      way to record that, and it is a perfectly good answer. The engine then says there was nothing of that
      kind to look for, rather than claiming it checked.
    - **If you haven't made that list at all, the engine says so** rather than telling you the contribution
-     was checked, and offers to set one up. Same if the list can't be read: it stops and says the check
-     didn't run, because "I couldn't look" and "I looked and it's clean" are not the same thing.
+     was checked, and offers to set one up.
+   - **If the list can't be read, or nothing in it could be used** — an entry the engine doesn't recognise,
+     or one too short to be a reference — **the engine says that too, and offers to put it right.** It never
+     reports those as clean: "I couldn't look" and "I looked and it's clean" are not the same thing, and
+     neither is "you wrote something I had to throw away."
 6. **Have the change looked over before you submit.** For a change to the engine's *own* project, the engine
    runs a second, independent review that hunts for mistakes the tests can miss. That review does **not** run
    by itself on a contribution to another project — so for anything beyond a trivial change, ask the engine to
