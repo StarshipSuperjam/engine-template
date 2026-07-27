@@ -158,24 +158,6 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" run-episodic"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" run-episodic"
-      }
-    },
-    {
-      "type": "hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" drain-inbox"
       }
     },
@@ -372,24 +354,6 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-episodic"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "resume",
-      "hook": {
-        "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-episodic"
-      }
-    },
-    {
-      "type": "codex-hook",
-      "event": "SessionStart",
-      "matcher": "startup",
-      "hook": {
-        "type": "command",
         "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" drain-inbox"
       }
     },
@@ -462,7 +426,7 @@
   "depends": {},
   "migrations": {
     "0.3.0": {
-      "description": "Removes the per-prompt hint's strength setting from your saved settings \u2014 the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
+      "description": "Removes the per-prompt hint's strength setting from your saved settings — the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
       "run": "migrations/retire_scent_threshold.py",
       "kind": "config"
     }

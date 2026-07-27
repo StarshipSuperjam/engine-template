@@ -74,7 +74,8 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, ledger, records, score  # noqa: E402
+import hooks  # noqa: E402 — the PreCompact entry point
+from memory import forget, ledger, records  # noqa: E402
 
 _TEMP_PREFIX = ".compact-"          # the in-dir swap temp; NEVER the canonical name, so it is reapable
 _TEMP_SUFFIX = ".ndjson"
@@ -172,38 +173,17 @@ def _reap_temps(data_dir: str) -> int:
     return reaped
 
 
-def _fold_record(record, access_index: dict, t0: int):
-    """`record` with its reinforcement history folded into carried current-state fields, or unchanged
-    when it has nothing to fold. Only a record whose id is an access-index key — necessarily a recall-content
-    record, since only recall results are reinforced — gets a snapshot; everything else (markers, un-reinforced
-    records) is returned verbatim, its content-free id preserved either way."""
-    if not isinstance(record, dict):
-        return record
-    rid = record.get(records.RECORD_ID_KEY)
-    accesses = access_index.get(rid) if isinstance(rid, str) and rid else None
-    if not accesses:
-        return record
-    snap, last = score.mint_snapshot(record, accesses, t0)
-    folded = dict(record)
-    folded[records.FRECENCY_SNAPSHOT_KEY] = snap
-    folded[records.SNAPSHOT_TS_KEY] = t0
-    folded[records.LAST_ACCESS_TS_KEY] = last
-    # The snapshot-time TIER is deliberately NOT written. The three fields above are read back by `score.score`,
-    # which resumes the frecency recurrence from them; the tier never was — it was stamped for legibility, on
-    # the reasoning that a human reading the ledger could see why a record had stopped surfacing. No record stops
-    # surfacing for its tier any more, so the field would name a scale that decides nothing while reading as if
-    # it did ("archived" looks like hidden). A record an older engine compacted still carries one; that is why
-    # `records.TIER_KEY` still exists and why `index._NON_BODY_KEYS` still keeps it out of the search body.
-    return folded
-
-
 def _fold_supersession(record, superseded_by_map: dict):
     """`record` with a CLOSED-batch gist supersession folded into its carried `superseded_by` field,
     or unchanged when nothing supersedes it. `superseded_by_map` (forget._superseded_by_map) maps a raw
     episode's id -> its gist id, built ONLY from closed-batch markers — so a raw enters it (and gets the carried
     field) only when its gist's roll-up completed. After the marker is pruned, `forget.live_records` still
-    retires the raw via this field. The content-free id and every other field are preserved; layers cleanly with
-    `_fold_record` (a superseded-AND-archived raw carries both the snapshot and the supersession)."""
+    retires the raw via this field. The content-free id and every other field are preserved.
+
+    THIS FOLD IS WHY THE PRUNE IS SAFE. Pruning a closed-batch `superseded` marker without writing this field
+    would un-hide the raw episode the marker retired, surfacing a summary beside the source it replaced. The
+    sibling fold that carried a frecency snapshot had no such duty and is gone with the scoring it fed:
+    nothing reads a per-record score any more, so those markers are pruned outright."""
     if not isinstance(record, dict):
         return record
     rid = record.get(records.RECORD_ID_KEY)
@@ -215,7 +195,7 @@ def _fold_supersession(record, superseded_by_map: dict):
     return folded
 
 
-def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int,
+def _write_compacted_temp(data_dir: str, raw_records,
                           closed_rollup: set, superseded_by_map: dict, erasure_targets: set,
                           torn_raw: "bytes | None" = None) -> str:
     """Write the folded, marker-pruned ledger to a fresh temp in `data_dir`, fsynced. Drops ONLY `reinforcement`
@@ -238,8 +218,7 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
                 continue  # reinforcement / closed-batch supersession: folded into carried fields, then pruned
             if _is_erased(record, erasure_targets):
                 continue  # Layer-2: a valid merge-gated erasure marker targets this record -> physically removed
-            folded = _fold_record(record, access_index, t0)
-            folded = _fold_supersession(folded, superseded_by_map)
+            folded = _fold_supersession(record, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
             os.write(fd, line.encode("utf-8"))
         if torn_raw:
@@ -296,17 +275,14 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         # erasing recoverable recall with erased:0. `records` is byte-identical to the old iter_records list here.
         health = ledger.read(path=target)
         raw = health.records
-        access_index = forget._access_index(target)
         closed_rollup = forget._closed_rollup_batches(target)          # roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
         erasure_targets = _erasure_targets(raw)        # ids a VALID merge-gated marker authorises removing
         pruned = sum(1 for r in raw if _is_foldable(r, closed_rollup))
         erased = sum(1 for r in raw if _is_erased(r, erasure_targets))   # recall content physically removed (Layer-2)
         folded = sum(1 for r in raw if isinstance(r, dict)
-                     and isinstance(r.get(records.RECORD_ID_KEY), str)
-                     and (access_index.get(r.get(records.RECORD_ID_KEY))
-                          or r.get(records.RECORD_ID_KEY) in superseded_by_map))
-        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map,
+                     and r.get(records.RECORD_ID_KEY) in superseded_by_map)
+        tmp = _write_compacted_temp(data_dir, raw, closed_rollup, superseded_by_map,
                                     erasure_targets, torn_raw=health.torn_raw)
         if _crash_after == "write":
             raise _InjectedCrash("write")              # power-cut: temp left, OLD ledger intact, gen unbumped
@@ -552,19 +528,6 @@ def _recall_count(word: str) -> int:
 
 def _in_cabinet(record_id: str) -> int:
     return sum(1 for r in _all_records() if r.get(records.RECORD_ID_KEY) == record_id)
-
-
-# Plain-language names for the freshness tiers — what the operator sees instead of hot/warm/cold/archived. None
-# of them hides a note: the age-out that once dropped an `archived` record from search is gone, so the coldest
-# label says "long unused" and nothing more.
-_FRESHNESS = {score.HOT: "fresh", score.WARM: "getting stale", score.COLD: "stale",
-              score.ARCHIVED: "long unused"}
-
-
-def _freshness(record: dict) -> str:
-    """The plain-language freshness of `record`, scored against its real (post-tidy) state + the real clock."""
-    accesses = forget._access_index(_ledger_path()).get(record.get(records.RECORD_ID_KEY), ())
-    return _FRESHNESS[score.tier(record, accesses)]
 
 
 def _scratch_copies(data_dir: str) -> int:
@@ -965,8 +928,27 @@ def _demo_erase_body() -> bool:
     return part1 and part2 and part3 and part4
 
 
+def _pre_compact_handler(payload) -> dict:
+    """The PreCompact hook: deterministic ledger housekeeping at a tolerable moment, never on the hot path.
+
+    It rode the consolidation sweep's module until that module was deleted with the curation lifecycle, and it
+    is HERE now because it was that sweep's only surviving job — and a load-bearing one. `maybe_compact` is the
+    single production trigger for physical erasure: the cross-session observer mints an
+    `operator-adjudicated-erasure` marker when the operator merges an erasure pull request, and this is what
+    then removes the bytes. Left unwired, an approved erasure would be recorded and never carried out.
+
+    Fires regardless of accumulated waste when an erasure is pending, so an approved deletion never waits on
+    unrelated housekeeping. `maybe_compact` is fail-open and never raises; this handler ALWAYS proceeds —
+    PreCompact must never block the squash."""
+    maybe_compact()               # a pending merged erasure, or the waste gate; report dropped (a leaf renders
+                                  # no prose); fail-open
+    return hooks.proceed()
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
+    if cmd == "pre-compact":
+        return hooks.run_hook("PreCompact", _pre_compact_handler)
     if cmd == "run":                                   # the manual lever: a REAL gated compaction on the real ledger
         report = maybe_compact()
         print(json.dumps(report, ensure_ascii=False))
@@ -977,7 +959,8 @@ def main(argv: list) -> int:
         return _demo_trigger()
     if cmd == "demo-erase":
         return _demo_erase()
-    print(f"usage: compact.py [run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}", file=sys.stderr)
+    print(f"usage: compact.py [pre-compact|run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}",
+          file=sys.stderr)
     return 2
 
 

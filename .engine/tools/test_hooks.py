@@ -357,22 +357,19 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # every engine hook wire's script-relpath-with-args. Core wires boot on three SessionStart matchers;
     # the per-prompt scent on UserPromptSubmit; the commit-boundary regen for the knowledge
     # graph AND the self-map (the #136 self-map/graph-asymmetry close) on PreToolUse; memory-substrate
-    # wires its consolidation sweep on the same three SessionStart matchers + a PreCompact hook
-    # (the compaction trigger), the cross-session erasure OBSERVER and the
-    # earned-erasure PROPOSER, and the backup-vault push, each on the same three SessionStart matchers.
-    # telemetry's ambient AND episodic triages each run on two SessionStart matchers (startup + resume), the
-    # same command, so each adds ONE entry to the SET while adding TWO to the registration COUNT (like
+    # wires a PreCompact hook (the compaction trigger — the one thing that physically carries out an erasure
+    # the operator merged), plus the cross-session erasure OBSERVER and the backup-vault push, each on three
+    # SessionStart matchers. telemetry's ambient triage runs on two SessionStart matchers (startup + resume),
+    # the same command, so it adds ONE entry to the SET while adding TWO to the registration COUNT (like
     # github-projects-sync).
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
                      ".engine/tools/self_map.py hook", ".engine/tools/validate.py hook",
                      ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py",
-                     ".engine/tools/telemetry.py run-ambient", ".engine/tools/telemetry.py run-episodic",
+                     ".engine/tools/telemetry.py run-ambient",
                      ".engine/tools/telemetry.py drain-inbox")
-    MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
-                       ".engine/tools/memory/consolidate.py pre-compact",
+    MEMORY_RELPATHS = (".engine/tools/memory/compact.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
-                       ".engine/tools/memory/erasure_proposer.py session-start",
                        ".engine/tools/memory/backup_vault.py session-start")
     # github-projects-sync (optional) wires its board refresh on two SessionStart matchers (startup + resume),
     # the same command, so the SET has one entry while the registration COUNT is two.
@@ -396,18 +393,16 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 17, "the seventeen venv-rooted core hook wires (boot ×3 + 8: modes, "
+        self.assertEqual(len(c_cmds), 15, "the fifteen venv-rooted core hook wires (boot ×3 + 8: modes, "
                          "knowledge_gen, self_map, validate pre-commit, modes accept, validate accept, close, "
-                         "scent + telemetry run-ambient ×2 + telemetry run-episodic ×2 + telemetry drain-inbox ×2: "
-                         "startup + resume)")
+                         "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
             os.path.join(validate.ROOT, ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"))
         m_cmds = self._hook_cmds(memory)
-        self.assertEqual(len(m_cmds), 13, "memory's three consolidation SessionStart sweeps + one PreCompact "
-                                          "compaction trigger + three erasure-observer SessionStart sweeps + three "
-                                          "erasure-proposer SessionStart sweeps + three backup-vault SessionStart pushes")
+        self.assertEqual(len(m_cmds), 7, "memory's one PreCompact compaction trigger + three erasure-observer "
+                                         "SessionStart sweeps + three backup-vault SessionStart pushes")
         self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
 
         # Both modules below are OPTIONAL — declined at setup or removed later, their manifests are simply
@@ -428,14 +423,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 17 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers all installed modules' hooks: 15 core + 7 memory + 2 board-sync + 1 product-design venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 33,
-                         "the thirty-three venv-rooted hook commands in settings "
-                         "(17 core + 13 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 25,
+                         "the twenty-five venv-rooted hook commands in settings "
+                         "(15 core + 7 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 
