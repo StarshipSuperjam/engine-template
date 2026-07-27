@@ -7335,7 +7335,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:dc161e1f929e87a10a1740411f8392b85099ed5393d8a10dd6a80a9c34838c68",
+        "fingerprint": "sha256:88e4db63c004fd508a248914c11c3df4be2a52b5ef232de7c0c81da3c8e705e0",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -7862,7 +7862,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:4f27413a09247580e23b12cd47b2cc233b0adfa7449c84d50f493cdf60298925",
+        "fingerprint": "sha256:1de73a2a2db001e76e1b5f0c8a5c6a247a653a929979d4caeaa7226d23432577",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
