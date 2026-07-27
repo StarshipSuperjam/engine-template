@@ -15,6 +15,7 @@ the live sources (so a forgotten regen fails this suite, not only CI); and the c
 stale/missing graph, fails closed on a broken generator, and the unknown-mode tail is intact.
 """
 from __future__ import annotations
+import ast
 import contextlib
 import io
 import json
@@ -289,6 +290,195 @@ class TestAttributeHarvesters(unittest.TestCase):
                          {"invocation": "operator-typed"})
         self.assertEqual(kg._discriminators_for("module", {}, {}, {"version": "1.4.0"}), {"version": "1.4.0"})
         self.assertEqual(kg._discriminators_for("policy", {"title": "x"}, {}, None), {})  # none for a policy
+
+
+class TestImportResolver(unittest.TestCase):
+    """The Pass-4 import resolver — pure over a SYNTHETIC module index, so the dangling-import loud-fail and
+    the package / module / re-export resolution are locked independently of the live tree."""
+
+    def setUp(self):
+        self.kg = knowledge_gen
+        # a synthetic tool tree: top-level module `top`; package `pkg` with submodules `sub`/`helper`, a
+        # re-exported symbol `shared`, and a nested package `pkg.deep` with a module `leaf`.
+        self.index = (
+            {("pkg",), ("pkg", "deep")},                                             # packages
+            {("top",), ("pkg", "sub"), ("pkg", "helper"), ("pkg", "deep", "leaf")},  # modules
+            {("pkg",): frozenset({"shared"}), ("pkg", "deep"): frozenset()},         # init symbols
+        )
+        self.root = ".engine/tools"
+
+    def _resolve(self, src):
+        return self.kg._resolve_tool_imports("t.py", ast.parse(src), self.index, self.root)
+
+    def test_bare_module_and_package_imports(self):
+        self.assertEqual(self._resolve("import top"), [".engine/tools/top.py"])
+        self.assertEqual(self._resolve("import pkg"), [".engine/tools/pkg/__init__.py"])   # package -> __init__
+        self.assertEqual(self._resolve("import pkg.sub"), [".engine/tools/pkg/sub.py"])
+        self.assertEqual(self._resolve("import pkg.deep.leaf"), [".engine/tools/pkg/deep/leaf.py"])
+
+    def test_from_package_import_submodule_resolves_to_the_submodule(self):
+        self.assertEqual(self._resolve("from pkg import sub"), [".engine/tools/pkg/sub.py"])
+        self.assertEqual(self._resolve("from pkg.deep import leaf"), [".engine/tools/pkg/deep/leaf.py"])
+
+    def test_from_package_import_reexported_symbol_resolves_to_the_package(self):
+        # `shared` is not a submodule but IS declared in pkg/__init__ -> edge to the package init.
+        self.assertEqual(self._resolve("from pkg import shared"), [".engine/tools/pkg/__init__.py"])
+
+    def test_from_module_import_names_edges_to_the_module(self):
+        # `top` is a module file; its imported names are attributes -> one edge, no per-name probe.
+        self.assertEqual(self._resolve("from top import a, b, c"), [".engine/tools/top.py"])
+
+    def test_stdlib_and_external_are_dropped(self):
+        self.assertEqual(self._resolve("import os\nimport json\nfrom collections import Counter\nimport numpy"), [])
+
+    def test_lazy_in_function_import_is_counted(self):
+        self.assertEqual(self._resolve("def f():\n    import top\n    return top"), [".engine/tools/top.py"])
+
+    def test_relative_import_is_skipped(self):
+        self.assertEqual(self._resolve("from . import x\nfrom .sib import y"), [])
+
+    def test_dangling_from_name_raises_loud(self):
+        with self.assertRaises(self.kg.DanglingImportError):
+            self._resolve("from pkg import does_not_exist")
+
+    def test_dangling_from_module_raises_loud(self):
+        # head `pkg` is in-repo but `pkg.ghost` is neither a package nor a module.
+        with self.assertRaises(self.kg.DanglingImportError):
+            self._resolve("from pkg.ghost import x")
+
+    def test_dangling_dotted_import_raises_loud(self):
+        with self.assertRaises(self.kg.DanglingImportError):
+            self._resolve("import pkg.ghost")
+
+    def test_importing_a_submodule_of_a_plain_module_is_dangling(self):
+        # `top` is a module, not a package, so `top.deeper` cannot exist.
+        with self.assertRaises(self.kg.DanglingImportError):
+            self._resolve("import top.deeper")
+
+    def test_dangling_error_is_a_valueerror_and_names_the_file_and_import(self):
+        # a ValueError subclass so the CLI + CI fingerprint gate catch it on their existing fail-closed paths.
+        try:
+            self._resolve("from pkg import ghost")
+            self.fail("expected DanglingImportError")
+        except self.kg.DanglingImportError as e:
+            self.assertIsInstance(e, ValueError)
+            self.assertIn("t.py", str(e))
+            self.assertIn("pkg.ghost", str(e))
+
+
+class TestPass4Attributes(unittest.TestCase):
+    """The Pass-4 per-tool attribute + wiring harvesters (pure). `summary` copies the file's own module
+    docstring first line VERBATIM — mechanical self-description, not an interpretation of what the code means,
+    so it clears the same 'declared, not belief' gate `title` does."""
+
+    def setUp(self):
+        self.kg = knowledge_gen
+
+    def test_summary_is_the_first_docstring_line_verbatim(self):
+        t = ast.parse('"""First line of the summary.\nSecond line, ignored."""\nx = 1')
+        self.assertEqual(self.kg._summary_for(t), "First line of the summary.")
+
+    def test_summary_collapses_whitespace_and_strips_control_chars(self):
+        # a tab is collapsed as whitespace; non-line-break C0 controls (bell, escape) are stripped. (NUL and
+        # the line-break controls \x0b/\x0c can't appear inline in a docstring first line — the former is
+        # illegal in Python source, the latter start a new line, which splitlines already ends the line at.)
+        t = ast.parse('"""A\tsummary\x07 with  control\x1b chars and   spaces."""')
+        self.assertEqual(self.kg._summary_for(t), "A summary with control chars and spaces.")
+
+    def test_summary_truncates_to_160_chars(self):
+        t = ast.parse('"""' + ("word " * 60).strip() + '"""')
+        self.assertLessEqual(len(self.kg._summary_for(t)), 160)
+
+    def test_summary_none_without_a_docstring(self):
+        self.assertIsNone(self.kg._summary_for(ast.parse("x = 1")))
+        self.assertIsNone(self.kg._summary_for(ast.parse('"""   """')))
+
+    def test_has_main_guard(self):
+        self.assertTrue(self.kg._has_main_guard(ast.parse('if __name__ == "__main__":\n    pass')))
+        self.assertFalse(self.kg._has_main_guard(ast.parse('def main():\n    pass')))
+
+    def test_entrypoint_precedence(self):
+        kg = self.kg
+        hook, mcp, ci = {".engine/tools/boot.py"}, {".engine/tools/x_mcp.py"}, {".engine/tools/y_check.py"}
+        empty, main = ast.parse(""), ast.parse('if __name__ == "__main__":\n    pass')
+        self.assertEqual(kg._entrypoint_for(".engine/tools/test_x.py", empty, hook, mcp, ci), "test")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/demo_x.py", empty, hook, mcp, ci), "demo")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/boot.py", empty, hook, mcp, ci), "hook")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/x_mcp.py", empty, hook, mcp, ci), "mcp-server")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/y_check.py", empty, hook, mcp, ci), "ci")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/z.py", main, hook, mcp, ci), "cli")
+        self.assertEqual(kg._entrypoint_for(".engine/tools/z.py", empty, hook, mcp, ci), "library")
+        # a name convention outranks a wiring set (a test_ file wired as a hook is still 'test').
+        self.assertEqual(kg._entrypoint_for(".engine/tools/test_boot.py", empty,
+                                            {".engine/tools/test_boot.py"}, mcp, ci), "test")
+
+    def test_hook_wired_tools_extracts_py_payload_and_excludes_the_launcher(self):
+        m = {"id": "core", "wires": [
+            {"type": "hook", "hook": {"command":
+                'sh "/x/.engine/tools/hook-runner.sh" "/x/py" "/x/.engine/tools/boot.py" startup'}},
+            {"type": "mcp", "hook": {"command": "/x/.engine/tools/should_not_count.py"}},
+        ]}
+        self.assertEqual(self.kg._hook_wired_tools([("core/manifest.json", m)]),
+                         {"core": [".engine/tools/boot.py"]})
+
+    def test_mcp_handle_to_tool_from_the_real_manifest(self):
+        h2t = self.kg._mcp_handle_to_tool(os.path.join(validate.ROOT, ".mcp.json"))
+        self.assertEqual(h2t.get("engine-knowledge-graph"), ".engine/tools/knowledge_mcp_server.py")
+
+    def test_guard_canary_fails_loud_when_the_classifier_blankets(self):
+        # if the guardrail classifier collapses to its blanket fail-safe (every tool path reads guarded),
+        # derive_entities REFUSES rather than baking an all-true `guarded` into the committed graph.
+        with mock.patch.object(knowledge_gen.weakening_guard, "is_guardrail", return_value=True):
+            with self.assertRaises(ValueError):
+                _live_entities()
+
+
+class TestPass4LiveEdges(unittest.TestCase):
+    """Pass-4 edges + attributes over the REAL graph — the non-fingerprint correlate that the DERIVED edges
+    are correct (the fingerprint gate proves only that the graph matches its sources, never that its edges
+    are right)."""
+
+    def setUp(self):
+        self.by_id = {e["id"]: e for e in _live_entities()}
+
+    def test_imports_are_real_dependency_edges_no_self_edge(self):
+        boot = self.by_id["tool:boot"]
+        self.assertIn("tool:attention", boot["predicates"]["imports"])
+        self.assertIn("tool:boot_slice", boot["predicates"]["imports"])
+        self.assertNotIn("tool:boot", boot["predicates"].get("imports", []))
+
+    def test_a_test_source_routes_to_tests_never_imports(self):
+        tk = self.by_id["tool:test_knowledge"]
+        self.assertIn("tool:knowledge_gen", tk["predicates"]["tests"])
+        self.assertNotIn("imports", tk["predicates"])
+
+    def test_enforced_by_resolves_a_script_check_to_its_tool(self):
+        self.assertEqual(self.by_id["check:knowledge-vocabulary"]["predicates"]["enforced_by"],
+                         ["tool:knowledge_vocabulary_check"])
+
+    def test_wires_hook_names_payload_tools_not_the_launcher(self):
+        wired = self.by_id["module:core"]["predicates"]["wires_hook"]
+        self.assertIn("tool:boot", wired)
+        self.assertNotIn("tool:hook-runner", wired)          # the shared .sh launcher is not a payload
+
+    def test_implemented_by_joins_interface_to_its_fallback_tool(self):
+        self.assertEqual(self.by_id["interface:knowledge-retrieval"]["predicates"]["implemented_by"],
+                         ["tool:knowledge_mcp_server"])
+
+    def test_guarded_is_a_bool_on_every_tool_including_non_py(self):
+        for e in self.by_id.values():
+            if e["type"] == "tool":
+                self.assertIsInstance(e.get("guarded"), bool, e["id"])
+        self.assertTrue(self.by_id["tool:hook-runner"]["guarded"])    # a floored .sh launcher
+        self.assertFalse(self.by_id["tool:boot"]["guarded"])
+
+    def test_summary_and_entrypoint_are_py_tool_only(self):
+        boot = self.by_id["tool:boot"]
+        self.assertTrue(boot["summary"].startswith("boot:"))
+        self.assertEqual(boot["entrypoint"], "hook")
+        sh = self.by_id["tool:hook-runner"]                  # a .sh tool: guarded only
+        self.assertNotIn("summary", sh)
+        self.assertNotIn("entrypoint", sh)
 
 
 class TestSupersedesEdges(unittest.TestCase):

@@ -448,6 +448,19 @@ class TestEnrichedEntities(unittest.TestCase):
     def test_edge_sets_are_split(self):
         self.assertNotIn("supersedes", kq.WALK_EDGE_KINDS)
         self.assertIn("supersedes", kq.EDGE_KINDS)
+        # every walk kind is a valid edge kind; the walk is EDGE_KINDS minus the pull-only supersedes.
+        self.assertTrue(set(kq.WALK_EDGE_KINDS) <= set(kq.EDGE_KINDS))
+        self.assertEqual(set(kq.EDGE_KINDS) - set(kq.WALK_EDGE_KINDS), {"supersedes"})
+
+    def test_interface_edge_filter_enum_matches_edge_kinds(self):
+        # the interface's edge_filter enum is a HAND-MAINTAINED duplicate of EDGE_KINDS. The knowledge
+        # vocabulary check guards entity TYPES, not predicate kinds, so this pin is the only thing that catches
+        # the interface enum and the code vocabulary drifting apart.
+        iface = kg.validate.load_json(os.path.join(kg.validate.ENGINE_DIR, "interfaces",
+                                                   "knowledge-retrieval.json"))
+        neighbors = next(op for op in iface["operations"] if op["name"] == "neighbors")
+        enum = neighbors["input_schema"]["properties"]["edge_filter"]["items"]["enum"]
+        self.assertEqual(set(enum), set(kq.EDGE_KINDS))
 
     def test_build_index_allowlists_edge_kinds(self):
         c = _entity("check:c1", "check", "core", ".engine/check/c1.json",

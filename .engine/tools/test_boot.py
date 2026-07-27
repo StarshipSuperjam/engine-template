@@ -1240,6 +1240,18 @@ class TestFocusedNeighborhood(unittest.TestCase):
         self.assertIn("audit_library, boot, close, conduct", block)
         self.assertNotIn("provides:", block)                              # not rendered as if it were the whole
 
+    def test_imports_in_hub_renders_as_is_imported_by_with_honest_total(self):
+        # the payoff of the widened walk: a session touching a hub tool is told its real blast radius in one
+        # honest line, via the new plain-language phrase for the imports/in relationship. The same sample-cap
+        # honesty as provided_by/in, so a 94-importer hub is one line, not 94.
+        summary = {"focus": ["tool:validate"], "groups": [
+            {"source": "tool:validate", "predicate": "imports", "direction": "in",
+             "total": 94, "sample": ["attention", "boot", "close", "hooks"]}]}
+        block = "\n".join(boot.render_neighborhood(summary))
+        self.assertIn("validate is imported by 94 (showing 4 examples, not ranked by importance:", block)
+        self.assertIn("attention, boot, close, hooks", block)
+        self.assertNotIn("imports", block)                                # the raw predicate token never shows
+
     def test_focus_truncation_is_disclosed_too(self):
         # the SAME honesty one level up (#165): when more was changed than FOCUS_CAP shows, the header discloses
         # the true count, so the shown focus is never passed off as the whole change.
