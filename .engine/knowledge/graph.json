@@ -4697,7 +4697,7 @@
       },
       "slug": "knowledge-impact-check",
       "source": {
-        "fingerprint": "sha256:d6a665a5fac2e4a6c70c900dc2dcd721ef7b7be8df57426e5fcb00f693d9df75",
+        "fingerprint": "sha256:4fc2929188190b8042f05ad29a637f06de44f262661cc7ddd412d20739770a5e",
         "path": ".engine/operations/knowledge-impact-check.md"
       },
       "status": "active",
