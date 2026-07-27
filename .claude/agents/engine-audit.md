@@ -3,6 +3,8 @@ name: engine-audit
 description: The engine's periodic self-review of this project. It reads the project's own engine state, looks hard for anything that no longer earns its place or has drifted out of date, and reports what it finds for you to decide on — it never changes anything itself.
 role: audit
 model-tier: judgment
+model: opus
+effort: high
 permissions: read-only
 output-contract: audit-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash]

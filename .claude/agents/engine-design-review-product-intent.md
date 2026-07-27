@@ -4,6 +4,8 @@ description: Before a change you've asked for gets built, checks the plan agains
 role: plan-review
 lens: product-intent
 model-tier: judgment
+model: opus
+effort: high
 permissions: read-only
 output-contract: plan-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash]

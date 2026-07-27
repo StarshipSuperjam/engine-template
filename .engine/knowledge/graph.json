@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:69196767ed166e1c23fb0a56553b2caf74c5e075d8ca93010e7214b2615e2ae3",
+        "fingerprint": "sha256:70c19ad4e3718ab573f95be9b2d9ea2b3e626d07c869362d0ae80094faed1b7c",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:23968413889efc52643c5ff28e0da2527da5d6e7c7278f1424ba720497e035a2",
+        "fingerprint": "sha256:a8efa30484f7f70e060d0cbb51bd0a1baeb1c41c4805fc9ebb202a28d09def23",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:058b9287f13b43d5c86895bd520daeebbe9f848670f9d17180b3edfe179da5c8",
+        "fingerprint": "sha256:1b245ed1c9c0aa6339f9befa3b0791c2a43c83dcb879071f04993cdad72903d0",
         "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:9d507818f981113c0fbf9da6988912be0c554ab732923e2179c27ead9550353a",
+        "fingerprint": "sha256:07daf3af21e84d5fdd85225f26d05ce83d1eda275e53aecc8375e9529b9bd4c7",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:5bea8c3d24fe3ed15f096f36c101d9a21083a6a2dfcec8988f448b1f3e6c3806",
+        "fingerprint": "sha256:37a9df7d2e1cf7503f56dcc7d19d36f2e9b7a3868325a9a96b585e39a08149c4",
         "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:fbd027f3f23ad6e8770288dd30133ea9d8d47daa406d6b5aed906414522b27ce",
+        "fingerprint": "sha256:98ed1d7d8628858b91287c1c5bf54b80d9623c89c79432d7b16588bdb5083e14",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:d0b2a3cdb9cbce9e1831b415fa3ef558853ab41b6de52c3e83f1ec4c56e73b5a",
+        "fingerprint": "sha256:96a274fcf495b0db12ce53100be0f36f1fba9d409255c27c4be0051a6c1b02db",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:939db95a725244743ceef6dfe24a65a09702ae872c7fde1ef348178fb1315953",
+        "fingerprint": "sha256:98441045b440f4cffb112b2bb3231b12f468b37f1601e27da8dc44e3b94d10b5",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f7ee871dc321fe7b14cb9547eca17bccf0d47c509406033e194b40d3fbc3469f",
+        "fingerprint": "sha256:ac54347d3a032dcb234e6db5b9ad325e813eb19d755206f31308f7277e4e6237",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -223,7 +223,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:3ff7e0b9f0ac05a5558a12f82788df3b31c10e31dd43179425136bc6225b8056",
+        "fingerprint": "sha256:7816c421aa3c17b2323f2d7d64e279d3c9f34e5a2575da13907d153049d3bd56",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -1507,6 +1507,34 @@
         "pre-commit"
       ],
       "tier": "soft",
+      "type": "check"
+    },
+    {
+      "id": "check:model-bindings-schema",
+      "kind": "schema",
+      "name": ".engine/check/model-bindings-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "policy:model-bindings"
+        ]
+      },
+      "slug": "model-bindings-schema",
+      "source": {
+        "fingerprint": "sha256:8f9639a99dd35a98c3e275fceb55fb63835b3f1543225d5cf08f2b8fcbbe9af0",
+        "path": ".engine/check/model-bindings-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
@@ -4009,7 +4037,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:516968689f10f504c5b63132830163bd0c7306d38e94463d55975d896c874477",
+        "fingerprint": "sha256:023ff805cba5ba3d526568d8df8189e3e1371d653288e72c144ba7bf39872d90",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4208,7 +4236,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:b0dc38eee367135b3a4b0c707a7a97dee5b09c365cd5b7be71009e08721a383b",
+        "fingerprint": "sha256:df7ac218b826961b5b5130c070ee7a47a411caf06091fc1030ea39bbaca5de49",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4843,6 +4871,26 @@
       "type": "policy"
     },
     {
+      "id": "policy:model-bindings",
+      "name": ".engine/policies/model-bindings.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-bindings",
+      "source": {
+        "fingerprint": "sha256:5c854044cea5598041ef3ee0d226d762029fd7fd53c98b2ebe3343d64500da5b",
+        "path": ".engine/policies/model-bindings.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
       "id": "policy:model-routing",
       "name": ".engine/policies/model-routing.md",
       "owner": "core",
@@ -5261,6 +5309,23 @@
       "source": {
         "fingerprint": "sha256:61f53aa2afd49565dcfb274915429c1a78a75182aff92c853be01ee5ed1c105c",
         "path": ".engine/schemas/knowledge.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:model-bindings.v1",
+      "name": ".engine/schemas/model-bindings.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-bindings.v1",
+      "source": {
+        "fingerprint": "sha256:a928c1844bc0aefce7c6d2e64903352ca0a8eec83d84b1dc5a5107a02a7fd37b",
+        "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -5819,6 +5884,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:agent_bindings",
+      "name": ".engine/tools/agent_bindings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "agent_bindings",
+      "source": {
+        "fingerprint": "sha256:9f2038042eb0f002d9fdae6004e8c82de11b32e376333b12ced911970687e1d7",
+        "path": ".engine/tools/agent_bindings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:agent_coherence_check",
       "name": ".engine/tools/agent_coherence_check.py",
       "owner": "core",
@@ -6237,7 +6319,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:01106e2b544d0550330444f8c335f3e51fd6ee07afe3d2410270b9770209bd06",
+        "fingerprint": "sha256:e6f26b83ff6f5a16bcfb1466255ef93bc8b154198580fad40001a82e047b0097",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -8845,6 +8927,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_agent_bindings",
+      "name": ".engine/tools/test_agent_bindings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_agent_bindings",
+      "source": {
+        "fingerprint": "sha256:940204886e5f159a85f745d80f0d5e86365d80bfe46dcc2296a37c37dea68a56",
+        "path": ".engine/tools/test_agent_bindings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_agent_coherence_check",
       "name": ".engine/tools/test_agent_coherence_check.py",
       "owner": "core",
@@ -10130,7 +10229,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:0a5d17dfceeb028ac264af6e0c0595755932bc43976988df845fa6f35d6dac0f",
+        "fingerprint": "sha256:657a2da0bf43861f4ba5cd794f51337dc59a79b57427af9fa759b4673ad59311",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -11201,7 +11300,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:31aabd40a4659377f4f456ab341a1b98e8cab91102424c246c9e2ceedd7866b5",
+        "fingerprint": "sha256:372bd2cbbba889d6b93fa8749081e877c60f432205a34648989a591127292cbe",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

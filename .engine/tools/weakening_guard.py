@@ -172,6 +172,7 @@ _FLOOR_GATE_SCHEMAS = (
     ".engine/schemas/execution-state.v1.json",
     ".engine/schemas/first-run-assets.v1.json",
     ".engine/schemas/interface.v1.json",
+    ".engine/schemas/model-bindings.v1.json",
     ".engine/schemas/module.v1.json",
     ".engine/schemas/operation.v1.json",
     ".engine/schemas/policy.v1.json",
