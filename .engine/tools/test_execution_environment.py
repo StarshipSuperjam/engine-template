@@ -201,6 +201,14 @@ class TestCompare(unittest.TestCase):
         self.assertEqual(r["posture"], "unqualified")
         self.assertEqual(r["drift"], [])
 
+    def test_qualified_but_unresolvable_repo_never_matches(self):
+        # Rule 1 for the repo component: a qualified baseline whose LIVE repo can't be resolved (observed None)
+        # must degrade to conservative — never match on floor hashes alone (engine-shipped floors are not
+        # repo-distinguishing, so a floors-only match would load the qualified posture in a repo never qualified).
+        r = ee.compare(_observed(repo=None), _valid_baseline())
+        self.assertNotEqual(r["posture"], "matched")
+        self.assertEqual(r["posture"], "unqualified")
+
     def test_qualified_with_null_recorded_floor_never_matches(self):
         # BLOCKING-fix: an un-checkable recorded floor is not a pass — degrade to conservative, never matched.
         r = ee.compare(_observed(floors={"CLAUDE.md": None}),

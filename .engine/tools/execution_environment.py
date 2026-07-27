@@ -18,15 +18,16 @@ its refresh semantics:
                      own posture guidance loads.
       changed      — qualified for this repo, every component verifiable, but one drifted. Conservative posture
                      + a re-qualify alarm.
-      unqualified  — no qualification for this repo (genesis, or a baseline qualified for a DIFFERENT repo, so
-                     a shipped/foreign baseline reads as not-ours rather than as spurious drift). Conservative
-                     posture, calm.
+      unqualified  — no qualification for this repo (genesis, a baseline qualified for a DIFFERENT repo, or one
+                     whose live repo can't be resolved — a shipped/foreign or unverifiable baseline reads as
+                     not-ours rather than as spurious drift). Conservative posture, calm.
       unknown      — the baseline could not be read at all. Conservative posture, stated plainly.
 
 Two safety rules the postures enforce, both learned at the plan gate:
-  1. A qualified entry with ANY unverifiable component (a null recorded hash, or a live floor file that can't
-     be read now) NEVER resolves to matched — an un-checkable floor is not a pass (it would silently disable
-     drift detection). It degrades to the conservative posture.
+  1. A qualified entry with ANY unverifiable component (a null recorded hash, a live floor file that can't be
+     read now, or a live repo slug that can't be resolved) NEVER resolves to matched — an un-checkable
+     component is not a pass (it would silently disable drift detection or the repo scoping). It degrades to
+     the conservative posture.
   2. record_qualification REFUSES to stamp qualified when a component is unobservable, so a qualified baseline
      never carries a null snapshot field in the first place.
 

@@ -5222,7 +5222,7 @@
       },
       "slug": "execution-state.v1",
       "source": {
-        "fingerprint": "sha256:113013d5fc35521afb43b42f0f3c7d731adca975b0806b7984adba5c8726367a",
+        "fingerprint": "sha256:39101abc6dd5b9ea22f7daa98bb0feb3706766e7fe961f55198a5d0abdc18bde",
         "path": ".engine/schemas/execution-state.v1.json"
       },
       "status": "active",
@@ -7390,7 +7390,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:a946b580fceeae84e9e84c3ede9dc26a2ff11da8da90a690422c892dffda9b21",
+        "fingerprint": "sha256:3ba9e3e980a983b41f373160ea249cbe4b51741d9bef8c0c6acd77cb19b48a4c",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -9634,7 +9634,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:4d28a6903b97977d655038989ba67b25fde628fca858cc6ab010cf78d8e6fe68",
+        "fingerprint": "sha256:52de8390dde1023726852910cf7671d04ba6f2078f82f212849eb00ea63c6b84",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
