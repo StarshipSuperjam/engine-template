@@ -1734,32 +1734,6 @@ def _write_state(d, *, milestone=None, phase=None, open_count=0, as_of=None, reg
     return p
 
 
-class _EpisodicBase(unittest.TestCase):
-    """A fixture memory ledger via ENGINE_MEMORY_DIR — the ledger is gitignored/absent in this repo (like the
-    ambient cache), so the episodic reader is exercised over a seeded temp ledger, not the real one."""
-
-    def setUp(self):
-        from memory import capture, consolidate, ledger
-        self._cap, self._con, self._led = capture, consolidate, ledger
-        self._tmp = tempfile.TemporaryDirectory()
-        self._prev = os.environ.get(ledger.ENV_DIR)
-        os.environ[ledger.ENV_DIR] = self._tmp.name
-
-    def tearDown(self):
-        if self._prev is None:
-            os.environ.pop(self._led.ENV_DIR, None)
-        else:
-            os.environ[self._led.ENV_DIR] = self._prev
-        self._tmp.cleanup()
-
-    def _seed_unconsolidated(self, n):
-        for i in range(n):   # n genuine, un-marked sessions -> a backlog of size n
-            self._led.append(self._cap._make_record(f"sess-{i}", 1, "user", f"a genuine turn {i}"))
-
-    def _consolidate(self, i):
-        self._con.store_episodic(f"sess-{i}", [{"role": "observation", "text": "tidied"}])
-
-
 class TestFindingsInbox(unittest.TestCase):
     """The emit-and-done seam: a producer emits and is done; telemetry owns the act.
     A TRUST_CRITICAL signal promotes immediately (via the injected boundary in tests, or refused under the

@@ -44,7 +44,8 @@ SLICE_PATH = os.path.join(knowledge_index.CACHE_DIR, "boot-slice.json")
 # fresh-looking-but-divergent cache rendering a confident, wrong orientation block. BUMP THIS on any
 # projection change. The load-bearing parity test (test_boot_slice.py) re-proves slice == live walk over the
 # real graph on every CI run, so such a divergence cannot merge — but the version bump is the first-line guard.
-SLICE_SCHEMA_VERSION = "1"
+SLICE_SCHEMA_VERSION = "2"   # 1 -> 2: WALK_EDGE_KINDS widened (the code-dependency + wiring edges join the
+#                              projected adjacency), so a v1 slice omits them and must be rebuilt.
 
 
 # ---- the projection -------------------------------------------------------------------------
@@ -59,8 +60,9 @@ def _project(graph: dict) -> dict:
     """The focus-INDEPENDENT structure boot's orientation read consumes, derived from the committed graph:
 
       by_path   — {source.path: id} for every entity (derive_focus maps each changed file -> its owning entity).
-      adjacency — {id: [{"id","predicate","direction"}, ...]} — every entity's depth-1 neighbours over the four
-                  STRUCTURAL edges (WALK_EDGE_KINDS; supersedes excluded) in BOTH directions, EXACTLY
+      adjacency — {id: [{"id","predicate","direction"}, ...]} — every entity's depth-1 neighbours over the
+                  walk edges (WALK_EDGE_KINDS: the containment edges plus the code-dependency and wiring edges;
+                  supersedes excluded) in BOTH directions, EXACTLY
                   reproducing knowledge_query.neighbors(direction="both"). graph.json stores OUTGOING edges
                   only, so each `A --pred--> B` is recorded as {B,pred,"out"} under A AND {A,pred,"in"} under B;
                   a self-edge (A==B) is skipped and each (id,predicate,direction) is de-duped within a source —
@@ -156,8 +158,8 @@ class Slice:
     cache through ONE code path, byte-identical to the live walk. Also carries WALK_EDGE_KINDS/EDGE_KINDS so a
     consumer can read the edge vocabulary from its source without depending on the knowledge_query module.
 
-    Serves the cold-start depth-1 bidirectional walk over the structural edges (all boot's orientation asks);
-    a depth>1 or a non-structural (e.g. supersedes) request raises, because the cache does not hold it — those
+    Serves the cold-start depth-1 bidirectional walk over the walk edges (all boot's orientation asks);
+    a depth>1 or an off-walk (e.g. supersedes) request raises, because the cache does not hold it — those
     stay on the on-demand query path (the SQLite index), by design."""
 
     def __init__(self, data: dict):

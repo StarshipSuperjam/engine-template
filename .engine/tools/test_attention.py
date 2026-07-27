@@ -961,8 +961,11 @@ class _FakeSource:
     """A stand-in for boot_slice's read-shim: exposes the same find()/neighbors() + edge vocabulary the
     orientation reads call, so the `source=` seam is provable WITHOUT the real graph. (The order-faithful
     real-graph parity and the byte-identical render live in test_boot_slice / test_boot.)"""
-    WALK_EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
-    EDGE_KINDS = WALK_EDGE_KINDS + ("supersedes",)
+    # Mirror the REAL walk/edge vocabulary so this stand-in can never drift from production (the shim it fakes
+    # carries the same constants). Reading them from the module under test keeps the fake faithful as the
+    # vocabulary grows.
+    WALK_EDGE_KINDS = attention.knowledge_query.WALK_EDGE_KINDS
+    EDGE_KINDS = attention.knowledge_query.EDGE_KINDS
 
     def __init__(self, by_path=None, adjacency=None):
         self._by_path = by_path or {}

@@ -822,17 +822,16 @@ def _recall_episodics(word: str, session_id: str) -> list:
 
 
 def _demo_body() -> bool:
-    from memory import consolidate  # lazy (consolidate → index → forget would cycle at module load)
+    from memory import legacy_shapes as legacy  # lazy: the legacy episodic-shape factories (consolidate's heir)
 
     print("\nPART 1 — a crash leaves the SAME session's summary in the cabinet twice")
     print("-" * 80)
     # The pass that CRASHED: its episodic was appended, but the crash hit before its `consolidated` marker —
     # so this batch is never closed. (A fixed id stands in for the real per-pass uuid.)
-    crashed = consolidate._make_episodic(_DEMO_SESSION, {"role": "decision", "text": _DEMO_CRASHED_TEXT},
-                                         "the-pass-that-crashed")
+    crashed = legacy.episodic(_DEMO_SESSION, "decision", _DEMO_CRASHED_TEXT, "the-pass-that-crashed")
     ledger.append(crashed)
     # The RETRY that completed: store_episodic writes its episodic + a marker (a NEW batch) and rebuilds recall.
-    consolidate.store_episodic(_DEMO_SESSION, [{"role": "decision", "text": _DEMO_RETRY_TEXT}])
+    legacy.store_episodic(_DEMO_SESSION, [{"role": "decision", "text": _DEMO_RETRY_TEXT}])
     in_ledger = _ledger_episodics(_DEMO_SESSION)
     print(f"  The cabinet now holds {len(in_ledger)} summaries for '{_DEMO_SESSION}':")
     for r in in_ledger:
@@ -919,13 +918,13 @@ def _demo_identity() -> int:
 
 
 def _demo_identity_body() -> bool:
-    from memory import capture, consolidate, index  # lazy: consolidate → index → forget would cycle at load
+    from memory import capture, index, legacy_shapes as legacy  # lazy: legacy → index → forget would cycle at load
 
     print("\nPART 1 — every note gets a name-tag")
     print("-" * 80)
     # A real captured turn-delta and a real stored episodic, both through the live factories the id rides in.
     ledger.append(capture._make_record(_ID_DEMO_SESSION, 0, "user", _ID_DEMO_TURN_TEXT))
-    consolidate.store_episodic(_ID_DEMO_SESSION, [{"role": "decision", "text": _ID_DEMO_EPISODIC_TEXT}])
+    legacy.store_episodic(_ID_DEMO_SESSION, [{"role": "decision", "text": _ID_DEMO_EPISODIC_TEXT}])
     stored = [r for r in _all_records() if r.get("session_id") == _ID_DEMO_SESSION]
     for r in stored:
         if r.get("text"):

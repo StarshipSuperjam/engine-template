@@ -82,9 +82,9 @@
             "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           },
           "edge_filter": {
-            "description": "Restrict to these predicate kinds. Omit to follow the default cold-start walk set — the four structural edges (provided_by, governed_by, targets, depends_on); name a non-structural edge such as supersedes explicitly to pull it.",
+            "description": "Restrict to these predicate kinds. Omit to follow the default cold-start walk set — the containment edges plus the code-dependency and wiring edges (provided_by, governed_by, targets, depends_on, imports, tests, enforced_by, wires_hook, implemented_by); name the off-walk lineage edge supersedes explicitly to pull it.",
             "type": "array",
-            "items": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "supersedes"] }
+            "items": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "imports", "tests", "enforced_by", "wires_hook", "implemented_by", "supersedes"] }
           },
           "direction": {
             "description": "'out' = edges this entity declares; 'in' = edges that point at this entity (reverse); 'both' = either. Default 'out'.",

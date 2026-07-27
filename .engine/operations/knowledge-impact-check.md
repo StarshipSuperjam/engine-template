@@ -5,9 +5,12 @@ title: Knowledge impact check — when to query the project's wiring before you 
 ## Purpose
 
 The project keeps a queryable map of how its own parts are wired — for each part, what it is, what it is
-part of, what depends on it, what checks it, and what governs it. The map is reachable any time through
-four read-only tools that load in every session automatically, so you can look something up instead of
-re-deriving how the project hangs together by hand.
+part of, what depends on it, what checks it, and what governs it. For a **tool** (an executable file under
+`.engine/tools/`) the map goes further: it records which other tools import it, which tests exercise it,
+which check its script enforces, which hooks a module wires it into, and which interface it implements — so
+an impact check on a tool returns its real code-level blast radius, not just its owning module. The map is
+reachable any time through four read-only tools that load in every session automatically, so you can look
+something up instead of re-deriving how the project hangs together by hand.
 
 Enter this runbook when you want to:
 
@@ -30,7 +33,9 @@ told you against the live files before acting on it.
    both directions — and read each connection in plain words: what it **is part of**, what **depends on**
    it, what **checks** it, and what **governs** it. The connections that point *at* the part — what relies
    on it, what checks it — are the ones a change can break, so they are what the impact check is really
-   after. Widen the look a hop or two only when a change reaches further.
+   after. For a tool, the inbound side now answers **what imports it** and **what tests exercise it** — the
+   set that breaks if you change its behaviour; a widely-used file names many, so weigh the change by that
+   real fan-out. Widen the look a hop or two only when a change reaches further.
 4. **Trace a connection.** To learn whether two parts are wired together and through what, ask for the path
    between them (`relate`). An empty answer means they are not connected in the map.
 5. **Confirm against the live files before you assert.** The map is built from the committed files and is
@@ -48,6 +53,21 @@ files; and you relayed them to the operator in plain language. Nothing was writt
 
 The map answers **structure only** — what is wired to what, never what was decided about it or whether it
 is a good idea. For the distilled reasoning behind a part, that is a separate read.
+
+**Know where the map's resolution stops, so an empty answer is never misread as "nothing depends on this".**
+Two boundaries matter:
+
+- **It resolves whole files, not the symbols inside them.** The code-dependency edges say file A imports file
+  B, never which function of B is used. So changing one helper inside a widely-imported file shows *every*
+  importer of that file, not just the callers of that helper — the fan-out is an upper bound on the blast
+  radius, not a precise caller list. A move or rename *within* a file is invisible to the map; confirm those
+  against the source directly (a search of the tree).
+- **Only tools carry code-level dependency.** The prose surfaces — operations, policies, skills, docs,
+  contracts — are wired by ownership, governance, and check-coverage only; the map does **not** model one
+  prose surface depending on another (a skill that follows an operation, a policy a doc explains). So an
+  impact check on a prose surface returns what owns, governs, and checks it, and an inbound query that comes
+  back bare means *that kind of dependency is not tracked*, not that nothing relies on it — trace those
+  references through the source or memory instead.
 
 It is **pull-only by itself.** One thing already pushes the relevant slice without you asking: the
 session-start briefing surfaces the neighbourhood of the work already in hand. (The per-prompt cue pushes a

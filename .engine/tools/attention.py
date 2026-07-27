@@ -264,9 +264,10 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
     if src is not None:
         try:
             if focus:
-                # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
-                # `## Scope` budget-neutrality invariant): a new edge kind (e.g. supersedes) is pull-only
-                # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
+                # The cold-start adjacency walk is PINNED to the walk edges (WALK_EDGE_KINDS — the containment
+                # edges plus the code-dependency and wiring edges; the attention policy's `## Scope` owns which
+                # kinds ride it): supersedes stays pull-only, and orientation stays flat via the per-relationship
+                # sample cap (not a small vocabulary). Pass the walk set explicitly rather than leaning on the
                 # neighbors() default, so the pin lives at attention's own call site. Read it from `src` (the
                 # boot slice carries the same WALK_EDGE_KINDS) so the branch never depends on the knowledge_query
                 # module when boot passes its own rung-1 source.
