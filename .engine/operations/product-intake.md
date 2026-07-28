@@ -13,30 +13,28 @@ operator's own project files, and it never decides whether the design is *right*
 
 ## Steps
 
-Run these with the operator, one at a time, in plain language. The stage words below — a piece that is *not
-yet described*, a document *in progress*, or one that is *settled* — are how you speak to the operator; the
-short markers the files carry in their frontmatter stay in the files, never on screen.
+Run these with the operator, one at a time, in plain language. The stage words — a piece *not yet described*, a
+document *in progress*, one *settled* — are how you speak to them; the frontmatter markers never reach the screen.
 
 1. **Check the GitHub connection, and never dead-end.** Run a quick check (for example `gh repo view`). If it
    fails, say so plainly, name the one next action (usually `gh auth login`), and carry on regardless: capture
    what the operator has already told you as a committed file under `docs/spec/` so nothing they said is lost.
-   The whole intake works from committed files; the GitHub connection is only needed later, to turn the
-   description into tracked work.
+   The whole intake works from committed files; the connection is only needed later, to turn the description
+   into tracked work.
 2. **Lay out the pieces and confirm the shape — before writing any one document.** From what the operator
    wants, propose the full set of capabilities the product obviously needs, each as a named, not-yet-described
    piece. Ask at the shape level: "does this look like the right pieces, or is something obvious missing?" —
    and let them say yes, add one, or ask you to decide. Settle the shape first, so each piece is written with
    the others in mind rather than as an island.
 3. **Confirm how much to write up — full by default — and record the choice.** The default is the full
-   write-up: besides each capability's description under `docs/spec/`, you also write the guiding principles
-   behind the product and an overview of how it fits together (with a simple diagram), and the guides its users
-   need. Say so plainly, and give the operator the one-sentence way to decline: if they would rather capture
+   write-up: besides each capability's description, you also write the product's guiding principles, an
+   architecture overview with a simple diagram, and the user guides. Say so plainly, and give the operator the
+   one-sentence way to decline: if they would rather capture
    just enough to get moving, you keep it light — the description alone — and they add the rest whenever they
    want. **Record their choice in the index frontmatter** (`spec_depth: full`, or `light` if they opt out) so it
-   is written down, not just remembered, and the engine can hold the full write-up to its default. Be honest
-   about "checked": the engine confirms these fuller documents are present and well-formed — the same shape
-   check it runs on the description — but never judges whether the design is *right* (the operator's call and
-   the review lenses'). Never imply the engine vouched for the design.
+   is written down, not just remembered, and the engine can hold the full write-up to its default. The engine
+   only confirms these fuller documents are present and well-formed — never that the design is *right* (the
+   operator's call); never imply it vouched for the design.
 4. **Write the description from the scaffold.** Author the documents into `docs/spec/`, starting from the
    templates in `.engine/modules/product-design/scaffold/`: a master index at `docs/spec/index.md` that lists
    every capability, its stage, and a link to its document, plus one document per capability. Fill in the real
@@ -49,30 +47,28 @@ short markers the files carry in their frontmatter stay in the files, never on s
    (`principles.md` → `docs/principles.md`) and an architecture overview with a simple diagram
    (`architecture.md` → `docs/architecture.md`) — plus the user guides
    (`diataxis-*.md` → `docs/tutorials|how-to|reference|explanation/`), writing only the guides this product
-   actually needs and stripping the guidance as you go. These carry the same bar as the description: the engine
-   checks their shape, but whether the design is *right* is the operator's own call — never imply it judged it.
+   actually needs and stripping the guidance as you go. These carry the same bar as the description — shape
+   checked, never judged *right*.
 5. **Check it, and report what was — and was not — checked, and how "done" will be judged.** Run the form
    check over the description (`uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`),
    and — when the full write-up is in play — the shape check over the fuller documents (same command with
-   `--check engine/check/product-design-form`). Tell the operator plainly what they found, in plain words rather
-   than the checks' own names, under the one bound that covers both: the engine checked that every part is
-   present and well-formed; it did **not** check that the design is *right* — that is their call. Fix anything
-   flagged and re-run until it is clean. Then, for
-   each described capability, show the operator how its acceptance criteria
-   split between what they can confirm themselves and what rests on the engine's account — run
+   `--check engine/check/product-design-form`). Tell the operator plainly what they found, under the one bound
+   that covers both: the engine checked that every part is present and well-formed; it did **not** check that
+   the design is *right* — that is their call. Fix anything flagged and re-run until it is clean. Then, for each
+   described capability, show the operator how its acceptance criteria split between what they can confirm
+   themselves and what rests on the engine's account — run
    `uv run --directory .engine --frozen -- python tools/spec_referent.py acceptance-split --doc docs/spec/<capability>.md`
    and read its plain-language count back. Do this **before** they settle the description (step 7), while they
    can still add a check they would rather run with their own eyes; and never fold the two into one "it all
-   checks out" — seeing the split up front is how they judge, honestly, how much of "done" they can verify
-   themselves and how much rests on the engine's account.
+   checks out" — the split up front is how they judge honestly how much of "done" they can verify themselves.
 6. **Offer a deeper, advisory review before they settle — when it is available.** If the engine's optional
    design reviews are installed, offer the operator the same four independent reviews it runs on a plan before
    building, now reading the **description and the fuller documents** — the guiding principles and the
    architecture overview especially, where the soundness of a design actually lives: whether it is the right
-   thing, whether it is sound, whether it can be built, and whether it is safe. They **only advise** — nothing they raise blocks the document, and
-   the operator's own go-ahead is still what settles it. This is the **second** place those four reviews are
-   offered (the first is before a build). When they are not installed, the form check above plus the operator's
-   own read is the bar — say that plainly, never imply a review ran.
+   thing, whether it is sound, whether it can be built, and whether it is safe. They **only advise** — nothing
+   they raise blocks the document, and the operator's own go-ahead is still what settles it. When they are not
+   installed, the form check above plus the operator's own read is the bar — say that plainly, never imply a
+   review ran.
 7. **Record the go-ahead and mark it settled.** When the operator is satisfied with a document, record their
    acceptance and mark that document settled in its frontmatter. A settled document is the ground the build
    adapts to; the engine never settles one on its own initiative.
@@ -86,13 +82,12 @@ short markers the files carry in their frontmatter stay in the files, never on s
    (the reopen in step 8), and **adding or dropping a whole capability** — but never the routine first layout in
    step 2, when nothing has been rejected yet. Author it under `docs/adr/` from the starting shape in
    `.engine/modules/product-design/scaffold/adr.md`, numbered in the project's own sequence (0001, 0002, …,
-   unrelated to any numbering the engine uses for its own machinery), and fill in what was decided, why, and —
+   separate from the engine's own numbering), and fill in what was decided, why, and —
    the part that matters most for a later session — the alternatives weighed and turned down, and why each lost:
-   that ruled-out part is what stops a future session from re-opening ground already walked. Strip the guidance
-   as you write, as with the other documents. The engine checks that each record it wrote still names what was
-   ruled out (present, with something in it), never whether the reasons are good — the operator's call; a record
-   kept in some other style is left untouched. This is distinct from the architecture overview's short "key
-   decisions" note — that is an at-a-glance summary inside one document; these are the per-decision records.
+   that ruled-out part is what stops a future session from re-opening ground already walked. The engine checks
+   that each record it wrote still names what was ruled out (present, with something in it), never whether the
+   reasons are good — the operator's call; a record kept in some other style is left untouched. (Distinct from
+   the architecture overview's at-a-glance "key decisions" note; these are the per-decision records.)
 10. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
    it — is settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine
    writes a **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered,
@@ -113,17 +108,15 @@ short markers the files carry in their frontmatter stay in the files, never on s
 (`engine/check/product-spec-form`) reports no problems, and — unless the operator chose to keep the description
 light — the guiding principles and the architecture overview are written and the fuller-document check
 (`engine/check/product-design-form`) reports no problems too. The operator has seen the result: its bound stated,
-and for each capability the two-tier split of how "done" is judged — what they can confirm themselves versus
-what rests on the engine's account. They have given their go-ahead on every document they consider settled. When the operator has chosen to hand
-the settled work to a build, a build order at `docs/spec/build-plan.md` groups it into phases and there is a
-tracked item to build for each settled capability.
+and for each capability the two-tier split of how "done" is judged. They have given their go-ahead on every
+document they consider settled. When they have chosen to hand settled work to a build, a build order at
+`docs/spec/build-plan.md` groups it into phases with a tracked item to build for each settled capability.
 
 ## Notes
 
 - **Degrade, do not dead-end.** Almost everything lands as committed files, so a missing or unreachable GitHub
-  connection defers only the tracked items in the last step — the description, its checks, the settled state, and
-  the build order are all written from files. Tell the operator what is waiting on the connection rather than
-  stopping.
+  connection defers only the tracked items in the last step — everything else is written from files. Tell the
+  operator what is waiting on the connection rather than stopping.
 - **Plain words only, on screen.** The operator never sees the short stage markers the files carry or any
   internal engine vocabulary — only plain renders like "not yet described / in progress / settled", "build
   order", "phases", and "things to build". The same holds for how you report what the check found.

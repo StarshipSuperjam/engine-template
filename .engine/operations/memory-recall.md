@@ -16,12 +16,11 @@ before relying on your own recollection of this project, which does not survive 
   one nothing else catches.
 
 Memory offers two ways to look, and they answer different questions. **Keyword search** matches words: when a
-word is absent it returns nothing, which is exactly why an irrelevant question gets an empty answer rather
-than a plausible wrong one. **Meaning-based recall** finds records that say the same thing in different
-words, but it always has a nearest record, so it answers with the passage that matched and leaves the judging
-to you — nearest is not the same as relevant. Neither replaces the other and nothing falls back between them — you choose, and on a question that
-matters you use both. Rephrasing the question several ways is still the step that does the real work on the
-keyword side, and skipping it is still what makes recall fail.
+word is absent it returns nothing — which is exactly why an irrelevant question gets an empty answer, not a
+plausible wrong one. **Meaning-based recall** finds records that say the same thing in different words, but it
+always has a nearest record, so it returns the passage that matched and leaves the judging to you. Neither
+falls back to the other — you choose, and on a question that matters you use both; rephrasing several ways is
+the step that does the real work on the keyword side, and skipping it is what makes recall fail.
 
 ## Steps
 
@@ -107,12 +106,6 @@ all** — searching and reading a conversation back are both pure reads.
 names — check the tools available to you for the engine's memory operations (a keyword `search`, a
 `recall-window`, and `recall-by-meaning` where it is installed) and use those; the procedure is unchanged.
 
-**Why the rephrasing is not optional.** Keyword search requires the words themselves, so a question worded
-differently from the conversation matches nothing at all — not a weaker hit, nothing. Rephrasing in step 2 is
-what supplies the missing words. Meaning-based recall reaches the same records without them, which is why it
-is the right second look on a reworded question, but it earns its answer differently: it ranks by closeness
-and can only offer you its nearest, so it needs you to read the passage it returns rather than trust the rank.
-
 **When `recall-by-meaning` is not among your tools**, this deployment has no semantic memory installed. That
 is a normal configuration, not a fault: do the rephrasing in step 2 more widely and rely on keyword search.
 
@@ -127,9 +120,3 @@ pieces and are rejoined on read, and machine-inserted text (continuation summari
 so it is never mistaken for something the operator said. What it cannot prove is that no piece of a long message
 was permanently erased later — so treat the wording as faithful but not certified, and say so if a fine
 distinction in phrasing is carrying weight.
-
-**Who said it changes what it means.** A conversation hit carries its speaker. An operator turn is what was
-actually asked for; an assistant turn is what a past session *proposed* — which may have been rejected,
-corrected, or overtaken later in that same conversation. Most of the recorded conversation is the assistant's
-own words, so this is the common case, not the edge one: read the window around an assistant turn before
-treating it as something that was settled, and never report a past proposal as a past decision.
