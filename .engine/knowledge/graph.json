@@ -4619,7 +4619,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:59353f8a2e1f3e80a611830b3519ca9af736960d2db5d3258b16a7962cf39a48",
+        "fingerprint": "sha256:23e4053a3374856e84a03a746586011d3288420c63c3346740dbcee905520154",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5503,7 +5503,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:cd40d16463a84beb00c81f7cf2b333f36609a4d55bd236304eacdc7faa26c1f3",
+        "fingerprint": "sha256:f6b4224b23e38f1cb495ba7336c305b4a116c96ba7d76acae3bdd598c5f23af9",
         "path": ".engine/schemas/module.v1.json"
       },
       "status": "active",
@@ -9258,7 +9258,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:ce158ee17411cb07102c5f0ba2fd0b25f77b33b8e332b4449bff038af60ec56f",
+        "fingerprint": "sha256:fb01c8eb6a105ec75f243d9f2c718727799ea641c060a97eef65dec830dab621",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9747,7 +9747,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:204a3219c64295aeac1c991de14dd1a85ec4d98ba734c90594be33777c870bd9",
+        "fingerprint": "sha256:c57a12977460b06aba30ae8370deb6a3b04a8959d651d82a27b4e28e3fe1d44b",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -12365,7 +12365,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:b6657e0c5c0be54a2c4e5d44a05a8d6800aed2e9dbbd25f8e74547a8f171f5ae",
+        "fingerprint": "sha256:ff81d1fc81c6a53b55f59cb90d2103a53d5fd7192cf49d0ee3ad6698e272fb2a",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

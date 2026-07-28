@@ -1202,20 +1202,33 @@ def _resync_tool_runtime() -> bool:
         return False
 
 
+# The Markdown-structural characters a retired-capability description is escaped against so it renders as the
+# author's LITERAL words in the PR body: inline code (`), emphasis (* _), links/images ([ ] !), inline HTML
+# (< >), strikethrough (~). Each is backslash-escaped (GitHub renders '\x' as a literal 'x' for ASCII
+# punctuation), so nothing the author wrote is deleted and no construct can reshape or disguise the notice.
+# Leading block markers (#, >, -) need no handling: the "- " list prefix already puts the text in INLINE context,
+# where they are literal — and deleting them (an earlier approach) silently corrupted content like '>50% mode'
+# or '--force', which is exactly the notice this feature must render faithfully.
+_MD_LITERAL = str.maketrans({c: "\\" + c for c in "\\`*_[]<>~!"})
+
+
 def _retired_capability_text(description) -> str:
-    """The retired-capability description as one safe single line. The description IS the whole notice and —
-    unlike a migration's, which never reaches the PR body — lands on the durable Markdown surface, so a stray
-    newline or a leading block marker (#, -, >, *, `, +) must not reshape it into a heading, a broken list, or a
-    code span. This literalizes only what would restructure the line; it is truthful rendering, not escaping
-    against an attacker (the text is maintainer-authored and schema-validated at the release cut)."""
-    text = " ".join(str(description or "").split())          # collapse newlines/runs of whitespace to spaces
-    text = re.sub(r"^[#>\-*`+]+\s*", "", text)                # drop a leading block marker that would restructure
-    return text or "a capability was removed"
+    """The retired-capability description as one plain single line for a TERMINAL surface (the upgrade preview and
+    the applied-upgrade echo): collapse newlines and runs of whitespace to single spaces, and nothing else. The
+    terminal is not Markdown, so the author's characters are shown VERBATIM — never stripped or altered, so a
+    retired flag like '--force' or a claim like '>50% memory mode' survives exactly as written."""
+    return " ".join(str(description or "").split()) or "a capability was removed"
 
 
 def _retired_capability_line(description) -> str:
-    """The description as a Markdown list item for the upgrade PR body's Scope section."""
-    return "- " + _retired_capability_text(description)
+    """The description as a Markdown list item for the upgrade PR body's Scope section — the durable consent
+    surface a non-engineer reads at the merge, and the FIRST free-text manifest field to render there (a
+    migration's description never reaches the PR body). Render the author's words as LITERAL text: whitespace is
+    collapsed (so no embedded newline breaks the list) and every Markdown-structural character is escaped (so an
+    inline link, code span, HTML tag, or emphasis run can't reshape or disguise the notice) — while every
+    character the author wrote SURVIVES, escaped rather than deleted. A truthful-rendering control, not a security
+    boundary: the text is maintainer-authored, schema-validated, and human-reviewed at the release cut."""
+    return "- " + _retired_capability_text(description).translate(_MD_LITERAL)
 
 
 def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
@@ -1267,7 +1280,8 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     # so stray Markdown can't garble it.
     retired = result.get("retired_capabilities") or []
     if retired:
-        scope += ["", "Capabilities this update removed — things you could ask for before and no longer can:"]
+        scope += ["", f"Capabilities this update removed — things you could ask for before and no longer can "
+                  f"({len(retired)}):"]
         scope += [_retired_capability_line(r.get("description")) for r in retired]
     shared: list = []
     co = result.get("codeowners")
@@ -1349,9 +1363,14 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         "merging is your consent to run the updated engine; nothing changes until you merge.")
     out += release_cut.pr_section(
         "Scope",
-        "The version this update records and the shared-file blocks it refreshed.",
+        ("The version this update records, the shared-file blocks it refreshed, and the capabilities it retires."
+         if retired else
+         "The version this update records and the shared-file blocks it refreshed."),
         scope,
-        "these are the exact versions written into the engine's records, plus the marked-block refreshes noted.")
+        ("the exact versions written into the engine's records, the marked-block refreshes noted, and — listed "
+         "above — the things you could ask for before and no longer can."
+         if retired else
+         "these are the exact versions written into the engine's records, plus the marked-block refreshes noted."))
     out += release_cut.pr_section(
         "Out of scope",
         "What merging does not do.",
@@ -1359,17 +1378,30 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "- It does not change any settings you configured yourself.",
          "- It changes nothing outside the engine's own files and its marked blocks in shared files."],
         "the update touches only engine-owned files and the engine's marked blocks in shared files.")
+    risk_bullets = []
+    if retired:
+        # The one change in an update that alters what the operator can ASK the engine to do — surfaced here, in
+        # "what to weigh before merging", so a header-skimming reader meets it and not only in the Scope body.
+        risk_bullets.append(
+            "- A capability you could use before is gone — see \"Capabilities this update removed\" under Scope. "
+            "This is the one part of an update that changes what you can ask the engine to do, so read it before "
+            "you merge.")
+    risk_bullets += [
+        "- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
+        "files this version renamed or dropped; your project content is not touched.",
+        "- Every file this update removed is listed under Scope above — read them, and flag any that was "
+        "yours before merging.",
+        "- Any shared-file block the update could not refresh is also called out under Scope — read those "
+        "before merging."]
     out += release_cut.pr_section(
         "Risk",
         "What to weigh before merging.",
-        ["- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
-         "files this version renamed or dropped; your project content is not touched.",
-         "- Every file this update removed is listed under Scope above — read them, and flag any that was "
-         "yours before merging.",
-         "- Any shared-file block the update could not refresh is also called out under Scope — read those "
-         "before merging."],
-        "the update changes and removes engine-owned files; every removal and anything it could not apply is "
-        "disclosed in Scope.")
+        risk_bullets,
+        ("a capability you could use is gone (see Scope); and the update changes and removes engine-owned files, "
+         "with every removal and anything it could not apply disclosed in Scope."
+         if retired else
+         "the update changes and removes engine-owned files; every removal and anything it could not apply is "
+         "disclosed in Scope."))
     out += release_cut.pr_section(
         "Validation",
         "What the engine checked before opening this.",

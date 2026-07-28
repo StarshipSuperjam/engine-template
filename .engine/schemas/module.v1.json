@@ -169,7 +169,7 @@
         "additionalProperties": false,
         "properties": {
           "description": {
-            "description": "One plain-language line, in the operator's own voice, naming the capability that was removed and — where an alternative exists — what to do instead. It is the WHOLE notice the operator meets in the upgrade's pull-request description and preview, so it must read as a usable sentence without engine jargon. For example: 'The engine no longer offers to bring a set-aside note back into search; ask me to search your notes directly instead.'",
+            "description": "One plain-language line, in the operator's own voice, naming the capability that was removed and — where an alternative exists — what to do instead. It is the WHOLE notice the operator meets in the upgrade's pull-request description and preview, so it must read as a usable sentence without engine jargon. For example: 'The engine no longer offers to bring a set-aside note back into search; ask me to search your notes directly instead.' A bare 'Removed.' or a lone capability name is NOT enough — the operator cannot act on it, and once shipped the key is permanent (there is no no-op form to retire it to), so a thin line cannot simply be withdrawn later. The schema enforces only that the line is non-empty; that it is genuinely useful rests on your authoring and the release-cut review.",
             "type": "string",
             "minLength": 1
           }

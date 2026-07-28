@@ -761,11 +761,41 @@ class TestRetiredCapabilitiesRender(unittest.TestCase):
         self.assertIn("Removes a capability: the one-shot cache reset is gone; use cleanup instead", out)
         self.assertNotIn("version bump only", out)   # a retirement-only preview is a real change, not "nothing"
 
-    def test_stray_markdown_in_the_notice_is_literalized(self):
-        # a leading block marker + embedded newlines must not reshape the durable Markdown line
-        self.assertEqual(module_manager._retired_capability_line("# Heading?\nthen a\n\ngap"),
-                         "- Heading? then a gap")
-        self.assertEqual(module_manager._retired_capability_text("   - dashed  "), "dashed")
+    def test_terminal_text_preserves_content_and_only_collapses_whitespace(self):
+        # the decisive fidelity fix: the terminal form must NEVER strip a leading marker — that silently
+        # corrupted real notices ('>50% mode' -> '50% mode', '--force' -> 'force'). Only whitespace collapses.
+        self.assertEqual(module_manager._retired_capability_text(">50% memory mode is gone"),
+                         ">50% memory mode is gone")
+        self.assertEqual(module_manager._retired_capability_text("--force is gone; use --yes instead"),
+                         "--force is gone; use --yes instead")
+        self.assertEqual(module_manager._retired_capability_text("a\n\n  b   c"), "a b c")
+        self.assertEqual(module_manager._retired_capability_text("   "), "a capability was removed")
+
+    def test_pr_body_line_escapes_markdown_but_deletes_no_character(self):
+        line = module_manager._retired_capability_line("use [x](y), `z`, <img>, *b*, and >50%")
+        # every alphanumeric token the author wrote survives — escaped, never deleted
+        for token in ("x", "y", "z", "img", "b", "50"):
+            self.assertIn(token, line)
+        # and the reshaping constructs are neutralized, so none renders as a link / code / html / emphasis
+        self.assertNotIn("[x](y)", line)          # the raw link syntax is broken by the escape
+        self.assertIn(r"\[x\](y)", line)
+        self.assertIn(r"\`z\`", line)
+        self.assertIn(r"\<img\>", line)
+        self.assertIn(r"\*b\*", line)
+        self.assertTrue(line.startswith("- "))
+
+    def test_pr_body_flags_the_capability_loss_in_risk_and_scope(self):
+        result = {"retired_capabilities": [
+            {"module_id": "core", "version": "0.5.0", "description": "the old thing is gone; do Y instead"}]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("A capability you could use before is gone", body)   # the Risk "what to weigh" bullet
+        self.assertIn("capabilities it retires", body)                     # the Scope one-line summary
+        self.assertIn("and no longer can (1):", body)                      # the header carries an item count
+
+    def test_pr_body_omits_the_capability_risk_line_when_none_retired(self):
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"},
+                                                     {"retired_capabilities": []})
+        self.assertNotIn("A capability you could use before is gone", body)
 
 
 class TestRetiredCapabilitiesSchema(unittest.TestCase):
@@ -2181,6 +2211,9 @@ class TestUpgradePreviewImpact(unittest.TestCase):
         self.assertEqual(plan["wires"]["updated"], [])
         # STORED-DATA / CONFIG: both migrations surface with their real kinds
         self.assertEqual(sorted(m["kind"] for m in plan["migrations"]), ["config", "data"])
+        # RETIRED CAPABILITY: the fixture's 0.2.0 retirement surfaces on the preview path too (not just apply)
+        self.assertEqual([r["version"] for r in plan["retired_capabilities"]], ["0.2.0"])
+        self.assertIn("one-shot cache reset", plan["retired_capabilities"][0]["description"])
         # a data migration + no vault configured in the fixture -> backup NOT ready (reported, never refused)
         self.assertFalse(plan["backed_up"])
         # FILES: base_tool.py is replaced; the release's new migration files are added

@@ -566,7 +566,10 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # A newly-announced retired capability floors its module minor too — it is an operator-visible removal.
         # This RAISES the floor; it never certifies severity: a breaking removal must still carry its own
         # major/impact signal (a whole-module removal already floors major above). Combine with any migration
-        # floor by taking the higher version, so a second writer never clobbers the first (design-review).
+        # floor by taking the higher version so a second writer never clobbers the first. TODAY both compute the
+        # SAME minor bump of this manifest's version, so the max is a formality — but structuring it as a combine
+        # (not a bare re-assign) keeps the floor correct the day one side gains a different bump level, instead of
+        # silently clobbering it (design-review).
         new_rets = set((man.get("retired_capabilities") or {}).keys())
         old_rets = set((old.get("retired_capabilities") or {}).keys())
         if new_rets - old_rets:
