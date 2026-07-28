@@ -11055,7 +11055,7 @@
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:0c58b41360838f41c237d9eb302200c737f5e5f451bc86474969b75ef024b3c0",
+        "fingerprint": "sha256:b90689df10e30c114f6673dc6a3d59535e2646f59a3c908694810b1c9923721b",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -12492,6 +12492,29 @@
       },
       "status": "active",
       "summary": "Tests for the operator-override file reader + its ownership carve-out.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_optional_module_isolation",
+      "name": ".engine/tools/test_optional_module_isolation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:test_conformance_sweep"
+        ]
+      },
+      "slug": "test_optional_module_isolation",
+      "source": {
+        "fingerprint": "sha256:b1d2ea76671dd5cdab71093853bd5b4a1b2b693ece2c55de7b0efc07356ea8f0",
+        "path": ".engine/tools/test_optional_module_isolation.py"
+      },
+      "status": "active",
+      "summary": "Regression: an ALWAYS-PRESENT engine tool must never hard-import a DECLINABLE module at module top level.",
       "type": "tool"
     },
     {
