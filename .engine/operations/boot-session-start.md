@@ -39,19 +39,17 @@ only, never the whole pack, and the session never halts.
    alarms to the operator in plain words, and surface a brief needs-attention headline; the operator-toned
    status dashboard follows for grounding. The present-marker line and the must-push set are a fixed relay
    over the signals the substrates already detected — boot computes nothing new.
-   - **Anti-habituation collapse.** A standing governance alarm renders on **every** session it is
-     live, but one whose underlying condition is **unchanged since last relayed in full** collapses to a
-     **terse one-line reminder that still names the consequence and still offers the fix**; a **new, changed,
-     or worsened** condition relays in **full**. New-versus-old is carried in words ("still ... (unchanged)"
-     vs the full statement / "this has grown"), never length alone. The **present-marker line and the
-     all-clear render never collapse** — only the must-push relay payload behind the marker varies. The read,
-     the terse-versus-full decision, and the write all run in the deterministic hook (`boot_alarm_ledger`),
-     never the model, and are **fail-toward-full**: a missing/unreadable/write-failed ledger, or any
-     ambiguity, renders the alarm in full (repetition is the tolerable failure; suppression is not).
-     The relay is a **once-per-session act in the grounding reply**: each alarm is named with its
-     consequence in plain words, never wrapped in an invented "boot check" / "before we start setup"
-     preamble, and the "(unchanged since last session)" framing is **not re-surfaced on later turns** of
-     the same session (if asked again, answer plainly without restapling the boot wrapper).
+   - **Anti-habituation collapse.** A standing governance alarm renders on **every** session it is live, but
+     one **unchanged since last relayed in full** collapses to a **terse one-line reminder that still names the
+     consequence and offers the fix**; a **new, changed, or worsened** condition relays in **full**.
+     New-versus-old is carried in words ("still … (unchanged)" vs "this has grown"), never length alone. The
+     **present-marker line and the all-clear never collapse** — only the payload behind the marker varies. The
+     read, the terse-versus-full decision, and the write all run in the deterministic hook (`boot_alarm_ledger`),
+     never the model, and are **fail-toward-full**: any missing/unreadable/write-failed ledger or ambiguity
+     renders the alarm in full (repetition is tolerable; suppression is not). The relay is a **once-per-session
+     act in the grounding reply** — each alarm named with its consequence, never wrapped in an invented "boot
+     check" preamble, and the "(unchanged)" framing is **not re-surfaced on later turns** (if asked again,
+     answer plainly without restapling the boot wrapper).
 
 To print the assembled briefing by hand (a debug view of what the hook injects): `python tools/boot.py pack`.
 
@@ -78,9 +76,7 @@ recording each surfaced standing alarm's structured condition and that it was sh
 session can collapse an unchanged one. It is read and written by boot's own `SessionStart` hook, lives at
 a stable per-instance path under the shared clone root (never an ephemeral worktree, so it spans separate
 sessions on the one machine), shares **no code path** with memory's own session-start work, is never
-committed, and is **fail-toward-full** (any loss or ambiguity renders the alarm in full). This refines
-boot's read-only law to *read-only of canonical state* — it never regenerates derived or committed state;
-its sole write is this presentation ledger.
+committed, and is **fail-toward-full** (any loss or ambiguity renders the alarm in full).
 
 **Beyond what this pack pushes, a session can reach the wiring map deliberately.** When a change needs an
 impact check — what depends on a part, what checks or governs it — or when a part is unfamiliar, the
@@ -100,9 +96,9 @@ and never forces. What differs is *what* each protects and *how* it declines:
   suppresses the redundant "your safety gate is off" offer, which setup turns on). Unlike the repairs below the
   fix is not a write boot makes: on the operator's "set up my project" the assistant walks the `/engine-setup`
   verb (the instantiator's confirm → apply → verify → retire), which is idempotent and **resumes** a setup
-  interrupted partway; boot never runs setup itself. A best-effort ONLINE parentage read
-  (`first_run_health.forked_from_home`) suppresses the offer for a contributor's fork of the engine home (not an
-  adopter); offline the offer still shows — read-only and low-harm.
+  interrupted partway. A best-effort ONLINE parentage read (`first_run_health.forked_from_home`) suppresses the
+  offer for a contributor's fork of the engine home (not an adopter); offline the offer still shows — read-only
+  and low-harm.
 - **An engine-mechanic with no usable product checkout — setup (`checkout_health.mechanic_orientation`,
   eADR-0026).** This engine records an executable `product_build_target`, so it builds a SEPARATE owned checkout,
   but this machine's path to that checkout is missing or points at nothing. The reader classifies it OFFLINE
@@ -111,11 +107,10 @@ and never forces. What differs is *what* each protects and *how* it declines:
   the fix is not a write boot makes: on the operator's "point me at my product checkout" the assistant records
   the folder in the gitignored `.engine/mechanic/product-checkout-path` (durable and per-machine — an
   environment variable would not outlive the session), and on "clone my product for me" it clones the recorded
-  product as a SIBLING folder beside the engine's own, never inside it. Both act only on that consent; boot
-  itself writes nothing and clones nothing. The unreachable case echoes the recorded folder home-contracted
-  (`~/…`) so a typo can be corrected without putting the account name on a card the operator may paste; the
-  healthy case shows no path at all. The path is never verified here — the fail-closed preflight in
-  `mechanic_build` decides whether the checkout is really that product and safe to write in.
+  product as a SIBLING folder beside the engine's own, never inside it. The unreachable case echoes the
+  recorded folder home-contracted (`~/…`) so a typo can be corrected without putting the account name on a card
+  the operator may paste; the healthy case shows no path at all. The path is never verified here — the
+  fail-closed preflight in `mechanic_build` decides whether the checkout is really that product and safe to write in.
 - **A stranded checkout — un-stranding (`checkout_health.unstrand`).** The deployed-floor never-strand-main
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
@@ -159,8 +154,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   **before** reverting the tree, **refuses** if the operator has unsaved work of their own in files the update
   doesn't touch, resets the update's own files and the shared setup files it changes (keeping the operator's
   version of those on the recovery point, disclosed in the result), and puts back any saved memory the update
-  changed (keeping the guard that an older copy never overwrites newer memory). boot only imports the fix path
-  through the lazy read-only detector and never runs it un-asked; the assistant relays the plain result.
+  changed (keeping the guard that an older copy never overwrites newer memory).
 - **A safety gate that's off — re-enable branch protection (`bootstrap.ControlPlane.apply`, #392).** On the
   operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.apply` instead of a
   manual settings walk-through: it re-enables the protection floor on the default branch — idempotent and additive,
