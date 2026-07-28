@@ -283,8 +283,7 @@ def build_pr_body(*, summary: str, template_text: str | None = None, authored_bo
 
 def _submitted_narration(upstream_repo: str) -> str:
     """Submitted-is-not-accepted — narrated at the moment of submission. Hedged for the ungoverned-upstream
-    case: it never categorically asserts a review will happen (the standalone ungoverned-upstream honesty
-    policy is a later refinement)."""
+    case: it never categorically asserts a review will happen."""
     return (
         f"I've opened the pull request to {upstream_repo}. Submitting it isn't the same as it being "
         "accepted — if the project reviews contributions, its maintainers decide whether it lands, and that "

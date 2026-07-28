@@ -263,7 +263,7 @@ def load_engine_manifest():
 # (module_manager, first_run_health, release_cut, external_contribution/submit, instantiator) is unaffected,
 # and this module keeps no copy of its own to drift from. (Other modules — first_run_health, boot,
 # instantiator, weakening_guard — still carry their own origin/home readers with their own fail-directions;
-# `repo_identity` is the single home for the primitives it defines, not yet the tree's only reader of that
+# `repo_identity` is the single home for the primitives it defines, though not the tree's only reader of that
 # state.) `load_engine_manifest` (above) stays
 # here: it is this module's general engine-manifest reader, distinct from the identity seam. `home_repository`
 # preserves its fail-LOUD-on-malformed contract (via `validate.load_json` in `repo_identity`).

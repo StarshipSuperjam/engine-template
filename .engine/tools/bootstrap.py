@@ -35,10 +35,8 @@ without modifying a rule the operator set themselves. The exact pieces added are
 ("the ruleset is augmented, never weakened"). Greenfield
 (no product ruleset) is unchanged: the engine creates and owns its own ruleset.
 
-This tool owns ruleset provisioning. Module add/remove, engine upgrade + migrations, the CODEOWNERS
-renderer, and the operator verb live in their own tools (module_manager, wiring). Of the two engine-scheme
-labels, first-run provisioning here ensures only the engine-domain one; the second (spec-marker) label lives
-in the product-design module.
+This tool owns ruleset provisioning and first-run label provisioning (`ensure_labels`). Module add/remove
+and engine upgrade + migrations live in `module_manager`; the CODEOWNERS renderer lives in `wiring`.
 """
 # `from __future__ import annotations` (PEP 563) is LOAD-BEARING, not cosmetic: the first-run
 # instantiator imports this module and runs it on the operator's SYSTEM python during the

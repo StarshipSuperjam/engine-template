@@ -363,7 +363,7 @@ def _github():
     via a LAZY import reached ONLY here (cap-exhaustion / fail-open) — so the common turn-end path imports
     neither boot's heavy stack nor the network. Returns None when
     repo/token are unavailable (offline) -> promotion degrades to surfaced-not-tracked, the merge wall the
-    backstop. (The shared GitHub-context home is a later tidy when build-orch/24 becomes a second consumer.)"""
+    backstop."""
     try:
         from boot import repo_slug, gh_token  # lazy: keep boot off the hot path; reached only when promoting
         repo, token = repo_slug(), gh_token()
