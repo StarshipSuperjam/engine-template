@@ -716,7 +716,8 @@ class GitHubIssues:
             # check name, so a re-run's fresh green supersedes a stale red of the same name — the current
             # outcome, which is what a live-derived signal reconciles against.
             status, data = self._transport(
-                "GET", f"/repos/{self.repo}/commits/{ref}/check-runs?filter=latest&per_page=100&page={page}",
+                "GET", f"/repos/{self.repo}/commits/{urllib.parse.quote(ref, safe='')}/check-runs"
+                f"?filter=latest&per_page=100&page={page}",
                 None)
             if status >= 400 or not isinstance(data, dict) or "check_runs" not in data:
                 raise DegradedReadError(f"GitHub returned {status} reading check-runs for {ref}")
