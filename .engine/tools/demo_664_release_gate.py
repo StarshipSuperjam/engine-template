@@ -56,6 +56,22 @@ def _clone_engine(real_root: str, dest: str) -> str:
     return dest
 
 
+def _seed_rename_residue(tree: str) -> bool:
+    """Introduce a genuine rename-residue import into the always-present memory substrate — a
+    `from memory.<gone> import ...` whose target does not exist and is NOT an optional-subtree carve-out — so
+    the candidate's wiring map cannot regenerate during an upgrade. This is the #663 *class* (a reconcile that
+    reds because the map won't regenerate) via a real dangling import rather than a declined module — the
+    failure Arm B (upgrade-when-deployed) exists to catch. Returns True if seeded."""
+    path = os.path.join(tree, ".engine", "tools", "memory", "mcp_server.py")
+    if not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("from memory.renamed_gone_by_a_bad_refactor import nothing  # seeded rename residue\n" + src)
+    return True
+
+
 def _disable_carve_out(tree: str) -> bool:
     """Regress the #663 fix in the CLONE's own `knowledge_gen.py` (the pre-#663 resolver, no optional-subtree
     carve-out), so a module-declined projection can no longer regenerate its wiring map. Returns True if the
@@ -113,6 +129,19 @@ def main() -> int:
                 failures.append("NEGATIVE: the gate did NOT block a release that cannot regenerate its wiring "
                                 "map on a module-declined deployment")
 
+    # ---- NEGATIVE CONTROL (upgrade arm): a candidate that cannot regenerate its wiring map is BLOCKED ----
+    with tempfile.TemporaryDirectory() as d:
+        tree = _clone_engine(real_root, os.path.join(d, "residue"))
+        if not _seed_rename_residue(tree):
+            failures.append("NEGATIVE(upgrade): could not seed the rename residue (mcp_server.py not found)")
+        else:
+            res = rg._upgrade_from("v0.4.0", tree)   # practice-upgrade a real past release TO the seeded candidate
+            print("\n[NEGATIVE CONTROL — upgrade arm, a candidate whose wiring map cannot regenerate]")
+            print(f"  the gate's upgrade arm blocked the cut: {not res['passed']}")
+            if res["passed"]:
+                failures.append("NEGATIVE(upgrade): the gate did NOT block a candidate whose wiring map cannot "
+                                "regenerate during an upgrade")
+
     print("\n" + "=" * 78)
     if failures:
         print("DEMO #664 FAILED:")
@@ -120,9 +149,10 @@ def main() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO #664 PASSED: the deployment gate lets a healthy release cut proceed (it operates on a "
-          "module-declined deployment) and blocks a release that regressed the #663 carve-out (its wiring map "
-          "cannot regenerate on the declined shape) — the gate fails closed, so a broken release never opens "
-          "its pull request.")
+          "module-declined deployment), blocks a release that regressed the #663 carve-out (its wiring map "
+          "cannot regenerate on the declined shape), AND blocks — on the upgrade arm — a release whose wiring "
+          "map cannot regenerate during an upgrade from a real past release. The gate fails closed, so a broken "
+          "release never opens its pull request.")
     return 0
 
 

@@ -130,6 +130,13 @@ def _decline_optional_modules(tree: str) -> list:
             raise GateError(f"could not read module manifest for {mid} ({exc})")
         if status == "default-on":                        # only default-on modules are installed-and-declinable
             default_on.append(mid)
+    if not default_on:
+        # A declined projection that declined NOTHING is identical to the default one — the #663 shape would
+        # silently stop being tested (e.g. if the `default-on` status vocabulary were renamed). Fail closed,
+        # loudly, rather than let the gate keep reporting green while the declined arm covers nothing.
+        raise GateError("could not project a module-declined deployment: found no installed optional "
+                        "(default-on) module to decline — the #663 shape would go untested. This is likely a "
+                        "module-manifest vocabulary change; the gate must be updated before the next cut.")
     env = {**os.environ, _NESTED_ENV: "1"}
     for mid in default_on:
         r = _run([sys.executable, os.path.join("tools", "module_manager.py"), "remove", mid, "--json"],
@@ -204,24 +211,29 @@ def _validate_in(tree: str, label: str) -> dict:
     """Run the CI validator suite inside a projected tree. Returns {passed, detail}."""
     env = {**os.environ, _NESTED_ENV: "1"}
     r = _run([sys.executable, os.path.join("tools", "validate.py"), "--suite", "CI"],
-             cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
+             cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
+    # The hard findings print BEFORE the (verbose, disclosed-no-op) notes section — keep that, drop the notes,
+    # so the failure detail carries the actual reason rather than a tail of "not applicable here" disclosures.
+    head = (r.stdout + r.stderr).split("\nnotes (", 1)[0]
     return {"passed": r.returncode == 0,
-            "detail": "" if r.returncode == 0 else f"{label}: validator red\n{_tail(r.stdout + r.stderr, 3000)}"}
+            "detail": "" if r.returncode == 0 else f"{label}: validator red\n{_tail(head, 3000)}"}
 
 
 def _suite_in(tree: str, label: str) -> dict:
     """Run the whole self-test suite inside a projected tree. Returns {passed, detail}."""
     env = {**os.environ, _NESTED_ENV: "1"}
     r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
-             cwd=os.path.join(tree, ".engine"), env=env, timeout=1800)
+             cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
     return {"passed": r.returncode == 0,
             "detail": "" if r.returncode == 0 else f"{label}: self-tests red\n{_tail(r.stderr, 3000)}"}
 
 
-def _arm_operates(candidate: str) -> dict:
+def _arm_operates() -> dict:
     """Arm A. Project the candidate to the deployed shape (default and optional-declined) and assert it
     operates. Default: validator + full suite (subsumes the retired belt). Declined: validator (whose
-    knowledge-coverage check is the #663 detector, exercised by the declined projection's own regen)."""
+    knowledge-coverage check is the #663 detector, exercised by the declined projection's own regen). Each
+    projection needs its OWN mutable copy (projecting/declining rewrites the tree in place), so each arm
+    captures a fresh candidate archive from the (unchanged) working tree rather than sharing one."""
     failures: list = []
     with tempfile.TemporaryDirectory() as d:
         default_tree = _archive_candidate(os.path.join(d, "default"))
@@ -261,8 +273,9 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
     """Arm B, one baseline. Project the baseline release to its deployed shape, then run a REAL practice
     upgrade to the candidate driven by the PROJECTION's own module_manager (so phase-1 runs as the baseline's
     shipped code, exactly as a real deployment would, and the tail runs as the overlaid candidate code). Assert
-    the upgrade applied, the six-check gate found nothing hard, and it took the practice child path (not a
-    silent network fetch or fall-through). Returns {passed, detail}."""
+    the upgrade completed with NO refusal reason (a reconcile/migration refusal sets `reason` and leaves an
+    early `applied=True` with empty findings — it must NOT read as a pass), no hard structural finding, and
+    that it took the practice child path (not a silent network fetch). Returns {passed, detail}."""
     with tempfile.TemporaryDirectory() as d:
         proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
         _project_to_deployed(proj, decline_optional=False)
@@ -272,25 +285,29 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
                _DRIVER_CANDIDATE: os.path.abspath(candidate)}
         env.pop("GITHUB_TOKEN", None)                    # practice mode opens no PR; deny the token outright
         run = _run([sys.executable, "-c", _driver_source()],
-                   cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=1200)
+                   cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
         if run.returncode != 0 or "GATE_RESULT:" not in run.stdout:
             return {"passed": False,
                     "detail": f"upgrade/{baseline_tag}: the practice upgrade did not complete\n"
                               f"{_tail(run.stderr or run.stdout, 3000)}"}
         result = json.loads(run.stdout.split("GATE_RESULT:", 1)[1])
     problems = []
-    if result.get("refused"):
-        problems.append(f"refused: {result.get('reason')}")
-    if not result.get("applied"):
-        problems.append("the upgrade did not apply to the projected deployment")
+    # A refusal at ANY step — phase-1 (`refused`) OR the tail (a `reason` with an early `applied=True` and no
+    # findings) — means the deployed upgrade did not reconcile cleanly. Reading `reason` catches the tail case.
+    if result.get("reason"):
+        problems.append(f"the upgrade did not reconcile cleanly: {result['reason']}")
     hard = [f for f in result.get("findings", []) if (f or {}).get("severity") == "hard"]
     if hard:
-        problems.append(f"the structural gate found {len(hard)} blocking problem(s): "
+        problems.append("the structural gate found blocking problem(s): "
                         + "; ".join(str((f or {}).get("id") or (f or {}).get("message")) for f in hard))
-    notes = " ".join(result.get("notes") or [])
-    if "practice run" not in notes:                      # the upgrade must have taken the practice child path
-        problems.append("the upgrade did not take the expected practice path (it may have fetched a real "
-                        "release instead of testing the candidate)")
+    if not result.get("reason"):
+        # Only meaningful when the upgrade did NOT already refuse: a clean-looking result must have applied AND
+        # carry the practice-path note (else it may have fetched a real release instead of the candidate).
+        if not result.get("applied"):
+            problems.append("the upgrade did not apply to the projected deployment")
+        if module_manager.PRACTICE_RUN_NOTE not in (result.get("notes") or []):
+            problems.append("the upgrade did not take the expected practice path (it may have fetched a real "
+                            "release instead of testing the candidate)")
     return {"passed": not problems, "detail": "" if not problems
             else f"upgrade/{baseline_tag}: " + "; ".join(problems)}
 
@@ -342,9 +359,9 @@ def run_gate() -> dict:
         return {"ran": False, "passed": True, "reason": "inert: not the engine's home repo (a deployed repo "
                 "runs the suite directly in its own engine-ci)"}
     before = _worktree_digest()
+    arm_a = _arm_operates()                              # Arm A captures its own projection copies internally
     with tempfile.TemporaryDirectory() as d:
         candidate = _archive_candidate(os.path.join(d, "candidate"))
-        arm_a = _arm_operates(candidate)
         arm_b = _arm_upgrades(candidate)
     after = _worktree_digest()
     result = {"ran": True, "operates": arm_a, "upgrades": arm_b,
@@ -374,13 +391,17 @@ def _render(result: dict) -> str:
     if not (result.get("upgrades") or {}).get("passed", True):
         parts.append("  - a deployed engine could not UPGRADE cleanly onto it from a supported version.")
     parts.append("Fix the problem and cut the release again; a transient infrastructure hiccup clears by "
-                 "re-running the deployment gate.")
+                 "re-running the `release-gate` workflow.")
     return "\n".join(parts)
 
 
 def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description="Release-cut deployment gate (operate + upgrade when deployed).")
-    ap.add_argument("--json", action="store_true", help="emit the structured result as JSON on stdout")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the structured result as JSON on stdout instead of the plain-language render")
+    ap.add_argument("--json-out", metavar="PATH",
+                    help="also write the structured result as JSON to PATH (stdout stays plain-language) — so a "
+                         "caller can read machine fields while the operator log gets plain words")
     args = ap.parse_args(argv)
     try:
         result = run_gate()
@@ -388,9 +409,17 @@ def main(argv: list | None = None) -> int:
         result = {"ran": True, "passed": False, "reason": str(exc)}
     except Exception as exc:                             # noqa: BLE001 — any unexpected error also blocks
         result = {"ran": True, "passed": False, "reason": f"the deployment gate hit an unexpected error ({exc})"}
+    if args.json_out:
+        try:
+            with open(args.json_out, "w", encoding="utf-8") as fh:
+                json.dump(result, fh)
+        except OSError as exc:
+            sys.stderr.write(f"(could not write the gate result to {args.json_out}: {exc})\n")
     if args.json:
         sys.stdout.write(json.dumps(result) + "\n")
     else:
+        # Plain-language render is the operator's signal (never a check id / arm token); machine detail goes to
+        # stderr and --json-out, so a workflow log leads with plain words even when it also captures the JSON.
         sys.stdout.write(_render(result) + "\n")
         if result.get("reason") and not result.get("passed"):
             sys.stderr.write(result["reason"] + "\n")

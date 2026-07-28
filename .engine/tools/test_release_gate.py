@@ -22,6 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate                              # noqa: E402
+import module_manager as mm                  # noqa: E402  (the shared PRACTICE_RUN_NOTE constant)
 import release_gate as rg                    # noqa: E402
 
 _CONSTRUCTION = rg._ccc._in_home_repo() and not os.environ.get(rg._NESTED_ENV)
@@ -146,8 +147,8 @@ class TestUpgradeArmReporting(unittest.TestCase):
             return rg._upgrade_from("v9.9.9", "/tmp/candidate")
 
     def _clean(self, **over):
-        base = {"refused": False, "applied": True, "findings": [],
-                "notes": ["(practice run — the pull request was not opened)"]}
+        base = {"refused": False, "applied": True, "reason": None, "findings": [],
+                "notes": [mm.PRACTICE_RUN_NOTE]}      # the REAL constant, so a reword there breaks this test
         base.update(over)
         return base
 
@@ -159,11 +160,19 @@ class TestUpgradeArmReporting(unittest.TestCase):
         self.assertFalse(res["passed"])
         self.assertIn("blocking", res["detail"])
 
-    def test_refusal_blocks(self):
+    def test_phase1_refusal_blocks(self):
         self.assertFalse(self._drive(self._clean(refused=True, reason="unreachable"))["passed"])
 
+    def test_tail_refusal_reason_blocks(self):
+        # The upgrade tail can refuse (reconcile / migration) with applied=True, a `reason`, and EMPTY findings
+        # — it must NOT read as a pass just because `refused` is unset and no hard finding was recorded.
+        res = self._drive(self._clean(applied=True, findings=[],
+                                      reason="a stored-data update could not be completed"))
+        self.assertFalse(res["passed"])
+        self.assertIn("reconcile cleanly", res["detail"])
+
     def test_not_applied_blocks(self):
-        self.assertFalse(self._drive(self._clean(applied=False))["passed"])
+        self.assertFalse(self._drive(self._clean(applied=False, reason=None))["passed"])
 
     def test_missing_practice_note_blocks(self):
         # no "practice run" note => the upgrade may have fetched a real release instead of the candidate
@@ -204,6 +213,23 @@ class TestRenderCopy(unittest.TestCase):
         self.assertIn("operate", text.lower())
         for jargon in ("engine/check", "knowledge-coverage", "Arm A", "Arm B", "_reconcile", "DanglingImport"):
             self.assertNotIn(jargon, text)
+
+
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestDeclineVocabulary(unittest.TestCase):
+    """The declined arm's #663 coverage depends on there being at least one installed `default-on` module to
+    decline. If that status vocabulary is ever renamed, the declined projection would silently become a
+    duplicate of the default one (the gate itself now fails closed on that at run time, but this pins the
+    invariant loudly at construction, where a maintainer sees it before a cut)."""
+
+    def test_at_least_one_default_on_module_exists(self):
+        modules_dir = os.path.join(validate.ROOT, ".engine", "modules")
+        statuses = [validate.load_json(os.path.join(modules_dir, mid, "manifest.json")).get("status")
+                    for mid in sorted(os.listdir(modules_dir))
+                    if os.path.isfile(os.path.join(modules_dir, mid, "manifest.json"))]
+        self.assertIn("default-on", statuses,
+                      "no module has status 'default-on' — the gate's declined (#663) arm would have nothing "
+                      "to decline; update release_gate._decline_optional_modules for the new vocabulary")
 
 
 if __name__ == "__main__":

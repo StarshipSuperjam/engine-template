@@ -3,7 +3,7 @@
 # regression that landed since the last cut is found before the next one, without re-running it on every pull
 # request. It only reads and reports; it changes nothing and opens nothing.
 name: release-gate
-run-name: Deployment gate — does the current tree operate and upgrade when deployed?
+run-name: Deployment gate — check the current branch operates and upgrades when deployed (run between release cuts)
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
   gate:
     name: release-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,10 +37,12 @@ jobs:
       - name: Run the deployment gate against the current tree
         run: |
           set -uo pipefail
+          # No --json: the gate prints its plain-language result to the log (the reader's signal).
           uv run --directory .engine --frozen -- python tools/release_gate.py
           gate_rc=$?
           if [ "${gate_rc}" -ne 0 ]; then
-            echo "### Deployment gate: BLOCKED — this tree would not operate or upgrade cleanly when deployed" >> "${GITHUB_STEP_SUMMARY}"
+            echo "::error::This tree would not operate or upgrade cleanly when deployed. See the plain-language reason in the step log above. Nothing was changed — this workflow only reads and reports."
+            echo "### Deployment gate: BLOCKED — this tree would not operate or upgrade cleanly when deployed. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
             exit 1
           fi
           echo "### Deployment gate: passed — this tree operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"

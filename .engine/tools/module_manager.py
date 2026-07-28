@@ -1625,6 +1625,13 @@ _STRUCTURAL_GATE_CHECK_IDS = frozenset({
 # asserted by the regression; the release's own CI still runs hard-check-bite on the opened pull request.
 
 
+# The note the upgrade tail appends when it runs in PRACTICE mode (a local release injected, no pull request
+# opened). Exposed as a module constant because the release-cut deployment gate matches on it to confirm a
+# practice upgrade took the real child path (`release_gate._upgrade_from`) rather than silently fetching a
+# published release — a single shared source, so a reword here can never quietly break that check.
+PRACTICE_RUN_NOTE = "(practice run — the pull request was not opened)"
+
+
 def _reconcile_gate(body: str) -> list:
     """The structural pre-open gate (see `_STRUCTURAL_GATE_CHECK_IDS`): `check_coherence()` in-process plus the
     structural CI subset, run against the reconciled tree before opening the update PR. Returns the findings;
@@ -1773,7 +1780,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
         return tail
     # (f) LAND as a reviewed pull request (skipped on a practice run — no git/PR boundary).
     if practice or opener is None:
-        tail["notes"].append("(practice run — the pull request was not opened)")
+        tail["notes"].append(PRACTICE_RUN_NOTE)
         return tail
     title = f"Maintenance: update the engine to {target_ref}"
     branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
