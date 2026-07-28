@@ -102,12 +102,19 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
             missing.append("in team mode, a change can merge without a code-owner's approval")
         if not pr_params.get("require_last_push_approval"):
             missing.append("in team mode, a commit pushed after approval can merge without a fresh approval")
-    if "required_status_checks" not in types:
-        missing.append("status checks are not required to pass")
-    else:
-        for name in required_checks:
-            if name not in bound:
-                missing.append(f"the required check '{name}' is not bound")
+    # The required-checks floor is conditional on there being checks to require. In the brownfield-arrival
+    # CHECKLESS bootstrap (required_checks == []), the engine deliberately binds no checks until its workflows
+    # are on the branch (finalize), so an ABSENT required_status_checks rule is the intended state, not a floor
+    # gap — reporting it would make a checkless apply falsely read as degraded. The enforcement paths (the
+    # standing CI check and steady-state bootstrap/verify) always pass the frozen REQUIRED_CHECKS (non-empty),
+    # so this stays fully enforced there; only the checkless bootstrap passes an empty set.
+    if required_checks:
+        if "required_status_checks" not in types:
+            missing.append("status checks are not required to pass")
+        else:
+            for name in required_checks:
+                if name not in bound:
+                    missing.append(f"the required check '{name}' is not bound")
     if not pr_thread_resolution:
         missing.append("unresolved review conversations do not block merging")
     if "non_fast_forward" not in types:
@@ -161,8 +168,10 @@ def main() -> int:
         return emit([{"severity": tier, "location": None,
                       "message": f"The protected-branch safety gate on '{branch}' is not fully "
                       "in force: " + "; ".join(missing) + ". Until this is on, an unreviewed "
-                      "change could reach the protected branch. Apply the ruleset using the "
-                      "setup recipe you were handed, then re-run."}])
+                      "change could reach the protected branch. If the engine was just added to "
+                      "this project, run `python .engine/tools/bootstrap.py finalize` to turn its "
+                      "required checks on now that their workflows are on the branch; otherwise "
+                      "complete the branch-protection setup you were handed, then re-run."}])
     return emit([])  # protection is fully in force
 
 

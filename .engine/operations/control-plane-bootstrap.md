@@ -78,3 +78,25 @@ unchanged; only the inaccurate scope name is corrected, and the design prose is 
 
 **Never fake the gate.** A degraded outcome is always disclosed in plain language with a real next action;
 the engine never reports protection as on when it is not, and never auto-deletes or weakens protection.
+
+**Brownfield arrival binds protection in two phases (`checkless` → `finalize`).** A required status check can
+only report once the workflow that emits it is on the branch — but on a brownfield arrival the engine's own
+workflows (`engine-ci`, `engine-guard`) arrive *inside* the arrival pull request, so they are not on the branch
+until it merges. Binding those checks at arrival would make that pull request unmergeable (the checks have no
+workflow to report them yet) — the same deadlock, in reverse, that `de_bootstrap` avoids by stripping checks
+*before* the workflow-deleting removal. So the arrival applies the floor in **checkless** mode: `ControlPlane`
+is constructed `checkless=True`, which threads to instance state (`self.required_checks` is empty), so the
+create path writes a *tier-aware* floor minus the required-checks rule (`checkless_floor_ruleset` — not the
+SOLO-pinned de-bootstrap `remainder_ruleset`, so a team arrival keeps its team protections) and the augment
+path adds only wholly-missing floor rule types, no checks. The branch is protected (pull request required, no
+force-push, no deletion), and the arrival pull request can merge. After it merges, the one-time **`finalize`**
+verb (a permanent `bootstrap.py` primitive — it survives the instantiator's self-retirement) binds the checks:
+it confirms both workflows are on the branch first (refusing fail-closed rather than re-create the deadlock),
+runs a normal non-checkless apply, re-emits the Actions-enablement reminder (finalize is when the checks become
+load-bearing), and **unions** its reversal marker with the arrival's so a later `de_bootstrap` reverses exactly
+what arrival *and* finalize added. `protection_guard`'s standing CI check keeps reporting honestly during the
+window: it always evaluates against the full frozen `REQUIRED_CHECKS`, so it still reports the checks
+not-yet-in-force — a transition-tolerant mode would dishonestly green-light an under-protected branch. (Its
+`missing_floor` gained a checkless mode that skips the checks gap ONLY when handed an empty required-checks set;
+that serves the arrival's own internal verify, and the standing check never passes an empty set.) The
+finalize-before-requiredness ordering means that honesty never becomes a deadlock.

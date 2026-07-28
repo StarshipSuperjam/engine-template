@@ -155,12 +155,17 @@ and never forces. What differs is *what* each protects and *how* it declines:
   doesn't touch, resets the update's own files and the shared setup files it changes (keeping the operator's
   version of those on the recovery point, disclosed in the result), and puts back any saved memory the update
   changed (keeping the guard that an older copy never overwrites newer memory).
-- **A safety gate that's off — re-enable branch protection (`bootstrap.ControlPlane.apply`, #392).** On the
-  operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.apply` instead of a
-  manual settings walk-through: it re-enables the protection floor on the default branch — idempotent and additive,
-  repairing or augmenting the ruleset in place, preserving any protection already there, and reporting "already
-  protected" with no change when it is already in force. It runs the operator's OWN `gh` behind a one-time GitHub
-  administration approval (never a typed command); if the token can't carry that admin it discloses why and changes nothing.
+- **A safety gate that's off — re-enable branch protection (`bootstrap.py finalize`, #392/#673).** On the
+  operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.finalize` (the
+  `bootstrap.py finalize` verb) instead of a manual settings walk-through: it re-enables the protection floor on
+  the default branch — idempotent and additive, repairing or augmenting the ruleset in place, preserving any
+  protection already there, and reporting "already protected" with no change when it is already in force.
+  **finalize, NOT the raw `apply`, is the deployed remediation:** it is `apply` plus a check that the engine's
+  own workflows are on the branch, so on a freshly-arrived repo whose engine checks aren't bound yet (the #673
+  checkless window) it binds them safely — and refuses, rather than deadlock, if those workflows are not on the
+  branch yet (usually a sign the arrival pull request has not merged). It runs the operator's OWN `gh` behind a
+  one-time GitHub administration approval (never a typed command); if the token can't carry that admin it
+  discloses why and changes nothing.
 - **A leftover template license — clear it (a reviewed pull request) or keep it (`boot_alarm_ledger.retire`, #471).**
   The operator's checkout still carries the engine's own template `LICENSE` at its committed root (a repo generated
   before the first-run clear shipped, or drifted back to it); provisioning's `license_health` detects it and boot

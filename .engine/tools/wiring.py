@@ -55,6 +55,11 @@ import os
 import re
 import sys
 
+try:
+    import tomllib                # stdlib, Python >=3.11 — used only to VALIDATE .codex/config.toml
+except ModuleNotFoundError:       # the 3.9 orchestrator floor: apply runs on the operator's system
+    tomllib = None                # python before the 3.11 venv exists, so degrade (mirrors module_manager)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 
@@ -762,11 +767,34 @@ def codex_hook_reverse(directive: dict) -> dict:
                        "Nothing to remove - the engine hook is not present.", create=True)
 
 
+# On the 3.9 orchestrator floor `tomllib` is absent, so the guard below cannot validate and is a
+# no-op — corruption safety for a NON-EMPTY pre-existing config then lives ENTIRELY in the callers'
+# own `tomllib is None and text != ""` skip (see codex_mcp_apply/reverse), never in this guard. The
+# common empty/absent-config case is safe without validation: the engine's own rendered block is
+# valid TOML by construction, so writing it onto empty content cannot produce an unparseable file.
+_CODEX_NO_TOMLLIB_APPLY = (
+    "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
+    "validation needs Python 3.11+), so the engine left your existing config untouched and did NOT "
+    "register the codex helper server — rather than risk corrupting it. To finish this, re-run the "
+    "setup with Python 3.11 or newer (for example, invoke it as `python3.11 ...` instead of `python3`); "
+    "everything else the setup does works on 3.9, so only this one step was left. Alternatively, add the "
+    "engine's own `# BEGIN engine-managed block` fenced section to .codex/config.toml by hand.")
+_CODEX_NO_TOMLLIB_REVERSE = (
+    "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
+    "validation needs Python 3.11+), so the engine left it untouched and did NOT remove the codex "
+    "helper server — rather than risk corrupting it. Re-run with Python 3.11 or newer (for example "
+    "`python3.11 ...`), or remove the engine's `# BEGIN engine-managed block` fenced section by hand.")
+
+
 def _codex_config_toml_guard(text: str, when: str):
     """Refuse (fail-open) when .codex/config.toml does not parse as TOML — before a change (a file
     the engine cannot safely read is never blind-edited) and after the pure fence transform (a
-    change that would leave the file unparseable is never written)."""
-    import tomllib
+    change that would leave the file unparseable is never written). NO-OP when `tomllib` is absent
+    (the 3.9 floor): it cannot validate, so it does not pretend to — the caller owns the decision not
+    to blind-write a non-empty config in that state (a NON-EMPTY config it cannot read is skipped
+    loud upstream, never reached here with a write pending)."""
+    if tomllib is None:
+        return
     if text.strip() == "":
         return
     try:
@@ -782,6 +810,8 @@ def codex_mcp_apply(directive: dict) -> dict:
         _validate_mcp_name(name)
         body = render_codex_mcp_body(name, directive["definition"])
         text = _read_text(CODEX_CONFIG_PATH)
+        if tomllib is None and text.strip() != "":
+            return _fail(_CODEX_NO_TOMLLIB_APPLY, CODEX_CONFIG_PATH)  # never blind-write a config we can't read
         _codex_config_toml_guard(text, "so the engine will not edit it")
         new = fence_apply(text, name, body)
         _codex_config_toml_guard(new, "after this change, so the change was not written")
@@ -801,6 +831,8 @@ def codex_mcp_reverse(directive: dict) -> dict:
         name = directive["name"]
         _validate_mcp_name(name)
         text = _read_text(CODEX_CONFIG_PATH)
+        if tomllib is None and text.strip() != "":
+            return _fail(_CODEX_NO_TOMLLIB_REVERSE, CODEX_CONFIG_PATH)  # never blind-write a config we can't read
         _codex_config_toml_guard(text, "so the engine will not edit it")
         new = fence_reverse(text, name)
         _codex_config_toml_guard(new, "after this change, so the change was not written")

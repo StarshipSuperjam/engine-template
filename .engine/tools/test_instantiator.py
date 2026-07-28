@@ -9,6 +9,7 @@ later phase); the catalog the demo plants conforms to the catalog schema; and th
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2884,6 +2885,151 @@ class TestArrive(unittest.TestCase):
                               opener=lambda **k: {"number": 1}, **_arrive_fakes())
             self.assertEqual(res["stopped_on"], "release")
             self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+
+    def test_unsupported_interpreter_preflight_writes_nothing(self):
+        # #669: on a too-old interpreter arrival must fail BEFORE its first write, leaving the tree untouched
+        # and opening no PR — never the partial install the bug describes. version_info is injected in-process.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, apply_changes=True,
+                              decide=lambda c: "accept", announce=lambda t: None,
+                              opener=lambda **k: prs.append(k) or {"number": 1},
+                              version_info=(3, 8, 0), **_arrive_fakes())
+            self.assertEqual(res["stopped_on"], "preflight")
+            self.assertIn("Python 3.9 or newer", res["reason"])
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
+            self.assertEqual(prs, [])
+
+    def test_preflight_missing_stdlib_module_stops_before_any_write(self):
+        # #669: the stdlib probe branch stops the same way whether find_spec RETURNS None (a non-dotted name)
+        # or RAISES ModuleNotFoundError (a DOTTED name like urllib.request whose parent package is stripped —
+        # find_spec raises rather than returning None there, the exact case the try/except handles). version_info
+        # passes the version floor; find_spec is patched since the real test interpreter has these modules.
+        import importlib.util as _u
+        real = _u.find_spec
+
+        def returns_none(n, *a, **k):
+            return None if n == "hashlib" else real(n, *a, **k)
+
+        def raises(n, *a, **k):
+            if n == "urllib.request":
+                raise ModuleNotFoundError("No module named 'urllib'")
+            return real(n, *a, **k)
+
+        for missing, fake in (("hashlib", returns_none), ("urllib.request", raises)):
+            with tempfile.TemporaryDirectory() as d:
+                target, release = os.path.join(d, "p"), os.path.join(d, "r")
+                os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+                with mock.patch("importlib.util.find_spec", side_effect=fake):
+                    res = inst.arrive(target_root=target, release_tree=release, apply_changes=True,
+                                      decide=lambda c: "accept", announce=lambda t: None,
+                                      opener=lambda **k: {"number": 1}, version_info=(3, 11, 0), **_arrive_fakes())
+                self.assertEqual(res["stopped_on"], "preflight", missing)
+                self.assertIn(missing, res["reason"])
+                self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+
+    def test_resume_recognizer_is_case_sensitive_not_a_filesystem_check(self):
+        # #673 review: the resume "release ships this file" signal must be EXACT string membership, not
+        # os.path.exists — on a case-insensitive filesystem (macOS/Windows) the latter would fold an operator
+        # file under .engine/ onto a same-name-different-case engine file and silently drop it (data loss).
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_fixture(release)   # release ships .engine/modules/core/manifest.json
+            opdir = os.path.join(target, ".engine", "modules", "core")
+            os.makedirs(opdir)
+            with open(os.path.join(opdir, "MANIFEST.json"), "w") as fh:   # operator's, differs ONLY in case
+                fh.write("the operator's own file\n")
+            with inst._redirect_root(release):
+                engine_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            class1 = [c for c in check["collisions"] if c["klass"] == 1]
+            paths = set(class1[0]["paths"]) if class1 else set()
+            self.assertIn(".engine/modules/core/MANIFEST.json", paths,
+                          "a case-only difference from an engine file must still surface, never be folded away")
+
+    def test_resumed_first_run_does_not_flood_class1_collisions(self):
+        # #669: a partial/aborted prior arrival left the engine's OWN overlay + gitignored .engine/.venv &
+        # .engine/.uv on disk. Re-entry must read those ALL back as a RESUME (no collision flood), while a
+        # genuine operator file — crucially a .github template the engine also ships — STILL surfaces (never
+        # silently overwritten). Asserts the COMPLETE class-1 set, so an engine file leaking in can't hide.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            # Plant the engine's own overlay (the partial apply) by copying the release .engine into the target.
+            shutil.copytree(os.path.join(release, ".engine"), os.path.join(target, ".engine"))
+            for runtime in (os.path.join(".venv", "lib", "x.py"), os.path.join(".uv", "uv")):
+                p = os.path.join(target, ".engine", runtime)                       # gitignored throwaway subtrees
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write("runtime\n")
+            with open(os.path.join(target, ".github", "pull_request_template.md"), "w") as fh:
+                fh.write("the operator's own PR template\n")                       # operator file at an engine path
+            with open(os.path.join(target, ".engine", "operator-notes.txt"), "w") as fh:
+                fh.write("mine\n")                                                 # a non-engine file under .engine/
+            with inst._redirect_root(release):
+                engine_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            class1 = [c for c in check["collisions"] if c["klass"] == 1]
+            paths = set(class1[0]["paths"]) if class1 else set()
+            # The COMPLETE set: ONLY the two genuine operator files — nothing the release ships or a runtime dir.
+            self.assertEqual(paths, {".github/pull_request_template.md", ".engine/operator-notes.txt"})
+            # Explicitly: a module manifest (NOT in the provides-derived owned set) is still resume-dropped
+            # because the release ships it — the tech-review flood case.
+            self.assertNotIn(".engine/modules/core/manifest.json", engine_paths)   # provides-set MISSES it...
+            self.assertNotIn(".engine/modules/core/manifest.json", paths)          # ...yet it's resume-dropped
+            self.assertFalse(any(p.startswith((".engine/.venv/", ".engine/.uv/")) for p in paths))
+
+    def test_arrival_binds_checkless_protection_end_to_end(self):
+        # #673: the checkless flag must thread arrive -> apply -> _apply_control_plane -> ControlPlane, so the
+        # arrival's OWN ruleset write protects main but omits the engine's required checks (whose workflows
+        # aren't on the branch until this arrival PR merges) — else the arrival PR could never go green.
+        base = inst._approve_transport()
+        writes = []
+
+        def capturing(method, path, body=None):
+            if method in ("POST", "PUT") and "/rulesets" in path and body:
+                writes.append(body)
+            return base(method, path, body)
+
+        fakes = _arrive_fakes(); fakes["control_transport"] = capturing
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            res = inst.arrive(target_root=target, release_tree=release, tier="solo", handle="you",
+                              decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                              opener=lambda **k: {"number": 1}, **fakes)
+            self.assertTrue(res["proceeded"])
+            self.assertTrue(writes, "the arrival wrote a protection ruleset")
+            types = {r["type"] for b in writes for r in (b.get("rules") or [])}
+            self.assertIn("pull_request", types, "main IS protected on arrival")
+            self.assertNotIn("required_status_checks", types, "engine checks are NOT required until finalize")
+
+    def test_arrival_pr_body_is_honest_when_protection_could_not_be_applied(self):
+        # #673 review: the control-plane step degrades LOUD but does not halt (e.g. a sign-in that can't
+        # administer the repo), and arrival still opens the PR — so the body must NOT claim protection is on.
+        base = inst._approve_transport()
+
+        def denying(method, path, body=None):
+            if method in ("POST", "PUT") and "/rulesets" in path:
+                return 403, {"message": "Resource not accessible by personal access token"}, {"X-OAuth-Scopes": "repo"}
+            return base(method, path, body)
+
+        prs = []
+        fakes = _arrive_fakes(); fakes["control_transport"] = denying
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            res = inst.arrive(target_root=target, release_tree=release, tier="solo", handle="you",
+                              decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k) or {"number": 1}, **fakes)
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(len(prs), 1)
+            self.assertIn("could NOT be turned on", prs[0]["body"])
+            self.assertNotIn("has already been turned on", prs[0]["body"])
 
     def test_accept_proceeds_inserts_one_floor_and_opens_one_pr_for_the_target(self):
         import wiring
