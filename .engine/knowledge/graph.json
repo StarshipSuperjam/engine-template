@@ -7016,6 +7016,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_663_optional_module_upgrade",
+      "name": ".engine/tools/demo_663_optional_module_upgrade.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:knowledge_gen",
+          "tool:module_manager",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_663_optional_module_upgrade",
+      "source": {
+        "fingerprint": "sha256:0299505201acc4d2b533d13c2713d77fa7e16c5fba1d45f5fe4edec6c779fe9c",
+        "path": ".engine/tools/demo_663_optional_module_upgrade.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for issue #663 — the engine REGENERATES its wiring map on a deployment that",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -8532,7 +8557,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:85798fde6024a1de5e73ca03a70545399a35bd34a31e910b8a5d683a99d28b4e",
+        "fingerprint": "sha256:d7c9f744653a2471e46f4321e5fee83824d634dfeb6a0205035a8c8830e52b30",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8646,7 +8671,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:df450fc1442a572acd534238d9d88d4ae9e21e41056d0949f276d4b96342b8b0",
+        "fingerprint": "sha256:24c0bff9cd93a0c24c58f4cf89532971709be7018d092fcb4ba3b8efa8064b29",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -9209,7 +9234,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:80e01a31e04ae3fee1138c59a7d87149ea9dfe55acbd864db59a7ceb99caa4ef",
+        "fingerprint": "sha256:10194998ee2726f6b21d962a31379e2df23291ca1380d8fc8d7f4679de357a6e",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11888,7 +11913,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:edfe35c1c3d6cdd08d75a1a291ae205fb836011bc429a995d4113fe6bfd31d8d",
+        "fingerprint": "sha256:f817199275fbbea1e665b0e8c913f129dbd8a7b4696470813a046a0448057c94",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -12302,6 +12327,7 @@
           "tool:demo_594_rollback_discard",
           "tool:demo_594_upgrade_tail_reexec",
           "tool:demo_599_upgrade_reconcile",
+          "tool:knowledge_gen",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
@@ -12309,6 +12335,7 @@
           "tool:protection_guard",
           "tool:quiet_call",
           "tool:restore_vault",
+          "tool:self_map",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -12316,7 +12343,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:95b38feefb0b72866e67123015b3ca893c14a37d3fc66d8c8980e127702f72cd",
+        "fingerprint": "sha256:f3626be43fb95bc5bca5c1bb5bda6e47d99128161ad52bc74f004f3ec73caaa8",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

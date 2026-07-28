@@ -1666,28 +1666,38 @@ def _stage_worktree() -> None:
         pass
 
 
-def _regen_indexes() -> None:
+def _regen_indexes() -> list:
     """Regenerate the deployed-state-dependent index files — the self-map and the knowledge graph — from the
     reconciled tree, so they describe the DEPLOYED shape (post first-run projection), NOT the construction
     shape the release ships. Both are in `core`'s `provides`, so the overlay delivers the release's
     construction versions; but they fingerprint the surface the reconcile just changed (the retire set is
     absent on a deployed repo), so the shipped copies would drift (self-map-drift / knowledge-coverage). These
     are exactly the §B 'render locally iff a function of deployed state' artifacts. Best-effort: a regen
-    failure surfaces as a drift finding at the gate (a clean refusal), never a crash mid-upgrade."""
+    failure surfaces as a drift finding at the gate (a clean refusal), never a crash mid-upgrade.
+
+    Returns a list of plain diagnostic strings — one per generator that FAILED. The swallow stays (a regen
+    failure must not crash the tail; the drift it leaves is caught cleanly at the structural gate), but the
+    captured cause is handed back so the tail can record it as a diagnostic note. Without this the gate's
+    refusal named only the drift, not WHY the regen failed — the exact opacity that made issue #663
+    undiagnosable in the field. Empty when both regenerated cleanly."""
     import self_map            # lazy: only the reconcile tail needs the generators
     import knowledge_gen
+    diagnostics: list = []
     # Pass an EXPLICIT target under the CURRENT validate.ENGINE_DIR: the generators' own default-path constants
     # are bound at import to the real repo, so a bare generate() would write there even under a redirected tree
     # (a test/demo fixture). validate.ENGINE_DIR IS redirected, so building the path from it writes to the tree
     # actually being reconciled — the deployed repo on the real child path, the fixture under a redirect.
-    for gen, target in ((self_map.generate, os.path.join(validate.ENGINE_DIR, "self-map.md")),
-                        (knowledge_gen.generate, os.path.join(validate.ENGINE_DIR, "knowledge", "graph.json"))):
+    for gen, target, label in (
+            (self_map.generate, os.path.join(validate.ENGINE_DIR, "self-map.md"), "self-map"),
+            (knowledge_gen.generate, os.path.join(validate.ENGINE_DIR, "knowledge", "graph.json"),
+             "knowledge graph")):
         if not os.path.isfile(target):
             continue   # the tree does not carry this index (a minimal fixture) — never fabricate one
         try:
             gen(path=target)
-        except Exception:  # noqa: BLE001 — a regen failure becomes a drift finding at the gate, not a traceback
-            pass
+        except Exception as exc:  # noqa: BLE001 — a regen failure becomes a drift finding at the gate, not a traceback
+            diagnostics.append(f"the {label} could not be regenerated during the update: {exc}")
+    return diagnostics
 
 
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
@@ -1747,8 +1757,12 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # matches the overlaid modules.
     _bump_engine_manifest(target_versions, target_ref)
     # Regenerate the deployed-state-dependent indexes (self-map + knowledge graph) from the reconciled tree,
-    # so they describe the DEPLOYED shape rather than the construction shape the release shipped (#599).
-    _regen_indexes()
+    # so they describe the DEPLOYED shape rather than the construction shape the release shipped (#599). Any
+    # regen failure is recorded as a diagnostic note — NOT woven into the plain-language refusal reason, which
+    # stays check-id- and jargon-free (product-S3) — so a gate refusal caused by stale indexes carries WHY the
+    # regen failed alongside it, instead of the opaque consistency failure that made #663 hard to diagnose.
+    for _diag in _regen_indexes():
+        tail["notes"].append(f"(diagnostic: {_diag})")
     # Author the review-PR body FIRST — it carries the reconcile facts (fixtures, removals) into the pull
     # request, and rendering it early catches a template-read failure before staging (the structural gate does
     # NOT check body completeness — the release's own CI does, on the opened PR). Guarded: render reads the PR

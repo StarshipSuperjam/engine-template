@@ -2034,6 +2034,57 @@ class TestUpgradeReconcile(unittest.TestCase):
                             "the archived tree root should contain .engine/ directly (no wrapper dir)")
 
 
+class TestRegenIndexesDiagnostics(unittest.TestCase):
+    """#663 diagnosability: a regen failure in the upgrade tail stays SWALLOWED (never a mid-upgrade crash — it
+    surfaces as a drift finding at the structural gate), but its cause is now CAPTURED and returned so the tail
+    records it as a diagnostic note. Before this, a gate refusal caused by a stale index named only the drift,
+    not WHY the regen failed — the opacity that made #663 hard to diagnose in the field."""
+
+    def test_regen_failure_is_captured_and_returned_not_silently_swallowed(self):
+        from unittest import mock
+        import knowledge_gen
+        import self_map
+        with tempfile.TemporaryDirectory() as d:
+            eng = os.path.join(d, ".engine")
+            os.makedirs(os.path.join(eng, "knowledge"))
+            open(os.path.join(eng, "self-map.md"), "w").close()
+            open(os.path.join(eng, "knowledge", "graph.json"), "w").close()
+            saved = validate.ENGINE_DIR
+            validate.ENGINE_DIR = eng
+            try:
+                # self-map regenerates fine; the knowledge graph raises the exact #663 failure.
+                with mock.patch.object(self_map, "generate", lambda path=None: None), \
+                     mock.patch.object(knowledge_gen, "generate",
+                                       side_effect=knowledge_gen.DanglingImportError(
+                                           "…imports 'memory.semantic', which resolves to no file…")):
+                    diags = module_manager._regen_indexes()
+            finally:
+                validate.ENGINE_DIR = saved
+        # the failure is neither raised (no crash) nor lost — it comes back as a plain diagnostic naming the cause.
+        self.assertTrue(
+            any("knowledge graph could not be regenerated" in x and "memory.semantic" in x for x in diags),
+            f"the swallowed regen cause was not surfaced as a diagnostic: {diags}")
+
+    def test_clean_regen_returns_no_diagnostics(self):
+        from unittest import mock
+        import knowledge_gen
+        import self_map
+        with tempfile.TemporaryDirectory() as d:
+            eng = os.path.join(d, ".engine")
+            os.makedirs(os.path.join(eng, "knowledge"))
+            open(os.path.join(eng, "self-map.md"), "w").close()
+            open(os.path.join(eng, "knowledge", "graph.json"), "w").close()
+            saved = validate.ENGINE_DIR
+            validate.ENGINE_DIR = eng
+            try:
+                with mock.patch.object(self_map, "generate", lambda path=None: None), \
+                     mock.patch.object(knowledge_gen, "generate", lambda path=None: None):
+                    diags = module_manager._regen_indexes()
+            finally:
+                validate.ENGINE_DIR = saved
+        self.assertEqual(diags, [], "a clean regen must produce no diagnostic notes")
+
+
 class TestReconcileDeliverySuperset(unittest.TestCase):
     """#599 Slice 3 drift guard: the reconcile deliver set must never drop BELOW what the engine considers
     owned. Holds by construction today (`engine_synced_map` globs the same `provides` as `engine_owned_paths`);
