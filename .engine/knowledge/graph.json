@@ -4188,7 +4188,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b860e651c87837fe4bf41844dd9b6e83e97ec329f9a8484d6595b73cadc5619e",
+        "fingerprint": "sha256:6cb8f0399fb542ca926827c41b51875214de98470323fa499e48159469ecb254",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -9269,6 +9269,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:module_surfaces",
+      "name": ".engine/tools/module_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_surfaces",
+      "source": {
+        "fingerprint": "sha256:537080b8277f3d6c58c7f0d51e5ebb24f3c8d43e3d78aa1d9a272e997af2b763",
+        "path": ".engine/tools/module_surfaces.py"
+      },
+      "status": "active",
+      "summary": "The module-surfaces registry — every file an engine MODULE provides, mapped to its owning module id.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": true,
       "id": "tool:obligation_matrix",
@@ -12381,6 +12405,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_module_surfaces",
+      "name": ".engine/tools/test_module_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_surfaces",
+          "tool:repo_identity",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_module_surfaces",
+      "source": {
+        "fingerprint": "sha256:7fba22d43721d2e155094d00a8495e27d0baf04c49800cf0145ac14ed852ab67",
+        "path": ".engine/tools/test_module_surfaces.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the module-surfaces registry: it stays in sync with the manifests (in the source repo), and",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_modules",
       "name": ".engine/tools/test_modules.py",
       "owner": "core",
@@ -13967,6 +14016,7 @@
         "imports": [
           "tool:hooks",
           "tool:knowledge_gen",
+          "tool:module_surfaces",
           "tool:telemetry"
         ],
         "provided_by": [
@@ -13975,7 +14025,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:57a35c0986b8d50b72f22dcc276a8477aebf58da945300996d194ba6435c7e56",
+        "fingerprint": "sha256:6d29cb5b1958c630ad9fe64701bccdd1370ce8f294d9721c6c96913d5678e7ca",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
