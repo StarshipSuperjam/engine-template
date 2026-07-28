@@ -12912,7 +12912,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:a1fe6bfd805559cdb26efab501b6495e4e57a25de822e0b4954caa2c127c6c74",
+        "fingerprint": "sha256:d7bc1819048e34a37541dba93ed9cd7b2e246bf8158f4f52657916ffcec3ed05",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",

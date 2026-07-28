@@ -35,19 +35,31 @@ def _proc(returncode=0, stdout="", stderr=""):
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestBaselineSelection(unittest.TestCase):
-    """`_upgrade_baselines` picks the released version tags at or above the clean-upgrade floor."""
+    """`_upgrade_baselines` picks the released version tags at or above the clean-upgrade floor. The tag list
+    is INJECTED so the test is independent of the checkout's actual tags — the CI self-test checkout is shallow
+    and carries none, so asserting against the real `git tag` would fail there while passing locally."""
 
-    def test_at_or_above_floor_only(self):
-        baselines = rg._upgrade_baselines()
-        self.assertIn("v0.3.2", baselines)                 # the current floor
-        self.assertIn("v0.4.0", baselines)                 # the latest release
-        for below in ("v0.1.0", "v0.2.0", "v0.3.0", "v0.3.1"):
-            self.assertNotIn(below, baselines, f"{below} is below the floor and must be excluded")
+    def _baselines_for(self, tag_lines):
+        with mock.patch.object(rg, "_run", return_value=_proc(0, tag_lines, "")):
+            return rg._upgrade_baselines()
+
+    def test_floor_filter_and_shape(self):
+        floor = validate.load_json(os.path.join(validate.ROOT, ".engine", "engine.json"))["min_upgradeable_from"]
+        baselines = self._baselines_for("v0.1.0\nv0.2.0\nv0.3.0\nv0.3.1\nv0.3.2\nv0.4.0\n"
+                                        "merged-verified\nbackup-394-verified\n")
+        self.assertTrue(baselines, "expected at least one in-range baseline from the injected tags")
+        self.assertTrue(all(t.startswith("v") for t in baselines))                       # v-prefix preserved
+        self.assertNotIn("merged-verified", baselines)                                   # non-version tags dropped
+        self.assertIn("v" + floor, baselines)                                            # the floor tag is included
+        self.assertNotIn("v0.1.0", baselines)                                            # a below-floor tag is not
+        for t in baselines:                                                              # every kept tag is >= floor
+            self.assertGreaterEqual(validate._ver_tuple(t[1:]), validate._ver_tuple(floor))
         self.assertEqual(baselines, sorted(set(baselines), key=lambda t: validate._ver_tuple(t[1:])))
 
-    def test_v_prefix_stripped_in_floor_compare(self):
-        # a bare-vs-v-prefixed mismatch would silently drop every baseline; prove the floor compare works
-        self.assertTrue(all(t.startswith("v") for t in rg._upgrade_baselines()))
+    def test_v_prefix_strip_is_load_bearing(self):
+        # a bare-vs-v-prefixed mismatch in the floor compare would silently drop EVERY baseline; the injected
+        # in-range tags must survive, proving the `v` is stripped before the version compare.
+        self.assertEqual(self._baselines_for("v0.3.2\nv0.4.0\n"), ["v0.3.2", "v0.4.0"])
 
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
