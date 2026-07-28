@@ -2,7 +2,7 @@
 """Self-tests for execution-environment awareness: the execution-state.v1 schema, the committed genesis
 baseline, the schema-kind rule that refuses a malformed baseline, and the deriver's posture logic.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the load-bearing teeth: the schema bites on each malformed shape (missing/out-of-grammar fields,
 a bad status, a non-sha floor value, a non-UTC as_of); the committed genesis baseline conforms; the rule

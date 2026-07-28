@@ -2,7 +2,7 @@
 """Self-tests for the lens-consumption consumer (lens_consumption_check.py): the custom/script guard
 that diffs the installed review lenses against the consumed set build orchestration records.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the CONSUMER's contract (the pure diff leg validate.dangling_lens_findings is locked in
 test_agent.py): the fenced consumed-review-lenses block in build-orchestration.md parses to exactly the

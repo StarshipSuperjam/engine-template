@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for telemetry detect->surface machinery.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Each test locks one load-bearing law against the REAL reconcile logic, faking ONLY the network
 (the demo-fidelity rule): source-keyed dedup collapses repeats onto one Issue and ignores

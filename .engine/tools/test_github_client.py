@@ -1,6 +1,6 @@
 """Unit tests for github_client — the shared authenticated GitHub REST API client.
 
-Run via the engine suite: `uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'`.
+Run via the engine suite: `uv run --directory .engine --frozen -- python tools/selftest.py`.
 Fully offline: the only network call goes through `github_client._urlopen`, which every test here replaces
 with an in-memory fake, so the REAL request-building, off-host guard, pagination, and decode logic runs with
 no token and no network.

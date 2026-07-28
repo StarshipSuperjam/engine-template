@@ -1,7 +1,6 @@
 """Unit tests for memory.scrub — capture-time secret redaction.
 
-Run via the engine test suite: `uv run --directory .engine --frozen -- python -m unittest discover -s
-tools -p 'test_*.py'`. Two properties carry the weight: PRECISION (every credential shape is redacted)
+Run via the engine test suite: `uv run --directory .engine --frozen -- python tools/selftest.py`. Two properties carry the weight: PRECISION (every credential shape is redacted)
 and NON-CORRUPTION (ordinary conversation — prose, hashes, ids, paths, code, emails, phones — passes
 through byte-identical). The non-corruption matrix is the load-bearing one: a false positive permanently
 destroys unrecoverable memory (eADR-0038), so any future pattern that breaks these must be justified.

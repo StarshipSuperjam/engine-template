@@ -4,7 +4,7 @@ depend on. These pin the render transforms (typed-prefix rewrite, session-flag s
 lines, the read-only floor and no-model rule) and give the render-sync drift gate its fail-side
 witnesses: a hand-edited render, a stale render, and an orphaned render must each be caught.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
 import os

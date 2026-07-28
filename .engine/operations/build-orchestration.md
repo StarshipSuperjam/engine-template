@@ -84,11 +84,14 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    conflict.
 6. **Pre-submission review — gated behind green validation.** Confirm the validation suite
    (`.engine/suites.json`) is green first — run `uv run --directory .engine --frozen -- python
-   tools/validate.py --suite CI` and the self-tests `uv run --directory .engine --frozen -- python -m unittest
-   discover -s tools -p 'test_*.py' -b` (the same commands CI runs) — cold review is not spent on code that
-   fails its checks. The `--frozen` keeps a test run from quietly rewriting the locked `uv.lock`, and the `-b`
-   keeps the `Ran N … OK` summary visible: it buffers each test's stdout so the walkthrough output the
-   `test_*.py` self-tests emit while exercising their demos does not bury the tail. **The self-test suite
+   tools/validate.py --suite CI` and the self-tests `uv run --directory .engine --frozen -- python
+   tools/selftest.py` — cold review is not spent on code that fails its checks. The `--frozen` keeps a test
+   run from quietly rewriting the locked `uv.lock`. `selftest.py` wraps the same serial `unittest discover
+   … -b` run CI uses (`.github/workflows/engine-ci.yml`) and makes one run enough to read: it buffers each
+   test's stdout so demo walkthroughs never bury the `Ran N … OK` summary, forces the child's stdin to
+   end-of-input so no demo blocks under an attached terminal, prints a heartbeat so a live run is never
+   mistaken for a hang, and writes the full output to a log whose path it prints — so **read that log, never
+   pipe the run through `tail`/`grep`**, which truncates the tracebacks and forces a re-run. **The suite
    runs about 4 minutes (4,000+ tests, varying with machine and cache)** — run it with a generous timeout
    or in the background: a tool whose command timeout defaults to ~2 minutes cuts it off mid-run, which
    reads as a hang rather than a failure. Then

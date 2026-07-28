@@ -1,7 +1,6 @@
 """test_index.py — unit tests for the derived memory lookup (SQLite + FTS5).
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These tests cover the derived-index laws: the fast lookup and the slow backup return the SAME set of records (the
 unicode61-mirror), the FTS5-absent condition is detected and degrades to the scan, the rebuild is atomic

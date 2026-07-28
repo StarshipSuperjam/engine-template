@@ -2,7 +2,7 @@
 """Self-tests for the knowledge graph: the knowledge.v1 schema, the generic
 catalog-driven generator, the committed graph, and the coverage/fingerprint relay gate.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the load-bearing teeth: the pure derivation is deterministic and produces well-shaped,
 schema-conforming, referentially-intact entities (every predicate target resolves to an entity, ids

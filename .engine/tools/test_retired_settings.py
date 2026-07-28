@@ -1,8 +1,7 @@
 """test_retired_settings.py — the retired-setting workflow: what happens to a saved value when the engine
 removes the setting it names.
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Removing a tunable setting leaves any deployment that tuned it holding a value that names nothing, and the
 stale-saved-setting check reports that as a HARD, merge-blocking finding on their next change — for a change

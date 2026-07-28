@@ -2,7 +2,7 @@
 """Self-tests for capability→model bindings: the model-bindings.v1 schema, the committed bindings file, the
 schema-kind rule, and the agent_bindings render/check tool that stamps personas and keeps them in sync.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock: the schema rejects a versioned model id (rot) and accepts a durable alias; the committed bindings
 conform; render stamps model/effort from the binding (override wins over tier) and is idempotent; check catches

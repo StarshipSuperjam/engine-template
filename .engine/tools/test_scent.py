@@ -1,7 +1,6 @@
 """test_scent.py — the per-prompt recall cue: scent.py (memory-substrate-sqlite-fts5).
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 The scent is the per-prompt member of the orientation family: a UserPromptSubmit hook that injects one short
 constant cue asking whether this project has already settled the thing at hand. These pin its laws: it fires on

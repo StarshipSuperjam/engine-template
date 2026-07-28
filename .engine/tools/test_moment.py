@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for moment.py — the engine's one time seam.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Each test locks one law of the seam against the real functions: `utc_now()`/`to_z()` emit the fixed-width
 trailing-Z wire shape a schema accepts (retargeted here from test_telemetry, since that invariant now lives
