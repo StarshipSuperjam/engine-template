@@ -15,9 +15,11 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import audit_digest  # noqa: E402
+import moment        # noqa: E402  (#631: the UTC-day seam the digest must date by)
 import quiet_call    # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 import validate      # noqa: E402
 
@@ -736,6 +738,43 @@ class TestAuditFindingSchema(unittest.TestCase):
     def test_rejects_location_without_file(self):
         inst = {"severity": "reconcile", "message": "x", "location": {"line": 1}}
         self.assertTrue(_errors(AUDIT_FINDING_SCHEMA, inst), "a location object without a file must fail")
+
+
+class TestUtcCalendarDay(unittest.TestCase):
+    """#631: the digest must date by the UTC calendar day so a boot briefing never carries two different
+    'todays'. These bite a revert to the machine's LOCAL calendar day (datetime.date.today())."""
+
+    @staticmethod
+    def _scratch(d):
+        return os.path.join(d, "audit-digest.md")
+
+    def test_seal_defaults_generated_to_the_moment_utc_day(self):
+        # Patch the UTC seam to a sentinel; seal() with no `generated` must stamp exactly that day. A revert
+        # to datetime.date.today() would ignore the patch and stamp the real local day, failing this.
+        sentinel = datetime.date(2020, 1, 15)
+        with mock.patch.object(moment, "today_utc", return_value=sentinel):
+            with tempfile.TemporaryDirectory() as d:
+                p = self._scratch(d)
+                audit_digest.seal(p, body=BODY)  # generated=None -> the default path under test
+                fm, _ = audit_digest.split(p)
+                self.assertEqual(audit_digest._iso(fm.get("generated")), "2020-01-15")
+
+    def test_staleness_defaults_today_to_the_moment_utc_day(self):
+        # With 'today' patched to equal the run-date, age is 0 -> current -> a note. A revert to a local
+        # date.today() would compute a large real age and return soft, failing this.
+        run = datetime.date(2026, 6, 1)
+        with tempfile.TemporaryDirectory() as d:
+            p = self._scratch(d)
+            audit_digest.seal(p, generated=run, body=BODY)
+            with mock.patch.object(moment, "today_utc", return_value=run):
+                self.assertEqual(audit_digest.staleness(p)["severity"], "note")  # now=None -> default
+
+    def test_digest_day_and_contract_rate_day_are_one_utc_day(self):
+        # The two "todays" the #631 defect split apart must agree: the digest's default day
+        # (moment.today_utc) and the contract-rate window's day (telemetry.derive_contract_rate derives
+        # date.fromisoformat(now[:10]) from moment.utc_now()). Both are the UTC calendar day.
+        contract_rate_day = datetime.date.fromisoformat(moment.utc_now()[:10])
+        self.assertEqual(contract_rate_day, moment.today_utc())
 
 
 if __name__ == "__main__":

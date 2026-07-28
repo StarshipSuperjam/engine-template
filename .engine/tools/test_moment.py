@@ -173,13 +173,15 @@ class TestRecurrenceGuard(unittest.TestCase):
         "%Y-%m-%dT%H:%M:%SZ": "format via moment.utc_now()/moment.to_z()",
         'replace("Z", "+00:00")': "parse via moment.parse_z()/moment.epoch()",
     }
-    _EXEMPT = {"moment.py", "test_moment.py"}  # the seam's home and this guard's own needles
+    _EXEMPT = {"moment.py"}  # the seam's home. Test files are exempt too: they reference these idioms in
+    # assertions and comments (and may legitimately build fixture timestamps) — the recurrence risk the
+    # guard closes is production/demo code drifting back to a hand-roll, not test scaffolding.
 
     def test_no_handrolled_time_idioms_outside_moment(self):
         violations = []
         for root, _dirs, files in os.walk(_TOOLS_DIR):
             for fname in files:
-                if not fname.endswith(".py") or fname in self._EXEMPT:
+                if not fname.endswith(".py") or fname in self._EXEMPT or fname.startswith("test_"):
                     continue
                 path = os.path.join(root, fname)
                 with open(path, encoding="utf-8") as fh:

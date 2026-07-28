@@ -30,6 +30,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate       # noqa: E402
 import audit_digest   # noqa: E402
+import moment         # noqa: E402  (today_utc: the UTC calendar day the digest dates by)
 
 BANNER = "=" * 78
 
@@ -156,7 +157,7 @@ def _demo_saved_memory() -> bool:
 
 
 def main() -> int:
-    today = datetime.date.today()
+    today = moment.today_utc()
     ok = True
     with tempfile.TemporaryDirectory() as d:
         digest = os.path.join(d, "audit-digest.md")
