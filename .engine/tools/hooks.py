@@ -34,7 +34,6 @@ CLI (the operator-runnable demo on a throwaway fixture — no registered hook ex
   uv run --directory .engine -- python tools/hooks.py demo
 """
 from __future__ import annotations
-import datetime
 import json
 import os
 import re

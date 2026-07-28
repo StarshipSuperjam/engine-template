@@ -71,6 +71,11 @@ class TestEmit(unittest.TestCase):
         with self.assertRaises(TypeError):
             moment.to_z(True)
 
+    def test_to_z_rejects_non_finite_epoch(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                moment.to_z(bad)
+
     def test_to_z_rejects_string(self):
         with self.assertRaises(TypeError):
             moment.to_z("2026-07-28T14:30:05Z")
@@ -124,6 +129,10 @@ class TestEpoch(unittest.TestCase):
         self.assertIsNone(moment.epoch(True))
         self.assertIsNone(moment.epoch("not a time"))
         self.assertIsNone(moment.epoch(datetime.datetime(2026, 7, 28)))  # naive
+        # NaN / ±inf are not absolute moments — they must degrade, never leak into a sort as a non-total key.
+        self.assertIsNone(moment.epoch(float("nan")))
+        self.assertIsNone(moment.epoch(float("inf")))
+        self.assertIsNone(moment.epoch(float("-inf")))
 
     def test_round_trip(self):
         s = "2026-07-28T14:30:05Z"
@@ -167,12 +176,14 @@ class TestRecurrenceGuard(unittest.TestCase):
     """No engine tool outside moment.py may hand-roll the three idioms the seam replaces. This is the
     structural close on the root cause (five time defects in five weeks, each an easy hand-roll)."""
 
-    _BANNED = {
-        "date.today(": "read the wall clock via moment.today_utc()",
-        "datetime.today(": "read the wall clock via moment.today_utc()",
-        "%Y-%m-%dT%H:%M:%SZ": "format via moment.utc_now()/moment.to_z()",
-        'replace("Z", "+00:00")': "parse via moment.parse_z()/moment.epoch()",
-    }
+    # Regexes, not literal substrings, so a hand-roll can't slip the net by quote style or spacing — e.g.
+    # `.replace('Z', '+00:00')` (single-quoted) is caught exactly as the double-quoted form is.
+    _BANNED = [
+        (re.compile(r"\b(?:date|datetime)\.today\("), "read the wall clock via moment.today_utc()"),
+        (re.compile(re.escape("%Y-%m-%dT%H:%M:%SZ")), "format via moment.utc_now()/moment.to_z()"),
+        (re.compile(r"""\.replace\(\s*['"]Z['"]\s*,\s*['"]\+00:00['"]\s*\)"""),
+         "parse via moment.parse_z()/moment.epoch()"),
+    ]
     _EXEMPT = {"moment.py"}  # the seam's home. Test files are exempt too: they reference these idioms in
     # assertions and comments (and may legitimately build fixture timestamps) — the recurrence risk the
     # guard closes is production/demo code drifting back to a hand-roll, not test scaffolding.
@@ -186,10 +197,10 @@ class TestRecurrenceGuard(unittest.TestCase):
                 path = os.path.join(root, fname)
                 with open(path, encoding="utf-8") as fh:
                     for lineno, line in enumerate(fh, 1):
-                        for needle, remedy in self._BANNED.items():
-                            if needle in line:
+                        for pattern, remedy in self._BANNED:
+                            if pattern.search(line):
                                 rel = os.path.relpath(path, _TOOLS_DIR)
-                                violations.append(f"{rel}:{lineno}  hand-rolls `{needle}` — {remedy}")
+                                violations.append(f"{rel}:{lineno}  hand-rolls `{pattern.pattern}` — {remedy}")
         self.assertEqual(violations, [], "hand-rolled time idioms found:\n" + "\n".join(violations))
 
 

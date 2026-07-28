@@ -29,6 +29,7 @@ timestamp pattern to it.
 from __future__ import annotations
 
 import datetime
+import math
 
 # The one canonical trailing-Z UTC wire shape. Fixed-width seconds, no fractional group — so a lexical
 # comparison of two wire strings is a correct time comparison. Every schema timestamp pattern must equal
@@ -60,6 +61,8 @@ def to_z(when: "datetime.datetime | int | float") -> str:
     if isinstance(when, bool):  # bool is an int subclass; never a timestamp
         raise TypeError(f"to_z expected an aware datetime or epoch number, got bool: {when!r}")
     if isinstance(when, (int, float)):
+        if not math.isfinite(when):  # NaN/±inf is not a moment — a caller bug on the emit path
+            raise ValueError(f"to_z requires a finite epoch; got {when!r}")
         dt = datetime.datetime.fromtimestamp(when, _UTC)
     elif isinstance(when, datetime.datetime):
         if when.tzinfo is None or when.tzinfo.utcoffset(when) is None:
@@ -97,7 +100,7 @@ def epoch(value: object) -> "float | None":
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        return float(value) if math.isfinite(value) else None  # NaN/±inf is not an absolute moment
     if isinstance(value, datetime.datetime):
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
             return None

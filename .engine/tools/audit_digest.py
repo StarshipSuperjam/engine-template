@@ -179,12 +179,12 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
     if age > STALENESS_DAYS:
         return validate.finding(
             "soft",
-            f"The engine hasn't reviewed its own health in {age} days. Re-arm the scheduled self-review — "
+            f"The engine hasn't reviewed its own health in {age} days (counted in UTC). Re-arm the scheduled self-review — "
             f"{REARM_HINT} — and it will refresh on the next run.",
             where)
     return validate.finding(
         "note",
-        f"The engine's self-review is current (last run {run_date.isoformat()}, within the last "
+        f"The engine's self-review is current (last run {run_date.isoformat()} UTC, within the last "
         f"{STALENESS_DAYS} days).",
         where)
 
