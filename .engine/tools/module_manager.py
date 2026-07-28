@@ -677,11 +677,30 @@ def _load_migration(module_dir: str, run_rel: str):
     return fn
 
 
+def _ver_key(v):
+    """A LENGTH-NORMALIZED version tuple for RANGE-boundary comparison, so a two-part key ('0.4') and its
+    three-part form ('0.4.0') compare EQUAL rather than '0.4' sorting BELOW '0.4.0' as a tuple prefix. Migration
+    and retired-capability keys are conventionally MAJOR.MINOR.PATCH but that is NOT schema-enforced (the schemas
+    constrain the entry VALUE, not the key), so a hand-authored two-part key at a range boundary is possible and
+    must not fall on the wrong side. Padding is a no-op for conventional three-part (and any 4+-part, e.g. a
+    digit-bearing pre-release suffix) tuples, so behaviour is unchanged for every real version in the tree.
+
+    THE SINGLE NORMALIZER for version-key range comparison: called directly by select_migrations and
+    select_retired_capabilities, and reached by release_cut._norm_ver (which delegates here) for BOTH
+    release-cut accumulation guards. So editing this moves a release-refusal safety guard's normalization too —
+    the mirrored regression tests (test_module_manager selector-boundary tests + test_release_cut
+    test_rekeyed_migration_is_not_a_false_drop) are the backstop."""
+    t = validate._ver_tuple(v)
+    return t + (0,) * (3 - len(t)) if len(t) < 3 else t
+
+
 def select_migrations(from_versions: dict, target_versions: dict, manifests: list) -> list:
     """PURE: the migration entries an upgrade must run, in execution order. For each present module pick
     the `migrations` keys strictly ABOVE its from-version and AT-OR-BELOW its target-version; order modules
     by dependency (validate.topological_order) and, within a module, by ASCENDING version using
-    validate._ver_tuple (NEVER string order — '0.10.0' must sort AFTER '0.9.0'). `manifests` is a list of
+    validate._ver_tuple (NEVER string order — '0.10.0' must sort AFTER '0.9.0'). The range-boundary comparison
+    uses the LENGTH-NORMALIZED key (_ver_key), matching the release-cut accumulation guard, so a two-part key
+    ('0.4') never falls on the wrong side of its three-part boundary ('0.4.0'). `manifests` is a list of
     manifest dicts; `from_versions`/`target_versions` are {module_id: version}. Returns a list of
     {module_id, version, description, run, kind} — fixture-testable with no disk/network.
 
@@ -692,10 +711,10 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     out = []
     for m in validate.topological_order(list(manifests)):
         mid = m.get("id")
-        frm = validate._ver_tuple(from_versions.get(mid, "0"))
-        tgt = validate._ver_tuple(target_versions.get(mid, from_versions.get(mid, "0")))
+        frm = _ver_key(from_versions.get(mid, "0"))
+        tgt = _ver_key(target_versions.get(mid, from_versions.get(mid, "0")))
         for ver in sorted((m.get("migrations") or {}), key=validate._ver_tuple):
-            if frm < validate._ver_tuple(ver) <= tgt:
+            if frm < _ver_key(ver) <= tgt:
                 e = (m.get("migrations") or {})[ver] or {}
                 out.append({"module_id": mid, "version": ver, "description": e.get("description"),
                             "run": e.get("run"), "kind": e.get("kind")})
@@ -706,7 +725,8 @@ def select_retired_capabilities(from_versions: dict, target_versions: dict, mani
     """PURE: the capability-retirement ANNOUNCEMENTS an upgrade must show, in module/version order. The exact
     RANGE selection as select_migrations — for each present module, every `retired_capabilities` key strictly
     ABOVE its from-version and AT-OR-BELOW its target-version, modules ordered by dependency and, within a
-    module, by ASCENDING version (validate._ver_tuple, NEVER string order). Returns a list of
+    module, by ASCENDING version (validate._ver_tuple, NEVER string order); the range-boundary comparison uses
+    the LENGTH-NORMALIZED key (_ver_key), as select_migrations and the release-cut guard do. Returns a list of
     {module_id, version, description} — announcement-only: no `run`, no `kind`, NOTHING executes, so (unlike
     run_migrations) it can never refuse and needs no backup seam. Fixture-testable with no disk/network.
 
@@ -718,10 +738,10 @@ def select_retired_capabilities(from_versions: dict, target_versions: dict, mani
     out = []
     for m in validate.topological_order(list(manifests)):
         mid = m.get("id")
-        frm = validate._ver_tuple(from_versions.get(mid, "0"))
-        tgt = validate._ver_tuple(target_versions.get(mid, from_versions.get(mid, "0")))
+        frm = _ver_key(from_versions.get(mid, "0"))
+        tgt = _ver_key(target_versions.get(mid, from_versions.get(mid, "0")))
         for ver in sorted((m.get("retired_capabilities") or {}), key=validate._ver_tuple):
-            if frm < validate._ver_tuple(ver) <= tgt:
+            if frm < _ver_key(ver) <= tgt:
                 e = (m.get("retired_capabilities") or {})[ver] or {}
                 out.append({"module_id": mid, "version": ver, "description": e.get("description")})
     return out

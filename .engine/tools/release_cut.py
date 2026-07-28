@@ -457,12 +457,10 @@ def _max_level(a: str, b: str) -> str:
 
 
 def _norm_ver(v):
-    """A length-normalized version tuple, so a re-key ('0.4' -> '0.4.0', equal as versions but a 2- vs 3-tuple)
-    is never read as a dropped key. Migration/retirement keys are conventionally MAJOR.MINOR.PATCH but NOT
-    schema-enforced (the schemas constrain only the value, not the key), so this normalization is load-bearing.
-    Shared by both accumulation guards."""
-    t = validate._ver_tuple(v)
-    return t + (0,) * (3 - len(t)) if len(t) < 3 else t
+    """The length-normalized version key both accumulation guards compare on. Delegates to
+    module_manager._ver_key — the single normalizer the upgrade selectors also use, so the guards and the
+    selectors can never drift on the 2-vs-3-part boundary; see _ver_key for why the normalization is load-bearing."""
+    return module_manager._ver_key(v)
 
 
 def _accumulation_violations(was: dict, present: dict, block: str, message) -> list:
