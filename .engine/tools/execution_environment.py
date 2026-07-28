@@ -31,8 +31,8 @@ Two safety rules the postures enforce, both learned at the plan gate:
   2. record_qualification REFUSES to stamp qualified when a component is unobservable, so a qualified baseline
      never carries a null snapshot field in the first place.
 
-This module is self-contained: it imports only the standard library, reads only committed files under the repo
-root, and takes the runtime as an injected value. It performs no writes except through record_qualification(),
+This module is self-contained: it imports only the standard library and the stdlib-only `moment` time seam,
+reads only committed files under the repo root, and takes the runtime as an injected value. It performs no writes except through record_qualification(),
 which writes execution.json atomically and NEVER commits — the operator's merge is the qualification act.
 """
 from __future__ import annotations
@@ -42,7 +42,8 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+
+import moment  # the trailing-Z time seam; a stdlib-only leaf, so this module stays substantively self-contained
 
 # The genesis baseline — the single source of truth for the shape's zero value. instantiator seeds this and
 # read_baseline() synthesizes it when the file is absent, so the two never drift out of one definition.
@@ -291,7 +292,7 @@ def derive(*, provider: str, repo: str | None = None, root: str | None = None) -
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return moment.utc_now()
 
 
 def _write_atomic(root: str, data: dict) -> None:

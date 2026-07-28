@@ -71,6 +71,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import moment            # noqa: E402  (the trailing-Z time seam; pure stdlib leaf)
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import work_record       # noqa: E402  (#394: the merged-PR titles behind the ranked recent-decisions digest)
@@ -1232,7 +1233,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     # override merge so /engine-tune governs it. SUPPRESSED (None) whenever the folder can't be read or the
     # count sits at/under the limit — never a false number.
     contract_rate_line = None
-    contract_rate = telemetry.derive_contract_rate(telemetry.utc_now())
+    contract_rate = telemetry.derive_contract_rate(moment.utc_now())
     if contract_rate is not None:
         try:
             contract_threshold = telemetry.contract_rate_threshold(

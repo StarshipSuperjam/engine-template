@@ -31,13 +31,13 @@ adapter ever reads the clock, marking such a run `as_of_is_wallclock` so a consu
 refreshed-debt timestamp. The pure core never reads the clock.
 """
 from __future__ import annotations
-import datetime
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import moment            # noqa: E402  (the trailing-Z time seam; pure stdlib leaf, imports nothing back)
 import attention_rank    # noqa: E402
 from attention_rank import rank, SUBSTRATES, CATEGORIES, PRECEDENCE_KEYS, TRIM_KEYS  # noqa: E402
 
@@ -402,7 +402,7 @@ def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1, source=N
 def _now_z() -> str:
     """The wall-clock reference moment, trailing-Z UTC. The ONLY clock read in attention, and only on the
     live path when the cursor carries no as-of; the result is marked as_of_is_wallclock."""
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return moment.utc_now()
 
 
 def _reference_moment(candidates: list, cursor_as_of: str | None) -> str | None:

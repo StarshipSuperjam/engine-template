@@ -60,12 +60,12 @@ class _Base(unittest.TestCase):
 
 class TestProjection(_Base):
     def test_maps_the_five_engine_fields(self):
-        proj = ps.compute_projection(_signals(), "14:32")
+        proj = ps.compute_projection(_signals(), "2026-01-01 14:32 UTC")
         self.assertEqual(proj[ps.FIELD_BUILDING], "building the board")
         self.assertEqual(proj[ps.FIELD_NEXT], "carry the open pull request forward")
         self.assertEqual(proj[ps.FIELD_REVIEW], "4")
         self.assertEqual(proj[ps.FIELD_ISSUES], "2")
-        self.assertEqual(proj[ps.FIELD_SYNCED], "14:32")
+        self.assertEqual(proj[ps.FIELD_SYNCED], "2026-01-01 14:32 UTC")
 
     def test_field_names_are_the_plain_language_set(self):
         # The board-face field names are exactly the five plain-language labels — the leak-guard guarantee at the

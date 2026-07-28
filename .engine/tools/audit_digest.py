@@ -49,6 +49,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import moment  # noqa: E402  (the time seam — today_utc: the UTC calendar day the digest must date by)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
 
 
@@ -152,10 +153,11 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
     """The freshness signal. `note` when the digest is current; a `soft` (advisory, never blocking)
     finding when the engine has not self-reviewed in more than STALENESS_DAYS days, OR when no self-review
     has run yet — so a self-review that quietly stopped (an expired token, a disabled schedule, a setup
-    never finished) is surfaced on the operator's return rather than missed. `now` defaults to today
-    inside the function (the thin script calls it arg-less; tests inject a fixed date)."""
+    never finished) is surfaced on the operator's return rather than missed. `now` defaults to the UTC
+    calendar day inside the function — the day the digest's run-date is sealed in, so the two agree (the
+    thin script calls it arg-less; tests inject a fixed date)."""
     path = AUDIT_DIGEST_PATH if path is None else path
-    now = datetime.date.today() if now is None else now
+    now = moment.today_utc() if now is None else now
     name, where = _display(path), _loc_opt(path)
     if not os.path.isfile(path):
         return validate.finding(
@@ -177,12 +179,12 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
     if age > STALENESS_DAYS:
         return validate.finding(
             "soft",
-            f"The engine hasn't reviewed its own health in {age} days. Re-arm the scheduled self-review — "
+            f"The engine hasn't reviewed its own health in {age} days (counted in UTC). Re-arm the scheduled self-review — "
             f"{REARM_HINT} — and it will refresh on the next run.",
             where)
     return validate.finding(
         "note",
-        f"The engine's self-review is current (last run {run_date.isoformat()}, within the last "
+        f"The engine's self-review is current (last run {run_date.isoformat()} UTC, within the last "
         f"{STALENESS_DAYS} days).",
         where)
 
@@ -229,8 +231,8 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
     """Stamp the run-date and write the self-seal over the file's body. With `body` given (the scheduled
     run's path: the persona's prose), the body is normalized to one blank line after the header; with
     `body=None` (re-sealing an existing file), the current body is preserved exactly. The write's exact
-    bytes are what check() later verifies. `generated` defaults to today; a test injects a fixed date."""
-    generated = _iso(generated if generated is not None else datetime.date.today())
+    bytes are what check() later verifies. `generated` defaults to the UTC calendar day; a test injects a fixed date."""
+    generated = _iso(generated if generated is not None else moment.today_utc())
     if body is None:
         _fm, body = split(path)              # re-seal: reuse the existing body slice verbatim
     else:

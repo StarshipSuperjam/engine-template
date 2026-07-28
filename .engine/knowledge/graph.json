@@ -4559,7 +4559,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:ec98b3924c3164bddb889d5864f992ea23e0355128bfb76d9f31564f0082beea",
+        "fingerprint": "sha256:db831c6846cf4fd2ede806194c2a571a055a5dec9a2ef1d98277822543dcb7f5",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -5163,7 +5163,7 @@
       },
       "slug": "ambient-capture.v1",
       "source": {
-        "fingerprint": "sha256:fc8d108c6220d32f1d7ff16904a41a1c75df284c87741c6721e741dc9954d476",
+        "fingerprint": "sha256:50d5242c1b41a82f3a808acedc85da7385d3420caebf3349c09296131784bdd6",
         "path": ".engine/schemas/ambient-capture.v1.json"
       },
       "status": "active",
@@ -5180,7 +5180,7 @@
       },
       "slug": "attention-result.v1",
       "source": {
-        "fingerprint": "sha256:a42833af20e0557398d37b92ed5b192c6e0cc463001d039235dccb7935faf2fb",
+        "fingerprint": "sha256:d030c599a7a06f47b3c3c0f8294d1a012d8aad635e2103f32e21ee29c900372f",
         "path": ".engine/schemas/attention-result.v1.json"
       },
       "status": "active",
@@ -5384,7 +5384,7 @@
       },
       "slug": "execution-state.v1",
       "source": {
-        "fingerprint": "sha256:39101abc6dd5b9ea22f7daa98bb0feb3706766e7fe961f55198a5d0abdc18bde",
+        "fingerprint": "sha256:b3cee3db50ca458626a3c39be0afd55ac3c302d9b9e32feb4f2360c084d7d44a",
         "path": ".engine/schemas/execution-state.v1.json"
       },
       "status": "active",
@@ -5401,7 +5401,7 @@
       },
       "slug": "finding-record.v1",
       "source": {
-        "fingerprint": "sha256:04d0738da9aeab17c306e8ddb7b3164f6788008e81fa68e6d947deca6cb18440",
+        "fingerprint": "sha256:e538d4f3fbdd0d7b26a0079a3c39ffffb4099f6c0bf200f23257f1063e1d9a43",
         "path": ".engine/schemas/finding-record.v1.json"
       },
       "status": "active",
@@ -5673,7 +5673,7 @@
       },
       "slug": "state.v1",
       "source": {
-        "fingerprint": "sha256:beb4ffcf3cd4113a6a4a996a2720ee235e46034cc73df3be82a004a94fc8b8ee",
+        "fingerprint": "sha256:3244610970d727dc277d75d1d2e74bf28c336cba95b8891367a428f5b888d592",
         "path": ".engine/schemas/state.v1.json"
       },
       "status": "active",
@@ -6106,6 +6106,7 @@
         "imports": [
           "tool:attention_rank",
           "tool:knowledge_query",
+          "tool:moment",
           "tool:telemetry",
           "tool:validate",
           "tool:work_record"
@@ -6116,7 +6117,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:bf8e89b50c3cc28322404d5f076a7a3fa0287e4facc3c45b023ba598f62651dd",
+        "fingerprint": "sha256:a24b86391fedae1f4a98348a9f2cc8142499f293b12fc0083ffdf44b46fb605d",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -6130,13 +6131,16 @@
       "name": ".engine/tools/attention_rank.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:moment"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "attention_rank",
       "source": {
-        "fingerprint": "sha256:7d69bb7e880a3496de9a287ff963a38feb593d4c98deb5b63a6f3e41136e5e29",
+        "fingerprint": "sha256:7a4b610cefd5754d9f4697b377389f2ebec23b6384747224b33d14cf9b989beb",
         "path": ".engine/tools/attention_rank.py"
       },
       "status": "active",
@@ -6152,6 +6156,7 @@
       "predicates": {
         "imports": [
           "tool:github_client",
+          "tool:moment",
           "tool:restore_vault",
           "tool:validate"
         ],
@@ -6161,7 +6166,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:6e94c93bfb7896fafe526c45dde2992a9fed68ff3735153d643f9a293bda5a15",
+        "fingerprint": "sha256:e2b1f5c0454ae329cf3023403dc55a710a3c9ae70dc5760e82f64725141a004c",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -6249,6 +6254,7 @@
           "tool:issue_author",
           "tool:knowledge_query",
           "tool:module_coherence",
+          "tool:moment",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -6258,7 +6264,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:7e5a4ae925ad90ba65e7880fce9b7d09b70c61377ea5573286d68fda9bc167c1",
+        "fingerprint": "sha256:166a7fa3d937f3b81c7fdc3ad66d8b4b9586578091572c991a17b59826756d99",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -6300,6 +6306,7 @@
           "tool:boot",
           "tool:hooks",
           "tool:ledger",
+          "tool:moment",
           "tool:records",
           "tool:validate"
         ],
@@ -6309,7 +6316,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:77471574bcb29fbb8f0e2e84d9c440bfebdb2a7b886eaeb11980283502742a80",
+        "fingerprint": "sha256:075ca724c96aeb3beb6eeaa95b63be6e3c8cc57d5599d4a9e6cbc4c062b5f3bd",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -6364,6 +6371,7 @@
           "tool:license_health",
           "tool:modes",
           "tool:module_manager",
+          "tool:moment",
           "tool:operator_overrides",
           "tool:pins",
           "tool:pr_reconcile",
@@ -6382,7 +6390,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:6e6e0587c4595e2ad286091b0285443f123eadf926ffef6edf5f0421bc1f6746",
+        "fingerprint": "sha256:444b7231fc9f2ba86eeb1746ee22be5502c34f1851cac75cb4ca8e5ed450ff19",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6591,6 +6599,7 @@
           "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
+          "tool:moment",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -6600,7 +6609,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:fa1930e02e262ee2e89370ff313275baa03e2bf8cb799e76c71afb0b01a527bd",
+        "fingerprint": "sha256:609fbbaf8fd375ed9a7851c2d8b080398f6e11212d3d169d57497683e634b018",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -6804,6 +6813,7 @@
           "tool:audit_soft_promote",
           "tool:github_client",
           "tool:issue_author",
+          "tool:moment",
           "tool:spec_referent",
           "tool:telemetry",
           "tool:validate"
@@ -6814,7 +6824,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:63e4b518472e247c5819a2a827991b085a41e8021dce4463e029d952bf5fb470",
+        "fingerprint": "sha256:9b34f5643fca252ffbbf39dea2f237e6abd428dea85b87469ba22495c2c49f03",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -6830,6 +6840,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:moment",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -6839,7 +6850,7 @@
       },
       "slug": "contribute_issue",
       "source": {
-        "fingerprint": "sha256:f0ebeb0079e996a63664d25e23a8bf4ca30a6e4b93d96781e2f832b95e53c673",
+        "fingerprint": "sha256:596a87ace543fd44c96ad8dcb532e4295cb6dab19ef15abf2ba6145005a3d978",
         "path": ".engine/tools/external_contribution/contribute_issue.py"
       },
       "status": "active",
@@ -7145,6 +7156,7 @@
           "tool:audit_digest",
           "tool:backup_vault",
           "tool:ledger",
+          "tool:moment",
           "tool:records",
           "tool:validate"
         ],
@@ -7154,7 +7166,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:04c82c90a43020607ed7b4134dd0a246ebed36bc2f3c26f8c9e39f08698c4da0",
+        "fingerprint": "sha256:8fcc6e303f7e2b60ffd4c5399e4064a9bcbddf1ffb992c1ac1cd60e5b0e512f5",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -8263,13 +8275,16 @@
       "name": ".engine/tools/execution_environment.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:moment"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:3ba9e3e980a983b41f373160ea249cbe4b51741d9bef8c0c6acd77cb19b48a4c",
+        "fingerprint": "sha256:3c6e03a4eb13499b4e9c93ed84fd3339aca4854f8b27dcb09ba307bac36e70b6",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -8488,6 +8503,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:moment",
           "tool:providers",
           "tool:telemetry",
           "tool:validate"
@@ -8498,7 +8514,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:17a28a957d25a2c4bf8b1e7ecd2024e2b8069c611ce90e8f3a2a5455c79176df",
+        "fingerprint": "sha256:9aba28a96e40cd53113d870c4c6e11770d6cd7168b876b75e6b0acbdbcde8b23",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -9266,6 +9282,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:moment",
+      "name": ".engine/tools/moment.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "moment",
+      "source": {
+        "fingerprint": "sha256:724a279455b7efe82288baf02059a8b0580eba0f5fca54eafcce386a5f3bb743",
+        "path": ".engine/tools/moment.py"
+      },
+      "status": "active",
+      "summary": "moment.py — the engine's one home for a moment in time.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": true,
       "id": "tool:obligation_matrix",
@@ -9547,7 +9583,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:3bb7f8ed13575d285afb1f2f35c6b82e661e90202b1decfbdc1e6932c5ca621c",
+        "fingerprint": "sha256:9a9df34726a6082fbc02d90f251e0a8f575b17d3533b86434d124948e9423cfe",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -10298,6 +10334,7 @@
           "tool:issue_author",
           "tool:local_references",
           "tool:module_coherence",
+          "tool:moment",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -10307,7 +10344,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:8f2254396925db418e86d60f15a7663e339bed017c830e6a156f7f664bddfe83",
+        "fingerprint": "sha256:277d47e071ad2a895506c89335812cfcbb00bda0ba8f6e189e393f284d4fc44a",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -10350,6 +10387,7 @@
           "tool:boot",
           "tool:github_client",
           "tool:issue_author",
+          "tool:moment",
           "tool:standing_situation",
           "tool:validate"
         ],
@@ -10359,7 +10397,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:0479ff7d1999d4fcab44e353a751da89eddef48ff30c219e1601b1e0836b1b66",
+        "fingerprint": "sha256:5f42780990dcb7f7c6d5269089c56365797d2a00d30e2c69fae0ff4080e0899d",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -10531,7 +10569,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:11c61c1c5e06be6684be8f808b6c7b086dc42495cd44a0ec5e388c70f79078ba",
+        "fingerprint": "sha256:2c8d2aa0322836c2576dcfa4b0b31b475162924f46a83f0d7591b3da1cb2e500",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -10551,6 +10589,7 @@
         "tests": [
           "tool:audit_digest",
           "tool:legacy_shapes",
+          "tool:moment",
           "tool:quiet_call",
           "tool:restore_vault",
           "tool:validate"
@@ -10558,7 +10597,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:f81f4480b2d6c59002cd8f03a84c8843e38712414cd8fa31079c164ea333c67a",
+        "fingerprint": "sha256:74481341d0ad42e0ee8b9532febfcbd3fd35b04edc541ac7065813c4d5d48389",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -11500,7 +11539,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:52de8390dde1023726852910cf7671d04ba6f2078f82f212849eb00ea63c6b84",
+        "fingerprint": "sha256:149e9100b6ecde6c136679ad95c08fa7f68992ed3f63e6f2afc83268beebda7d",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -12403,6 +12442,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_moment",
+      "name": ".engine/tools/test_moment.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:moment",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_moment",
+      "source": {
+        "fingerprint": "sha256:37f78e5af08d471a138e50df959cbc39900d9d746252172cc55fb6185c73c57c",
+        "path": ".engine/tools/test_moment.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for moment.py — the engine's one time seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_obligation_matrix",
       "name": ".engine/tools/product_design/test_obligation_matrix.py",
       "owner": "product-design",
@@ -12710,7 +12773,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:2336249526b8ee497d775b41ab644091759319cfabb497f66a71210ac427fba8",
+        "fingerprint": "sha256:4c29b1ec806b6c5d72d0c440d47d704eb5dbb25261559c6f71ba8d3f5b378058",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -13577,7 +13640,7 @@
       },
       "slug": "test_state",
       "source": {
-        "fingerprint": "sha256:09bc9b7e8f3042d4e21e96d7503e672e6662af5262c9f588c29f43d32e395fa5",
+        "fingerprint": "sha256:91e3abc3ab5caf11ab69a2ff351b2999209d03538e3bc38d5a8ea42584ee711b",
         "path": ".engine/tools/test_state.py"
       },
       "status": "active",
@@ -13655,7 +13718,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:d29bd66f004c3d42aa3b7b2752c4b13a2642fbc3cd9870bcb43b26921aecab29",
+        "fingerprint": "sha256:9ab25d54e31d889dc325faa6b7d6944ac45ad6bd593a28ceaaaa8072e68e5b86",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -13959,6 +14022,7 @@
         "imports": [
           "tool:hooks",
           "tool:knowledge_gen",
+          "tool:moment",
           "tool:telemetry"
         ],
         "provided_by": [
@@ -13967,7 +14031,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:57a35c0986b8d50b72f22dcc276a8477aebf58da945300996d194ba6435c7e56",
+        "fingerprint": "sha256:a88ba01f081264e0dd06648e65e2e0596f6165b74b03d33ed6637fc2f4d83c6a",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -14066,7 +14130,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:boot"
+          "tool:boot",
+          "tool:moment"
         ],
         "provided_by": [
           "module:core"
@@ -14074,7 +14139,7 @@
       },
       "slug": "work_record",
       "source": {
-        "fingerprint": "sha256:fa2bdd2301a797e453756e0392c88131cbc14314bf0d2164179d3a2b842c59e3",
+        "fingerprint": "sha256:469597c245fd1e74b7d3e63216c75929ab3ba1a21b72704fcbd58a52b2ff7f09",
         "path": ".engine/tools/work_record.py"
       },
       "status": "active",

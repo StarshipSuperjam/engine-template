@@ -34,7 +34,6 @@ CLI: setup | now | status | session-start | demo [--live]. Run the demo (fully o
 from __future__ import annotations
 
 import base64
-import datetime
 import hashlib
 import json
 import os
@@ -51,6 +50,7 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
+import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf (epoch -> wire shape)
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
 # run, after the one-time consented setup. A politeness/cost guard only: failure-direction is benign both ways — too
@@ -212,7 +212,7 @@ def _get(gh, path: str):
 # ============================================================================================================
 
 def _iso_utc(epoch: int) -> str:
-    return datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return moment.to_z(int(epoch))
 
 
 def _engine_version() -> str:

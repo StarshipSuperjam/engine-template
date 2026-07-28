@@ -26,8 +26,9 @@ the concrete values in the policy are uncalibrated starting values, so "surfaces
 stays unproven until calibrated.
 """
 from __future__ import annotations
-import datetime
 import math
+
+import moment  # the trailing-Z time seam; pure stdlib leaf, reads no clock/IO/substrate (epoch is a pure parse)
 
 RESULT_SCHEMA_VERSION = 1
 
@@ -56,8 +57,10 @@ EXPECTED_VALUE_KEYS = frozenset(
 # ---- pure helpers (each fixture-testable) ---------------------------------------------------
 
 def _epoch(ts: str) -> float:
-    """Parse a trailing-Z UTC moment to absolute epoch seconds (deterministic; UTC-anchored)."""
-    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    """Parse a trailing-Z UTC moment to absolute epoch seconds (deterministic; UTC-anchored). A malformed or
+    absent value degrades to 0.0 (the oldest position) via `_finite`, never a crash or a non-total sort key —
+    the recall-crash class this ranking must not reintroduce."""
+    return _finite(moment.epoch(ts))
 
 
 def _finite(x):

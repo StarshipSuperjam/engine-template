@@ -37,6 +37,11 @@ flowchart TD
 <The one or two flows that matter most, each as the ordered steps a request takes through the parts above —
 enough that someone could follow the path, not every path.>
 
+<!-- If time is load-bearing for your product — scheduling, expiry, "today", or ordering things by when they
+happened — say in the flow above which clock is authoritative (usually UTC) and what a calendar day means for
+your users (their own local day, or a fixed zone). The engine can't infer this for you, and a mismatch here
+is a common off-by-one-day bug. Nothing to add if time isn't load-bearing here. -->
+
 ## Key decisions
 
 <The handful of architectural choices worth recording, each as: what you chose, and why — and, where it matters,

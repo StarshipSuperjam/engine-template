@@ -29,10 +29,10 @@ Two layers, so it answers offline and degrades to git-native:
     GitHub read FAILURE falls back to the floor rather than failing (the design's "local git stands in for
     the live register") — so a failed PR read degrades WITHIN the git substrate, not to a crash.
 
-Pure leaf — imports only the standard library and takes injected seams (a `run` for git, a duck-typed `gh`
-reader: `gh.repo` + `gh._transport(method, path, body) -> (status, json)`, the seam telemetry.GitHubIssues
-exposes). It imports neither attention nor boot, so attention imports IT with no cycle (mirrors
-standing_situation.py). It performs NO writes.
+Pure leaf — imports only the standard library and the stdlib-only `moment` time seam, and takes injected
+seams (a `run` for git, a duck-typed `gh` reader: `gh.repo` + `gh._transport(method, path, body) ->
+(status, json)`, the seam telemetry.GitHubIssues exposes). It imports neither attention nor boot, so
+attention imports IT with no cycle (mirrors standing_situation.py). It performs NO writes.
 
 Availability vs emptiness (the degraded-input contract): `read_in_flight` RAISES WorkRecordUnavailable only
 when the work record cannot be consulted AT ALL — git is not runnable here AND no GitHub read succeeded. A
@@ -42,9 +42,10 @@ in flight (attention records `git` as available, not degraded; boot shows "Nothi
 Run the demo: uv run --directory .engine -- python tools/work_record.py demo
 """
 from __future__ import annotations
-import datetime
 import re
 import subprocess
+
+import moment  # the trailing-Z time seam; a stdlib-only leaf, so importing it keeps this module leaf-and-acyclic
 
 # How many open PRs to read before stopping — a bound so a busy public repo never hangs orientation.
 _PR_WINDOW = 20
@@ -75,15 +76,12 @@ def _run_git(args: list[str]) -> str | None:
 
 def _z(ts: str | None) -> str | None:
     """Normalise a git/GitHub timestamp to a trailing-Z UTC moment, or None when absent/unparseable.
-    Defensive: a malformed recency must never reach the ranking math (attention_rank._epoch would raise) —
-    omit it instead, so the candidate scores 0 on recency rather than crashing the whole ranking."""
+    Defensive: a malformed recency is omitted rather than passed on, so the candidate scores 0 on recency
+    rather than letting a bad value reach the ranking math."""
     if not ts:
         return None
-    try:
-        dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    dt = moment.parse_z(ts)
+    return None if dt is None else moment.to_z(dt)
 
 
 def _default_branch(run) -> str:
@@ -225,9 +223,10 @@ def changed_paths(*, run=_run_git, cap: int | None = _PATHS_CAP) -> list[str]:
       - the UNCOMMITTED working-tree diff and the STAGED diff (always — local edits are in-flight work in
         hand even on the default branch).
     Each leg is independently fail-open (a None from `run` contributes nothing); the union is deduped and
-    sorted. Returns [] on a clean default branch, a detached HEAD, or outside a repo. A PURE stdlib leaf —
-    imports no knowledge_query, so attention (which maps these paths to graph entities) imports IT with no
-    cycle; the path -> entity mapping is attention's job, not this reader's.
+    sorted. Returns [] on a clean default branch, a detached HEAD, or outside a repo. A pure leaf (the
+    standard library plus the stdlib-only `moment`) — imports no knowledge_query, so attention (which maps
+    these paths to graph entities) imports IT with no cycle; the path -> entity mapping is attention's job,
+    not this reader's.
 
     `cap` bounds the result for orientation's attention budget (default `_PATHS_CAP`); pass `cap=None` for the
     UNCAPPED full set — the upstream-clean SAFETY nudge (#416) needs it, since a cap could let an engine

@@ -2227,7 +2227,8 @@ def _accept_handler(payload: dict) -> dict:
         return hooks.proceed()
     try:
         import telemetry  # lazy: telemetry imports validate (a back-edge safe only lazily)
-        telemetry.capture_touched_fires(paths, telemetry.utc_now())
+        import moment  # lazy: keep the module-top stdlib-only bootstrap contract (moment is itself stdlib-only)
+        telemetry.capture_touched_fires(paths, moment.utc_now())
     except Exception:  # noqa: BLE001 — ambient capture is best-effort and NEVER gates a tool call
         pass
     touched = {_abs_under_root(p) for p in paths}

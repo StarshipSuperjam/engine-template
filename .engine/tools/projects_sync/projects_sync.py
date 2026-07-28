@@ -291,7 +291,7 @@ def _state_phase(state) -> str | None:
     return None
 
 
-def compute_projection(signals: dict, hhmm: str) -> dict:
+def compute_projection(signals: dict, synced_stamp: str) -> dict:
     """Map boot's already-resolved, leak-guard-clean signals to the five engine-owned board fields. PURE
     given the signals dict + the time string, so the whole projection is fixture-testable with no network.
     A missing signal renders as an em dash rather than a guess or a maintainer-vocabulary leak."""
@@ -307,12 +307,14 @@ def compute_projection(signals: dict, hhmm: str) -> dict:
         FIELD_NEXT: nxt,
         FIELD_REVIEW: str(review) if review is not None else "—",
         FIELD_ISSUES: str(issues) if issues is not None else "—",
-        FIELD_SYNCED: hhmm,
+        FIELD_SYNCED: synced_stamp,
     }
 
 
-def _hhmm(now: datetime | None = None) -> str:
-    return (now or datetime.now(timezone.utc)).strftime("%H:%M")
+def _synced_stamp(now: datetime | None = None) -> str:
+    """The board's 'Last synced' value: a full UTC date-time with an explicit zone, so an operator in any
+    timezone reads it unambiguously (a bare HH:MM would be read as their own local time)."""
+    return (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def _engine_item_content_ids(gql: BoardGraphQL, repo: str | None, label: str) -> list:
@@ -371,7 +373,7 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
 
     if signals is None:
         signals = boot.gather_signals(session_id)
-    projection = compute_projection(signals, _hhmm(now))
+    projection = compute_projection(signals, _synced_stamp(now))
 
     if gql is None:
         token = boot.gh_token()
@@ -427,7 +429,7 @@ def _session_start_handler(payload) -> dict:
 def _cmd_plan() -> int:
     """Dry-run: print the five field values the projection would write, from live signals. Writes nothing."""
     signals = boot.gather_signals(None)
-    projection = compute_projection(signals, _hhmm())
+    projection = compute_projection(signals, _synced_stamp())
     print("The board would show (writes nothing):")
     for name, value in projection.items():
         print(f"  {name}: {value}")
@@ -580,7 +582,7 @@ def _demo_body() -> int:
         if "updateProjectV2ItemFieldValue" in query and "status" in query.lower():
             failures.append("a write touched Status — forbidden")
     # The projection rendered the leak-guard-clean values.
-    if result.get("projection", {}).get(FIELD_SYNCED) != "14:32":
+    if result.get("projection", {}).get(FIELD_SYNCED) != "2026-01-01 14:32 UTC":
         failures.append("the last-synced stamp did not render")
     # Idempotent add: two items -> exactly two add calls, ten field writes (5 fields x 2 items).
     adds = sum(1 for _p, b in gql.calls if "addProjectV2ItemById" in (b or {}).get("query", ""))

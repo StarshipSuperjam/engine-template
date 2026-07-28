@@ -52,6 +52,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  ROOT/ENGINE_DIR, the env seam, the prompt-fence defang
+import moment            # noqa: E402  the trailing-Z time seam; pure stdlib leaf
 import telemetry         # noqa: E402  the GitHub boundary + promote_finding + marker-safety + the benign class
 import issue_author      # noqa: E402  the shared engine-Issue body contract
 import spec_referent     # noqa: E402  CORE lock-status reader (never the product-design parser)
@@ -269,13 +270,8 @@ class _MatrixHistory:
 
 
 def _parse_iso(s: str):
-    """Parse a GitHub ISO-8601 commit date to an aware datetime, or None. Tolerant of the trailing 'Z' across
-    Python versions; never raises."""
-    from datetime import datetime
-    try:
-        return datetime.fromisoformat((s or "").replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
+    """Parse a GitHub ISO-8601 commit date to an aware UTC datetime, or None. Tolerant; never raises."""
+    return moment.parse_z(s)
 
 
 def _now():
@@ -591,7 +587,7 @@ def promote(body_file: str, *, repo: str | None = None, token: str | None = None
     if not repo or not token:
         return 0, True
     github = telemetry.GitHubIssues(repo, token, transport=transport)
-    now = telemetry.utc_now()
+    now = moment.utc_now()
     tracked, degraded = 0, False
     for r in records:
         result = telemetry.promote_finding(github, r, now, title=r["title"], body_core=r["body_core"])

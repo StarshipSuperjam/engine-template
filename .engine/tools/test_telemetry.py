@@ -517,13 +517,6 @@ class TestStateRefresh(unittest.TestCase):
         self.assertFalse(r.degraded)
         self.assertEqual(r.debt["open_count"], 1)            # computed and returned, not committed anywhere
 
-    def test_utc_now_matches_state_pattern(self):
-        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
-        now = telemetry.utc_now()
-        probe = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
-                 "integration_debt": {"open_count": 0, "as_of": now, "register": None}}
-        self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(probe)), [])
-
 
 def _standing_transport(*, milestones=(200, []), pulls=(200, []), issues=None):
     """A transport answering ONLY the GETs the where-we-are derive makes — for the focused standing tests."""

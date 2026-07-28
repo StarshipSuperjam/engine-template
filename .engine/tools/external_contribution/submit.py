@@ -74,7 +74,8 @@ import upstream_clean_check  # noqa: E402 — the upstream-clean predicate, reus
 import local_references  # noqa: E402 — the deployment's own declared vocabulary + the outbound scan
 import validate  # noqa: E402 — validate.ROOT (the live tree root) for template detection
 import module_coherence  # noqa: E402 — engine_owned_paths: the file-precise engine-owned set
-import telemetry  # noqa: E402 — promote_finding (telemetry-on-fire), utc_now, GitHubIssues, severities
+import telemetry  # noqa: E402 — promote_finding (telemetry-on-fire), GitHubIssues, severities
+import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf
 import issue_author  # noqa: E402 — render_engine_issue_body (the degradation draft)
 
 
@@ -731,7 +732,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     target the flow HOLDS (`body-incomplete`) rather than open a body the home's own gate will bounce; for any
     other host it opens on the ordinary gates with a plain advisory that the sections are unfilled.
     """
-    now = now or telemetry.utc_now()
+    now = now or moment.utc_now()
 
     # The diff ref is the UPSTREAM tip as seen locally — `{remote}/{base}`, never the plain `base` (`gh`'s job)
     # and never the fork's own default (which would under-flag; see the docstring). This is the whole #561 fix:

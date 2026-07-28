@@ -568,6 +568,19 @@ class TestReferenceTime(unittest.TestCase):
         self.assertEqual(attention._reference_moment([{"recency": "not-a-date"}], "2026-07-12T09:21:38Z"),
                          "2026-07-12T09:21:38Z")
 
+    def test_a_malformed_recency_degrades_in_the_weight_never_crashes(self):
+        # attention_rank._epoch used to RAISE on a malformed recency; it now degrades that candidate to the
+        # oldest position (epoch 0.0 via _finite) so a bad stored timestamp can never crash the ranking math
+        # (the recall-crash class). This drives the real WEIGHT function and full rank(), not the
+        # reference-moment helper the test above covers.
+        good = {"id": "good", "category": "in_flight", "recency": "2026-06-04T00:00:00Z"}
+        bad = {"id": "bad", "category": "in_flight", "recency": "not-a-date"}
+        self.assertLess(intra_weight(bad, FIXTURE_POLICY, AS_OF),   # must not raise; degrades to oldest
+                        intra_weight(good, FIXTURE_POLICY, AS_OF))
+        result = rank([bad, good], FIXTURE_POLICY, AS_OF, set())    # full path: no crash, bad sorts last
+        in_flight = next(e for e in result["partition"] if e["category"] == "in_flight")
+        self.assertEqual([m["id"] for m in in_flight["members"]], ["good", "bad"])
+
     def test_the_live_path_resolves_the_leading_moment_and_ships_newest_first(self):
         # The wiring, not just the helper: rank_live must RESOLVE the reference moment, or the fix is
         # orphaned and the live digest stays inverted.

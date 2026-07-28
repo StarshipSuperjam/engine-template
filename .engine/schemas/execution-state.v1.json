@@ -36,7 +36,7 @@
           "description": "When this environment was qualified, written as a UTC moment ending in Z (for example 2026-07-27T14:30:00Z). Null until it is qualified. The trailing-Z UTC shape is what is actually enforced (the date-time format is only a hint).",
           "type": ["string", "null"],
           "format": "date-time",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
         },
         "repo": {
           "description": "The repository this qualification was made FOR, as its git-origin slug (owner/name). A qualification counts only in the repository it was made for: a record shipped or copied from another repository names that other repository here, so the live comparison reads it as not-qualified-here rather than as drift — the reason a fresh adopter never sees a spurious re-qualify alarm from a baseline that was never theirs. Null until qualified.",
