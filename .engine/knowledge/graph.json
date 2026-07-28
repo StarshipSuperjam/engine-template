@@ -4419,7 +4419,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:b0f8e6c26342b6f94c8bbac63ead8998368b6fc792d8ce5d991ca8f4fc59e8fe",
+        "fingerprint": "sha256:0d6b9a995ed0982067df88ffc195f94fb2d838aa3bd7217b2607580ec4f76bbd",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4519,7 +4519,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:7b6421c45753a7c19ad2aa17941699ebd9c9f6d15dfe421d9be566f9bc9174d0",
+        "fingerprint": "sha256:0269789dd5d6e9d7eacf6a80bd9295eb9ad9ea588a3387ab4d4ff9dfb5996c4d",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -4539,7 +4539,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:297ae3b133fd272b89d4d0db8b0b76230cca170b6b91708408a2d1b0a1345a55",
+        "fingerprint": "sha256:c839c4c029641b727242582b53aa1d01c3469bec5e94b1cd5a1799e45dd74a4b",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -6392,7 +6392,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:9912b6e449bc71782f95a817a43af2f833911e94660a548482115a7718afce40",
+        "fingerprint": "sha256:5e3983f5da8d2a4406fd51a16422f2e6fa85a2d2de492046c48455b2a028eeba",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6469,7 +6469,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:3bd4f82a58ef412f39bbce91756b3b7eef5b2e5fdc3280d1df008831be333c31",
+        "fingerprint": "sha256:e55b85cb179feb9b9c948d6418b6813902b0ac83fe0edb363e5a52a7b596d6a3",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -8603,7 +8603,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:338ec2b03fde9f1361bc2e40f666f04b4f4ac40ef46dc7f0d1c64bb1ee1f46f3",
+        "fingerprint": "sha256:4ae7017dbaa4a429dde1d6c7b6b43f17db74a88e1678fef4d4def94df90c4cd1",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9636,7 +9636,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:1d79f72c19e8fdb8ad161827397e12214c5e103cc2a4ed29f4ccf44fe6220d2b",
+        "fingerprint": "sha256:6a295eeb90182549d278f571c819beab648884d851a0da544a6c38f2e703e046",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -10868,7 +10868,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:adbb24e5a8b79cd7fc2109f8abac1e5dbba836eacdfb1d47d5cd91cf176ff379",
+        "fingerprint": "sha256:51b5c7531f02343ab28332707aae4f90241fbe7dd947ed169e96f68decd800bc",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -11835,7 +11835,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1975aee73f21014338ed0ab0b08d73fd9cad1c3f93cf94bfe74026c506eab382",
+        "fingerprint": "sha256:4034523a36ba132785f624a424c751568c03156fca553bd914ecb612612214b8",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -13880,7 +13880,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:7fe41ea7f376437b432a482bd87f269b828445a2e222f9ae9a43031e98e36099",
+        "fingerprint": "sha256:750ac0ef66f1bb8c7a780246a54a17497735d6dd4ee194f19edbb1858c4be6c8",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -14115,7 +14115,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:e89bfb1fa38692383c41f70e656233c2b54b19c6103cdd8023098b0aa1d48387",
+        "fingerprint": "sha256:07926df6b1badaecf75692eab2229479be13bcb42f1f8f1cc753fa4b012674c8",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

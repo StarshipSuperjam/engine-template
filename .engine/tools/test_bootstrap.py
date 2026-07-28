@@ -802,5 +802,165 @@ class TestDeBootstrapAugmented(unittest.TestCase):
         self.assertEqual([c for c in fake.writes()], [])              # nothing of the operator's touched
 
 
+def _with_workflows(inner_transport, present=True):
+    """Wrap a fake transport so finalize's workflow-presence probe (GET .../contents/.github/workflows/...)
+    resolves to 200 (present) or 404 (absent); everything else delegates to the inner fake."""
+    def transport(method, path, body=None):
+        if method == "GET" and "/contents/.github/workflows/" in path:
+            return (200, {"name": "wf"}, {}) if present else (404, None, {})
+        return inner_transport(method, path, body)
+    return transport
+
+
+def _engine_ruleset(rid=900, *, checkless):
+    """The engine's OWN ruleset object as GET /rulesets/{id} returns it — full floor, or the checkless floor
+    (arrival state) when checkless=True."""
+    rules = (bootstrap.checkless_floor_ruleset(tier=bootstrap.SOLO)
+             if checkless else bootstrap.floor_ruleset(tier=bootstrap.SOLO))["rules"]
+    return {"id": rid, "name": bootstrap.ENGINE_RULESET_NAME, "target": "branch", "enforcement": "active",
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+            "bypass_actors": [], "rules": [dict(r) for r in rules]}
+
+
+class TestChecklessBootstrap(unittest.TestCase):
+    """#673: a brownfield arrival protects main WITHOUT requiring the engine's own checks (their workflows
+    aren't on the branch until the arrival PR merges)."""
+
+    def _cp(self, transport):
+        return bootstrap.ControlPlane(REPO, "tok", transport=transport, refresh_fn=lambda s: True,
+                                      issues=FakeIssues(), tier=bootstrap.SOLO, checkless=True)
+
+    def test_checkless_create_writes_the_floor_without_the_required_checks_rule(self):
+        gh = FakeGitHub(scopes="repo", floor_met=False, rulesets=[])
+        result = self._cp(gh.transport).apply(branch="main")
+        self.assertTrue(result.is_protected())
+        posts = [c for c in gh.calls if c[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        types = {r["type"] for r in posts[0][2]["rules"]}
+        self.assertEqual(types, {"pull_request", "non_fast_forward", "deletion"})   # NO required_status_checks
+        self.assertNotIn("required_status_checks", types)
+
+    def test_checkless_create_is_tier_aware_not_solo_pinned(self):
+        # A TEAM arrival keeps the team pull_request shape through the window (unlike remainder_ruleset).
+        gh = FakeGitHub(scopes="repo", floor_met=False, rulesets=[])
+        bootstrap.ControlPlane(REPO, "tok", transport=gh.transport, refresh_fn=lambda s: True,
+                               issues=FakeIssues(), tier=bootstrap.TEAM, checkless=True).apply(branch="main")
+        body = [c for c in gh.calls if c[0] == "POST"][0][2]
+        pr = next(r for r in body["rules"] if r["type"] == "pull_request")
+        team_pr = next(r for r in bootstrap.floor_ruleset(tier=bootstrap.TEAM)["rules"]
+                       if r["type"] == "pull_request")
+        self.assertEqual(pr["parameters"], team_pr["parameters"], "team floor kept, not the solo remainder")
+
+    def test_checkless_floor_satisfies_the_guard_with_no_required_checks(self):
+        # The decisive fidelity test (mirrors test_floor_satisfies_the_real_guard): what checkless mode WRITES
+        # must satisfy the SAME protection_guard evaluation with an empty required-checks set — otherwise a real
+        # verify read-back reads the deliberate checkless state as a floor failure and apply returns degraded.
+        for tier in (bootstrap.SOLO, bootstrap.TEAM):
+            rules = bootstrap.checkless_floor_ruleset(tier=tier)["rules"]
+            self.assertEqual(protection_guard.missing_floor(rules, [], tier=tier), [],
+                             f"checkless floor must satisfy the guard when no checks are required ({tier})")
+            # and it GENUINELY lacks the checks — evaluated against the FULL floor it is not satisfied
+            self.assertIn("status checks are not required to pass",
+                          protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS, tier=tier))
+
+    def test_checkless_create_verify_passes_against_a_faithful_readback(self):
+        # AugmentGitHub echoes what was actually POSTed (unlike FakeGitHub's full-floor stub), so this exercises
+        # the REAL post-write verify against a genuinely checkless ruleset — the path the usability review found
+        # returned a false 'degraded' before the missing_floor fix.
+        gh = AugmentGitHub(products=[])
+        result = self._cp(gh.transport).apply(branch="main")
+        self.assertEqual(result.status, "applied", "the real checkless verify read-back must pass")
+        self.assertNotIn("required_status_checks", gh.types_of(900))
+
+    def test_checkless_augment_adds_floor_rules_but_binds_no_engine_checks(self):
+        prod = product_ruleset(rid=9, checks=("product-ci",), with_deletion=False)
+        gh = AugmentGitHub(products=[prod])
+        result = self._cp(gh.transport).apply(branch="main")
+        self.assertTrue(result.is_protected())
+        self.assertIn("deletion", gh.types_of(9))                     # wholly-missing floor rule added
+        self.assertEqual(gh.checks_of(9), {"product-ci"})             # engine checks NOT bound (checkless)
+        self.assertEqual(result.marker["added"]["checks"], [])
+        self.assertIn("deletion", result.marker["added"]["rules"])
+
+
+class TestFinalize(unittest.TestCase):
+    """#673: the explicit post-merge step that binds the required checks once the workflows are on the branch."""
+
+    def _cp(self, transport):
+        return bootstrap.ControlPlane(REPO, "tok", transport=transport, refresh_fn=lambda s: True,
+                                      issues=FakeIssues(), tier=bootstrap.SOLO)   # non-checkless
+
+    def test_finalize_binds_the_required_checks_when_workflows_present(self):
+        gh = AugmentGitHub(products=[_engine_ruleset(checkless=True)])   # arrival left a checkless engine ruleset
+        result = self._cp(_with_workflows(gh.transport, present=True)).finalize(branch="main")
+        self.assertTrue(result.is_protected())
+        self.assertEqual(gh.checks_of(900), set(ENGINE), "finalize binds engine-ci/engine-guard")
+
+    def test_finalize_refuses_and_binds_nothing_when_workflows_absent(self):
+        gh = AugmentGitHub(products=[_engine_ruleset(checkless=True)])
+        result = self._cp(_with_workflows(gh.transport, present=False)).finalize(branch="main")
+        self.assertFalse(result.is_protected())
+        self.assertEqual(result.cause, "workflows-absent")
+        self.assertEqual(gh.writes(), [], "cannot re-create the deadlock: nothing is bound")
+        self.assertEqual(gh.checks_of(900), set(), "checkless engine ruleset left untouched")
+
+    def test_finalize_workflows_absent_renders_and_returns_nonzero(self):
+        gh = AugmentGitHub(products=[_engine_ruleset(checkless=True)])
+        result = self._cp(_with_workflows(gh.transport, present=False)).finalize(branch="main")
+        self.assertIn("hasn't merged yet", bootstrap.render(result))
+        self.assertFalse(result.is_protected())
+
+    def test_finalize_returns_degraded_when_the_bind_write_is_denied(self):
+        # Workflows ARE present, but the admin write is refused — finalize must surface the degrade honestly and
+        # bind nothing (this is cmd_finalize's non-protected branch: no marker persist, exit 1).
+        gh = FakeGitHub(scopes="repo", floor_met=False, rulesets=[], deny_writes=5,
+                        deny_body={"message": "Resource not accessible by personal access token"})
+        result = self._cp(_with_workflows(gh.transport, present=True)).finalize(branch="main")
+        self.assertFalse(result.is_protected())
+        self.assertEqual(result.status, "degraded")
+
+    def test_finalize_refuses_on_a_checkless_instance(self):
+        # finalize's whole job is to BIND checks; on a checkless instance it would silently no-op them, so it
+        # raises loudly against that documented invariant rather than falsely reading 'already'.
+        gh = AugmentGitHub(products=[_engine_ruleset(checkless=True)])
+        cp = bootstrap.ControlPlane(REPO, "tok", transport=_with_workflows(gh.transport, present=True),
+                                    refresh_fn=lambda s: True, issues=FakeIssues(), tier=bootstrap.SOLO,
+                                    checkless=True)
+        with self.assertRaises(bootstrap.BootstrapError):
+            cp.finalize(branch="main")
+
+    def test_checkless_augment_then_finalize_then_debootstrap_restores_the_product(self):
+        # The reversal-integrity round trip: without the union marker, de_bootstrap would leave the
+        # engine-added floor rule (deletion) orphaned on the operator's ruleset. With it, the product is
+        # restored to exactly its pre-arrival shape.
+        prod = product_ruleset(rid=9, checks=("product-ci",), with_deletion=False)
+        original_types = {r["type"] for r in prod["rules"]}
+        gh = AugmentGitHub(products=[prod])
+        arrival = bootstrap.ControlPlane(REPO, "tok", transport=gh.transport, refresh_fn=lambda s: True,
+                                         issues=FakeIssues(), tier=bootstrap.SOLO, checkless=True).apply(branch="main")
+        finalize = self._cp(_with_workflows(gh.transport, present=True)).finalize(branch="main")
+        self.assertEqual(gh.checks_of(9), {"product-ci", *ENGINE})
+        merged = bootstrap._union_added(arrival.marker, finalize.marker)
+        self.assertEqual(set(merged["added"]["checks"]), set(ENGINE))
+        self.assertIn("deletion", merged["added"]["rules"])          # arrival's rule survives the finalize marker
+        bootstrap.ControlPlane(REPO, "tok", transport=gh.transport, refresh_fn=lambda s: True,
+                               issues=FakeIssues(), tier=bootstrap.SOLO).de_bootstrap(marker=merged, announce=quiet)
+        after = gh.detail(9)
+        self.assertEqual(bootstrap._bound_checks(after["rules"]), {"product-ci"}, "engine checks stripped")
+        self.assertEqual({r["type"] for r in after["rules"]}, original_types, "deletion stripped — product restored")
+
+    def test_union_added_carries_arrival_rules_and_finalize_checks(self):
+        arrival = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
+                   "added": {"checks": [], "rules": ["deletion"]}}
+        finalize = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
+                    "added": {"checks": list(ENGINE), "rules": []}}
+        merged = bootstrap._union_added(arrival, finalize)
+        self.assertEqual(set(merged["added"]["checks"]), set(ENGINE))
+        self.assertEqual(merged["added"]["rules"], ["deletion"])
+        # create/repair shape (added is None) needs no union — cur wins unchanged.
+        created = {"ruleset_mode": "created", "augmented_ruleset_id": None, "added": None}
+        self.assertEqual(bootstrap._union_added(arrival, created), created)
+
+
 if __name__ == "__main__":
     unittest.main()

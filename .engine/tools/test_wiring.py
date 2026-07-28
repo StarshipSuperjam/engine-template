@@ -1040,6 +1040,45 @@ class TestCodexMcpSeam(_Redirected):
         self.assertEqual(wiring.declared_wire_identity(CODEX_MCP),
                          ("codex-mcp", "engine-knowledge"))
 
+    def _without_tomllib(self):
+        # Simulate the 3.9 orchestrator floor where tomllib (3.11+) is unavailable.
+        saved = wiring.tomllib
+        wiring.tomllib = None
+        self.addCleanup(lambda: setattr(wiring, "tomllib", saved))
+
+    def test_apply_writes_block_on_empty_config_without_tomllib(self):
+        # #669: on 3.9 the codex-mcp wire always ran on a FRESH target (empty config) and crashed on
+        # an unguarded `import tomllib`. The guarded degrade must still apply on empty content —
+        # the engine's own block is valid TOML by construction, so no validation is needed.
+        self._without_tomllib()
+        f = wiring.apply(CODEX_MCP)
+        self.assertEqual(f["severity"], "note", "empty config applies cleanly with no tomllib")
+        text = _read(wiring.CODEX_CONFIG_PATH)
+        self.assertIn(wiring.FENCE_BEGIN.format(id="engine-knowledge"), text)
+        self.assertTrue(wiring.is_applied(CODEX_MCP))
+
+    def test_apply_skips_loud_on_nonempty_config_without_tomllib(self):
+        # A pre-existing NON-EMPTY config the engine cannot validate on 3.9 is left byte-for-byte
+        # untouched (never blind-written) and the skip is a hard finding, never a silent success.
+        self._without_tomllib()
+        os.makedirs(os.path.dirname(wiring.CODEX_CONFIG_PATH), exist_ok=True)
+        product = '# my own notes\n[mcp_servers.my-server]\ncommand = "npx"\n'
+        with open(wiring.CODEX_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            fh.write(product)
+        f = wiring.apply(CODEX_MCP)
+        self.assertEqual(f["severity"], "hard")
+        self.assertIn("Python 3.11+", f["message"])
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), product, "no blind write of an unreadable config")
+
+    def test_reverse_skips_loud_on_nonempty_config_without_tomllib(self):
+        # Symmetric: reverse over a non-empty config it cannot validate skips loud, file unchanged.
+        wiring.apply(CODEX_MCP)                       # land the block WITH tomllib first
+        self._without_tomllib()
+        before = _read(wiring.CODEX_CONFIG_PATH)
+        f = wiring.reverse(CODEX_MCP)
+        self.assertEqual(f["severity"], "hard")
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), before, "no blind write of an unreadable config")
+
 
 class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
     """#671: the shipped workflows (foundation infra, overlaid verbatim onto every deployment) must DERIVE the

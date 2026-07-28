@@ -1448,7 +1448,7 @@ def _persist_control_plane_marker(root, marker) -> None:
 
 
 def _apply_control_plane(control_transport, gh_refresh, control_issues, say, copy, repo=None, token=None,
-                         root=None) -> dict:
+                         root=None, checkless=False) -> dict:
     """STEP 7 — turn on the protected-branch review gate (the control-plane bootstrap, the permanent
     primitive). On a brownfield arrival this AUGMENTS the project's own branch-protection rule in place rather
     than creating a second; either way it records, in engine.json, exactly what it did so removal can reverse
@@ -1462,7 +1462,7 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
         say(copy["control-plane-unavailable"])
         return {"step": "control-plane", "status": "degraded", "detail": "no project/sign-in", "protected": False}
     cp = bootstrap.ControlPlane(repo, token, transport=control_transport, refresh_fn=gh_refresh,
-                                issues=control_issues)
+                                issues=control_issues, checkless=checkless)
     result = cp.apply(announce=say)  # branch=None -> apply resolves the authoritative default (env->recorded->origin/HEAD)
     say(bootstrap.render(result))
     _persist_control_plane_marker(root, result.marker)
@@ -1548,7 +1548,8 @@ def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None, br
 
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
-          control_issues=None, control_repo=None, control_token=None, handle=None, brownfield=False) -> dict:
+          control_issues=None, control_repo=None, control_token=None, handle=None, brownfield=False,
+          control_checkless=False) -> dict:
     """The apply phase: run the eleven ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
@@ -1572,7 +1573,8 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(_apply_substrates(say, copy))
     steps.append(_apply_wires(say))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
-                                      repo=control_repo, token=control_token, root=root))
+                                      repo=control_repo, token=control_token, root=root,
+                                      checkless=control_checkless))
     steps.append(_apply_actions_enablement(control_transport, say, copy,
                                            repo=control_repo, token=control_token))
     steps.append(_apply_security_toggles(control_transport, say, copy,
@@ -2716,13 +2718,68 @@ def _collision(klass: int, key: str, paths: list, copy: dict, **detail) -> dict:
             "choices": list(_COLLISION_CHOICES), "detail": detail}
 
 
-def _class1_exclusive(root: str, copy: dict) -> list:
+# The gitignored throwaway/runtime subtrees a resumed arrival must not read back as operator collisions.
+# module_coherence.PRUNE_DIRS + the uv TOOL dir `.engine/.uv/` (the sibling of `.venv`; several checks already
+# carry it in their own local prune sets — module_coherence's is the outlier), so a partial arrival that got as
+# far as downloading uv doesn't flag its toolchain (#673 review).
+_RESUME_PRUNE_DIRS = module_coherence.PRUNE_DIRS | {".uv"}
+
+
+def _engine_relpaths(root: str) -> set:
+    """The POSIX relpaths of every file/symlink under `root/.engine` — the concrete set the overlay would place
+    from this tree. Built with the SAME walk as _class1_exclusive (followlinks=False) so the strings match
+    exactly, then compared by EXACT membership (case-sensitive), NEVER os.path.exists: a case-insensitive
+    filesystem (macOS/Windows) would otherwise fold an operator file onto a same-name-different-case engine file
+    and silently drop it — the case-fold trap that bit 47f237c."""
+    out: set = set()
+    eng = os.path.join(root, ".engine")
+    if not os.path.isdir(eng):
+        return out
+    for dirpath, dirs, files in os.walk(eng):
+        for name in list(dirs) + files:
+            p = os.path.join(dirpath, name)
+            if os.path.isfile(p) or os.path.islink(p):
+                out.add(os.path.relpath(p, root).replace(os.sep, "/"))
+    return out
+
+
+def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) -> bool:
+    """Whether a found path inside the engine's OWN corner (.engine/) is the engine's own — a resume of a
+    partial/aborted prior arrival — rather than an operator file. Three signals, in order of completeness:
+    a gitignored throwaway/runtime subtree (a prune-dir name at any depth, or under a PRUNE_PATHS path); a file
+    the OVERLAY itself would place — its relpath is in `release_files`, the release tree's own .engine/ file set,
+    which is the COMPLETE signal on an arrival (the overlay's source IS the release, so module manifests and
+    everything else it carries are recognized, unlike the provides-only `owned` set); else the provides-derived
+    `owned` set (a fallback for a caller with no release tree). Both file signals are EXACT case-sensitive string
+    membership — never a filesystem existence check — so a case-insensitive filesystem can't fold an operator
+    file onto an engine one. The single caller passes only .engine/-prefixed paths, where the operator is not
+    supposed to own anything, so a path-membership resume is sound there (#669)."""
+    segments = rel.split("/")
+    if any(seg in _RESUME_PRUNE_DIRS for seg in segments):
+        return True
+    if any(rel == pp or rel.startswith(pp + "/") for pp in module_coherence.PRUNE_PATHS):
+        return True
+    if release_files is not None and rel in release_files:
+        return True
+    return rel in owned
+
+
+def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=None) -> list:
     """Class 1 — product files/dirs/symlinks sitting at an engine-exclusive path (the engine would replace
     them); lists the concrete occupants. The engine's own corner (.engine/) is WALKED with os.walk, NOT a
     `**` glob: on Python 3.9 a `**` glob silently skips dot-prefixed entries (a hidden-only product .engine/
     would escape) and would follow symlink loops — os.walk does neither (followlinks=False). The named
-    .github artifacts (no hidden names) use a plain glob."""
+    .github artifacts (no hidden names) use a plain glob.
+
+    RESUME (#669): a partial/aborted prior arrival leaves the engine's own overlay and its gitignored
+    .engine/.venv on disk; re-running must not read those back as an enormous operator collision. A found
+    path inside .engine/ is DROPPED (a resume, like class-2's engine-fence detection) when `_is_engine_resume`
+    says it is engine-owned or a throwaway/runtime subtree. The drop is SCOPED to .engine/ deliberately: a
+    .github/ artifact (pull_request_template.md, ISSUE_TEMPLATE/*.md) may be the OPERATOR's own file, and path
+    membership cannot tell a resume from a real collision there — so those always surface (never silently
+    overwritten). The whole #669 flood lives under .engine/, so .engine/-scoping clears it."""
     import glob as _glob
+    owned = set(engine_paths or ())
     found = set()
     eng = os.path.join(root, ".engine")
     if os.path.islink(eng):                             # a symlink standing in for the whole engine corner
@@ -2732,7 +2789,9 @@ def _class1_exclusive(root: str, copy: dict) -> list:
             for name in list(dirs) + files:
                 p = os.path.join(dirpath, name)
                 if os.path.isfile(p) or os.path.islink(p):   # files + symlinked dirs; real subdirs skipped
-                    found.add(os.path.relpath(p, root).replace(os.sep, "/"))
+                    rel = os.path.relpath(p, root).replace(os.sep, "/")
+                    if not _is_engine_resume(rel, owned, release_files):  # #669: skip the engine's own partial overlay
+                        found.add(rel)
     for pattern in (".github/workflows/engine-*.yml", ".github/pull_request_template.md",
                     ".github/ISSUE_TEMPLATE/*.md"):
         for p in _glob.glob(os.path.join(root, pattern)):
@@ -2853,16 +2912,21 @@ def _class3_codeowners(root: str, engine_paths: list, copy: dict) -> list:
     return out
 
 
-def collision_check(*, root=None, engine_paths=None, copy=None) -> dict:
+def collision_check(*, root=None, engine_paths=None, copy=None, release_root=None) -> dict:
     """The brownfield overlap check (pure read, no writes): inspect the project at `root` for the three kinds
     of overlap and return them, each framed as a plain consequence + the three choices. `engine_paths` (the
     set the engine would own — the live caller passes the release-derived set, computed BEFORE the overlay
-    writes) defaults to the engine's own owned set. Returns {collisions, clean, checked}."""
+    writes) defaults to the engine's own owned set. `release_root` (the extracted release tree the overlay
+    copies from) lets class-1 recognize the engine's OWN partial overlay completely on a resume (#669) — its
+    absence falls back to the provides-only `engine_paths`. Returns {collisions, clean, checked}."""
     base = root or validate.ROOT
     copy = copy if copy is not None else load_copy()
     if engine_paths is None:
         engine_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
-    collisions = (_class1_exclusive(base, copy) + _class2_shared(base, copy)
+    # The release's own .engine/ file set (the concrete overlay source) — the COMPLETE resume signal for class-1,
+    # exact-string so a case-insensitive filesystem can't fold an operator file onto an engine one.
+    release_files = _engine_relpaths(release_root) if release_root else None
+    collisions = (_class1_exclusive(base, copy, engine_paths, release_files) + _class2_shared(base, copy)
                   + _class3_codeowners(base, engine_paths, copy))
     return {"collisions": collisions, "clean": not collisions,
             "checked": {"exclusive_globs": len(_COLLISION_EXCLUSIVE_GLOBS),
@@ -2899,12 +2963,38 @@ def _insert_floor(release_tree: str, root_rel: str = _ROOT_CLAUDE_REL) -> str:
     return "inserted"
 
 
+def _preflight(version_info) -> str | None:
+    """The pre-write runtime check for arrival, on the orchestrator's TRUE floor. The apply chain runs on the
+    operator's SYSTEM python (macOS ships 3.9) and materializes the 3.11 venv with uv WITHOUT re-entering it,
+    so 3.9 is SUPPORTED — this is deliberately NOT a 3.11 gate. It catches only a genuinely-too-old interpreter
+    (<3.9) and a stripped stdlib missing a module the orchestrator needs, returning an actionable message that
+    names a compatible command (#669); None means proceed. `version_info` is injected so a test can simulate an
+    unsupported interpreter in-process. tomllib is intentionally NOT probed here — it is degraded in wiring."""
+    if tuple(version_info[:2]) < (3, 9):
+        running = ".".join(str(n) for n in version_info[:3])
+        script = sys.argv[0] if sys.argv and sys.argv[0] else "instantiator.py"
+        return ("this setup needs Python 3.9 or newer to run, but it is running on Python "
+                f"{running}. Nothing was changed. Re-run it with a newer Python, for example:\n"
+                f"    python3.11 {script} arrive --target <your-project>\n"
+                "(macOS system Python 3.9 is fine — the engine builds its own 3.11 runtime from there.)")
+    import importlib.util
+    for mod in ("subprocess", "urllib.request", "hashlib"):   # non-core stdlib the apply chain genuinely needs
+        try:                                                  # a DOTTED name (urllib.request) raises, not
+            present = importlib.util.find_spec(mod) is not None   # returns None, when its parent package is
+        except ModuleNotFoundError:                           # absent — the exact stripped-stdlib case we catch
+            present = False
+        if not present:
+            return (f"this Python is missing the standard-library module '{mod}' that setup needs; nothing was "
+                    "changed. Re-run with a complete Python 3.9-or-newer installation.")
+    return None
+
+
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
            keep=None, declined=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
-           control_repo=None, control_token=None) -> dict:
+           control_repo=None, control_token=None, version_info=None) -> dict:
     """BROWNFIELD ARRIVAL (#234) — overlay the engine onto a LIVE
     product tree and run the SAME instantiator, with the collision check as the one brownfield-only gate. The
     engine isn't on the target yet, so this runs from the EXTRACTED release (`release_tree`, the documented
@@ -2941,6 +3031,12 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
               "overlaid": [], "floor": None, "agents_floor": None, "tier": None, "team": None, "steps": [],
               "pr": None}
     with _redirect_root(target_root):
+        # (0) PREFLIGHT — before any read or write, on the orchestrator's TRUE floor (>=3.9). Fail fast and
+        # safe on a genuinely-unsupported interpreter so a runtime mismatch can never leave a partial install
+        # (#669). NOT a 3.11 gate: 3.9 is the supported floor (apply runs on it; uv builds the 3.11 venv).
+        _pf = _preflight(version_info if version_info is not None else sys.version_info)
+        if _pf:
+            return {**result, "stopped_on": "preflight", "reason": _pf}
         copy = load_copy()
         # The target's own owner/repo — the single aim for every live GitHub write (never the process cwd).
         slug = control_repo if control_repo is not None else _target_slug(target_root)
@@ -2954,7 +3050,8 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                     "reason": "the engine release looks empty or unreadable, so the arrival stopped and "
                               "nothing was changed."}
         # (1) READ-ONLY collision check, BEFORE any write.
-        check = collision_check(root=target_root, engine_paths=release_paths, copy=copy)
+        check = collision_check(root=target_root, engine_paths=release_paths, copy=copy,
+                                release_root=release_tree)
         result["collisions"] = check["collisions"]
         say(copy["collision-intro"] if check["collisions"] else copy["collision-none"])
         # (2) Surface each overlap, then the team-tier recommendation. Read-only.
@@ -3014,11 +3111,15 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
                 default_branch=default_branch or target_default_branch,
                 declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
+        # control_checkless=True: brownfield arrival protects main but does NOT require the engine's own checks
+        # yet — their workflows land in THIS arrival PR and aren't on the branch until it merges, so requiring
+        # them now would deadlock the very PR that carries them. `bootstrap.py finalize` binds them post-merge
+        # (#673).
         applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
                         uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                         consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
                         control_issues=control_issues, control_repo=slug,
-                        control_token=control_token, handle=handle, brownfield=True)
+                        control_token=control_token, handle=handle, brownfield=True, control_checkless=True)
         result["steps"] = applied.get("steps", [])
         result["tier"] = tier or "solo"
         if applied.get("refused") or applied.get("halted"):
@@ -3042,10 +3143,31 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             # `Feature:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): arriving in a
             # project is a new capability, and the prefix is what groups it in the deployed repo's release notes.
             title = "Feature: add the engine to this project"
+            # The protection sentence is CONDITIONAL on what actually happened: the control-plane step degrades
+            # LOUD but does not halt (e.g. a sign-in that can't administer the repo), and the arrival still opens
+            # this pull request — so a categorical "protection is on" claim could be false on that path.
+            protected = any(s.get("step") == "control-plane" and s.get("protected") for s in result["steps"])
+            if protected:
+                protection_line = (
+                    "Branch protection for the main branch has already been turned on as part of this arrival "
+                    "(a change now needs a reviewed pull request, and the branch cannot be force-pushed or "
+                    "deleted). What this pull request adds is the engine's files themselves — including the "
+                    "workflows for its own checks. ")
+            else:
+                protection_line = (
+                    "Branch protection for the main branch could NOT be turned on during this arrival (the "
+                    "setup output explains why — usually a sign-in that cannot administer the repository), so "
+                    "it is not on yet. Merging this pull request adds the engine's files — including the "
+                    "workflows for its own checks. ")
             body = ("This pull request adds the engine to the project: its files are placed in their own "
                     "namespaced corners, any overlap with the project's own files was surfaced and settled, "
                     "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
-                    "Merging it turns on the review gate; reverting it removes the engine again.")
+                    + protection_line +
+                    "ONE STEP REMAINS AFTER YOU MERGE: the engine's own checks (engine-ci, engine-guard) cannot "
+                    "be *required* until their workflows are on the main branch — which only happens once this "
+                    "merges. After merging, run `python .engine/tools/bootstrap.py finalize` from the project to "
+                    "turn those required checks on (it also turns on the branch-protection floor itself if this "
+                    "arrival could not). Reverting this pull request removes the engine's files again.")
             try:
                 result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
             except Exception as pr_exc:  # noqa: BLE001 — the engine IS installed; only publishing the PR failed
@@ -3620,7 +3742,7 @@ def main(argv: list) -> int:
             print(res.get("reason") or "The engine arrived: its files are in place, every overlap was "
                   "settled, and the change is open for you to review and approve.")
             return 0
-        if res.get("stopped_on") in ("release", "overlay"):
+        if res.get("stopped_on") in ("release", "overlay", "preflight"):
             print(res.get("reason"))
             return 1
         if res.get("stopped_on"):                       # an --accept-all run the operator stopped at an overlap

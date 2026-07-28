@@ -290,8 +290,10 @@ def protected_branch_signal(repo: str | None, token: str | None,
     evaluation), in three honest states:
       ("off", reason)       -> the gate is NOT in force: a pinned governance alarm that OFFERS the fix.
                                boot stays read-only and only offers; the assistant runs the already-built,
-                               idempotent one-click apply (bootstrap.ControlPlane.apply) on the operator's
-                               consent — the shared repair-offer contract (boot-session-start.md).
+                               idempotent one-click `bootstrap.py finalize` (bootstrap.ControlPlane.finalize —
+                               apply plus the workflows-present guard, so it can't re-deadlock a freshly-arrived
+                               repo) on the operator's consent — the shared repair-offer contract
+                               (boot-session-start.md).
       ("on", None)          -> the gate fully bites: no alarm.
       ("unknown", None)     -> boot could not verify it (no token/repo/unreachable): a clear degraded line
                                that must NEVER read as a green all-clear.
@@ -1746,9 +1748,13 @@ def render_dashboard(s: dict) -> str:
 
     if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
-        # bootstrap.ControlPlane.apply() on the operator's consent — the shared repair-offer contract
-        # (boot-session-start.md), which resolves the same authoritative default branch this line names. boot
-        # never imports bootstrap (bootstrap imports boot -> a cycle) and never applies the fix itself.
+        # `bootstrap.py finalize` (bootstrap.ControlPlane.finalize) on the operator's consent — the shared
+        # repair-offer contract (boot-session-start.md), which resolves the same authoritative default branch
+        # this line names. finalize, NOT the raw apply, is the deployed remediation: it is apply plus a
+        # workflows-present guard, so on a freshly-arrived repo whose engine checks aren't yet bound (the #673
+        # checkless window) it binds them safely — and refuses rather than deadlock if the workflows aren't on
+        # the branch yet. boot never imports bootstrap (bootstrap imports boot -> a cycle) and never applies the
+        # fix itself: read-only of canonical state.
         branch = s.get("protected_branch") or PROTECTED_BRANCH
         pinned.append(
             f"⛔ **Your safety gate is off** — `{branch}` isn't protected, so unreviewed work "
@@ -2385,9 +2391,10 @@ def _pushed_alarms(s: dict) -> list:
     alarms: list = []
     if s["gate"] == "off":
         # full + terse BOTH carry the fix offer (spec: the terse collapse "still carries the offer to fix
-        # it"). The offer is a plain-language handle — the assistant runs bootstrap.ControlPlane.apply on
-        # consent (boot-session-start.md); it names the one-time GitHub permission, never an over-promised
-        # silent flip. terse keeps a COMPACT handle so the collapse still buys brevity.
+        # it"). The offer is a plain-language handle — the assistant runs bootstrap.ControlPlane.finalize on
+        # consent (boot-session-start.md; finalize, not the raw apply, so it can't re-deadlock a freshly-arrived
+        # repo); it names the one-time GitHub permission, never an over-promised silent flip. terse keeps a
+        # COMPACT handle so the collapse still buys brevity.
         branch = s.get("protected_branch") or PROTECTED_BRANCH
         full = (f"{RELAY_MARKER} their safety gate is off — `{branch}` isn't protected, so "
                 f"unreviewed work could reach it ({s['reason']}); tell them they can say "
