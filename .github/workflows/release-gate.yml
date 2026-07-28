@@ -1,0 +1,48 @@
+# The deployment gate, on demand. The release cut runs this same gate automatically (release.yml); this
+# workflow lets a maintainer run it against the current default branch BETWEEN cuts — so a deployment-shape
+# regression that landed since the last cut is found before the next one, without re-running it on every pull
+# request. It only reads and reports; it changes nothing and opens nothing.
+name: release-gate
+run-name: Deployment gate — check the current branch operates and upgrades when deployed (run between release cuts)
+
+on:
+  workflow_dispatch:
+
+# Read-only: this workflow builds throwaway projections in the runner and reports. It needs no write scope and
+# no secrets — it never pushes, opens a pull request, or touches the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history + tags: the upgrade arm archives real past-release tags to project their deployed shape.
+          fetch-depth: 0
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.8"
+      - name: Materialize the engine tool-runtime
+        run: uv sync --directory .engine --frozen
+      - name: Run the deployment gate against the current tree
+        run: |
+          set -uo pipefail
+          # No --json: the gate prints its plain-language result to the log (the reader's signal).
+          uv run --directory .engine --frozen -- python tools/release_gate.py
+          gate_rc=$?
+          if [ "${gate_rc}" -ne 0 ]; then
+            echo "::error::This tree would not operate or upgrade cleanly when deployed. See the plain-language reason in the step log above. Nothing was changed — this workflow only reads and reports."
+            echo "### Deployment gate: BLOCKED — this tree would not operate or upgrade cleanly when deployed. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          echo "### Deployment gate: passed — this tree operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"

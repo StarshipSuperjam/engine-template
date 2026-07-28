@@ -176,6 +176,47 @@ jobs:
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/knowledge_gen.py generate
           uv run --directory .engine --frozen -- python tools/self_map.py generate
+      # Deployment gate (#664): prove this release OPERATES and UPGRADES when deployed BEFORE the pull request
+      # is written or opened. Placed after the map refresh and before the PR steps, so a red fails the job and
+      # NO pull request is ever opened (the branch/commit/push all live in the final step). Fails CLOSED: any
+      # block or setup error exits nonzero and stops the cut. The gate is home-repo only; a deployed repo
+      # cutting ITS OWN product runs it inert (ran=false), which is correct — but on a genuine ENGINE cut it
+      # MUST run, so if this IS the engine's home repo (github.repository == the recorded home, an independent
+      # signal) yet the gate reported it did not run, that is an origin-signal misdetection and the cut fails
+      # closed rather than shipping the engine ungated.
+      - name: Verify the release operates and upgrades when deployed
+        timeout-minutes: 60
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          out="${RUNNER_TEMP}/deployment-gate.json"
+          # No --json here: the gate prints its PLAIN-LANGUAGE render to the log (the operator's signal), and
+          # --json-out writes the machine-readable result to a file for the home/ran misdetection check below.
+          uv run --directory .engine --frozen -- python tools/release_gate.py --json-out "${out}"
+          gate_rc=$?
+          if [ "${gate_rc}" -ne 0 ]; then
+            echo "::error::This release would not operate or upgrade cleanly when deployed, so no release pull request was opened and nothing was changed. See the plain-language reason in the step log above; fix the problem and cut the release again (a transient infrastructure hiccup clears by re-running the release-gate workflow)."
+            echo "### Deployment gate: BLOCKED — the release was not opened. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          # The gate's home-repo signal reads the on-disk git origin; this is the INDEPENDENT context signal.
+          # Compare case-insensitively (owner/repo casing is not significant), matching is_home_repo's fold.
+          # These reads use plain `python3` (present on the runner) so the RELATIVE engine.json path resolves
+          # from the workspace root — NOT `uv run --directory .engine`, which would chdir and break the path.
+          home="$(python3 -c "import json; print(json.load(open('.engine/engine.json')).get('home_repository','').lower())")"
+          ran="$(python3 -c "import json; print(json.load(open('${out}')).get('ran'))")"
+          gh_repo="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          if [ "${gh_repo}" = "${home}" ] && [ "${ran}" != "True" ]; then
+            echo "::error::The deployment gate did not run on an engine release cut (the engine could not recognize its own repository), so the release was stopped and nothing was changed. This is an engine defect to report."
+            echo "### Deployment gate: BLOCKED — it did not run on an engine cut" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          if [ "${ran}" = "True" ]; then
+            echo "### Deployment gate: passed — verified this release operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "### Deployment gate: not applicable here — this repository does not run the engine's own deployment gate (its own engine-ci runs the suite directly)" >> "${GITHUB_STEP_SUMMARY}"
+          fi
       # Render the pull-request body from the proposal + the recorded versions — the maintainer's whole evidence
       # bundle, authored by the tool (never composed in this shell) so the readiness legibility has one home.
       - name: Write the release pull-request summary
