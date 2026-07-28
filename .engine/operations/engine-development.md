@@ -74,6 +74,10 @@ decisions behind; nothing is left dangling.
   any observable behavior — the per-PR catch for a semantic divergence, never reserved for "foundational" steps.
 - **Tests are wired through the review** — a green test name is never trusted alone; the cold lens attests
   name↔assertion fidelity, and load-bearing tests get a behavioral demo.
+- **One home for a moment in time.** Every read, format, or parse of a moment goes through
+  `.engine/tools/moment.py`; its docstring carries the two binding laws — wall-clock reads (`utc_now`,
+  `today_utc`) are IO-edge only per `eADR-0032`, and emit is strict while ingest is tolerant. No tool
+  hand-rolls the trailing-Z shape, a `.replace("Z", …)` parse, or a local-clock calendar day.
 - **Guardrail-weakening is always surfaced at the merge** and clears only via the deliberate `guardrail-ack`.
 - **Consequential PRs carry a visibly weightier consent surface** so they are not rubber-stamped across many
   small green PRs.
