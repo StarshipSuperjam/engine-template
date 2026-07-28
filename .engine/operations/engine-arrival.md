@@ -33,13 +33,19 @@ local copy on the project, which the engine retires after setup.
    their file, or settle on the team or solo setup). If the check found no overlaps, there is nothing to settle
    — go straight to the next step. Nothing has been changed at this point.
 4. **Add the engine.** Once the overlaps are settled, run the same command with `--accept-all`, plus the owner's
-   reviewer choice and any add-ons kept (for example
-   `arrive --target <project-path> --accept-all --tier team --keep "" --handle their-account`). The engine is
-   placed alongside the project; its working-guide block is inserted into the project's own CLAUDE.md, keeping
-   the owner's content; a security-contact file is seeded only if the project has none; the project's README and
-   LICENSE are left exactly as they are; the reviewer is set; the review gate is turned on; and the whole
-   arrival is opened as a single pull request. If an overlap was not accepted, the run stops and changes
-   nothing — sort it out and run the arrival again.
+   reviewer choice and any add-on choices (for example
+   `arrive --target <project-path> --accept-all --tier team --keep "" --decline "memory-semantic-recall" --handle their-account`).
+   Add-ons are chosen by name: `--keep "a,b"` turns on the optional add-ons the owner wants, and
+   `--decline "x,y"` turns off any add-on that is on by default but the owner would rather leave out — the
+   smaller starting profile that suits adopting the engine incrementally (naming the same add-on in both is
+   refused before anything is written; a declined add-on can be added later — see
+   [add a module](module-add.md), an install, not a toggle). The engine is placed alongside the project; its working-guide floor is inserted into the project's
+   own CLAUDE.md **and** AGENTS.md — the two runtime instruction files the engine keeps as a matched pair —
+   keeping the owner's content; the engine records where it fetches its own updates from, carried from the
+   release; a security-contact file is seeded only if the project has none; the project's README and LICENSE are
+   left exactly as they are; the reviewer is set; the review gate is turned on; and the whole arrival is opened
+   as a single pull request. If an overlap was not accepted, the run stops and changes nothing — sort it out and
+   run the arrival again.
 5. **Review and merge the pull request.** The arrival lands as one pull request the owner approves. Until it is
    merged, the project's main branch is unchanged; merging it is the owner's consent, and reverting it removes
    the engine again.

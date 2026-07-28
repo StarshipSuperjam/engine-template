@@ -574,7 +574,8 @@ def _existing_packages(root: str | None) -> dict:
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
             default_branch: str | None = None, product_repository: str | None = None,
-            declined_ids: list | None = None, manifests=None) -> dict:
+            declined_ids: list | None = None, home_repository: str | None = None,
+            manifests=None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint. Records the engine release,
     the identity tier, the kept package set (the always-present required spine, plus the optional features the
     operator kept, plus any `default-on` feature they did not decline by name in `declined_ids` — anything not
@@ -589,6 +590,14 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     `default_branch`, and `manifests` (for the dependency closure) are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
     declined = set(declined_ids or [])
+    # A module named in BOTH keep and decline is a contradictory choice, not a resolvable one — refuse it
+    # loudly rather than silently letting one win. This is the shared backstop; the brownfield arrival path
+    # ALSO validates this before its first write (arrive() is not the first writer — the overlay precedes it),
+    # so a contradictory arrival changes nothing rather than half-writing the live tree and failing here.
+    contradictory = kept & declined
+    if contradictory:
+        raise ValueError("a module can't be both kept and declined — contradictory: "
+                         + ", ".join(sorted(contradictory)))
     manifests = manifests if manifests is not None else module_coherence.discover_manifests()
     # A default-on module missing from an already-written manifest was declined before. Only a manifest that
     # actually records packages counts: an absent or empty one means no choice has been made yet, not that
@@ -628,8 +637,13 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
         written["default_branch"] = default_branch
     # Carry the engine's update HOME forward from the traveled/seed manifest (#367): it is
     # seeded as data in the template and preserved across setup like the release, not derived here. Omitted
-    # when absent so a manifest without it stays valid.
-    home_repository = _existing_home_repository(root)
+    # when absent so a manifest without it stays valid. Precedence is EXISTING-WINS: an already-recorded home
+    # (a resumed/re-run setup, or a template-copied greenfield manifest) is never clobbered; the passed
+    # `home_repository` is the FALLBACK the brownfield arrival supplies from the RELEASE manifest, because a
+    # brownfield target has no engine.json yet (engine.json is excluded from the overlay) so nothing else can
+    # carry the release's home to the deployed manifest (#670). NOTE the order is the opposite of
+    # product_repository below (passed-wins there) — do not copy that sibling's precedence here.
+    home_repository = _existing_home_repository(root) or (home_repository or "").strip() or None
     if home_repository:
         written["home_repository"] = home_repository
     # The PRODUCT coordinate — the repo this engine works ON when that differs from the repo it is deployed
@@ -1261,6 +1275,7 @@ def _seed_license(say, copy=None) -> str:
 # writer runs at first-run, and the upgrade/arrival paths read the floor as the `floor` fence out of the
 # release's root CLAUDE.md (module_manager._read_release_floor / _insert_floor).
 _ROOT_CLAUDE_REL = "CLAUDE.md"
+_ROOT_AGENTS_REL = "AGENTS.md"                      # the Codex floor — arrival's second instruction-floor half
 _FLOOR_FENCE = "floor"
 
 
@@ -1982,6 +1997,14 @@ def _build_fixture(root: str) -> None:
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
         fh.write(wiring.fence_apply("", _FLOOR_FENCE,
                  ["# Your project runs on an Engine", "", "I show a Project status block first each session."],
+                 style=wiring.MD_FENCE))
+    # A "Use this template" copy also inherits the committed root AGENTS.md — the Codex runtime's floor, the
+    # exact sibling of CLAUDE.md (since #323 both root files ARE the fenced adopter floor). Plant it fenced so the
+    # fixture faithfully models the published template's dual-runtime floor pair (provider_parity_check requires
+    # both) and so the arrival path's AGENTS.md floor-insert has a real source to read.
+    with open(os.path.join(root, "AGENTS.md"), "w", encoding="utf-8") as fh:
+        fh.write(wiring.fence_apply("", _FLOOR_FENCE,
+                 ["# Your project runs on an Engine", "", "Codex reads this floor the same as Claude reads CLAUDE.md."],
                  style=wiring.MD_FENCE))
 
 
@@ -2841,26 +2864,24 @@ def collision_check(*, root=None, engine_paths=None, copy=None) -> dict:
                         "shared_files": len(_COLLISION_SHARED), "engine_paths": len(engine_paths)}}
 
 
-def _insert_floor(release_tree: str) -> str:
-    """Insert the engine's root-CLAUDE.md floor into the LIVE project's own CLAUDE.md on arrival — the engine
+def _insert_floor(release_tree: str, root_rel: str = _ROOT_CLAUDE_REL) -> str:
+    """Insert the engine's root instruction floor into the LIVE project's own root file on arrival — the engine
     `floor` fence, keyed and APPEND-when-absent (wiring.fence_apply, MD_FENCE), so an operator's existing guide
-    keeps all its content and the engine adds its section below it. The floor body is the `floor` fence extracted
-    from the RELEASE's committed root CLAUDE.md — the promoted adopter floor (#323) — NOT the construction body
-    and NOT the target. This is the INSERT-on-arrival counterpart to module_manager's SKIP-on-absent
-    _merge_claude_floor (the upgrade path, which must never duplicate a floor): arrival is the one path that
-    creates the fence. Returns 'inserted' | 'present' (a floor is already there — a resume, no duplicate) |
-    'skipped' (the release ships no floor — its root file is absent or carries no/malformed `floor` fence) |
-    'degraded' (a malformed LOCAL fence — left untouched). Paths are validate.ROOT-relative, so a redirected
-    arrival writes only the live target."""
-    src = os.path.join(release_tree, _ROOT_CLAUDE_REL)
-    try:
-        floor_lines = wiring.fence_read(_read_text_opt(src) or "", _FLOOR_FENCE,
-                                        style=wiring.MD_FENCE) if os.path.isfile(src) else None
-    except wiring.WiringError:
-        floor_lines = None                          # a malformed release fence is no usable source → skipped
-    if not floor_lines or not any(ln.strip() for ln in floor_lines):
-        return "skipped"
-    local_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    keeps all its content and the engine adds its section below it. `root_rel` selects which floor: CLAUDE.md (the
+    Claude runtime) or AGENTS.md (the Codex runtime) — arrival installs BOTH as the validated pair
+    provider_parity_check requires, so a brownfield repo with no AGENTS.md gets one created fresh. The floor body
+    is the `floor` fence extracted from the RELEASE's committed root file — the promoted adopter floor (#323) —
+    read through module_manager._read_release_floor so the arrival and upgrade paths never diverge on what counts
+    as a usable floor — NOT the construction body and NOT the target. This is the INSERT-on-arrival counterpart
+    to module_manager's SKIP-on-absent _merge_floor (the upgrade path, which must never duplicate a floor):
+    arrival is the one path that creates the fence. Returns 'inserted' | 'present' (a floor is already there — a
+    resume, no duplicate) | 'skipped' (the release ships no floor for this file — its root file is absent or
+    carries no/malformed `floor` fence) | 'degraded' (a malformed LOCAL fence — left untouched). Paths are
+    validate.ROOT-relative, so a redirected arrival writes only the live target."""
+    floor_lines = module_manager._read_release_floor(release_tree, root_rel)
+    if not floor_lines:
+        return "skipped"                            # no usable floor for this file in the release → nothing to insert
+    local_path = os.path.join(validate.ROOT, root_rel)
     local = _read_text_opt(local_path) or "" if os.path.isfile(local_path) else ""
     try:
         if wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
@@ -2874,7 +2895,7 @@ def _insert_floor(release_tree: str) -> str:
 
 
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
-           keep=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
+           keep=None, declined=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
@@ -2903,8 +2924,17 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
     decide = decide if decide is not None else (lambda c: "abort")
     if not release_tree:
         raise ValueError("arrive needs the extracted engine release tree (release_tree).")
+    # Reject a contradictory keep/decline BEFORE the first write. arrive() is NOT the first writer — the module
+    # overlay (step 4) and the floor inserts (step 5) precede confirm's own backstop — so a mistyped
+    # `--keep X --decline X` must be caught here, at the same place the collision loop stops before writing,
+    # rather than half-overlaying the live tree and failing at confirm. (#670/#674 plan-gate finding.)
+    contradictory = set(keep or []) & set(declined or [])
+    if contradictory:
+        raise ValueError("a module can't be both kept and declined — contradictory: "
+                         + ", ".join(sorted(contradictory)))
     result = {"proceeded": False, "surfaced": False, "stopped_on": None, "reason": None, "collisions": [],
-              "overlaid": [], "floor": None, "tier": None, "team": None, "steps": [], "pr": None}
+              "overlaid": [], "floor": None, "agents_floor": None, "tier": None, "team": None, "steps": [],
+              "pr": None}
     with _redirect_root(target_root):
         copy = load_copy()
         # The target's own owner/repo — the single aim for every live GitHub write (never the process cwd).
@@ -2965,12 +2995,20 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                 release_tree, candidates, project_retire=False, exclude=exclude)
         except module_manager._UpgradeRefused as ur:
             return {**result, "stopped_on": "overlay", "reason": ur.reason}
-        # (5) INSERT the engine floor into the operator's own CLAUDE.md (keyed, append-when-absent).
-        result["floor"] = _insert_floor(release_tree)
+        # (5) INSERT the engine instruction floor into the operator's own root files (keyed, append-when-absent)
+        # — BOTH runtimes as the validated pair provider_parity_check requires: CLAUDE.md (Claude) and AGENTS.md
+        # (Codex). A brownfield repo with no AGENTS.md gets one created fresh; each outcome is recorded on its own
+        # key so a 'skipped'/'degraded' floor on either runtime stays visible in the result, never overwritten.
+        result["floor"] = _insert_floor(release_tree, _ROOT_CLAUDE_REL)
+        result["agents_floor"] = _insert_floor(release_tree, _ROOT_AGENTS_REL)
         # (6) Run the SAME instantiator: confirm (the checkpoint) → apply → verify → retire. The control-plane
         # args carry the TARGET's slug so branch protection + native scanning land on the target, not the cwd.
+        # `declined` names any default-on add-on the operator turned down (--decline); `home_repository` carries
+        # the RELEASE manifest's update home, which the overlay can't deliver (engine.json is excluded) — the one
+        # path by which a brownfield deployment learns where to fetch its own updates (#670).
         confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
-                default_branch=default_branch or target_default_branch)
+                default_branch=default_branch or target_default_branch,
+                declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
         applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
                         uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                         consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
@@ -3003,7 +3041,17 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                     "namespaced corners, any overlap with the project's own files was surfaced and settled, "
                     "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
                     "Merging it turns on the review gate; reverting it removes the engine again.")
-            result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
+            try:
+                result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
+            except Exception as pr_exc:  # noqa: BLE001 — the engine IS installed; only publishing the PR failed
+                # The engine is fully installed (apply/verify/retire all ran); only publishing it as a pull
+                # request failed. The opener's own message states ACCURATELY what failed and how to recover —
+                # whether the branch was pushed (open the PR by hand) or a git step failed first (the branch is
+                # not pushed; clear a leftover branch and re-run) — so surface it rather than asserting a fixed
+                # "branch is pushed" the git-failure case would contradict. (#672.)
+                return {**result, "proceeded": True,
+                        "reason": "the engine is installed, but publishing the arrival as a pull request did "
+                                  f"not finish: {pr_exc}"}
         result["proceeded"] = True
     return result
 
@@ -3232,6 +3280,8 @@ def arrival_demo() -> bool:
                      announce=quiet, opener=lambda **kw: prs.append(kw) or {"number": 1}, **faked)
         guide = _read_text_or(os.path.join(target, "CLAUDE.md"), "")
         floors = guide.count(wiring._MD_FENCE_BEGIN_TOKEN)
+        agents = _read_text_or(os.path.join(target, "AGENTS.md"), "")
+        agents_floors = agents.count(wiring._MD_FENCE_BEGIN_TOKEN)
         engine_landed = os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json"))
         checks = {
             "the arrival proceeded": res["proceeded"],
@@ -3239,6 +3289,8 @@ def arrival_demo() -> bool:
             "a team was detected and recommended": bool(res.get("team", {}).get("detected")),
             "the engine's files were overlaid onto the product": engine_landed and len(res["overlaid"]) > 0,
             "exactly one engine floor was inserted into the project's CLAUDE.md": floors == 1,
+            "the Codex instruction floor (AGENTS.md) was created as the runtime pair": agents_floors == 1
+                and res.get("agents_floor") == "inserted",
             "the project's own guide text was kept": "How we work here." in guide,
             "the project's SECURITY file was left as it is": "security@ourproduct.example" in
                 _read_text_or(os.path.join(target, "SECURITY.md"), ""),
@@ -3444,6 +3496,11 @@ def main(argv: list) -> int:
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         # The other half of a `default-on` add-on: it is included unless the operator names it here.
         decline = [k for k in (_flag_value(argv, "--decline") or "").split(",") if k]
+        contradictory = set(keep) & set(decline)
+        if contradictory:                           # confirm() refuses this too; catch it here for a clean message
+            print("A module can't be both kept and declined. Contradictory: "
+                  + ", ".join(sorted(contradictory)) + ". Nothing was changed.")
+            return 2
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
@@ -3520,6 +3577,15 @@ def main(argv: list) -> int:
         target = _flag_value(argv, "--target") or os.getcwd()
         release = _flag_value(argv, "--release-tree") or validate.ROOT
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
+        # The other half of a `default-on` add-on: it is included unless the operator names it here — the same
+        # explicit decline the `confirm` CLI already offers, now reachable through the real arrival interface
+        # (#674). A default-on module the operator declines is left out of the arrival.
+        decline = [k for k in (_flag_value(argv, "--decline") or "").split(",") if k]
+        contradictory = set(keep) & set(decline)
+        if contradictory:                           # a trivially-detectable input error — refuse BEFORE any write
+            print("A module can't be both kept and declined. Contradictory: "
+                  + ", ".join(sorted(contradictory)) + ". Nothing was changed.")
+            return 2
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         ref = _flag_value(argv, "--engine-release")
@@ -3527,13 +3593,25 @@ def main(argv: list) -> int:
         decide = (lambda c: "accept") if accept_all else (lambda c: "abort")
         opener = module_manager._open_upgrade_pr if accept_all else None
         try:
-            res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep, tier=tier,
-                         handle=handle, decide=decide, apply_changes=accept_all, opener=opener)
+            res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep,
+                         declined=decline, tier=tier, handle=handle, decide=decide, apply_changes=accept_all,
+                         opener=opener)
         except Exception as exc:  # noqa: BLE001 — a live write to someone's project must never end in a raw
             print(f"The arrival hit an unexpected problem and stopped: {exc}. Check the project's working "  # traceback
                   "tree, undo any partial change with git if needed, and run the arrival again.")
             return 1
         if res["proceeded"]:
+            # Surface a floor that did not land — the two causes need different guidance: 'degraded' means the
+            # project's OWN file has a malformed engine block (check that file), while 'skipped' means the
+            # release shipped no floor for it (an engine packaging problem to report, nothing local to fix).
+            for name, status in (("CLAUDE.md", res.get("floor")), ("AGENTS.md", res.get("agents_floor"))):
+                if status == "degraded":
+                    print(f"Note: the engine's instruction floor could not be added to {name} because that file "
+                          f"has a malformed engine block — check {name} before relying on the engine.")
+                elif status == "skipped":
+                    print(f"Note: the engine release shipped no instruction floor for {name}, so none was "
+                          f"installed — this is an engine packaging issue to report, not something to fix in "
+                          f"your project.")
             print(res.get("reason") or "The engine arrived: its files are in place, every overlap was "
                   "settled, and the change is open for you to review and approve.")
             return 0

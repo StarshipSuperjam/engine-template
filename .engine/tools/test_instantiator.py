@@ -391,6 +391,36 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0")
             self.assertNotIn("home_repository", res["manifest"])
 
+    def test_uses_the_passed_home_when_none_is_recorded(self):
+        # #670: a brownfield arrival supplies the RELEASE manifest's home as the fallback, because the target
+        # has no engine.json yet (it is excluded from the overlay). With nothing recorded, the passed value is
+        # written — the one path by which a brownfield deployment learns where to fetch its own updates.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0", home_repository="acme/engine-template")
+            self.assertEqual(res["manifest"]["home_repository"], "acme/engine-template")
+
+    def test_recorded_home_wins_over_the_passed_home(self):
+        # EXISTING-WINS precedence: an already-recorded home (a resumed/re-run setup, or a re-arrival) is never
+        # clobbered by the passed release fallback — the opposite order from product_repository. So a re-arrival
+        # can not silently repoint an operator's established update home.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            inst._write_json(inst._engine_manifest_path(d),
+                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo",
+                              "home_repository": "operator/their-home"})
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", home_repository="acme/engine-template")
+            self.assertEqual(res["manifest"]["home_repository"], "operator/their-home")
+
+    def test_rejects_a_module_both_kept_and_declined(self):
+        # #674: naming a module in BOTH keep and decline is a contradictory choice, not a resolvable one — it is
+        # refused loudly rather than silently letting one win. The guard fires before any manifest read.
+        with self.assertRaises(ValueError) as ctx:
+            inst.confirm(["onby"], "solo", engine_release="1.0.0", declined_ids=["onby"])
+        self.assertIn("onby", str(ctx.exception))
+
     def test_persists_an_external_product_repository(self):
         # eADR-0026: when the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
         # named product is recorded. It validates against the (closed) engine schema.
@@ -1813,6 +1843,60 @@ class TestApplyCli(unittest.TestCase):
             self.assertTrue(inst.is_provisioned(d), "confirm wrote the checkpoint")
 
 
+class TestDeclineCli(unittest.TestCase):
+    """#674 — the operator-facing `--decline` on the confirm/arrive CLIs: it drops a default-on add-on by name,
+    and a contradictory keep+decline is refused (exit 2) with a plain message before anything is written."""
+
+    def _fixture_with_default_on(self, d):
+        inst._build_fixture(d)
+        inst._write_json(os.path.join(d, ".engine", "modules", "onby", "manifest.json"),
+                         {"id": "onby", "version": "1.0.0", "status": "default-on", "provides": {}, "depends": {}})
+
+    def test_confirm_cli_declines_a_default_on_module(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            self._fixture_with_default_on(d)
+            with inst._redirect_root(d), contextlib.redirect_stdout(io.StringIO()):
+                rc = inst.main(["confirm", "--tier", "solo", "--keep", "", "--decline", "onby",
+                                "--handle", "octocat"])
+            self.assertEqual(rc, 0)
+            with open(inst._engine_manifest_path(d), encoding="utf-8") as fh:
+                self.assertNotIn("onby", json.load(fh)["packages"])       # --decline dropped it through the CLI
+
+    def test_confirm_cli_keeps_a_default_on_module_when_not_declined(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            self._fixture_with_default_on(d)
+            with inst._redirect_root(d), contextlib.redirect_stdout(io.StringIO()):
+                rc = inst.main(["confirm", "--tier", "solo", "--keep", "", "--handle", "octocat"])
+            self.assertEqual(rc, 0)
+            with open(inst._engine_manifest_path(d), encoding="utf-8") as fh:
+                self.assertIn("onby", json.load(fh)["packages"])          # default-on → kept when not declined
+
+    def test_confirm_cli_refuses_a_contradiction(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            self._fixture_with_default_on(d)
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["confirm", "--tier", "solo", "--keep", "onby", "--decline", "onby",
+                                "--handle", "octocat"])
+            self.assertEqual(rc, 2)
+            self.assertIn("both kept and declined", buf.getvalue())
+            self.assertFalse(inst.is_provisioned(d), "a contradiction writes nothing")
+
+    def test_arrive_cli_refuses_a_contradiction_before_any_work(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "p"); os.makedirs(target)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = inst.main(["arrive", "--target", target, "--keep", "x", "--decline", "x"])
+            self.assertEqual(rc, 2)
+            self.assertIn("both kept and declined", buf.getvalue())
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
+
+
 class TestFirstRunVerbGuards(unittest.TestCase):
     """#297 — the one-time lifecycle verbs refuse a bare hand-run so re-running them on an already-set-up project
     (or in this workshop) never re-fires the file-replacing setup steps. All three are gated by the `--first-run`
@@ -2698,6 +2782,24 @@ class TestInsertFloor(unittest.TestCase):
             with inst._redirect_root(tgt):
                 self.assertEqual(inst._insert_floor(rel), "degraded")
 
+    def test_agents_floor_is_created_from_the_release_and_skipped_when_absent(self):
+        # The AGENTS.md half runs the identical logic under a different root_rel: a target with no AGENTS.md gets
+        # one created from the release's AGENTS.md `floor` fence; a release carrying no AGENTS.md floor is skipped.
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            rel, tgt = os.path.join(d, "rel"), os.path.join(d, "tgt")
+            os.makedirs(rel); os.makedirs(tgt)
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel, inst._ROOT_AGENTS_REL), "skipped")   # no source floor
+            with open(os.path.join(rel, "AGENTS.md"), "w", encoding="utf-8") as fh:
+                fh.write(wiring.fence_apply("", inst._FLOOR_FENCE, ["# Engine", "", "Codex floor."],
+                                            style=wiring.MD_FENCE))
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel, inst._ROOT_AGENTS_REL), "inserted")   # created fresh
+                self.assertEqual(inst._insert_floor(rel, inst._ROOT_AGENTS_REL), "present")    # never duplicated
+            after = inst._read_text_or(os.path.join(tgt, "AGENTS.md"), "")
+            self.assertEqual(after.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)
+
 
 def _arrive_fakes():
     """Every external boundary arrive() threads into apply/detect_team faked, so the REAL arrival runs with
@@ -2825,6 +2927,134 @@ class TestArrive(unittest.TestCase):
                         opener=lambda **k: {"number": 1}, **_arrive_fakes())
         self.assertTrue(inst._assert_real_files_unchanged(snap))
         self.assertEqual(validate.ROOT, root_before)   # ROOT restored after arrive's redirect
+
+    def test_accept_inserts_both_instruction_floors_claude_and_agents(self):
+        # #670: arrival installs BOTH root instruction floors as the pair provider_parity_check requires — the
+        # bug was CLAUDE.md alone, which hard-fails runtime parity. A brownfield product with no AGENTS.md gets
+        # one created fresh; the operator's own CLAUDE.md keeps its content and gains exactly one engine fence.
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="team",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None,
+                              opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(res["floor"], "inserted")
+            self.assertEqual(res["agents_floor"], "inserted")     # the second floor is recorded on its own key
+            claude = inst._read_text_or(os.path.join(target, "CLAUDE.md"), "")
+            agents = inst._read_text_or(os.path.join(target, "AGENTS.md"), "")
+            self.assertTrue(os.path.isfile(os.path.join(target, "AGENTS.md")))   # the missing half now exists
+            self.assertEqual(claude.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)      # one fence, operator content kept
+            self.assertEqual(agents.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)
+            self.assertIn("How we work here.", claude)                          # the operator's own guide preserved
+
+    def test_carries_the_release_home_repository_into_the_deployed_manifest(self):
+        # #670: the extracted release records its update home in its OWN engine.json; the overlay can't deliver
+        # engine.json (it is a keyed foundation file), so arrival carries the release's home into the deployed
+        # manifest through confirm. Without this the deployed engine has no update home.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            # model an extracted RELEASE (the fixture models the pre-setup template, which carries no manifest).
+            inst._write_json(inst._engine_manifest_path(release),
+                             {"engine_release": "v1", "packages": {}, "home_repository": "acme/engine-template"})
+            inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            with open(inst._engine_manifest_path(target), encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["home_repository"], "acme/engine-template")
+
+    def test_declining_a_default_on_module_omits_it_and_arrival_completes(self):
+        # #674: a default-on add-on is installed by default, but --decline drops it — proven end to end, that the
+        # arrival COMPLETES (apply -> verify -> retire) with the module absent, not merely that the manifest omits
+        # it. The two runs differ only by the decline, so the difference is the feature.
+        def _plant_default_on(release, mid="onby"):
+            inst._write_json(os.path.join(release, ".engine", "modules", mid, "manifest.json"),
+                             {"id": mid, "version": "1.0.0", "status": "default-on", "provides": {}, "depends": {}})
+            cat = inst._catalog_path(release)
+            with open(cat, encoding="utf-8") as fh:
+                entries = json.load(fh)
+            entries.append({"id": mid, "verb": "engine-onby", "category": "Verification & Validation",
+                            "status": "default-on", "description": "A default-on practice add-on."})
+            inst._write_json(cat, entries)
+
+        # (a) declined — the module is left out and the arrival still completes.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _plant_default_on(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", declined=["onby"], decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None, opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            with open(inst._engine_manifest_path(target), encoding="utf-8") as fh:
+                self.assertNotIn("onby", json.load(fh)["packages"])          # declined → omitted from the manifest
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine", "modules", "onby")),
+                             "a declined module's files must be removed, not just left out of the manifest")
+
+        # (b) NOT declined — the same default-on module IS installed, so the decline in (a) is what dropped it.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _plant_default_on(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None, opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            with open(inst._engine_manifest_path(target), encoding="utf-8") as fh:
+                self.assertIn("onby", json.load(fh)["packages"])             # default-on → installed when silent
+
+    def test_a_pr_open_failure_reports_installed_and_delegates_the_recovery(self):
+        # #672: if publishing the arrival pull request fails, the engine is still installed (apply/verify/retire
+        # ran). arrive() reports proceeded=True with no PR, and delegates the recovery wording to the opener's
+        # own (accurate, case-specific) message rather than asserting a fixed "branch is pushed" claim.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+
+            def failing_opener(**kw):
+                raise RuntimeError("the branch 'engine-arrival' was pushed but opening the pull request failed "
+                                   "(GitHub returned HTTP 422 — A pull request already exists).")
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None, opener=failing_opener, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])                 # the engine IS installed
+            self.assertIsNone(res["pr"])                      # but no pull request was opened
+            self.assertIn("the engine is installed", res["reason"])
+            self.assertIn("A pull request already exists", res["reason"])   # the opener's own reason is surfaced
+            self.assertTrue(os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json")))
+
+    def test_a_recorded_home_survives_a_re_arrival(self):
+        # #670 update-home CONTINUITY, end to end: a target that already records its own update home keeps it on a
+        # re-arrival — the release's home is only the fallback when the target has none. Proven through arrive(),
+        # not just confirm() in isolation.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            inst._write_json(inst._engine_manifest_path(target),
+                             {"engine_release": "v0", "packages": {}, "home_repository": "operator/their-home"})
+            inst._write_json(inst._engine_manifest_path(release),
+                             {"engine_release": "v1", "packages": {}, "home_repository": "acme/engine-template"})
+            inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            with open(inst._engine_manifest_path(target), encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["home_repository"], "operator/their-home")   # existing wins
+
+    def test_contradictory_keep_and_decline_writes_nothing(self):
+        # #674 / plan-gate finding: a mistyped `--keep X --decline X` is rejected BEFORE the first write. arrive()
+        # is not the first writer (the overlay + floor inserts precede confirm), so the contradiction is caught at
+        # entry, leaving the live tree untouched rather than half-overlaid.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            with self.assertRaises(ValueError):
+                inst.arrive(target_root=target, release_tree=release, keep=["onby"], declined=["onby"],
+                            decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                            opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
 
 
 class TestArrivalDemoRunsGreen(unittest.TestCase):
