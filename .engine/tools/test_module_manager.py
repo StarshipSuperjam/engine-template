@@ -2660,5 +2660,159 @@ class TestRollback(unittest.TestCase):
                 self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
 
 
+class TestOpenUpgradePrDiagnostics(unittest.TestCase):
+    """#672: the shared PR opener surfaces a DIAGNOSABLE failure — GitHub's real reason (the nested
+    errors[].message, not just the generic top-level 'Validation Failed'), the resolved repo/base/head, and a
+    concrete manual recovery path — and never the auth token; on success it returns the parsed pull request. This
+    real network path has no other coverage: every arrival/upgrade test injects a fake `opener`."""
+
+    def _run(self, urlopen_impl):
+        # Drive the REAL _open_upgrade_pr with only its two boundaries faked — git (subprocess.run) and the
+        # network (urllib.request.urlopen) — with scoped patches that auto-revert. repo=/token= are passed so
+        # boot is never consulted.
+        from unittest import mock
+        with mock.patch("subprocess.run", return_value=None), \
+             mock.patch("urllib.request.urlopen", side_effect=urlopen_impl):
+            return module_manager._open_upgrade_pr(branch="engine-arrival", title="Feature: add the engine",
+                                                   body="body", repo="acme/widget", token="secret-token-xyz")
+
+    def test_422_raises_a_diagnosable_error_without_leaking_the_token(self):
+        import urllib.error
+        body = json.dumps({"message": "Validation Failed",
+                           "errors": [{"resource": "PullRequest",
+                                       "message": "A pull request already exists for acme:engine-arrival."}]}).encode()
+
+        def raise_422(req, timeout=None):
+            raise urllib.error.HTTPError("https://api.github.com/repos/acme/widget/pulls", 422,
+                                         "Unprocessable Entity", {}, io.BytesIO(body))
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(raise_422)
+        msg = str(ctx.exception)
+        self.assertIn("A pull request already exists", msg)   # GitHub's NESTED reason, not just "Validation Failed"
+        self.assertIn("422", msg)
+        self.assertIn("acme/widget", msg)                     # the resolved repo
+        self.assertIn("--head engine-arrival", msg)           # the resolved head
+        self.assertIn("--base", msg)                          # the resolved base
+        self.assertIn("gh pr create", msg)                    # a concrete manual recovery path
+        self.assertIn("was pushed", msg)                      # the POST-failure case: the branch IS pushed
+        self.assertNotIn("secret-token-xyz", msg)             # the auth token NEVER surfaces
+        self.assertNotIn("Bearer", msg)
+        self.assertNotIn("..", msg)                           # no double-period artifact after GitHub's reason
+
+    def test_unreachable_github_raises_a_diagnosable_error(self):
+        import urllib.error
+
+        def unreachable(req, timeout=None):
+            raise urllib.error.URLError("name resolution failed")
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(unreachable)
+        msg = str(ctx.exception)
+        self.assertIn("could not be reached", msg)
+        self.assertIn("was pushed", msg)                      # transport failure is post-push, like the 422 case
+        self.assertIn("--head engine-arrival", msg)
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_success_returns_the_parsed_pull_request(self):
+        from unittest import mock
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps({"number": 7,
+                                             "html_url": "https://github.com/acme/widget/pull/7"}).encode()
+        resp.__enter__.return_value = resp                    # the code uses `with urlopen(...) as resp:`
+        resp.__exit__.return_value = False
+
+        def ok(req, timeout=None):
+            return resp
+        out = self._run(ok)
+        self.assertEqual(out["number"], 7)
+
+    def test_a_git_step_failure_says_the_branch_is_NOT_pushed(self):
+        # The failure-before-the-POST case (e.g. `checkout -b` colliding with a leftover branch): the recovery is
+        # the OPPOSITE of the POST case — the branch is not pushed, so re-running after clearing the collision is
+        # the fix, NOT opening a PR from a branch that isn't there. git's own stderr is surfaced.
+        import subprocess
+        from unittest import mock
+
+        def boom(args, **kw):
+            raise subprocess.CalledProcessError(128, args,
+                                                stderr=b"fatal: a branch named 'engine-arrival' already exists\n")
+        with mock.patch("subprocess.run", side_effect=boom), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("was not created", msg)                 # the CREATE step failed → no branch yet
+        self.assertIn("already exists", msg)                  # surfaces git's real stderr
+        self.assertIn("git branch -D engine-arrival", msg)    # delete is safe ONLY for the checkout collision
+        self.assertNotIn("was pushed but", msg)               # never the POST-case "branch was pushed" claim
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_push_failure_does_NOT_tell_the_operator_to_delete_the_branch(self):
+        # The far more likely git failure (auth/network/branch-protection at `git push`): checkout/add/commit
+        # already succeeded, so the branch holds the arrival's committed work. The recovery must NOT say
+        # `git branch -D` (that would discard the work) — it must say the branch was created, keep it, and finish
+        # by hand.
+        import subprocess
+        from unittest import mock
+
+        def fail_on_push(args, **kw):
+            if "push" in args:
+                raise subprocess.CalledProcessError(1, args, stderr=b"fatal: Authentication failed\n")
+            return None                                        # checkout/add/commit succeed
+        with mock.patch("subprocess.run", side_effect=fail_on_push), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("git push", msg)                        # names the failed step
+        self.assertIn("Authentication failed", msg)           # surfaces git's real stderr
+        self.assertIn("was created", msg)                     # tells the operator the branch exists
+        self.assertIn("do not", msg.lower())                  # and NOT to delete it
+        self.assertNotIn("git branch -D", msg)                # the destructive advice is absent for a push failure
+        self.assertIn("gh pr create", msg)                    # the finish-by-hand recovery
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_github_error_detail_ignores_a_non_list_errors_field(self):
+        # The helper must NEVER raise (it explains an HTTP failure); a malformed `errors` that is not a list must
+        # not turn a TypeError loose in place of the diagnostic.
+        import urllib.error
+        for shape in (5, True, "oops", {"message": "x"}):
+            body = json.dumps({"message": "Validation Failed", "errors": shape}).encode()
+            exc = urllib.error.HTTPError("u", 422, "x", {}, io.BytesIO(body))
+            detail = module_manager._github_error_detail(exc)   # must not raise
+            self.assertIn("Validation Failed", detail)
+
+    def test_github_error_detail_on_empty_and_non_json_bodies(self):
+        import urllib.error
+        # empty-but-readable body -> nothing to add
+        self.assertEqual(
+            module_manager._github_error_detail(urllib.error.HTTPError("u", 500, "x", {}, io.BytesIO(b""))), "")
+        # non-JSON body -> a bounded slice of the raw text, still useful
+        detail = module_manager._github_error_detail(
+            urllib.error.HTTPError("u", 502, "x", {}, io.BytesIO(b"<html>Bad Gateway</html>")))
+        self.assertIn("Bad Gateway", detail)
+        self.assertLessEqual(len(detail), 300)
+        # valid JSON but not a dict -> nothing usable, no raise
+        self.assertEqual(
+            module_manager._github_error_detail(
+                urllib.error.HTTPError("u", 422, "x", {}, io.BytesIO(b"[1, 2]"))), "")
+
+    def test_github_error_detail_joins_top_level_and_nested_messages(self):
+        import urllib.error
+        body = json.dumps({"message": "Validation Failed",
+                           "errors": [{"message": "No commits between main and engine-arrival"}]}).encode()
+        exc = urllib.error.HTTPError("u", 422, "x", {}, io.BytesIO(body))
+        detail = module_manager._github_error_detail(exc)
+        self.assertIn("Validation Failed", detail)
+        self.assertIn("No commits between main and engine-arrival", detail)
+
+    def test_github_error_detail_is_empty_and_safe_on_unreadable_body(self):
+        # A diagnostic helper must never raise; an unreadable/empty body yields "" so the HTTP status stands alone.
+        import urllib.error
+        exc = urllib.error.HTTPError("u", 500, "Server Error", {}, None)   # fp=None -> a read would raise
+        self.assertEqual(module_manager._github_error_detail(exc), "")
+
+
 if __name__ == "__main__":
     unittest.main()
