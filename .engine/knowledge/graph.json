@@ -4188,12 +4188,12 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:023ff805cba5ba3d526568d8df8189e3e1371d653288e72c144ba7bf39872d90",
+        "fingerprint": "sha256:b860e651c87837fe4bf41844dd9b6e83e97ec329f9a8484d6595b73cadc5619e",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "module:dependency-discipline",
