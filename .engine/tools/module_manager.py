@@ -691,7 +691,7 @@ def _ver_key(v):
     the mirrored regression tests (test_module_manager selector-boundary tests + test_release_cut
     test_rekeyed_migration_is_not_a_false_drop) are the backstop."""
     t = validate._ver_tuple(v)
-    return t + (0,) * (3 - len(t)) if len(t) < 3 else t
+    return (t + (0,) * (3 - len(t))) if len(t) < 3 else t
 
 
 def select_migrations(from_versions: dict, target_versions: dict, manifests: list) -> list:
