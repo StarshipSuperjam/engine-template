@@ -1766,7 +1766,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:d001eb977fe4f45ace6c370b98604aa0dea8e2cec89cdf15de87f3a4689ca147",
+        "fingerprint": "sha256:147603257cebfbde3c5ab0925c536ff7499c97cb670efcb20bbb0f908580b8e5",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -4419,7 +4419,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:6d10c607ee33ab613514e0ce62f1452035c059ce775caffe0744743cc51c6549",
+        "fingerprint": "sha256:b0f8e6c26342b6f94c8bbac63ead8998368b6fc792d8ce5d991ca8f4fc59e8fe",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4439,7 +4439,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:0ea280c964af7f14d80b757b16cf3699c921a9d3233a560e6a9475bc51da7cb0",
+        "fingerprint": "sha256:5963925f5b5eaaea38723a80b4d7f7898a5c0394f4328f015ad38567d60e6fbc",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4619,7 +4619,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:7fcd8015b263a88bd1c414b18dc52343726298b48b15ccb8f42cc1ce9a809b38",
+        "fingerprint": "sha256:59353f8a2e1f3e80a611830b3519ca9af736960d2db5d3258b16a7962cf39a48",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -4659,7 +4659,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:43193f57ad9304b9e0e4a9427a54c9efceb397cbd30ff42deaa4968628cb5eba",
+        "fingerprint": "sha256:1457ea93ad6347045347d4d14550785a9664648f0fbb74396b914b1cff6173b1",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4719,7 +4719,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:2927e72ecd342c95c20bf8f5cadab3eb850c092918d78adefe4906aedc43a96b",
+        "fingerprint": "sha256:e2d647e6a4ebcd3d1d3c3a5871f835b935ce745e435633407dcaf870cca04084",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -4819,7 +4819,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:a47bbffc5a64f4301b3dca41347c0780c52f03518c7c10010c9eb7d65dccb622",
+        "fingerprint": "sha256:1d8920f5b56f6dffb414656cfa369eeb29e4edc64f7f178c6d95b4c307777e79",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -6258,7 +6258,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:80de5761072f82605ff5b58d69bfe94897035e0408075870d8b15ec8e1c14399",
+        "fingerprint": "sha256:7e5a4ae925ad90ba65e7880fce9b7d09b70c61377ea5573286d68fda9bc167c1",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -7154,7 +7154,7 @@
       },
       "slug": "demo_audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:df15d58812d37a622faa025abc2d916c6ef8c1bbfc59d0c1047661d7a888eb24",
+        "fingerprint": "sha256:9bd26fca1ee2814f270088b315243667b439f6dc0457a52ef6d6536f58802147",
         "path": ".engine/tools/demo_audit_soft_promote.py"
       },
       "status": "active",
@@ -10552,6 +10552,7 @@
         ],
         "tests": [
           "tool:audit_soft_promote",
+          "tool:module_coherence",
           "tool:quiet_call",
           "tool:telemetry",
           "tool:validate"
@@ -10559,7 +10560,7 @@
       },
       "slug": "test_audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:5b0230f340db81d7c8c1eb5813d2af0ae4e696cedad6e8825f1160521f022d82",
+        "fingerprint": "sha256:d5abb0ea7fa2b67ae695ed4567f76ec4edaa5546362a8541154f35b91797e7c2",
         "path": ".engine/tools/test_audit_soft_promote.py"
       },
       "status": "active",

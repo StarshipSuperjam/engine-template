@@ -10,8 +10,7 @@ a pull request, carrying only the project's files and never the engine's own. En
 want to offer upstream. The engine does the mechanical git a non-engineer shouldn't have to (cutting a clean
 branch, comparing against the upstream, matching the project's pull-request form); **opening the pull request is
 always your call**, and at no point are you dropped into a raw git conflict — anything that needs a choice
-becomes a plain question. The tool is `tools/external_contribution/submit.py`. **Heads-up:** the final
-open-the-pull-request step reaches the network only on a real submission — see Notes.
+becomes a plain question. The tool is `tools/external_contribution/submit.py`.
 
 ## Steps
 

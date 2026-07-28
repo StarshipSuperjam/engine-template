@@ -14,11 +14,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import telemetry         # noqa: E402
+import module_coherence  # noqa: E402  (home_repository — for exercising the home vs deployed lane)
 import audit_soft_promote as asp  # noqa: E402
 import quiet_call        # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 
 _NOW = "2026-06-05T01:00:00Z"
-_UPSTREAM = "engine-template project"   # the load-bearing machinery caveat marker
+_UPSTREAM = "engine-template project"   # the load-bearing machinery caveat marker (deployed lane only)
 
 
 def _f(message, file, *, severity="soft", source_kind="shape"):
@@ -52,6 +53,51 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertEqual(len(recs), 1)
         self.assertNotIn(_UPSTREAM, recs[0]["body_core"])
         self.assertIn("Raise its budget", recs[0]["body_core"])  # the local trim/raise/leave choice
+
+    def test_machinery_finding_in_home_repo_says_fix_here_not_upstream(self):
+        # In the engine's OWN home repo (the target slug equals the recorded home_repository), a machinery
+        # overage is fixable HERE — pointing "upstream" would point the repo at itself. The body must drop the
+        # upstream caveat and offer the local trim / raise-recorded-budget choice.
+        home = module_coherence.home_repository()
+        self.assertTrue(home, "this repo should record a home_repository")
+        self._stub([_f("'.engine/operations/x.md' is 300 lines, over its 200-line budget.",
+                       ".engine/operations/x.md")])
+        recs = asp.budget_records(_NOW, claims={".engine/operations/x.md": ["core"]}, repo=home)
+        self.assertEqual(len(recs), 1)
+        self.assertNotIn(_UPSTREAM, recs[0]["body_core"])            # no "raise it upstream" — that IS this repo
+        self.assertIn("Raise its recorded budget", recs[0]["body_core"])
+        self.assertIn("engine's own source", recs[0]["body_core"])
+
+    def test_machinery_finding_in_deployed_repo_keeps_the_upstream_caveat(self):
+        # A downstream copy (the target slug differs from the recorded home) still routes the durable fix
+        # upstream — a local trim there is overwritten on the next update.
+        self._stub([_f("'.engine/operations/x.md' is 300 lines, over its 200-line budget.",
+                       ".engine/operations/x.md")])
+        recs = asp.budget_records(_NOW, claims={".engine/operations/x.md": ["core"]},
+                                  repo="somebody/their-deployed-repo")
+        self.assertEqual(len(recs), 1)
+        self.assertIn(_UPSTREAM, recs[0]["body_core"])              # the upstream caveat is present
+        self.assertIn("overwritten", recs[0]["body_core"])
+
+    def test_is_home_repo_is_strict_positive_and_fails_toward_deployed(self):
+        # The lane switch: confirmed origin==home is the ONLY True; anything unconfirmed falls to the
+        # deployed lane, so a copy whose home can't be placed is never mis-told "the fix sticks here".
+        home = module_coherence.home_repository()
+        self.assertTrue(home)
+        self.assertTrue(asp._is_home_repo(home))                    # confirmed the target IS home
+        self.assertTrue(asp._is_home_repo(home.upper()))            # slug compare is case-insensitive
+        self.assertFalse(asp._is_home_repo("somebody/else"))        # a different repo -> deployed lane
+        self.assertFalse(asp._is_home_repo(None))                   # unknown -> deployed lane (safe direction)
+
+    def test_is_home_repo_fails_toward_deployed_when_home_read_raises(self):
+        # home_repository() is fail-LOUD on a malformed manifest (it RAISES). _is_home_repo must swallow that
+        # to the deployed lane, never let it flip us onto the home lane or crash the promotion pass.
+        orig = module_coherence.home_repository
+        self.addCleanup(lambda: setattr(module_coherence, "home_repository", orig))
+        def boom():
+            raise ValueError("malformed manifest")
+        module_coherence.home_repository = boom
+        self.assertFalse(asp._is_home_repo("StarshipSuperjam/engine-template"))  # a raise -> deployed lane, no crash
 
     def test_source_id_is_keyed_on_the_file_not_the_message(self):
         # The live line-count is per-occurrence; the source_id must stay stable as it changes, so the

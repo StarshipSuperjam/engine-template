@@ -146,11 +146,10 @@ Issue, where one was written, closes as its commits land.
 
 ## Notes
 
-**The skeleton is posture, named at its honest tier.** Nothing mechanically forces a session to run the
-review passes, run them at the approved depth, or halt on a finding before merge — the same honest limit
-the `operating-modes` write-gate and the `close-turn` disposition gate carry. The one mechanical hook is
-the Review presence-gate; its *truthfulness*, like every section's, stays posture. The only unbypassable
-wall is the protected-branch merge.
+**The skeleton is posture, named at its honest tier.** Nothing mechanically forces a session to run the review
+passes, run them at the approved depth, or halt on a finding before merge — the same honest limit the
+`operating-modes` write-gate and `close-turn` disposition gate carry. The one mechanical hook (the Review
+presence-gate, named in Steps) checks only that the section is *present*, never that it is truthful — like every section, that stays posture.
 
 **The Review record** states, in plain language a non-engineer reads at the merge: the depth that ran, the
 review passes that ran (as plain checks, never their internal names), that each gate completed, **whether a

@@ -16,14 +16,20 @@ SCOPE — length-budget nudges ONLY. The report-only `audit-prep` suite also car
 path; promoting them under a budget framing would misdescribe them. They are excluded by provenance: only
 findings emitted by a `shape`-kind rule (the length-budget nudge) are promoted.
 
-LANE — a budget overage on a TEMPLATE-OWNED file (machinery) cannot be durably fixed in this repo: the next
-engine update replaces the engine's own files wholesale, so a local trim is overwritten. The Issue says so
+LANE — a budget overage on a TEMPLATE-OWNED file (machinery) cannot be durably fixed in a DOWNSTREAM copy: the
+next engine update replaces the engine's own files wholesale, so a local trim is overwritten. The Issue says so
 plainly and points the durable fix UPSTREAM to the engine-template project — and the engine never files that
-upstream report itself ("never phone home"); logging it there stays the operator's call. A budget overage on
-a file THIS PROJECT owns (local state) is fixable here. Ownership is the authoritative machinery test
-(module_coherence.provides_claims, the live-filesystem manifest claims). Today every budget-governed surface
-is module-owned machinery, so the local lane is built and fixture-tested; it fires live when a
-deployed repo's own over-budget doc trips it.
+upstream report itself ("never phone home"); logging it there stays the operator's call. The EXCEPTION is the
+engine's OWN home repo (the target repo's slug equals the recorded home_repository): there the machinery IS the
+project, so the same file is fixable right here (trim it, or raise its recorded budget), and pointing "upstream"
+would point the repo at itself — so the home lane says fix-here instead. Home-ness is the strict-positive
+target-slug-equals-home test (_is_home_repo compares the target repo's own slug to the recorded home, NOT the
+git origin, and fails toward the deployed lane so a copy is never mis-told the fix sticks). A
+budget overage on a file THIS PROJECT owns (local state, not machinery) is fixable here in either repo.
+Ownership is the authoritative machinery test (module_coherence.provides_claims, the live-filesystem manifest
+claims). Today every budget-governed surface is module-owned machinery, so the local lane is built and
+fixture-tested; the deployed machinery lane fires live when a downstream repo's over-budget doc trips it, and
+the home lane fires here.
 
 SAFETY / HONESTY:
 - source_id = "soft-budget:<file>" — keyed on the FILE, never the message. The live line-count in the
@@ -84,6 +90,20 @@ def _neutralize(text: str) -> str:
     return text
 
 
+def _is_home_repo(repo: str | None) -> bool:
+    """True ONLY when the target repo is CONFIRMED to be the engine's own home — its slug equals the recorded
+    `home_repository`. Fails toward NOT-home (the deployed/upstream lane): a repo whose home cannot be read, or
+    that differs, is treated as a downstream copy. This is the strict-positive target-slug-equals-home test —
+    it compares the caller's `repo` STRING (in practice GITHUB_REPOSITORY, the slug the Issues are filed into),
+    NOT `repo_identity`'s on-disk git `origin`, and it deliberately fails toward the deployed lane rather than
+    inheriting `is_home_repo`'s fail-TOWARD-home: the wrong direction here would tell a real deployed repo whose
+    manifest could not be read "fix it here, it sticks", which is false."""
+    try:
+        return module_coherence.slug_eq(repo, module_coherence.home_repository())
+    except Exception:  # noqa: BLE001 — a malformed manifest must never flip us onto the home lane
+        return False
+
+
 def _entity_reference(rel: str, repo: str | None) -> list | None:
     """A single labelled link to the knowledge entity for "what is broken" (a debt Issue
     references knowledge entity-ids so telemetry owns the debt while knowledge stays surface-derived). The
@@ -105,16 +125,31 @@ def _entity_reference(rel: str, repo: str | None) -> list | None:
     return [(_neutralize(f"The file that is over its length limit — {rel}"), url)]
 
 
-def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None) -> tuple:
+# The closing bullet every lane ends on — the self-review + auto-close reassurance. Defined once so a future
+# wording change lands in one place, not three (technical-integrity review of #658).
+_SELF_REVIEW_TRAILER = (
+    "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
+    "on its own** once the file is back under its limit — that only clears the flag, it does not "
+    "change the file for you."
+)
+
+
+def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
+            home: bool = False) -> tuple:
     """The lane-aware (title, body_core) for one over-budget surface. `rel` is the raw repo path (the
     title is plain text, not rendered markdown) and `message` is the raw finding message; both the path
     and the message are neutralised before they enter the rendered body. body_core is prose only —
     telemetry appends its tracking trailers + signal marker. When the surface resolves to a knowledge
-    entity, a blob-permalink reference to it is folded in."""
+    entity, a blob-permalink reference to it is folded in.
+
+    Three lanes: an engine machinery file in a DOWNSTREAM copy points the durable fix UPSTREAM (a local
+    trim is overwritten by the next update); the SAME machinery file in the engine's OWN home repo
+    (`home=True`) is fixable right here, because here the engine's source IS the project; a file this
+    project owns (not machinery) is always fixable here."""
     where = _neutralize(rel)
     message = _neutralize(message)
     title = f"Engine length budget: {rel} is over its limit"
-    if machinery:
+    if machinery and not home:
         what_this_is = (
             f"The engine noticed one of its OWN files has grown past the length it is meant to stay "
             f"within. {message}\n\n"
@@ -132,9 +167,25 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None)
             "- **Or leave it** — it is only a nudge and never blocks anything.\n"
             "- The engine has not sent anything to that upstream project and will not; logging it there "
             "is yours to decide.\n"
-            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
-            "on its own** once the file is back under its limit — that only clears the flag, it does not "
-            "change the file for you."
+            + _SELF_REVIEW_TRAILER
+        )
+    elif machinery and home:
+        what_this_is = (
+            f"The engine noticed one of its OWN files has grown past the length it is meant to stay "
+            f"within. {message}\n\n"
+            f"- **What it is:** engine machinery — and this repository IS the engine's own source "
+            f"project, so a fix here is durable (it ships to every engine made from this one). (A shorter "
+            f"file is easier for a fresh AI session to read in full, which is why the limit exists.)\n"
+            f"- **Where:** `{where}`."
+        )
+        whats_next = (
+            "Because this is the engine's own source, a fix here lasts — there is no upstream to send it "
+            "to. You can:\n\n"
+            "- **Trim it** in an ordinary change, or\n"
+            "- **Raise its recorded budget** with a reason in the length-budget rule (an edit to a "
+            "protected settings file, which you sign off on deliberately), or\n"
+            "- **Leave it** — it is only a nudge and never blocks anything.\n"
+            + _SELF_REVIEW_TRAILER
         )
     else:
         what_this_is = (
@@ -148,9 +199,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None)
             "- **Trim it** in an ordinary change, or\n"
             "- **Raise its budget** with a recorded reason, or\n"
             "- **Leave it** — it is only a nudge and never blocks anything.\n"
-            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
-            "on its own** once the file is back under its limit — that only clears the flag, it does not "
-            "change the file for you."
+            + _SELF_REVIEW_TRAILER
         )
     body_core = issue_author.render_engine_issue_body(
         what_this_is=what_this_is, whats_next=whats_next, references=_entity_reference(rel, repo))
@@ -167,6 +216,7 @@ def budget_records(now: str, *, claims: dict | None = None, repo: str | None = N
     findings = validate.collect(FEED_SUITE, {}, with_source=True)
     if claims is None:
         claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+    home = _is_home_repo(repo)
     records = []
     for f in findings:
         if f.get("severity") == "hard":
@@ -182,7 +232,7 @@ def budget_records(now: str, *, claims: dict | None = None, repo: str | None = N
             # depth alongside the body neutralisation below.
             continue
         machinery = bool(claims.get(rel))            # claimed by a manifest's provides => machinery
-        title, body_core = _render(rel, f.get("message", ""), machinery, repo=repo)
+        title, body_core = _render(rel, f.get("message", ""), machinery, repo=repo, home=home)
         records.append({
             "source_id": f"{SOURCE_PREFIX}{rel}",
             "severity": telemetry.PERSISTENT_BENIGN,
