@@ -215,7 +215,11 @@ class TestNoAlwaysPresentToolImportsDeclinable(unittest.TestCase):
     def test_no_unconditional_declinable_import(self):
         manifests = _module_manifests()
         declinable = _declinable_packages(manifests)
-        self.assertTrue(declinable, "expected to derive at least one declinable package from the module manifests")
+        if not declinable:
+            # A deployment that DECLINED every declinable module (the gate's all-declined projection is exactly
+            # this shape) has no declinable package to guard against, so the invariant is vacuously satisfied —
+            # skip rather than assert one exists (#646). In the source repo declinable is always non-empty.
+            self.skipTest("no declinable module is installed here — no declinable import to guard against")
         offenders = []
         for path in _always_present_tool_files(manifests):
             try:

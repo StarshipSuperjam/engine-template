@@ -229,19 +229,29 @@ class TestRenderCopy(unittest.TestCase):
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestDeclineVocabulary(unittest.TestCase):
-    """The declined arm's #663 coverage depends on there being at least one installed `default-on` module to
-    decline. If that status vocabulary is ever renamed, the declined projection would silently become a
-    duplicate of the default one (the gate itself now fails closed on that at run time, but this pins the
-    invariant loudly at construction, where a maintainer sees it before a cut)."""
+    """The declined arm declines every DECLINABLE module — both `default-on` (the #663 shape) and `optional`
+    (the #646 shape). If either status literal is ever renamed, the declined projection would silently stop
+    covering that half (the gate itself fails closed only when NOTHING is declinable, which a surviving
+    default-on module masks). These pin both literals loudly at construction, where a maintainer sees it
+    before a cut."""
+
+    def _live_statuses(self):
+        modules_dir = os.path.join(validate.ROOT, ".engine", "modules")
+        return [validate.load_json(os.path.join(modules_dir, mid, "manifest.json")).get("status")
+                for mid in sorted(os.listdir(modules_dir))
+                if os.path.isfile(os.path.join(modules_dir, mid, "manifest.json"))]
 
     def test_at_least_one_default_on_module_exists(self):
-        modules_dir = os.path.join(validate.ROOT, ".engine", "modules")
-        statuses = [validate.load_json(os.path.join(modules_dir, mid, "manifest.json")).get("status")
-                    for mid in sorted(os.listdir(modules_dir))
-                    if os.path.isfile(os.path.join(modules_dir, mid, "manifest.json"))]
-        self.assertIn("default-on", statuses,
+        self.assertIn("default-on", self._live_statuses(),
                       "no module has status 'default-on' — the gate's declined (#663) arm would have nothing "
                       "to decline; update release_gate._decline_optional_modules for the new vocabulary")
+
+    def test_at_least_one_optional_module_exists(self):
+        # Without this, a rename of the 'optional' literal would leave the declined arm silently covering only
+        # the #663 (default-on) half while staying green, since a default-on module keeps `declinable` non-empty.
+        self.assertIn("optional", self._live_statuses(),
+                      "no module has status 'optional' — the gate's declined (#646) arm would silently stop "
+                      "covering the add-on-declined shape; update release_gate._decline_optional_modules")
 
 
 if __name__ == "__main__":

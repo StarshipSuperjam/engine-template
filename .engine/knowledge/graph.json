@@ -6069,7 +6069,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:526783c4019b193ebb76ca6956ff41f6f70e2ee5d61ae443d2b7508551f9cfb6",
+        "fingerprint": "sha256:5ecb380c2c10b07247f4f0ba5e7ebc5e7bcbd6789e759b14ed833f026c360cd8",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -9775,7 +9775,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:e7bbbf82b62102af92857b8358350d2559afa6e5114122e3c416298d49644ad1",
+        "fingerprint": "sha256:a37329a0b0c8a2a502322056f1c9866f2b76b66cbdceb73662ca27cc9c12a061",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -10484,7 +10484,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:940204886e5f159a85f745d80f0d5e86365d80bfe46dcc2296a37c37dea68a56",
+        "fingerprint": "sha256:94e3a19389736c1df782b1f2615a53bbae9466f1c23434d07c70b96e698cfbf2",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -11322,7 +11322,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:8b593b6dafe87ffda139b91097a79c3077aa3b0b67fe5993aa49c247901b6463",
+        "fingerprint": "sha256:7f7ba42e988e8e8263be9b1da41a6b9dc8f9b09c26e3926c81a60537bae2a08c",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -11936,12 +11936,13 @@
           "tool:knowledge_gen",
           "tool:knowledge_index",
           "tool:knowledge_query",
+          "tool:repo_identity",
           "tool:validate"
         ]
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:2fbcec3e3707bdb5303d59b1cf2bc61f9c4a4bbc54c3a7e4a615aa2eae704362",
+        "fingerprint": "sha256:1f16c88bc7e47566c06e8fb5b40350bf776331564fd91bfb6f3ebe2387d4922d",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -12370,7 +12371,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:95b38feefb0b72866e67123015b3ca893c14a37d3fc66d8c8980e127702f72cd",
+        "fingerprint": "sha256:0b51cc6fec8a30ee20e8dd170cfdf9efe9edb2fbe01e71c181bc5d9a0e939c04",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12539,7 +12540,7 @@
       },
       "slug": "test_optional_module_isolation",
       "source": {
-        "fingerprint": "sha256:b1d2ea76671dd5cdab71093853bd5b4a1b2b693ece2c55de7b0efc07356ea8f0",
+        "fingerprint": "sha256:89fb37190227aace63ca4b72101704ab392e03ae71baea054e9622d308595c23",
         "path": ".engine/tools/test_optional_module_isolation.py"
       },
       "status": "active",
@@ -12767,7 +12768,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:39fb168edc80e70f6cd8a6bbc8e379ed4a725b42b9d9bf1e60bd887167c937d2",
+        "fingerprint": "sha256:d082b7e0fd12b3e9eeafdc3d5f522fca584e0702a5a0782853bd0814d58bd774",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -12918,7 +12919,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:d7bc1819048e34a37541dba93ed9cd7b2e246bf8158f4f52657916ffcec3ed05",
+        "fingerprint": "sha256:44519f7481d71e30c8a4f5a3b53a183d4b01f913b31cf30ba1188633a1775f63",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",

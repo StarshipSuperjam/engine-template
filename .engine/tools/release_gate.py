@@ -227,8 +227,14 @@ def _suite_in(tree: str, label: str) -> dict:
     env = {**os.environ, _NESTED_ENV: "1"}
     r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
              cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
-    return {"passed": r.returncode == 0,
-            "detail": "" if r.returncode == 0 else f"{label}: self-tests red\n{_tail(r.stderr, 3000)}"}
+    if r.returncode == 0:
+        return {"passed": True, "detail": ""}
+    # Surface the FULL FAIL/ERROR roster up front: several declined-shape tests can break together, and the
+    # 3000-char tail keeps only the last traceback — the earlier failing test ids would vanish with no marker,
+    # forcing a slow one-at-a-time diagnostic loop across multi-minute gate re-runs.
+    summary = [ln for ln in (r.stderr or "").splitlines() if ln.startswith(("FAIL:", "ERROR:"))]
+    roster = (f"failing tests ({len(summary)}):\n" + "\n".join(summary) + "\n\n") if summary else ""
+    return {"passed": False, "detail": f"{label}: self-tests red\n{roster}last-failure detail:\n{_tail(r.stderr, 3000)}"}
 
 
 def _arm_operates() -> dict:

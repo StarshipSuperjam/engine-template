@@ -127,6 +127,18 @@ class TestAvailableVerbsRelay(unittest.TestCase):
                           if e["id"] not in installed and e["verb"])
         self.assertEqual([v["name"] for v in eh.available_verbs(None)], expected)
 
+    def test_available_offers_a_not_installed_module_verb(self):
+        # Two-directional proof: the home repo has every catalog module installed, so available_verbs(None) is
+        # empty and the live assertion never exercises the "offered" branch. Given a catalog with a verb-bearing
+        # module absent from engine.json packages, available_verbs offers it — the roster-aware behavior a
+        # deployment that DECLINED it relies on (#646).
+        with tempfile.TemporaryDirectory() as dd:
+            p = os.path.join(dd, "catalog.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "an-uninstalled-module", "verb": "engine-new", "description": "New.",
+                            "category": "Product Management"}], fh)
+            self.assertEqual([v["name"] for v in eh.available_verbs(p)], ["engine-new"])
+
     def test_present_catalog_relayed_sorted(self):
         # The catalog's per-entry command is `verb` (the reconciled cross-slice shape the shared
         # `module_catalog` reader parses); /engine-help shows it as the typed command (its `name`).

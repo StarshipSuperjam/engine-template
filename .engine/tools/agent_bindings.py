@@ -126,10 +126,17 @@ def check(root: str | None = None) -> list[str]:
     # OWN repo every persona ships, so an override matching none is a genuine typo or a stale entry worth
     # flagging. In a DEPLOYED repo the operator may DECLINE an optional review pack, which removes its personas
     # while the core-owned bindings file still carries their (now dormant) overrides — a benign state, not
-    # drift. Scoping this leg to the home repo keeps the authoring check where it means something and stops a
-    # module-declined deployment from redding its own bindings-coherence self-test (#646). is_home_repo fails
-    # toward home, so a fixture with no readable origin (the unit tests) still exercises the leg.
-    if repo_identity.is_home_repo(root):
+    # drift. So run this leg ONLY when the checkout is CONFIDENTLY the home repo: a readable git origin that
+    # matches the recorded home. Deliberately fail toward NOT-home when the origin is unreadable — the safe
+    # direction here, since running the leg in a possibly-deployed repo (e.g. an arrival before its remote is
+    # set) would re-red the very #646 symptom this closes. The unconditional drift leg above still runs
+    # everywhere, so a persona silently downgraded to a weaker model is still caught in any deployment.
+    own = repo_identity.origin_slug(root)
+    try:
+        home = repo_identity.home_repository(root)
+    except Exception:  # noqa: BLE001 — a malformed manifest cannot confirm home; skip the leg (never red a deployment)
+        home = None
+    if own is not None and home is not None and repo_identity.slug_eq(own, home):
         for override in (bindings.get("overrides") or {}):
             if override not in names:
                 problems.append(f"override '{override}' names no installed persona")

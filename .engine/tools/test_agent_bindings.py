@@ -12,6 +12,7 @@ edit to either without a re-render fails CI).
 from __future__ import annotations
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -35,6 +36,18 @@ def _valid_bindings(**over):
          "overrides": {}}
     b.update(over)
     return b
+
+
+def _make_home(d):
+    """Give a fixture a readable git origin that MATCHES its recorded home, so it reads as the home repo — the
+    condition under which check() runs its dangling-override leg. A deployed repo (readable non-home origin) or
+    one with no readable origin skips that leg, so a declined-module deployment does not red it (#646)."""
+    subprocess.run(["git", "init", "-q", d], check=True)
+    subprocess.run(["git", "-C", d, "remote", "add", "origin", "https://github.com/test/home.git"], check=True)
+    os.makedirs(os.path.join(d, ".engine"), exist_ok=True)
+    with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump({"home_repository": "test/home"}, fh)
+    return d
 
 
 def _fixture(d, agents, bindings):
@@ -138,8 +151,24 @@ class TestRenderAndCheck(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _fixture(d, {"a": "judgment"},
                      _valid_bindings(overrides={"ghost": {"model": "sonnet", "effort": "high"}}))
+            _make_home(d)                      # the dangling-override leg runs only when confidently home
             ab.render(d)
             self.assertTrue(any("ghost" in p for p in ab.check(d)))
+
+    def test_check_ignores_stale_override_in_a_deployed_repo(self):
+        # The #646 close: a deployed repo (readable origin that is NOT the recorded home) does NOT flag a
+        # dangling override — a declined review pack legitimately leaves its personas' overrides behind.
+        with tempfile.TemporaryDirectory() as d:
+            _fixture(d, {"a": "judgment"},
+                     _valid_bindings(overrides={"ghost": {"model": "sonnet", "effort": "high"}}))
+            subprocess.run(["git", "init", "-q", d], check=True)
+            subprocess.run(["git", "-C", d, "remote", "add", "origin",
+                            "https://github.com/acme/product.git"], check=True)
+            os.makedirs(os.path.join(d, ".engine"), exist_ok=True)
+            with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump({"home_repository": "test/home"}, fh)   # origin != home -> deployed
+            ab.render(d)
+            self.assertEqual([p for p in ab.check(d) if "ghost" in p], [])
 
 
 class TestRealPersonasInSync(unittest.TestCase):

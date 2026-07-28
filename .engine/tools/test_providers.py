@@ -36,10 +36,6 @@ def _codex_wire_count(module_ids=None) -> int:
     return total
 
 
-def _core_codex_wire_count() -> int:
-    """The codex-hook wire count of the core module alone — always installed, so it is a floor that holds in
-    every deployment however many optional modules were declined."""
-    return _codex_wire_count({"core"})
 
 PATCH = """*** Begin Patch
 *** Update File: src/app.py
@@ -272,11 +268,11 @@ class TestCodexRegistrationDrift(unittest.TestCase):
                 if wire.get("type") == "codex-hook":
                     total += 1
                     self._assert_rendered(wire["hook"]["command"], os.path.basename(os.path.dirname(mpath)))
-        # The per-wire renderer-parity above is the real check and runs for whatever is installed. The floor is
-        # the core module's own wire count (always present), so it holds in a deployment that declined optional
-        # modules while still catching a catastrophic loss of the wiring (#646).
-        self.assertGreaterEqual(total, _core_codex_wire_count(),
-                                "the codex-hook wires exist (at least core's) and were all checked")
+        # The per-wire renderer-parity above is the real check and runs for whatever is installed. A `>= 0`
+        # floor would be tautological (total sums the same manifests it iterates), so assert the meaningful,
+        # roster-safe thing: the wiring did not vanish entirely — at least one codex-hook wire exists (core
+        # always ships some), which holds in any deployment however many optional modules were declined (#646).
+        self.assertGreater(total, 0, "codex-hook wires exist and were all checked")
 
     def test_every_committed_hooks_json_command_matches_the_renderer(self):
         import validate
@@ -292,14 +288,13 @@ class TestCodexRegistrationDrift(unittest.TestCase):
             self._assert_rendered(command, ".codex/hooks.json")
 
     def test_codex_wire_count_is_installed_aware(self):
-        # Two-directional proof of the #646 floor (the home repo has every module installed, so the declined
-        # count is otherwise never seen): counting core alone is a strict subset of counting all installed
-        # modules, so declining optional modules lowers the total while the core floor always holds.
+        # Proof that _codex_wire_count filters by installed module (the home repo has every module installed, so
+        # the declined count is otherwise never seen): counting core alone is a strict subset of counting all
+        # installed modules, so declining optional modules genuinely lowers the total (#646).
         core_only = _codex_wire_count({"core"})
         all_installed = _codex_wire_count()
-        self.assertEqual(_core_codex_wire_count(), core_only)
         self.assertGreater(all_installed, core_only, "optional modules contribute codex-hook wires")
-        self.assertGreaterEqual(all_installed, _core_codex_wire_count(), "the core floor holds under any decline")
+        self.assertGreater(core_only, 0, "core itself ships codex-hook wires — the total can never be empty")
 
     def test_the_modes_accept_hook_is_deliberately_absent_on_codex(self):
         """Codex Build entry is the typed verb ONLY (eADR-0034): the plan-acceptance hook must not
