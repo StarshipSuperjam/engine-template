@@ -21,8 +21,10 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    for the whole flow), or run `module_manager.py upgrade` directly. Either way it **only checks — it changes
    nothing**: it tells you the version you're on, whether a newer one is available, whether a previous update
    looks unfinished, and — when an update is available — **what that update would change**: the engine files
-   it replaces or adds, the settings it turns on or off or updates, and any stored-data change (and whether a
-   backup is set up for it). To see this it fetches the new version's files read-only; nothing is applied.
+   it replaces or adds, the settings it turns on or off or updates, any stored-data change (and whether a
+   backup is set up for it), and **any capability the update retires** — something you could ask the engine for
+   before and no longer can, named in plain language. To see this it fetches the new version's files read-only;
+   nothing is applied.
    (`module_manager.py status` also lists the installed modules and the current version.)
 2. **Apply the update — deliberately.** `module_manager.py upgrade --confirm` (optionally name a specific
    version) fetches the newer released version, replaces the engine's own files with it while **keeping your
@@ -63,8 +65,8 @@ spoken in conversation. If you simply mention wanting to update, the engine **po
   can simply reject.
 
 **What the check covers.** The check answers four things before you commit to an update: whether an update is
-**available** and to which version; the **impact** it would have (the files, settings, and stored-data changes
-above); the **progress** of applying it, which the apply step reports as it goes — what it applied, the data
+**available** and to which version; the **impact** it would have (the files, settings, stored-data changes, and
+retired capabilities above); the **progress** of applying it, which the apply step reports as it goes — what it applied, the data
 it migrated, and the pull request it opened; and the **validation** — the engine's own consistency check runs
 at the end, and, with the pull request's own checks, is visible on the pull request you review.
 

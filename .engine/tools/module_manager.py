@@ -702,6 +702,31 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     return out
 
 
+def select_retired_capabilities(from_versions: dict, target_versions: dict, manifests: list) -> list:
+    """PURE: the capability-retirement ANNOUNCEMENTS an upgrade must show, in module/version order. The exact
+    RANGE selection as select_migrations — for each present module, every `retired_capabilities` key strictly
+    ABOVE its from-version and AT-OR-BELOW its target-version, modules ordered by dependency and, within a
+    module, by ASCENDING version (validate._ver_tuple, NEVER string order). Returns a list of
+    {module_id, version, description} — announcement-only: no `run`, no `kind`, NOTHING executes, so (unlike
+    run_migrations) it can never refuse and needs no backup seam. Fixture-testable with no disk/network.
+
+    ACCUMULATION CONTRACT (enforced at release-cut by release_cut._retired_capabilities_accumulation_violations):
+    selection is by RANGE, so a key removed from a manifest is simply never iterated for an engine sitting below
+    it — the notice silently vanishes for the very lagging upgrader it exists to reach. So a shipped
+    retired-capabilities key must NEVER be dropped; and unlike a migration there is no no-op form to retire it
+    to — the key is append-only for the life of the module."""
+    out = []
+    for m in validate.topological_order(list(manifests)):
+        mid = m.get("id")
+        frm = validate._ver_tuple(from_versions.get(mid, "0"))
+        tgt = validate._ver_tuple(target_versions.get(mid, from_versions.get(mid, "0")))
+        for ver in sorted((m.get("retired_capabilities") or {}), key=validate._ver_tuple):
+            if frm < validate._ver_tuple(ver) <= tgt:
+                e = (m.get("retired_capabilities") or {})[ver] or {}
+                out.append({"module_id": mid, "version": ver, "description": e.get("description")})
+    return out
+
+
 def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False, sink=None):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
     by it (the retained-tag mechanism). The migration calls `context['backup'](store, engine_version)`
@@ -1177,6 +1202,35 @@ def _resync_tool_runtime() -> bool:
         return False
 
 
+# The Markdown-structural characters a retired-capability description is escaped against so it renders as the
+# author's LITERAL words in the PR body: inline code (`), emphasis (* _), links/images ([ ] !), inline HTML
+# (< >), strikethrough (~). Each is backslash-escaped (GitHub renders '\x' as a literal 'x' for ASCII
+# punctuation), so nothing the author wrote is deleted and no construct can reshape or disguise the notice.
+# Leading block markers (#, >, -) need no handling: the "- " list prefix already puts the text in INLINE context,
+# where they are literal — and deleting them (an earlier approach) silently corrupted content like '>50% mode'
+# or '--force', which is exactly the notice this feature must render faithfully.
+_MD_LITERAL = str.maketrans({c: "\\" + c for c in "\\`*_[]<>~!"})
+
+
+def _retired_capability_text(description) -> str:
+    """The retired-capability description as one plain single line for a TERMINAL surface (the upgrade preview and
+    the applied-upgrade echo): collapse newlines and runs of whitespace to single spaces, and nothing else. The
+    terminal is not Markdown, so the author's characters are shown VERBATIM — never stripped or altered, so a
+    retired flag like '--force' or a claim like '>50% memory mode' survives exactly as written."""
+    return " ".join(str(description or "").split()) or "a capability was removed"
+
+
+def _retired_capability_line(description) -> str:
+    """The description as a Markdown list item for the upgrade PR body's Scope section — the durable consent
+    surface a non-engineer reads at the merge, and the FIRST free-text manifest field to render there (a
+    migration's description never reaches the PR body). Render the author's words as LITERAL text: whitespace is
+    collapsed (so no embedded newline breaks the list) and every Markdown-structural character is escaped (so an
+    inline link, code span, HTML tag, or emphasis run can't reshape or disguise the notice) — while every
+    character the author wrote SURVIVES, escaped rather than deleted. A truthful-rendering control, not a security
+    boundary: the text is maintainer-authored, schema-validated, and human-reviewed at the release cut."""
+    return "- " + _retired_capability_text(description).translate(_MD_LITERAL)
+
+
 def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
     """The engine update's own pull-request body, authored in the repository template's shape — the eight
     required sections plus the consent preamble every engine pull request carries — so an engine update reads
@@ -1220,6 +1274,15 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
                 saved += (" One heads-up: the engine could not confirm that recovery copy is locked, so it "
                           "could be deleted by hand — leave it in place to keep the undo available.")
             scope.append(saved)
+    # Capability retirements — the plain "you could do this before, and now you can't" line the operator would
+    # otherwise never get. The description IS the whole notice (there is no kind/gloss to fall back on the way a
+    # migration has), so unlike the migration block above this DOES render the authored description, literalized
+    # so stray Markdown can't garble it.
+    retired = result.get("retired_capabilities") or []
+    if retired:
+        scope += ["", f"Capabilities this update removed — things you could ask for before and no longer can "
+                  f"({len(retired)}):"]
+        scope += [_retired_capability_line(r.get("description")) for r in retired]
     shared: list = []
     co = result.get("codeowners")
     if co == "written":
@@ -1300,9 +1363,14 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         "merging is your consent to run the updated engine; nothing changes until you merge.")
     out += release_cut.pr_section(
         "Scope",
-        "The version this update records and the shared-file blocks it refreshed.",
+        ("The version this update records, the shared-file blocks it refreshed, and the capabilities it retires."
+         if retired else
+         "The version this update records and the shared-file blocks it refreshed."),
         scope,
-        "these are the exact versions written into the engine's records, plus the marked-block refreshes noted.")
+        ("the exact versions written into the engine's records, the marked-block refreshes noted, and — listed "
+         "above — the things you could ask for before and no longer can."
+         if retired else
+         "these are the exact versions written into the engine's records, plus the marked-block refreshes noted."))
     out += release_cut.pr_section(
         "Out of scope",
         "What merging does not do.",
@@ -1310,17 +1378,30 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "- It does not change any settings you configured yourself.",
          "- It changes nothing outside the engine's own files and its marked blocks in shared files."],
         "the update touches only engine-owned files and the engine's marked blocks in shared files.")
+    risk_bullets = []
+    if retired:
+        # The one change in an update that alters what the operator can ASK the engine to do — surfaced here, in
+        # "what to weigh before merging", so a header-skimming reader meets it and not only in the Scope body.
+        risk_bullets.append(
+            "- A capability you could use before is gone — see \"Capabilities this update removed\" under Scope. "
+            "This is the one part of an update that changes what you can ask the engine to do, so read it before "
+            "you merge.")
+    risk_bullets += [
+        "- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
+        "files this version renamed or dropped; your project content is not touched.",
+        "- Every file this update removed is listed under Scope above — read them, and flag any that was "
+        "yours before merging.",
+        "- Any shared-file block the update could not refresh is also called out under Scope — read those "
+        "before merging."]
     out += release_cut.pr_section(
         "Risk",
         "What to weigh before merging.",
-        ["- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
-         "files this version renamed or dropped; your project content is not touched.",
-         "- Every file this update removed is listed under Scope above — read them, and flag any that was "
-         "yours before merging.",
-         "- Any shared-file block the update could not refresh is also called out under Scope — read those "
-         "before merging."],
-        "the update changes and removes engine-owned files; every removal and anything it could not apply is "
-        "disclosed in Scope.")
+        risk_bullets,
+        ("a capability you could use is gone (see Scope); and the update changes and removes engine-owned files, "
+         "with every removal and anything it could not apply disclosed in Scope."
+         if retired else
+         "the update changes and removes engine-owned files; every removal and anything it could not apply is "
+         "disclosed in Scope."))
     out += release_cut.pr_section(
         "Validation",
         "What the engine checked before opening this.",
@@ -1715,8 +1796,14 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     tail = {"wiring": [], "codeowners": None, "claude_floor": None, "agents_floor": None,
             "foundation_ignores": None, "fixtures_delivered": [],
             "orphans_removed": {"engine": [], "suspect": [], "left_in_place": []},
-            "migrations": {"ran": [], "refused": []},
+            "migrations": {"ran": [], "refused": []}, "retired_capabilities": [],
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None}
+    # (a0) RETIRED-CAPABILITY ANNOUNCEMENTS — derived from the FULL present-manifest set (`candidates`), NEVER
+    # from `selected`: a version that retires a capability but ships no migration must still announce it, so this
+    # is independent of migration selection (design-review). Announcement-only, so it is computed once up front
+    # and simply rides the result — it runs nothing and can never refuse.
+    tail["retired_capabilities"] = select_retired_capabilities(
+        from_versions, target_versions, list(candidates.values()))
     # (a) WIRING DELTAS — reverse a wire the new version drops, (re)apply the wires it declares now, with the
     # freshly-overlaid appliers (this is the seam #594 fixed: a new wire type now actually applies).
     tail["wiring"] = _apply_wiring_deltas(old_by_id, candidates)
@@ -1946,7 +2033,7 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
            "from_versions": {}, "target_versions": {},
            "files": {"replaced": [], "added": []},
            "wires": {"added": [], "removed": [], "updated": []},
-           "migrations": [], "backed_up": None}
+           "migrations": [], "retired_capabilities": [], "backed_up": None}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -2024,6 +2111,10 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
         selected = select_migrations(from_versions, out["target_versions"], list(candidates.values()))
         out["migrations"] = [{"module_id": s.get("module_id"), "version": s.get("version"),
                               "description": s.get("description"), "kind": s.get("kind")} for s in selected]
+        # Capability retirements — the same range selector, from the SAME present-manifest set, independent of
+        # whether any migration was selected (a retirement can ship with no migration). Preview mirrors apply.
+        out["retired_capabilities"] = select_retired_capabilities(
+            from_versions, out["target_versions"], list(candidates.values()))
         if any(s.get("kind") == "data" for s in selected):
             out["backed_up"] = _resolve_backup_seam(None) is not None   # engine-wide readiness probe; no write
         out["status"] = "update-available"
@@ -2118,13 +2209,16 @@ def _render_upgrade_preview(p: dict) -> None:
         what = ("stored data" if m.get("kind") == "data"
                 else "a setting" if m.get("kind") == "config" else "an engine record")
         print(f"  Changes {what}: {m.get('description') or m.get('module_id')}")
+    retired = p.get("retired_capabilities") or []
+    for r in retired:
+        print(f"  Removes a capability: {_retired_capability_text(r.get('description'))}")
     if any(m.get("kind") == "data" for m in migs):
         if p.get("backed_up") is True:
             print("  Your stored data is backed up before any data change.")
         elif p.get("backed_up") is False:
             print("  Note: a stored-data change needs a backup set up first — ask me to set one up before "
                   "applying, or the update refuses that step and changes nothing.")
-    if not (nrep or nadd or any(w.get(k) for k in ("added", "updated", "removed")) or migs):
+    if not (nrep or nadd or any(w.get(k) for k in ("added", "updated", "removed")) or migs or retired):
         print("  No file or settings changes — a version bump only.")
     tail = f" (or run `upgrade --confirm{(' ' + named) if named else ''}`)"
     print(f"\nThis only checked your engine — nothing changed. To apply, type `/engine-upgrade` and confirm"
@@ -2166,8 +2260,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     practice = injected_release and not in_process                    # local release, no callables ⇒ child, no resync/PR
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
-              "findings": [], "pr": None, "notes": [], "codeowners": None, "claude_floor": None,
-              "agents_floor": None}
+              "retired_capabilities": [], "findings": [], "pr": None, "notes": [], "codeowners": None,
+              "claude_floor": None, "agents_floor": None}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -2598,6 +2692,8 @@ def _render_upgrade(result: dict) -> None:
         print(f"  - ran update: {r}")
     for r in result.get("migrations", {}).get("refused", []):
         print(f"  - {r}")
+    for r in result.get("retired_capabilities", []):
+        print(f"  - removed a capability: {_retired_capability_text(r.get('description'))}")
     for line in result.get("notes", []):
         print("  - " + line)
     pr = result.get("pr")
@@ -2961,7 +3057,10 @@ def _build_upgrade_release(root: str) -> str:
                      "0.1.0": {"description": "Tidy a committed settings file for the new layout.",
                                "run": "migrations/config_010.py", "kind": "config"},
                      "0.2.0": {"description": "Reshape the stored data for the new format.",
-                               "run": "migrations/data_020.py", "kind": "data"}}})
+                               "run": "migrations/data_020.py", "kind": "data"}},
+                 "retired_capabilities": {
+                     "0.2.0": {"description": "The base tool no longer offers its one-shot cache reset; clear "
+                                              "the cache with the standard cleanup instead."}}})
     with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
         fh.write("# base v2 (updated)\n")
     # the migration code runs IN the tool-runtime; it imports validate (module_manager already put the
@@ -3047,7 +3146,7 @@ def upgrade_demo() -> bool:
           "migration runner, and the consistency check. (None of those four ever runs for real here.)")
     pulls = []
     def fake_opener(branch, title, body):
-        pulls.append({"branch": branch, "title": title})
+        pulls.append({"branch": branch, "title": title, "body": body})
         return {"number": 0, "title": title}
     snapshots = []
     def fake_backup(store, engine_version, **kw):                # **kw absorbs the migration_id run_migrations binds in
@@ -3112,6 +3211,10 @@ def upgrade_demo() -> bool:
                 "consistent after the update":
                     not [f for f in res.get("findings", []) if f["severity"] == "hard"],
                 "opened a pull request for review": bool(res.get("pr")) and len(pulls) == 1,
+                "retired-capability notice selected on the version jump":
+                    [r.get("version") for r in res.get("retired_capabilities", [])] == ["0.2.0"],
+                "retired-capability notice carried into the review PR body":
+                    bool(pulls) and "no longer offers its one-shot cache reset" in (pulls[-1].get("body") or ""),
             }
             for label, good in checks.items():
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")

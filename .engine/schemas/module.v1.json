@@ -159,6 +159,22 @@
           }
         }
       }
+    },
+    "retired_capabilities": {
+      "description": "Version-keyed announcements that a capability this module used to offer has been REMOVED. This is neither the module-level `status: retired` (which retires a whole module) nor a `migrations` entry (which runs code to reshape state): a retired-capability entry runs nothing and reshapes nothing. It exists solely so an operator who upgrades ACROSS the version is told, in the update's pull request and its preview, that something they could ask for before is gone. Each key is the module version at which the capability went away; its value is the plain-language line the operator reads. Entries are selected by the SAME version RANGE as `migrations` — shown once when an upgrade crosses the version, never to a fresh adopter who never had the capability — and fire only while THIS module is still present, so a capability retired by removing the whole module cannot be announced here (that removal is the release cut's own inventory, and an announcement meant to outlive its module belongs in a module that survives). Once shipped, a key is NEVER removed: an engine upgrading from an older version must still cross it to see the notice, and unlike a migration there is no no-op form to fall back on — to stop announcing is simply not an option. This key raises a module's version floor at the release cut but does not certify severity: a breaking removal must still carry its own major/impact signal. Empty or absent for a module that has retired nothing.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description"],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "One plain-language line, in the operator's own voice, naming the capability that was removed and — where an alternative exists — what to do instead. It is the WHOLE notice the operator meets in the upgrade's pull-request description and preview, so it must read as a usable sentence without engine jargon. For example: 'The engine no longer offers to bring a set-aside note back into search; ask me to search your notes directly instead.' A bare 'Removed.' or a lone capability name is NOT enough — the operator cannot act on it, and once shipped the key is permanent (there is no no-op form to retire it to), so a thin line cannot simply be withdrawn later. The schema enforces only that the line is non-empty; that it is genuinely useful rests on your authoring and the release-cut review.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

@@ -23,10 +23,12 @@ def _write(path, obj):
         f.write("\n")
 
 
-def _module(mid, ver="0.0.0-dev", migrations=None):
+def _module(mid, ver="0.0.0-dev", migrations=None, retired_capabilities=None):
     m = {"id": mid, "version": ver, "status": "required", "provides": {}}
     if migrations:
         m["migrations"] = migrations
+    if retired_capabilities:
+        m["retired_capabilities"] = retired_capabilities
     return m
 
 
@@ -180,6 +182,33 @@ class Classify(unittest.TestCase):
             p = rc.classify(rc.Baseline(None, True, "first cut"), None)
         self.assertIsNone(p["engine_floor_version"])
 
+    def test_diff_new_retired_capability_floors_module_and_inventories_it(self):
+        live = {"core": _module("core", ver="0.4.0",
+                                retired_capabilities={"0.4.0": {"description": "the old thing is gone; do X"}})}
+        base = _baseline_tree({"core": _module("core", ver="0.3.0")})
+        try:
+            with _Tree(live):
+                p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+            self.assertIn("core", p["package_floor"])                     # a retirement raises the module floor
+            self.assertIn("announced a retired capability (0.4.0)", " ".join(p["change_inventory"]))
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_diff_migration_and_retirement_combine_without_clobber(self):
+        # a migration AND a retirement added at the same module version: the second writer must not overwrite the
+        # first's floor — take the higher, so identical inputs keep the same floor rather than lowering it.
+        mig = {"0.4.0": {"description": "d", "run": "r", "kind": "config"}}
+        ret = {"0.4.0": {"description": "gone"}}
+        base = _baseline_tree({"core": _module("core", ver="0.3.0")})
+        try:
+            with _Tree({"core": _module("core", ver="0.4.0", migrations=mig)}):
+                floor_mig = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
+            with _Tree({"core": _module("core", ver="0.4.0", migrations=mig, retired_capabilities=ret)}):
+                floor_both = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
+            self.assertEqual(floor_mig, floor_both)                       # combine kept the floor, never clobbered
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
 
 class MigrationAccumulation(unittest.TestCase):
     # #599 Slice 3: migrations replay by RANGE, so a version-key present in the previous release but dropped in
@@ -249,6 +278,84 @@ class MigrationAccumulation(unittest.TestCase):
         # the guard, so a product release can never be refused by the engine-migration accumulation rule.
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
         self.assertNotIn("migration_violations", p)
+
+
+class RetiredCapabilityAccumulation(unittest.TestCase):
+    # a retired-capability NOTICE is replayed by RANGE, so a version-key present in the previous release but
+    # dropped in the candidate would be silently skipped for a lagging upgrader — the notice never shows.
+    # classify() flags it; the cut is refused. Distinct from the migration guard: a retirement has NO no-op form,
+    # so the only recovery is to never drop the key.
+    _RET = {"0.2.0": {"description": "the old thing is gone; do X instead"}}
+
+    def _classify(self, live, baseline):
+        base = _baseline_tree(baseline)
+        try:
+            with _Tree(live):
+                return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_dropped_notice_key_is_flagged(self):
+        p = self._classify({"core": _module("core")},
+                           {"core": _module("core", retired_capabilities=self._RET)})
+        self.assertEqual(len(p["retired_capability_violations"]), 1)
+        self.assertIn("core", p["retired_capability_violations"][0])
+        self.assertIn("0.2.0", p["retired_capability_violations"][0])
+        self.assertIn("no no-op form", p["retired_capability_violations"][0])   # the retirement-specific recovery
+
+    def test_retained_notice_is_clean(self):
+        p = self._classify({"core": _module("core", retired_capabilities=self._RET)},
+                           {"core": _module("core", retired_capabilities=self._RET)})
+        self.assertEqual(p["retired_capability_violations"], [])
+
+    def test_rekeyed_notice_is_not_a_false_drop(self):
+        # baseline '0.4' and candidate '0.4.0' are the SAME version — the shared _norm_ver must not read a drop.
+        live = {"core": _module("core", retired_capabilities={"0.4.0": {"description": "x"}})}
+        base = {"core": _module("core", retired_capabilities={"0.4": {"description": "x"}})}
+        self.assertEqual(self._classify(live, base)["retired_capability_violations"], [])
+
+    def test_whole_removed_module_is_not_a_dropped_notice(self):
+        # a removed CAPABILITY is inventoried as removed (major bump); its notices travel with it — NOT counted
+        # here as a dropped-notice violation (the same known bound the migration guard carries).
+        base = {"core": _module("core"),
+                "legacy": _module("legacy", retired_capabilities={"0.1.0": {"description": "d"}})}
+        p = self._classify({"core": _module("core")}, base)
+        self.assertEqual(p["retired_capability_violations"], [])
+        self.assertIn("Removed the 'legacy'", " ".join(p["change_inventory"]))
+
+    def test_added_notice_is_not_a_violation(self):
+        p = self._classify({"core": _module("core", retired_capabilities=self._RET)}, {"core": _module("core")})
+        self.assertEqual(p["retired_capability_violations"], [])
+
+    def test_propose_refuses_and_reports_both_kinds_in_one_pass(self):
+        import io
+        import contextlib
+        import types
+        # drop BOTH a migration key and a retirement key at once: ONE refusal reports both, so a maintainer
+        # fixing one isn't ambushed by the other on a re-run (design-review aggregation).
+        base = _baseline_tree({"core": _module(
+            "core", migrations={"0.2.0": {"description": "d", "run": "r", "kind": "config"}},
+            retired_capabilities=self._RET)})
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree({"core": _module("core")}):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            e = err.getvalue()
+            self.assertEqual(code, 2)                       # non-zero => the propose step fails the cut
+            self.assertIn("0.2.0", e)                       # both dropped keys sit at 0.2.0
+            self.assertIn("upgrade step", e.lower())        # the migration recovery is present
+            self.assertIn("no no-op form", e)               # AND the distinct retirement recovery
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_product_cut_has_no_retirement_guard(self):
+        # engine-mode only, same as the migration guard — a product cut never computes it.
+        p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
+        self.assertNotIn("retired_capability_violations", p)
 
 
 class Apply(unittest.TestCase):
