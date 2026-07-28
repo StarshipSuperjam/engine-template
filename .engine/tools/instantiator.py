@@ -940,7 +940,8 @@ def _apply_delete_unselected(manifest: dict, say) -> dict:
 
 def _apply_foundation_ignores(say) -> dict:
     """STEP (foundation ignores) — place the engine's keyed `.gitignore` fence (`.engine/.venv/`,
-    `.engine/.uv/`, `.claude/worktrees/`, `.engine/**/__pycache__/`) via the wiring library helper (#409). Runs BEFORE codeowners so
+    `.engine/.uv/`, `.claude/worktrees/`, `.engine/**/__pycache__/`) via the wiring library helper (#409).
+    Runs BEFORE codeowners so
     the file exists when `codeowners_path_set()` globs it (the `/.gitignore @owner` line renders on first
     brownfield apply), and pre-runtime so a tool-runtime halt still leaves `.venv/` ignored — the strand
     pre-check's clean-tree read stays true. Idempotent (fence_apply inserts iff absent); fails open (the

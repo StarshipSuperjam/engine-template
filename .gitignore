@@ -14,6 +14,14 @@
 .engine/**/__pycache__/
 # END engine-managed block: foundation-ignores
 
+# Python bytecode cache (regenerable; never committed). A general, repo-wide default — it also covers a
+# Python PRODUCT built from this template. Unlike the engine-managed fence above it is NOT projected into a
+# deployed repo (the fence's `.engine/**/__pycache__/` line ignores only the ENGINE's own bytecode under
+# `.engine/`, which is what travels to a brownfield deployment). Ordinary starter hygiene — an adopter may
+# keep or drop it; the engine does not manage it.
+__pycache__/
+*.pyc
+
 # Pytest's run-cache (regenerable; never committed). Mirrors the .engine/.pytest_cache/ carve-out in
 # the catalog-coverage check, so a local test run never leaves a stray "surface" directory behind.
 .pytest_cache/
