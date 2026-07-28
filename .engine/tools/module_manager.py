@@ -1436,31 +1436,115 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     return "\n".join(out)
 
 
+def _github_error_detail(exc) -> str:
+    """GitHub's human-readable reason from a FAILED API response body, safe to show the operator — WITHOUT
+    surfacing anything sensitive. The body is field-validation JSON and never echoes request headers, so the
+    auth token cannot leak through it. A 422 on `/pulls` carries a generic top-level `message` ("Validation
+    Failed") with the ACTUAL cause in `errors[].message` (e.g. "A pull request already exists for …", "No
+    commits between base and head"), so join the top-level message with each nested error. `exc.read()` yields
+    bytes, may be empty, and can be read only ONCE; decode defensively and NEVER raise from here — a diagnostic
+    helper must not replace the original HTTP failure with a read/parse error. Returns "" when there is nothing
+    usable to add."""
+    try:
+        raw = exc.read()
+    except Exception:  # noqa: BLE001 — an unreadable body must not mask the HTTP error it is explaining
+        return ""
+    if not raw:
+        return ""
+    try:
+        body = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001 — a non-JSON body: a bounded slice of the raw text is still useful
+        return raw.decode("utf-8", errors="replace")[:300].strip()
+    if not isinstance(body, dict):
+        return ""
+    parts = []
+    top = body.get("message")
+    if isinstance(top, str) and top.strip():
+        parts.append(top.strip())
+    errs = body.get("errors")
+    for err in errs if isinstance(errs, list) else []:      # `errors` may be absent or a non-list — never iterate a scalar
+        msg = err.get("message") or err.get("code") if isinstance(err, dict) else None
+        if isinstance(msg, str) and msg.strip():
+            parts.append(msg.strip())
+    return "; ".join(parts)
+
+
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
     git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
-    via POST /repos/{slug}/pulls (the telemetry.open_issue pattern). INJECTED for tests + the demo
-    (upgrade(opener=...)), so this real path NEVER runs in the construction repo — one of the four named
-    inductive gaps (no release to upgrade to, no PR to open)."""
-    import subprocess, urllib.request, json as _json, boot   # local: only the real open needs these
+    via POST /repos/{slug}/pulls built through the shared github_client.request (the one authenticated-Request
+    home). INJECTED for tests + the demo (upgrade(opener=...)), so this real path NEVER runs in the construction
+    repo — one of the four named inductive gaps (no release to upgrade to, no PR to open).
+
+    On a failed POST it raises a DIAGNOSABLE, caller-agnostic RuntimeError (#672): the branch is already
+    committed and pushed by the time the POST runs, so the message names the resolved repo/base/head/URL and
+    GitHub's own safe reason (read via _github_error_detail — never the auth token or headers) and says the
+    branch is already pushed so the recovery is to open the pull request by hand, not to re-run. A git step
+    failing EARLIER (checkout/add/commit/push) raises the OPPOSITE contract — the branch was NOT pushed, so it
+    names the failed step, surfaces git's stderr, and says to clear a leftover branch and run again — because a
+    "branch is pushed" claim would be false there. Each caller frames its own surrounding recovery; this
+    boundary supplies only the diagnostics both callers share."""
+    import subprocess, urllib.request, urllib.error, json as _json, boot, github_client  # local: only the real open needs these
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     if not slug or not tok:
         raise RuntimeError("could not determine the engine repository / credentials to open the update "
                            "pull request.")
     base = getattr(boot, "PROTECTED_BRANCH", "main")
+    # STAGE-AND-PUSH. A git step failing here means the branch was NOT (fully) pushed, so the recovery is the
+    # OPPOSITE of the POST-failure case below — there is no branch to open a pull request from yet. The most
+    # common cause is a leftover branch from an earlier partial attempt colliding on `checkout -b`, so the
+    # message names the failed step, surfaces git's own stderr (captured but otherwise dropped), and says
+    # plainly the branch is not pushed and how to clear the collision — never the false "already pushed" claim.
     for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
-        subprocess.run(args, cwd=validate.ROOT, check=True, capture_output=True)
-    url = f"https://api.github.com/repos/{slug}/pulls"
+        try:
+            subprocess.run(args, cwd=validate.ROOT, check=True, capture_output=True)
+        except subprocess.CalledProcessError as exc:
+            err = exc.stderr.decode("utf-8", errors="replace").strip() if isinstance(exc.stderr, bytes) \
+                else (exc.stderr or "").strip()
+            head = (f"preparing the pull-request branch failed at `{' '.join(args)}`"
+                    + (f": {err}" if err else f" (exit {exc.returncode})"))
+            if args[1] == "checkout":
+                # The CREATE step failed, so no branch (and no commit) exists yet — most often a name collision
+                # with a leftover branch from an earlier attempt. Deleting that is safe (nothing new is on it).
+                recovery = (f" — so the branch '{branch}' was not created and there is no pull request to open "
+                            f"yet. A common cause is a leftover '{branch}' branch from an earlier attempt; "
+                            f"remove it (locally with `git branch -D {branch}`, and on the remote if it was "
+                            f"pushed) and run this again.")
+            else:
+                # A LATER step failed (add/commit/push): the branch was already created and may hold the
+                # arrival's committed changes, so DO NOT tell the operator to delete it — that would discard
+                # their work. A push failure (the common case) is usually authentication, network, or branch
+                # protection. Fix the reported cause, then finish by hand.
+                recovery = (f" — the branch '{branch}' was created and holds the arrival's changes, so do not "
+                            f"delete it. The pull request was not opened; fix the cause reported above, then "
+                            f"finish by pushing the branch (`git push -u origin {branch}`) and opening the pull "
+                            f"request yourself: `gh pr create --repo {slug} --base {base} --head {branch}`.")
+            raise RuntimeError(head + recovery) from exc
+    path = f"/repos/{slug}/pulls"
     payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-module-manager", "Authorization": f"Bearer {tok}",
-               "Content-Type": "application/json"}
-    with urllib.request.urlopen(urllib.request.Request(url, data=payload, headers=headers),
-                                timeout=60) as resp:
-        return _json.loads(resp.read())
+    req = github_client.request(path, tok, user_agent="engine-module-manager", method="POST", data=payload)
+    # THE POST. Reached only after the branch is committed and pushed above — so here the recovery IS to open
+    # the pull request by hand from the pushed branch. State it once, concretely, and never interpolate the
+    # token or headers (only exc.code + GitHub's response reason + the resolved repo/base/head).
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return _json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = _github_error_detail(exc)
+        reason = f"GitHub returned HTTP {exc.code}" + (f" — {detail}" if detail else "")
+        raise RuntimeError(
+            f"the branch '{branch}' was pushed but opening the pull request failed ({reason}). Open it "
+            f"yourself: `gh pr create --repo {slug} --base {base} --head {branch}`."
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"the branch '{branch}' was pushed but GitHub could not be reached ({exc.reason}), so the pull "
+            f"request was not opened. Open it yourself once you are back online: "
+            f"`gh pr create --repo {slug} --base {base} --head {branch}`."
+        ) from exc
 
 
 def _refresh_codeowners(handle) -> str:

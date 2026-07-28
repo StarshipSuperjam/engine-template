@@ -4539,7 +4539,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:481ccf88a3103d740c2198a1bd6a6d8860eef73771b5e0542289b35e69ecd519",
+        "fingerprint": "sha256:297ae3b133fd272b89d4d0db8b0b76230cca170b6b91708408a2d1b0a1345a55",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -8597,7 +8597,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:cf5c66fe5c8569c76e9f08866486e707c2bc23e05ee7ba9511989fbf4a808c33",
+        "fingerprint": "sha256:e58c01d57942f0cabd9bccd8b46939339e53e818de80f5705d684372e42a6e4a",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9257,6 +9257,7 @@
           "tool:capture",
           "tool:checkout_health",
           "tool:close",
+          "tool:github_client",
           "tool:knowledge_gen",
           "tool:ledger",
           "tool:memory.__init__",
@@ -9274,7 +9275,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:fb01c8eb6a105ec75f243d9f2c718727799ea641c060a97eef65dec830dab621",
+        "fingerprint": "sha256:ca6de8882d6ce4fbbe2d0b1e32c4c4bffe609f73d412542aa8afc2abc509db3b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11824,7 +11825,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:4d122bcd3c0a15d394e68a748bdc2478cb9e4f20944907b0b6efba14ca32463e",
+        "fingerprint": "sha256:b70b278e3217c8f90883b234684a697c40aaeb179d5c673f60aebcb47947cfd5",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12404,7 +12405,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:ff81d1fc81c6a53b55f59cb90d2103a53d5fd7192cf49d0ee3ad6698e272fb2a",
+        "fingerprint": "sha256:501eb0d6c1fb0680c6eea69fc7154cde81b95a7b6d89db7d950be07fa2523924",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
