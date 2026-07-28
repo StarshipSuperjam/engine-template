@@ -9,6 +9,7 @@ disclosure, and the producer/consumer matrix contract all run for real. Plan-gat
 pinned by a named test below."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import sys
@@ -20,7 +21,25 @@ import validate            # noqa: E402
 import telemetry           # noqa: E402
 import conformance_sweep as cs  # noqa: E402
 import quiet_call          # noqa: E402  (capture the demo's stdout so it cannot bury the suite summary)
-from product_design import obligation_matrix  # noqa: E402  (the producer, imported HERE in the test only)
+
+
+def _product_design_installed() -> bool:
+    """True when the OPTIONAL product-design module is present. Mirrors memory/mcp_server's
+    `_semantic_installed`: `find_spec` LOCATES the package without importing it, and a `None` origin (a
+    namespace package — what an uninstall leaves behind) is treated as absent, so a leftover empty directory
+    never reads as installed. This core test travels to every deployment, so the producer import below is
+    guarded — a product-design-declined deployment must still collect and run this suite (only the one
+    producer<->consumer seam test is skipped when it is absent)."""
+    try:
+        spec = importlib.util.find_spec("product_design")
+    except (ImportError, ValueError, ModuleNotFoundError):
+        return False
+    return spec is not None and spec.origin is not None
+
+
+_HAVE_PRODUCT_DESIGN = _product_design_installed()
+if _HAVE_PRODUCT_DESIGN:
+    from product_design import obligation_matrix  # noqa: E402  (the producer; optional module, guarded above)
 
 _DIGEST = "sha256:" + "a" * 64
 _DIGEST2 = "sha256:" + "b" * 64
@@ -390,10 +409,13 @@ class TestPromote(unittest.TestCase):
                          "Spec conformance: your settled spec has no record for the standing review to check")
 
     def _matrix_path(self, root):
-        # write a real matrix so `active` state holds for the end-to-end promote test
-        obligation_matrix.write_matrix(obligation_matrix.render(_matrix([_row()])),
-                                       os.path.join(root, "product-spec-matrix.json"))
-        return os.path.join(root, "product-spec-matrix.json")
+        # write a valid matrix JSON so `active` state holds for the end-to-end promote test. Serialised inline
+        # (not via product-design's `obligation_matrix.render`, which is plain sorted json.dumps) so this core
+        # promote test needs no optional module and runs on a product-design-declined deployment.
+        path = os.path.join(root, "product-spec-matrix.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(_matrix([_row()])))
+        return path
 
 
 class TestMatrixHistorySeam(unittest.TestCase):
@@ -411,7 +433,9 @@ class TestMatrixHistorySeam(unittest.TestCase):
         # so the just-changed row shows up as stale (current \ baseline).
         import base64
         prior = _matrix([_row()])   # baseline had only row A
-        content = base64.b64encode(obligation_matrix.render(prior).encode()).decode()
+        # serialise inline (not via the optional producer's `render`) — the seam under test is the history
+        # reader, and this core test must run on a product-design-declined deployment.
+        content = base64.b64encode(json.dumps(prior).encode()).decode()
 
         def transport(method, path, body):
             if "/commits" in path:
@@ -454,6 +478,7 @@ class TestSchemasAndProducerContract(unittest.TestCase):
             with open(path, encoding="utf-8") as fh:
                 Draft202012Validator.check_schema(json.load(fh))
 
+    @unittest.skipUnless(_HAVE_PRODUCT_DESIGN, "the optional product-design module is not installed here")
     def test_producer_output_satisfies_matrix_contract(self):
         # The product-design generator's output validates against the pinned contract the sweep reads —
         # the producer<->consumer seam is checkable, so a field rename cannot drift silently.
