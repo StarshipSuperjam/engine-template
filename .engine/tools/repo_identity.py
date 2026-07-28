@@ -56,8 +56,8 @@ def _run(args: list) -> "str | None":
         out = subprocess.run(args, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
-    if out.returncode != 0:
-        return None
+    if out is None or out.returncode != 0:   # `out is None` only under a mocked subprocess (a test stubbing
+        return None                          # subprocess.run -> None); honor the "never raises" contract there
     return out.stdout.strip() or None
 
 

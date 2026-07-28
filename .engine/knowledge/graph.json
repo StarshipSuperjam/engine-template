@@ -9914,7 +9914,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:8b9aed9242243f40ed5a8da33ee8cb8c79415b7359ee234766b460a28aa511fa",
+        "fingerprint": "sha256:2c1e0437a21882fe75fd7cbf6f06f3772da824d4f93bed3cb0d68028e91e43d3",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
