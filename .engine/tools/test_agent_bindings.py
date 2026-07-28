@@ -170,6 +170,17 @@ class TestRenderAndCheck(unittest.TestCase):
             ab.render(d)
             self.assertEqual([p for p in ab.check(d) if "ghost" in p], [])
 
+    def test_check_ignores_stale_override_when_origin_is_unreadable(self):
+        # The #646 'arrival before its remote is set' case: no readable origin -> not confidently home ->
+        # the dangling-override leg is skipped (fail toward not-home), so a declined-pack override does not red.
+        with tempfile.TemporaryDirectory() as d:
+            _fixture(d, {"a": "judgment"},
+                     _valid_bindings(overrides={"ghost": {"model": "sonnet", "effort": "high"}}))
+            with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump({"home_repository": "test/home"}, fh)   # a recorded home, but no readable origin
+            ab.render(d)
+            self.assertEqual([p for p in ab.check(d) if "ghost" in p], [])
+
 
 class TestRealPersonasInSync(unittest.TestCase):
     def test_committed_personas_match_committed_bindings(self):

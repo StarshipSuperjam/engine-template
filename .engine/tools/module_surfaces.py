@@ -24,14 +24,14 @@ REGISTRY_REL = os.path.join(".engine", "provisioning", "module-surfaces.json")
 
 
 def derive(root: str | None = None) -> dict:
-    """{relpath: module_id} for every file the PRESENT module manifests provide. Complete only where every
-    module is present (the source repo), which is why the committed file is generated there and travels."""
+    """{relpath: [owning_module_id, ...]} for every file the PRESENT module manifests provide — the FULL owner
+    list (not collapsed), so a path shared by several modules is only tolerated when NONE of its owners is
+    installed. Complete only where every module is present (the source repo), which is why the committed file
+    is generated there and travels."""
     import module_coherence  # lazy: module_coherence imports validate, so keep it out of import time
     surfaces: dict = {}
     for rel, owners in module_coherence.provides_claims(module_coherence.discover_manifests()).items():
-        # A provided file is sole-owned in practice; if two modules glob the same file it is shared
-        # infrastructure, and either owner is a fine answer for "whose optional decline removes it".
-        surfaces[rel] = sorted(owners)[0]
+        surfaces[rel] = sorted(owners)
     return surfaces
 
 
@@ -45,8 +45,8 @@ def generate(root: str | None = None) -> dict:
 
 
 def load(root: str | None = None) -> dict:
-    """The committed registry {relpath: module_id}, or {} when absent/unreadable (degrade, never crash the
-    link check that consults it)."""
+    """The committed registry {relpath: [module_id, ...]}, or {} when absent/unreadable (degrade to NO
+    tolerance, never crash the link check that consults it)."""
     path = os.path.join(root or validate.ROOT, REGISTRY_REL)
     try:
         return (validate.load_json(path) or {}).get("surfaces") or {}
@@ -55,6 +55,8 @@ def load(root: str | None = None) -> dict:
 
 
 def _installed_module_ids(root: str | None = None) -> set:
+    """The installed module ids (engine.json `packages`), or the EMPTY set when it cannot be read. Callers must
+    treat empty as 'could not determine' and fail CLOSED — a valid engine always has at least `core`."""
     try:
         eng = validate.load_json(os.path.join(root or validate.ROOT, ".engine", "engine.json"))
         return set((eng or {}).get("packages") or {})
@@ -63,22 +65,28 @@ def _installed_module_ids(root: str | None = None) -> set:
 
 
 def declined_surface_owner(abs_path: str, root: str | None = None) -> "str | None":
-    """The owning module id if `abs_path` belongs to a module NOT installed in this deployment — so its absence
-    is a legitimate decline, not a broken reference — else None. Two cases: a file under a module's own
-    directory `.engine/modules/<mid>/`, and an overlaid surface the registry maps to a module. Returns None
-    for a path owned by an installed module (a genuinely missing file there is a real defect the module's own
-    coverage catches) or a path no module owns (a real broken link)."""
+    """The owning module id if `abs_path` belongs to a REAL module NOT installed in this deployment — so its
+    absence is a legitimate decline, not a broken reference — else None. Two cases: a file under a module's own
+    directory `.engine/modules/<mid>/` (only when `<mid>` is a real, catalogued module), and an overlaid
+    surface the registry maps to modules (only when NONE of its owners is installed). Returns None for a path
+    owned by an installed module, a path no module owns, or a path shaped like a module dir whose name is not a
+    real module (a typo / renamed / removed dir) — all of which stay HARD broken links. FAILS CLOSED: if the
+    installed set cannot be determined it tolerates nothing, so a corrupt engine.json can never soften a link."""
     root = root or validate.ROOT
-    rel = os.path.relpath(abs_path, root)
     installed = _installed_module_ids(root)
+    if not installed:                       # a valid engine always has `core`; empty means the read failed
+        return None                         # fail closed — never soften a link when the roster is unknown
+    rel = os.path.relpath(abs_path, root)
+    registry = load(root)
+    known = {mid for owners in registry.values() for mid in owners}  # every real module owns some surface
     parts = rel.split(os.sep)
     if len(parts) >= 3 and parts[0] == ".engine" and parts[1] == "modules":
         mid = parts[2]
-        if mid not in installed:
+        if mid in known and mid not in installed:   # a REAL, declined module's own directory
             return mid
-    owner = load(root).get(rel)
-    if owner and owner not in installed:
-        return owner
+    owners = registry.get(rel)
+    if owners and not any(o in installed for o in owners):   # tolerate only when NO owner is installed
+        return sorted(owners)[0]
     return None
 
 
