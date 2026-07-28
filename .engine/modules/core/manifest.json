@@ -1,6 +1,6 @@
 {
   "id": "core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "required",
   "provides": {
     "check": [
@@ -428,7 +428,7 @@
   "depends": {},
   "migrations": {
     "0.3.0": {
-      "description": "Removes the per-prompt hint's strength setting from your saved settings — the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
+      "description": "Removes the per-prompt hint's strength setting from your saved settings \u2014 the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
       "run": "migrations/retire_scent_threshold.py",
       "kind": "config"
     }
