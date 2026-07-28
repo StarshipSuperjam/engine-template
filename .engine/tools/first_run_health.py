@@ -55,8 +55,10 @@ _MANIFEST_REL = os.path.join(".engine", "engine.json")
 # host-anchored: github.com must be the URL host, never a substring of a look-alike (notgithub.com,
 # github.com.evil.com) — consistent with mechanic_build/boot's belts (defense-in-depth; this parser only
 # decides whether to OFFER first-run setup, but a mis-parse should never treat a look-alike as the home).
+# IGNORECASE reads a mixed-case host (`GitHub.com`); ASCII keeps that fold ASCII-only so a Unicode homograph
+# (`gİthub.com`, where U+0130 folds to `i`) cannot satisfy the host literal (#625).
 _GITHUB_SLUG_RE = re.compile(
-    r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE)
+    r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE | re.ASCII)
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:

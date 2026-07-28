@@ -151,6 +151,9 @@ class TestOriginSlug(unittest.TestCase):
         for i, url in enumerate((
             "https://notGitHub.com/evil/repo.git",
             "https://EvilGitHub.com/StarshipSuperjam/engine-template.git",
+            # U+0130 folds to ASCII `i` under Unicode case-folding — `re.ASCII` on the flag must keep this
+            # homograph host out, else it would read as the engine's home (#625).
+            "https://gİthub.com/StarshipSuperjam/engine-template.git",
         )):
             repo = _repo(self.tmp, f"mcla{i}", origin=url)
             self.assertIsNone(repo_identity.origin_slug(repo), f"{url} must not parse to a slug")
@@ -226,8 +229,8 @@ class TestGithubHostParsersAgree(unittest.TestCase):
     case — one carried `re.IGNORECASE`, the others did not — so on a mixed-case origin they reached opposite
     conclusions. This pins the SHARED contract across every origin parser so the same divergence cannot silently
     recur: each must read a mixed-case host and reject the same look-alikes. It asserts only the common
-    transports; `repo_identity`'s form deliberately accepts a few extra shapes (e.g. a bare-start host) the
-    anchored `^...$` forms do not, which is outside this contract."""
+    transports; `repo_identity`'s form deliberately accepts a few extra shapes (e.g. a `git://` scheme URL, via
+    its `//` host boundary) the anchored `^(?:https?|ssh)://` forms do not, which is outside this contract."""
 
     def _parsers(self):
         # Lazy imports keep this focused module's top-level surface light; every parser is reached through a
@@ -266,7 +269,10 @@ class TestGithubHostParsersAgree(unittest.TestCase):
     def test_every_parser_rejects_the_same_look_alikes(self):
         for url in ("https://notGitHub.com/owner/name.git",
                     "https://EvilGitHub.com/owner/name.git",
-                    "https://github.com.evil.com/owner/name.git"):
+                    "https://github.com.evil.com/owner/name.git",
+                    # U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) folds to ASCII `i` under Unicode
+                    # case-folding: a homograph host that `re.ASCII` on the flags must keep out (#625).
+                    "https://gİthub.com/owner/name.git"):
             for name, parse in self._parsers().items():
                 self.assertIsNone(parse(url), f"{name} must reject {url}")
 

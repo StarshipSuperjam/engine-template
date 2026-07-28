@@ -106,6 +106,9 @@ class TestBeltHostAnchor(unittest.TestCase):
         self.assertEqual(mechanic_build._github_slug("https://GitHub.com/acme/product.git"), _TARGET)
         self.assertEqual(mechanic_build._github_slug("git@GitHub.com:acme/product.git"), _TARGET)
         self.assertIsNone(mechanic_build._github_slug("https://notGitHub.com/acme/product.git"))
+        # U+0130 folds to ASCII `i` under Unicode case-folding: `re.ASCII` on the belt's flag must keep this
+        # homograph host out, else it would authorize a cross-repo write against a look-alike origin (#625).
+        self.assertIsNone(mechanic_build._github_slug("https://gİthub.com/acme/product.git"))
         with tempfile.TemporaryDirectory() as tmp:
             p = _product(tmp, origin="https://GitHub.com/acme/product.git")
             self.assertTrue(mechanic_build.product_checkout_matches(_TARGET, p))
