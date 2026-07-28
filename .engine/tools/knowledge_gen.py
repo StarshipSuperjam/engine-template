@@ -452,8 +452,15 @@ def _tool_module_index(tools_root_abs: str):
 # the ownership (`provides.tool`), and the surviving core-owned catalogue carries no file globs — so the only
 # place the "this path is a legitimately-absent optional subtree" knowledge survives removal is here, a
 # core-owned constant (cf. `first_run_reference_closure_check._REGENERATED_RETIRED_ASSETS`). A construction-time
-# test (`test_knowledge.TestOptionalModuleSubtrees`) proves each entry is present-and-optional in this home repo,
-# so a rename that would silently re-arm #663 on deployments breaks loudly here instead.
+# test (`test_knowledge.TestOptionalModuleSubtrees`) proves each entry is present-and-optional in this home repo
+# and at least two segments deep (never a whole top-level tool package), so a rename or an over-broad entry that
+# would silently re-arm #663 on deployments breaks loudly here instead.
+#
+# One accepted narrowing: where the whole subtree is absent, a genuinely-broken `from <subtree> import <typo>`
+# is dropped too, not just a valid one — the two are indistinguishable once the referent is gone. This can only
+# matter on a deployment that DECLINED the module (the home repo always has the subtree, so a typo still raises
+# at authoring time), where the import is dead runtime-guarded code that never executes and the tree is released,
+# gate-passed code rather than a local edit — so no real bug can surface only there.
 _OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})
 
 
@@ -521,6 +528,10 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
                 out.append(sub)                            # a submodule
             elif modpath is not None and (a.name in syms or "*" in syms):
                 out.append(modpath)                        # a re-exported symbol -> the package itself
+            elif _under_absent_optional_subtree(list(parts) + [a.name]):
+                continue                                   # `from memory import semantic` when the subtree is
+                #                                            declined — the imported NAME is the absent optional
+                #                                            subtree itself, not residue in a present package.
             else:
                 # a clean spec for the message: top-level (no parts) -> the bare name; a dotted/relative
                 # label already ending in a dot -> no extra dot (so `from . import x` reads '.x', not '..x').

@@ -419,6 +419,19 @@ class TestOptionalModuleSubtreeCarveOut(unittest.TestCase):
         self.assertEqual(
             self._resolve("def f():\n    from memory.semantic import store as s\n    return s", absent), [])
 
+    def test_absent_optional_subtree_imported_as_a_name_also_drops(self):
+        # the third import shape: `from memory import semantic` — `memory` resolves, then the NAME `semantic`
+        # is the absent optional subtree. Covered too, so a refactor of the importers to this form can't
+        # silently re-arm #663 on a deployment.
+        absent = ({("memory",)}, {("memory", "mcp_server")}, {("memory",): frozenset()})
+        self.assertEqual(self._resolve("from memory import semantic", absent), [])
+        self.assertEqual(self._resolve("from memory import semantic as s", absent), [])
+        # when the subtree IS present, the same form resolves to a real edge (to its package __init__).
+        present = ({("memory",), ("memory", "semantic")}, {("memory", "mcp_server")},
+                   {("memory",): frozenset(), ("memory", "semantic"): frozenset()})
+        self.assertEqual(self._resolve("from memory import semantic", present),
+                         [".engine/tools/memory/semantic/__init__.py"])
+
     def test_present_optional_subtree_resolves_the_edge_unchanged(self):
         # where the module IS installed, the import is a real dependency and its edge is recorded as before.
         present = ({("memory",), ("memory", "semantic")},
@@ -472,6 +485,13 @@ class TestOptionalModuleSubtrees(unittest.TestCase):
     def test_each_subtree_is_present_here_and_owned_by_a_removable_module(self):
         packages, _modules, _syms = knowledge_gen._tool_module_index(self.tools_root)
         for sub in knowledge_gen._OPTIONAL_MODULE_SUBTREES:
+            # (0) at least two segments deep — never a whole top-level tool package. A top-level package that
+            # is wholly declined is already dropped as external by `_head_in_repo`, so it needs no carve-out;
+            # an entry like ("memory",) would instead broaden the carve-out to mask EVERY dangling `memory.*`
+            # import. The carve-out is only for a subtree NESTED under a package that stays present.
+            self.assertGreaterEqual(len(sub), 2,
+                                    f"_OPTIONAL_MODULE_SUBTREES entry {sub!r} is a top-level package; an optional "
+                                    f"subtree must be nested (>= 2 segments) or it masks unrelated dangling imports.")
             # (a) present as a package in the live tool tree — a rename of the subtree breaks THIS assertion.
             self.assertIn(sub, packages,
                           f"_OPTIONAL_MODULE_SUBTREES names {sub!r}, but .engine/tools/{'/'.join(sub)} is not a "

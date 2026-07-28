@@ -8671,7 +8671,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:24c0bff9cd93a0c24c58f4cf89532971709be7018d092fcb4ba3b8efa8064b29",
+        "fingerprint": "sha256:71f3238d4627b9bddd357f734cb1219705f469710aff2343c4944972e9331163",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -9234,7 +9234,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:10194998ee2726f6b21d962a31379e2df23291ca1380d8fc8d7f4679de357a6e",
+        "fingerprint": "sha256:80e01a31e04ae3fee1138c59a7d87149ea9dfe55acbd864db59a7ceb99caa4ef",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11913,7 +11913,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:f817199275fbbea1e665b0e8c913f129dbd8a7b4696470813a046a0448057c94",
+        "fingerprint": "sha256:2fbcec3e3707bdb5303d59b1cf2bc61f9c4a4bbc54c3a7e4a615aa2eae704362",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -12327,7 +12327,6 @@
           "tool:demo_594_rollback_discard",
           "tool:demo_594_upgrade_tail_reexec",
           "tool:demo_599_upgrade_reconcile",
-          "tool:knowledge_gen",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
@@ -12335,7 +12334,6 @@
           "tool:protection_guard",
           "tool:quiet_call",
           "tool:restore_vault",
-          "tool:self_map",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -12343,7 +12341,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:f3626be43fb95bc5bca5c1bb5bda6e47d99128161ad52bc74f004f3ec73caaa8",
+        "fingerprint": "sha256:95b38feefb0b72866e67123015b3ca893c14a37d3fc66d8c8980e127702f72cd",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
