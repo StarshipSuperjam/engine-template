@@ -54,6 +54,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (the collect seam + the prompt-fence defang)
+import moment            # noqa: E402  (the trailing-Z time seam; pure stdlib leaf)
 import telemetry         # noqa: E402  (the GitHub boundary + the live triage pass + the benign severity class)
 import issue_author      # noqa: E402  (the shared engine-Issue body contract)
 import module_coherence  # noqa: E402  (provides_claims — the authoritative machinery test)
@@ -298,7 +299,7 @@ def main(argv: list) -> int:
               "in the environment; it uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
     try:
-        report = promote(repo, token, telemetry.utc_now())
+        report = promote(repo, token, moment.utc_now())
     except Exception as exc:  # noqa: BLE001 — fail-open: a transient blip must never fail the self-review
         print(f"Could not track standing soft findings this run ({exc}); the self-review continues and the "
               f"finding will re-fire next run. Nothing was lost.")

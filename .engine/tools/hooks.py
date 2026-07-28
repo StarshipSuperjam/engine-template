@@ -44,6 +44,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import providers  # noqa: E402  (stdlib-only; the provider-normalization seam run_hook applies)
+import moment  # noqa: E402  (stdlib-only; the trailing-Z time seam — kept off no happy path, imports nothing back)
 import validate  # noqa: E402
 
 
@@ -353,7 +354,7 @@ def _do_promote_fail_open(event: str, kind: str, message: str) -> bool:
     tail #391 depends on)."""
     try:
         import telemetry  # lazy: keep telemetry's stack + the network off every hook's happy path
-        now = telemetry.utc_now()
+        now = moment.utc_now()
         record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
                   "message": message, "first_seen": now, "last_seen": now}
         return bool(telemetry.emit_finding(record))
@@ -405,7 +406,7 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
     tb = getattr(exc, "__traceback__", None)
     frames = traceback.extract_tb(tb) if tb else []
     where = f" @ {os.path.basename(frames[-1].filename)}:{frames[-1].lineno}" if frames else ""
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = moment.utc_now()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(f"{stamp} {event} handler crash: {type(exc).__name__}: {exc}{where}\n")
@@ -543,7 +544,7 @@ def _demo_promoter(event: str, kind: str, message: str):
     fake = telemetry._FakeGitHub()
     gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
     record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
-              "message": message, "first_seen": telemetry.utc_now(), "last_seen": telemetry.utc_now()}
+              "message": message, "first_seen": moment.utc_now(), "last_seen": moment.utc_now()}
     return telemetry.emit_finding(record, gh=gh)
 
 

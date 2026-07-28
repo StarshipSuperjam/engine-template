@@ -49,6 +49,7 @@ import validate  # noqa: E402  (sibling tool; reused for finding/frontmatter/eff
 import issue_author  # noqa: E402  (the shared issue-authoring helper — assembles the body to the control-plane contract)
 import standing_situation  # noqa: E402  (the read-only "where we are" derive; telemetry refreshes its offline cache on this same GitHub pass — pure leaf, imports nothing back, so no cycle)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build for the issue read/write transport)
+import moment  # noqa: E402  (the time seam — the trailing-Z wire shape; pure stdlib leaf, imports nothing back)
 
 # ---- constants -------------------------------------------------------------
 
@@ -169,14 +170,6 @@ class DegradedReadError(Exception):
     """Raised when GitHub cannot be read (an outage, or a 401/403/404 auth/scope/permission error).
     It is NEVER swallowed as an empty result — an auth failure that read as "no open issues" would
     silently misreport the engine's health."""
-
-
-# ---- time ------------------------------------------------------------------
-
-def utc_now() -> str:
-    """The current UTC moment in the trailing-Z shape state.v1 / finding-record.v1 enforce.
-    Lives at the IO edge (run/main), never inside the pure reconcile logic, which takes `now`."""
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---- thresholds (read the governed policy; never redefine) -----------------
@@ -802,7 +795,7 @@ def refresh_standing(state_path: str, repo: str, token: str, *, now: str | None 
     gh = GitHubIssues(repo, token, transport=transport)
     derived = standing_situation.derive_standing_situation(gh)
     standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"),
-                "as_of": now or utc_now()}
+                "as_of": now or moment.utc_now()}
     refresh_state(state_path, standing=standing)
     return standing
 
@@ -819,7 +812,7 @@ def refresh_cache(state_path: str, repo: str, token: str, *, now: str | None = N
     any other error, so the workflow never crashes (the digest still commits). `transport` is injectable so
     tests/the demo run the real derive + write offline. Returns
     {debt, standing, degraded} for the caller's plain-language report."""
-    now = now or utc_now()
+    now = now or moment.utc_now()
     gh = GitHubIssues(repo, token, transport=transport)
     debt = standing = None
     try:
@@ -1072,7 +1065,7 @@ def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: 
                 if not repo or not token:
                     return False
                 gh = GitHubIssues(repo, token)
-            return promote_finding(gh, record, utc_now())
+            return promote_finding(gh, record, moment.utc_now())
         return _append_inbox(record, path=spool_path)
     except Exception:  # noqa: BLE001 — emit-and-done must never break the emitting caller
         return False
@@ -2024,7 +2017,7 @@ def _run_cli(argv: list) -> int:
               "uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
     branch = os.environ.get("GITHUB_DEFAULT_BRANCH") or "main"
-    now = utc_now()
+    now = moment.utc_now()
     gh = GitHubIssues(repo, token)
     cache = Cache(argv[0]) if argv else Cache()
     ci_read_failed = False
@@ -2073,7 +2066,7 @@ def _run_ambient_cli(argv: list) -> int:
     repo, token = repo_slug(), gh_token()
     if not repo or not token:
         return 0   # no local GitHub context — the normal state off a logged-in machine; skip silently
-    now = utc_now()
+    now = moment.utc_now()
     gh = GitHubIssues(repo, token)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_AMBIENT_STREAMS_PATH)
     watermark = load_ambient_watermark()
@@ -2113,7 +2106,7 @@ def _run_drain_cli(argv: list) -> int:
     spool_capture_marker()   # a failing memory-capture marker joins the drain (persistence-gated)
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
-    report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=utc_now())
+    report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=moment.utc_now())
     if report is not None and report.degraded:
         print("Could not reach GitHub to check the engine's own health inbox; nothing was changed.")
         return 0

@@ -69,7 +69,8 @@ for _p in (_HERE, _PARENT):
         sys.path.insert(0, _p)
 
 import validate  # noqa: E402 — the shared body reader (_body_without_frontmatter)
-import telemetry  # noqa: E402 — promote_finding (the stalled-contribution trace), utc_now, GitHubIssues
+import telemetry  # noqa: E402 — promote_finding (the stalled-contribution trace), GitHubIssues
+import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf
 
 
 # ---- target issue-template detection, read REMOTELY from the target (follow the host's conventions) --------
@@ -352,7 +353,7 @@ def contribute_issue(*, upstream_repo: str, kind: str | None, summary: str,
     template fetch and the filing) and `github` (telemetry boundary). The real `gh issue create` is reached only
     when `confirm=True`.
     """
-    now = now or telemetry.utc_now()
+    now = now or moment.utc_now()
     gh = gh_run or _run_gh
 
     # 0. A contribution needs something to say. Refuse a blank summary before reading or filing anything, so a
