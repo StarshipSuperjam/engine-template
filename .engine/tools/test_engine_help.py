@@ -20,6 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import engine_help as eh  # noqa: E402
+import module_catalog  # noqa: E402  (the optional-module catalog, for the roster-aware available-verbs expectation)
 import validate  # noqa: E402
 
 
@@ -115,10 +116,16 @@ class TestAvailableVerbsRelay(unittest.TestCase):
         # An explicit missing path narrows to nothing.
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(eh.available_verbs(os.path.join(d, "nope.json")), [])
-        # No path = the committed catalog (the shared reader's default). It now ships the github-projects-sync
-        # entry, but that module is INSTALLED here, so the installed-module filter excludes it — the available
-        # ("if you install it") list is still empty.
-        self.assertEqual(eh.available_verbs(None), [])
+        # No path = the committed catalog (the shared reader's default). `available_verbs` lists the optional
+        # modules that are NOT installed (so the operator could install them), excluding the ones already
+        # installed. In THIS repo every catalog module is installed, so the list is empty; a deployment that
+        # DECLINED one legitimately sees it offered here, so derive the expectation from the installed set
+        # rather than asserting empty (#646). This still checks the filter both ways: no installed module leaks
+        # in, and every declined verb-bearing one is offered.
+        installed = eh._installed_module_ids()
+        expected = sorted(e["verb"] for e in module_catalog.entries()
+                          if e["id"] not in installed and e["verb"])
+        self.assertEqual([v["name"] for v in eh.available_verbs(None)], expected)
 
     def test_present_catalog_relayed_sorted(self):
         # The catalog's per-entry command is `verb` (the reconciled cross-slice shape the shared

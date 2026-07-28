@@ -22,6 +22,13 @@ import validate          # noqa: E402
 import weakening_guard   # noqa: E402
 import protection_guard  # noqa: E402
 import bootstrap         # noqa: E402  (floor_ruleset — the team-tier floor builder the verifier is checked against)
+import module_coherence  # noqa: E402  (installed-means-present manifests, for roster-aware optional-script guards)
+
+
+def _installed_module_ids() -> set:
+    """The ids of the modules present on disk (installed-means-present). A deployment that DECLINED an
+    optional module removes its subtree, so its id drops out here — the roster-aware signal for #646."""
+    return {man.get("id") for _rel, man in module_coherence.discover_manifests()}
 
 
 def _run_quiet(suite, ctx):
@@ -712,11 +719,18 @@ class TestWeakeningDerivedSet(unittest.TestCase):
     def test_live_check_dir_covers_real_scattered_enforcement_scripts(self):
         # Against the REAL base .engine/check dir: representative scattered enforcement scripts (a top-level guard
         # and two subpackage check-scripts) are guarded by presence, proving the derivation reaches the subpackages.
+        # protection_guard.py is core (always present); the two subpackage scripts ship with OPTIONAL modules, so
+        # each is asserted only when its module is installed — a deployment that DECLINED product-design /
+        # dependency-discipline legitimately lacks its script and must not red here (#646).
         derived = weakening_guard._derive_check_scripts()
         self.assertIsNotNone(derived)
-        for p in (".engine/tools/protection_guard.py",
-                  ".engine/tools/product_design/lock_integrity.py",
-                  ".engine/tools/dependency_discipline/pinning.py"):
+        installed = _installed_module_ids()
+        expected = [".engine/tools/protection_guard.py"]
+        if "product-design" in installed:
+            expected.append(".engine/tools/product_design/lock_integrity.py")
+        if "dependency-discipline" in installed:
+            expected.append(".engine/tools/dependency_discipline/pinning.py")
+        for p in expected:
             self.assertIn(p, derived, p)
 
 

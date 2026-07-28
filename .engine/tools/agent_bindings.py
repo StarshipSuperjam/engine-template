@@ -15,6 +15,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import repo_identity  # noqa: E402  (dependency-light home-repo signal; scopes the dangling-override leg)
+
 _AGENTS_REL = os.path.join(".claude", "agents")
 _BINDINGS_REL = os.path.join(".engine", "policies", "model-bindings.json")
 _FM_KEY = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
@@ -119,9 +122,17 @@ def check(root: str | None = None) -> list[str]:
         got = {"model": fm.get("model"), "effort": fm.get("effort")}
         if got != want:
             problems.append(f"{fm['name']}: stamped {got} != binding {want} — run agent_bindings.py render")
-    for override in (bindings.get("overrides") or {}):
-        if override not in names:
-            problems.append(f"override '{override}' names no installed persona")
+    # A dangling override — one naming no installed persona — is a source-authoring concern: in the engine's
+    # OWN repo every persona ships, so an override matching none is a genuine typo or a stale entry worth
+    # flagging. In a DEPLOYED repo the operator may DECLINE an optional review pack, which removes its personas
+    # while the core-owned bindings file still carries their (now dormant) overrides — a benign state, not
+    # drift. Scoping this leg to the home repo keeps the authoring check where it means something and stops a
+    # module-declined deployment from redding its own bindings-coherence self-test (#646). is_home_repo fails
+    # toward home, so a fixture with no readable origin (the unit tests) still exercises the leg.
+    if repo_identity.is_home_repo(root):
+        for override in (bindings.get("overrides") or {}):
+            if override not in names:
+                problems.append(f"override '{override}' names no installed persona")
     return problems
 
 

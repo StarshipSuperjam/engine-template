@@ -303,11 +303,23 @@ class TestS5GoLive(unittest.TestCase):
             self.assertEqual(len(hard), 1, hard)
             self.assertIn("disposition-issue-resolution", hard[0]["message"])
         # The carve-outs are surfaced loudly so the reviewer can re-derive them at the gate (not silently
-        # skipped). The 4 static N/A disclosures are a fixed census; in a DEPLOYED repo (root CLAUDE.md no
-        # longer the construction body) the two construction-scoped checks (#512) add their ambient-derived
-        # NOT APPLICABLE HERE notes on top.
+        # skipped). Each `not-applicable.json` declaration surfaces one static N/A note; in a DEPLOYED repo
+        # (root CLAUDE.md no longer the construction body) each `construction-scoped.json` check (#512) adds its
+        # ambient-derived NOT APPLICABLE HERE note on top. Derive the expected count from the carve-out
+        # declarations PRESENT rather than a fixed number: a deployment that DECLINED an optional module removes
+        # its check and that check's declaration (dependency-review, product-lock-integrity), so it legitimately
+        # surfaces fewer notes and must not red here (#646).
         na_notes = [f for f in findings if "NOT APPLICABLE" in (f.get("message") or "")]
-        expected_na = 4 if repo_identity.is_home_repo(ROOT) else 6
+        # A note is surfaced only for a carve-out whose CHECK is in the live roster: declining a module removes
+        # its check.json (so no note) even though its `_fixtures/<check>/` declaration dir lingers on disk, so
+        # count declarations whose check is actually present, not every declaration file (#646).
+        present_checks = {os.path.splitext(os.path.basename(p))[0]
+                          for p in _glob.glob(os.path.join(CHECK_DIR, "*.json"))}
+        _declared = lambda kind: sum(  # noqa: E731
+            1 for p in _glob.glob(os.path.join(LIVE_FIXTURES, "*", kind))
+            if os.path.basename(os.path.dirname(p)) in present_checks)
+        expected_na = _declared("not-applicable.json") + (
+            0 if repo_identity.is_home_repo(ROOT) else _declared("construction-scoped.json"))
         self.assertEqual(len(na_notes), expected_na,
                          f"expected {expected_na} disclosed N/A notes to be surfaced, got: {na_notes}")
 
@@ -570,7 +582,13 @@ class TestFailedBiteApplicability(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             found = hcb._cover_script_instance(rule, fix, self._root(origin=ADOPTER_URL), "hard")
         self.assertTrue(any(f["severity"] == "hard" for f in found), found)
-        self.assertFalse(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found), found)
+        # The crash must never be EXCUSED as inert — collapsed to a soft "NOT APPLICABLE HERE" note. Scope the
+        # negative to SOFT findings: the stand-in script (validate.py) run against a deployed-shape root emits
+        # that root's own deployed-only N/A notes, which the kind captures verbatim into the HARD finding's
+        # message. That captured output is not the meta-check excusing anything, so matching the raw substring
+        # across every severity gave a false failure once the root reads as a deployed copy (#646).
+        self.assertFalse(any(f["severity"] == "soft" and "NOT APPLICABLE HERE" in (f.get("message") or "")
+                             for f in found), found)
 
 
 class TestDeclarationCensus(unittest.TestCase):

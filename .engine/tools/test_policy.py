@@ -34,6 +34,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import module_coherence  # noqa: E402  (installed-means-present manifests, for the roster-aware expected set)
 
 POLICY_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "policy.v1.json"))
 TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "template.v1.json"))
@@ -60,10 +61,26 @@ EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-man
 # spec-structure-integrity policy that keeps a description's structure from being dismantled — each present in this construction repo and removed in a generated
 # repo that opts the module out. The committed set is their union; growing it here is how a missing/renamed/
 # unexpected policy fails this suite.
-FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
-OPTIONAL_MODULE_POLICIES = {"dependency-discipline", "migration-discipline", "external-contribution",
-                            "spec-structure-integrity"}
-EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention", "model-routing"} | OPTIONAL_MODULE_POLICIES
+def _policies_from_manifests(manifests) -> set:
+    """The policy slugs the given module manifests declare they provide (`provides.policy`). Deriving the
+    expected roster from the INSTALLED manifests — `module_coherence.discover_manifests()` is
+    installed-means-present — rather than a hardcoded union keeps the exact-set drift check (a policy present
+    on disk but undeclared, or declared but missing, still fails) while staying correct in a deployment that
+    DECLINED an optional module: the committed policy set is exactly what the modules on disk declare. Core
+    (always installed) declares the foundational four plus attention and model-routing; each optional module
+    declares its own posture policy (dependency-discipline, migration-discipline, external-contribution, and
+    product-design's spec-structure-integrity) — so declining one legitimately drops its policy here (#646)."""
+    # Only the PROSE (.md) policies — the shape rule this test exercises targets `.engine/policies/*.md`, so a
+    # `.json` data-policy a manifest also declares (model-bindings, provider-exceptions) is out of scope here.
+    slugs = set()
+    for _rel, man in manifests:
+        for p in (man.get("provides") or {}).get("policy") or []:
+            if p.endswith(".md"):
+                slugs.add(os.path.splitext(os.path.basename(p))[0])
+    return slugs
+
+
+EXPECTED_POLICIES = _policies_from_manifests(module_coherence.discover_manifests())
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).
 VALID_FM = {"title": "Contract threshold", "status": "accepted", "date": "2026-06-03"}
@@ -229,11 +246,27 @@ class TestPolicyShapeRule(unittest.TestCase):
     def test_the_committed_policies_exist_and_pass_the_live_rule(self):
         slugs = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(POLICIES_DIR, "*.md"))}
         self.assertEqual(slugs, EXPECTED_POLICIES,
-                         "the committed policies must be the foundational four, the attention policy, the "
-                         "model-routing policy, and the optional dependency-discipline policy")
+                         "the committed policies on disk must be exactly the set the installed modules declare "
+                         "they provide (core's foundational four plus attention and model-routing, and each "
+                         "installed optional module's own posture policy)")
         passed, found = validate.kind_shape(SHAPE_RULE, {})        # the REAL rule over the REAL policies
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
+
+    def test_roster_derivation_is_installed_aware(self):
+        # Two-directional proof of the #646 derivation: the home repo has every module installed, so the
+        # DECLINED branch is otherwise never exercised. Feed synthetic manifests directly.
+        core = ("core", {"provides": {"policy": [".engine/policies/attention.md",
+                                                 ".engine/policies/escalation.md"]}})
+        dep = ("dependency-discipline", {"provides": {"policy": [".engine/policies/dependency-discipline.md"]}})
+        full = _policies_from_manifests([core, dep])
+        declined = _policies_from_manifests([core])                       # dependency-discipline declined
+        self.assertIn("dependency-discipline", full)
+        self.assertNotIn("dependency-discipline", declined)              # its policy drops out of the expectation
+        self.assertEqual(declined, {"attention", "escalation"})          # core's prose policies still expected
+        # A .json DATA policy a manifest also declares is out of scope for this .md shape rule.
+        self.assertEqual(_policies_from_manifests(
+            [("m", {"provides": {"policy": [".engine/policies/model-bindings.json"]}})]), set())
 
     def test_missing_required_section_is_a_hard_finding(self):
         body = VALID_BODY.replace("## Scope\nApplies to every decision made inside the engine.\n", "")

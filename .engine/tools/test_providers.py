@@ -16,8 +16,30 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import glob as _glob  # noqa: E402
 import hooks      # noqa: E402
 import providers  # noqa: E402
+import validate   # noqa: E402
+
+
+def _codex_wire_count(module_ids=None) -> int:
+    """Count the committed codex-hook wires across the module manifests on disk (installed-means-present). A
+    deployment that DECLINED an optional module removes its manifest, so its wires drop out of this count — the
+    roster-aware replacement for a hardcoded floor (#646). Pass `module_ids` to count only those modules."""
+    total = 0
+    for mpath in _glob.glob(os.path.join(validate.ROOT, ".engine", "modules", "*", "manifest.json")):
+        if module_ids is not None and os.path.basename(os.path.dirname(mpath)) not in module_ids:
+            continue
+        for wire in (validate.load_json(mpath).get("wires") or []):
+            if wire.get("type") == "codex-hook":
+                total += 1
+    return total
+
+
+def _core_codex_wire_count() -> int:
+    """The codex-hook wire count of the core module alone — always installed, so it is a floor that holds in
+    every deployment however many optional modules were declined."""
+    return _codex_wire_count({"core"})
 
 PATCH = """*** Begin Patch
 *** Update File: src/app.py
@@ -250,16 +272,34 @@ class TestCodexRegistrationDrift(unittest.TestCase):
                 if wire.get("type") == "codex-hook":
                     total += 1
                     self._assert_rendered(wire["hook"]["command"], os.path.basename(os.path.dirname(mpath)))
-        self.assertGreaterEqual(total, 24, "the codex-hook wires exist and were all checked")
+        # The per-wire renderer-parity above is the real check and runs for whatever is installed. The floor is
+        # the core module's own wire count (always present), so it holds in a deployment that declined optional
+        # modules while still catching a catastrophic loss of the wiring (#646).
+        self.assertGreaterEqual(total, _core_codex_wire_count(),
+                                "the codex-hook wires exist (at least core's) and were all checked")
 
     def test_every_committed_hooks_json_command_matches_the_renderer(self):
         import validate
         data = validate.load_json(os.path.join(validate.ROOT, ".codex", "hooks.json"))
         commands = [h["command"] for groups in data["hooks"].values()
                     for g in groups for h in g["hooks"]]
-        self.assertGreaterEqual(len(commands), 24)
+        # Roster-aware cross-check: the committed .codex/hooks.json must carry exactly the codex-hook wires the
+        # INSTALLED module manifests declare — so a deployment that declined a module (fewer manifests) has a
+        # correspondingly smaller hooks.json, and a drift in either direction still fails (#646).
+        self.assertEqual(len(commands), _codex_wire_count(),
+                         "the committed hooks.json commands must match the installed manifests' codex-hook wires")
         for command in commands:
             self._assert_rendered(command, ".codex/hooks.json")
+
+    def test_codex_wire_count_is_installed_aware(self):
+        # Two-directional proof of the #646 floor (the home repo has every module installed, so the declined
+        # count is otherwise never seen): counting core alone is a strict subset of counting all installed
+        # modules, so declining optional modules lowers the total while the core floor always holds.
+        core_only = _codex_wire_count({"core"})
+        all_installed = _codex_wire_count()
+        self.assertEqual(_core_codex_wire_count(), core_only)
+        self.assertGreater(all_installed, core_only, "optional modules contribute codex-hook wires")
+        self.assertGreaterEqual(all_installed, _core_codex_wire_count(), "the core floor holds under any decline")
 
     def test_the_modes_accept_hook_is_deliberately_absent_on_codex(self):
         """Codex Build entry is the typed verb ONLY (eADR-0034): the plan-acceptance hook must not
