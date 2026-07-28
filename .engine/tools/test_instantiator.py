@@ -833,7 +833,7 @@ class TestApplyStepFoundationIgnores(unittest.TestCase):
     def _names(self, res):
         return [s["step"] for s in res["steps"]]
 
-    def test_greenfield_places_the_foundation_fence_with_the_three_lines(self):
+    def test_greenfield_places_the_foundation_fence_with_the_foundation_lines(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
