@@ -1499,6 +1499,9 @@ def derive_ambient_records(path: str = DEFAULT_AMBIENT_CACHE_PATH, watermark: st
         if not isinstance(f, dict):
             continue
         rid = f.get("rule_id")
+        # observed_at is compared below as a RAW STRING (>=, >). That is a correct chronological comparison
+        # only because ambient-capture.v1 pins it to the fixed-width trailing-Z shape (moment.Z_PATTERN, no
+        # fractional-seconds group) — '...05Z' vs '...05.5Z' would sort wrong. #631 removed that group.
         ts = str(f.get("observed_at") or "")
         if not rid or f.get("outcome") not in ("pass", "fail"):
             continue

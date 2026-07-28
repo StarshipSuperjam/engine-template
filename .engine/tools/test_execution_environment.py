@@ -115,9 +115,10 @@ class TestExecutionSchema(unittest.TestCase):
             self.assertTrue(_errors(_valid_baseline(floors=bad)), f"floors={bad!r} should fail")
 
     def test_as_of_accepts_null_and_utc_z_only(self):
-        for ok in (None, "2026-07-27T14:30:00Z", "2026-07-27T14:30:00.5Z"):
+        for ok in (None, "2026-07-27T14:30:00Z"):
             self.assertEqual(_errors(_valid_baseline(as_of=ok)), [], f"{ok!r} should pass")
-        for bad in ("2026-07-27T14:30:00+02:00", "2026-07-27T14:30:00", "nope"):
+        # fractional seconds now rejected too (#631: fixed-width so raw-string comparisons sort right)
+        for bad in ("2026-07-27T14:30:00.5Z", "2026-07-27T14:30:00+02:00", "2026-07-27T14:30:00", "nope"):
             self.assertTrue(_errors(_valid_baseline(as_of=bad)), f"{bad!r} should fail")
 
     def test_empty_string_pointers_flagged(self):

@@ -14,7 +14,7 @@
       "description": "The single reference moment the ranking was computed against, echoed back exactly as it was supplied (a UTC moment ending in Z, for example 2026-06-04T00:00:00Z). Recency-dependent ordering is reproducible because this is recorded: the same candidates plus the same as_of always yield this same ordering. The ranking never reads the wall clock on its own — this value is always an input.",
       "type": "string",
       "format": "date-time",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "as_of_is_wallclock": {
       "description": "True when 'as_of' fell back to the machine's current clock because the cursor carried no refreshed debt timestamp; false when 'as_of' came from a real recorded source. A consumer must not treat a wall-clock as_of as a 'when the debt count was refreshed' timestamp — it only timestamps this ranking run.",
