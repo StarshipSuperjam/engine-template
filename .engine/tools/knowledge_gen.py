@@ -356,7 +356,14 @@ class DanglingImportError(ValueError):
     not probe the environment, which would break byte-determinism), so a deleted TOP-LEVEL tool referenced by
     a bare `import <it>` is dropped as if external, not raised on — that narrower case is backstopped by
     Python's own ModuleNotFoundError when the file runs and by the test suite importing the tool modules, not
-    by this gate."""
+    by this gate.
+
+    SECOND SCOPE CUT (`_OPTIONAL_MODULE_SUBTREES`): an import into an OPTIONAL module's subtree that is
+    WHOLLY absent is dropped rather than raised — a deployment that declined the module deleted the subtree
+    AND its manifest, so a runtime-guarded import into it (e.g. `from memory.semantic import store` behind
+    `_semantic_installed()`) is a legitimately-absent referent, not rename residue. This narrows the check
+    ONLY when the whole subtree package is gone; a PARTIALLY-present subtree is still residue and still
+    raises. See `_OPTIONAL_MODULE_SUBTREES` for why the signal must be a core-owned constant."""
 
 
 def _dangling_import_message(source_rel: str, name: str) -> str:
@@ -432,6 +439,31 @@ def _tool_module_index(tools_root_abs: str):
     return packages, modules, init_symbols
 
 
+# Subtrees under `.engine/tools/` owned by an OPTIONAL module — one a deployment can legitimately decline,
+# which deletes the subtree AND the module's manifest. An always-present tool may carry a lazy, runtime-guarded
+# import into such a subtree (the substrate's `mcp_server.py` imports `memory.semantic` only behind
+# `_semantic_installed()`; `rescrub.py` behind a try/except), so on a deployment without the module the AST
+# resolver sees an in-repo import that resolves to nothing — but it is NOT dangling rename-residue: the referent
+# is a whole subtree the operator opted out of (issue #663). The resolver drops such an import (no edge) instead
+# of raising, but ONLY when the WHOLE subtree package is absent from the tool tree; a PARTIALLY-present subtree
+# (its `__init__.py` present, a submodule gone) IS residue and still raises.
+#
+# This set cannot be DERIVED on the deployment that needs it: module removal deletes the manifest that declares
+# the ownership (`provides.tool`), and the surviving core-owned catalogue carries no file globs — so the only
+# place the "this path is a legitimately-absent optional subtree" knowledge survives removal is here, a
+# core-owned constant (cf. `first_run_reference_closure_check._REGENERATED_RETIRED_ASSETS`). A construction-time
+# test (`test_knowledge.TestOptionalModuleSubtrees`) proves each entry is present-and-optional in this home repo
+# and at least two segments deep (never a whole top-level tool package), so a rename or an over-broad entry that
+# would silently re-arm #663 on deployments breaks loudly here instead.
+#
+# One accepted narrowing: where the whole subtree is absent, a genuinely-broken `from <subtree> import <typo>`
+# is dropped too, not just a valid one — the two are indistinguishable once the referent is gone. This can only
+# matter on a deployment that DECLINED the module (the home repo always has the subtree, so a typo still raises
+# at authoring time), where the import is dead runtime-guarded code that never executes and the tree is released,
+# gate-passed code rather than a local edit — so no real bug can surface only there.
+_OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})
+
+
 def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> list:
     """The IN-REPO import targets of one tool source, as repo-relative `.py` paths, from its parsed AST
     (`ast.walk` so a lazy in-function import counts too). `index` is `_tool_module_index`'s triple. Raises
@@ -455,6 +487,18 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
             return tools_root_rel + "/" + "/".join(parts) + ".py"
         return None
 
+    def _under_absent_optional_subtree(parts) -> bool:
+        """True when `parts` (a dotted import target that resolved to nothing) falls UNDER an optional module
+        subtree whose package is ENTIRELY absent from the tool tree — a legitimately-declined optional module,
+        not rename residue. `absent` keys on the SUBTREE PACKAGE TUPLE (in neither `packages` nor `modules`),
+        never a path-prefix on disk, so a PARTIALLY-present subtree (its `__init__.py` still there) reads as
+        present and its missing submodule still raises (issue #663)."""
+        p = tuple(parts)
+        for sub in _OPTIONAL_MODULE_SUBTREES:
+            if p[:len(sub)] == sub and sub not in packages and sub not in modules:
+                return True
+        return False
+
     # the importing file's own package parts (relative to the tools root), for relative-import resolution.
     inside = source_rel[len(tools_root_rel) + 1:] if source_rel.startswith(tools_root_rel + "/") else source_rel
     src_pkg = tuple(inside.split("/")[:-1])
@@ -469,6 +513,8 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
         if parts:
             modpath = _resolve(parts)
             if modpath is None:
+                if _under_absent_optional_subtree(parts):
+                    return                                 # optional module declined — no edge, not residue
                 raise DanglingImportError(_dangling_import_message(source_rel, label))
             if not modpath.endswith("/__init__.py"):       # a module file: imported names are its attributes
                 out.append(modpath)
@@ -482,6 +528,10 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
                 out.append(sub)                            # a submodule
             elif modpath is not None and (a.name in syms or "*" in syms):
                 out.append(modpath)                        # a re-exported symbol -> the package itself
+            elif _under_absent_optional_subtree(list(parts) + [a.name]):
+                continue                                   # `from memory import semantic` when the subtree is
+                #                                            declined — the imported NAME is the absent optional
+                #                                            subtree itself, not residue in a present package.
             else:
                 # a clean spec for the message: top-level (no parts) -> the bare name; a dotted/relative
                 # label already ending in a dot -> no extra dot (so `from . import x` reads '.x', not '..x').
@@ -497,6 +547,8 @@ def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> 
                     continue
                 resolved = _resolve(parts)
                 if resolved is None:
+                    if _under_absent_optional_subtree(parts):
+                        continue                           # optional module declined — no edge, not residue
                     raise DanglingImportError(_dangling_import_message(source_rel, a.name))
                 out.append(resolved)
         elif isinstance(node, ast.ImportFrom):

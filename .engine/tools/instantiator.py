@@ -1637,6 +1637,11 @@ _FIRST_RUN_ASSET_FILES = (
     # falsification is maintainer evidence, imported by nothing — retires here; the permanent regression lives in
     # test_module_manager.TestUpgradeFloorPreflight.
     ".engine/tools/demo_599d_upgrade_floor.py",
+    # demo_663: an upgrade on a deployment that DECLINED an optional module must regenerate its wiring map without
+    # mistaking the absent subtree for a dangling import (#663). It clones the whole engine and is home-repo-only,
+    # so it is maintainer build evidence, imported by nothing — retires here; the permanent regression lives in
+    # test_knowledge.TestOptionalModuleSubtreeCarveOut, and the end-to-end deployed-upgrade belt in the release gate.
+    ".engine/tools/demo_663_optional_module_upgrade.py",
     # #323 Slice 1: the home-repo scope-seam falsification — the two public-safety scope guards (the vault-pointer
     # leak guard + the demo census) now key on git origin == recorded home, not a CLAUDE.md marker. Maintainer
     # build evidence over the real check surfaces, imported by nothing (the permanent regressions live in

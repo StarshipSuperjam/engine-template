@@ -7016,6 +7016,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_663_optional_module_upgrade",
+      "name": ".engine/tools/demo_663_optional_module_upgrade.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:knowledge_gen",
+          "tool:module_manager",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_663_optional_module_upgrade",
+      "source": {
+        "fingerprint": "sha256:0299505201acc4d2b533d13c2713d77fa7e16c5fba1d45f5fe4edec6c779fe9c",
+        "path": ".engine/tools/demo_663_optional_module_upgrade.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for issue #663 — the engine REGENERATES its wiring map on a deployment that",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -8532,7 +8557,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:85798fde6024a1de5e73ca03a70545399a35bd34a31e910b8a5d683a99d28b4e",
+        "fingerprint": "sha256:d7c9f744653a2471e46f4321e5fee83824d634dfeb6a0205035a8c8830e52b30",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8646,7 +8671,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:df450fc1442a572acd534238d9d88d4ae9e21e41056d0949f276d4b96342b8b0",
+        "fingerprint": "sha256:71f3238d4627b9bddd357f734cb1219705f469710aff2343c4944972e9331163",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -11888,7 +11913,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:edfe35c1c3d6cdd08d75a1a291ae205fb836011bc429a995d4113fe6bfd31d8d",
+        "fingerprint": "sha256:2fbcec3e3707bdb5303d59b1cf2bc61f9c4a4bbc54c3a7e4a615aa2eae704362",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
