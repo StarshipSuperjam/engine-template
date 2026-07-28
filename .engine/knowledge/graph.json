@@ -12510,7 +12510,7 @@
       },
       "slug": "test_optional_module_isolation",
       "source": {
-        "fingerprint": "sha256:7d5f18e0098986f738a4dc7ae1da4d639b6d1cbcd3d8e87bca2107126b00ac8d",
+        "fingerprint": "sha256:a85f1993c51f6640907e7d7a57a3500a3d4cd70001155aa477e1b768792266de",
         "path": ".engine/tools/test_optional_module_isolation.py"
       },
       "status": "active",

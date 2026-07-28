@@ -14,6 +14,12 @@ first-run-removed set below, since those files do not ship to a deployment). The
 and PURE AST — it parses source and matches import NAMES, never importing the packages it reasons about, so it
 stays safe on a declined deployment. It is primarily a home-repo introduction guard (fully powered where every
 module manifest is present); on a declined deployment the collection-time crash itself remains the backstop.
+
+It matches every static form — `import X`, `import X.Y`, `import X as Z`, `from X import ...`, and the submodule
+shape `from memory import semantic` (where `memory` resolves but the imported NAME is the declinable submodule)
+— plus a top-level dynamic import naming a LITERAL package (`importlib.import_module("X")`, `__import__("X")`).
+The one shape beyond static reach — a dynamic import whose module name is COMPUTED at runtime — cannot be seen
+here; on a declined deployment the collection-time crash itself remains the backstop for that.
 """
 from __future__ import annotations
 
@@ -121,11 +127,46 @@ def _pkg_match(module_name: "str | None", declinable: set) -> "str | None":
     return None
 
 
+# A nested function/lambda/class body does NOT run when the module is imported, so a dynamic import inside one
+# is deferred and cannot crash collection — the scan stops at these, mirroring "don't descend" for static imports.
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# Unconditional simple statements: a call here runs at import time. A top-level control structure (if/try/for/
+# while/with) is treated as a potential GUARD and left unscanned, exactly as `if _HAVE_...:` guards a static import.
+_SIMPLE_STMTS = (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Expr)
+
+
+def _calls_before_scope(node: ast.AST):
+    """Yield every Call reachable from `node` WITHOUT crossing into a nested function/lambda/class body — i.e.
+    the calls that run when the module is imported, not the deferred ones."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _SCOPE_NODES):
+            continue
+        if isinstance(child, ast.Call):
+            yield child
+        yield from _calls_before_scope(child)
+
+
+def _dynamic_import_target(call: ast.Call) -> "str | None":
+    """The LITERAL module name a dynamic import names, or None. Matches `importlib.import_module("X")` and
+    `__import__("X")` with a constant string first argument (a computed name is beyond static reach)."""
+    func = call.func
+    is_import_module = isinstance(func, ast.Attribute) and func.attr == "import_module"
+    is_dunder_import = isinstance(func, ast.Name) and func.id == "__import__"
+    if not (is_import_module or is_dunder_import):
+        return None
+    if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
+        return call.args[0].value
+    return None
+
+
 def _top_level_declinable_imports(source: str, declinable: set) -> list:
-    """(lineno, package) for every declinable-package import that is a DIRECT child of the module body — i.e.
-    unconditional, not nested under if/try/with/def/class. That scoping is load-bearing: it distinguishes a
+    """(lineno, package) for every declinable-package import that runs at MODULE import time — a direct child of
+    the module body, never nested under if/try/with/def/class. That scoping is load-bearing: it distinguishes a
     naked top-level import (which runs at import time and aborts collection) from a guarded `if _HAVE_...:`
-    import or a deferred in-function import, which do not run at import time and so cannot crash the suite."""
+    import or a deferred in-function import, which do not run at import time and so cannot crash the suite.
+
+    Covers `import X[.Y][ as Z]`, `from X import ...` (package X and each submodule `X.name`, e.g.
+    `from memory import semantic`), and a literal top-level dynamic import (`import_module`/`__import__`)."""
     hits = []
     for node in ast.parse(source).body:          # module-level statements only; deliberately never descend
         if isinstance(node, ast.Import):
@@ -134,9 +175,20 @@ def _top_level_declinable_imports(source: str, declinable: set) -> list:
                 if pkg:
                     hits.append((node.lineno, pkg))
         elif isinstance(node, ast.ImportFrom) and node.level == 0:   # absolute import only (a relative one
-            pkg = _pkg_match(node.module, declinable)                # can't name a top-level package)
-            if pkg:
-                hits.append((node.lineno, pkg))
+            # `from X import Y` imports package X AND may bind the submodule `X.Y`, so check both — this is what
+            # catches `from memory import semantic` (X=`memory` is required, but `memory.semantic` is declinable).
+            seen = set()
+            candidates = [node.module] + ([f"{node.module}.{a.name}" for a in node.names] if node.module else [])
+            for name in candidates:
+                pkg = _pkg_match(name, declinable)
+                if pkg and pkg not in seen:
+                    seen.add(pkg)
+                    hits.append((node.lineno, pkg))
+        elif isinstance(node, _SIMPLE_STMTS):
+            for call in _calls_before_scope(node):
+                pkg = _pkg_match(_dynamic_import_target(call), declinable)
+                if pkg:
+                    hits.append((call.lineno, pkg))
     return hits
 
 
@@ -178,7 +230,7 @@ class TestDeclinedDeploymentImportsCleanly(unittest.TestCase):
             "sys.path.insert(0, sys.argv[1])\n"
             "import test_conformance_sweep\n"
         )
-        proc = subprocess.run([sys.executable, "-c", script, _HERE], capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, "-c", script, _HERE], capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0,
                          "test_conformance_sweep must import cleanly with product-design absent; stderr:\n" + proc.stderr)
 
