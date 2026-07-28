@@ -5,7 +5,7 @@ with EVERY path its batch patch names; session resolution is payload-first and t
 marker REFUSES on any ambiguity (stale, foreign-owned, future-stamped) rather than guessing; and the
 Codex hook-command form renders through the shim while the Claude form stays byte-identical.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
 import json

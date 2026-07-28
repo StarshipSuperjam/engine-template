@@ -1,7 +1,6 @@
 """test_recall.py — unit tests for the transcript-window reader.
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Four properties carry the weight, because a window is presented to a model (and an operator) as "what was
 actually said": (1) CONVERSATION FIDELITY — turns come back in the order they happened, a >4KB message split

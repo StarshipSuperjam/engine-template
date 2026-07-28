@@ -1,7 +1,6 @@
 """Unit tests for memory.capture — ambient turn-delta capture.
 
-Run via the engine test suite: `uv run --directory .engine --frozen -- python -m unittest discover -s
-tools -p 'test_*.py'`. These exercise the REAL capture path against throwaway temp ledgers/transcripts;
+Run via the engine test suite: `uv run --directory .engine --frozen -- python tools/selftest.py`. These exercise the REAL capture path against throwaway temp ledgers/transcripts;
 ENGINE_MEMORY_DIR points the ledger at a temp dir and ENGINE_MEMORY_TRANSCRIPT_DIR allow-lists the temp
 transcript so the path-safety gate does not reject the fixture.
 """

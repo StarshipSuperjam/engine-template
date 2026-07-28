@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for build_readiness.py — the core, read-only pre-phase build-readiness helper.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the helper's contract: a build-order phase is ready when every capability it schedules is settled
 (`status: locked`); an in-progress, not-yet-described, or not-yet-written piece makes the phase not ready and is

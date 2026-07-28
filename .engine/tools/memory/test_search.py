@@ -1,7 +1,6 @@
 """test_search.py — unit tests for ranked, filtered recall: index.search (memory substrate).
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Covers the `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance (bm25 on
 both paths) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match ("BM25

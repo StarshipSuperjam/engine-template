@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for the self-map (surface-level + wiring-graph) + its drift gate.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the self-map's defenses: the map is DERIVED (sorted, deterministic, no volatile content);
 it is human-readable Markdown with NO `](` byte-sequence (so link-integrity passes); the fingerprint

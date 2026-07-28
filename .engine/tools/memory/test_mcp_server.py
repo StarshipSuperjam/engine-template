@@ -1,7 +1,6 @@
 """test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
 
-Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
 ranked library and returns `{"results": [...]}`, writing nothing at all — a read is a read. Beside it are the

@@ -13,7 +13,7 @@ These lock the load-bearing behavior the deliverable gate attests:
     fallback, and the fail-closed RAISE -> the could-not-read line (never a false clean);
   - the dispatch (demo returns clean; the check verb; usage errors).
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
 

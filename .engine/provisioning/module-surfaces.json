@@ -1500,6 +1500,9 @@
   ".engine/tools/self_map_check.py": [
    "core"
   ],
+  ".engine/tools/selftest.py": [
+   "core"
+  ],
   ".engine/tools/skill_coherence_check.py": [
    "core"
   ],
@@ -1780,6 +1783,9 @@
    "core"
   ],
   ".engine/tools/test_self_review_setup.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest.py": [
    "core"
   ],
   ".engine/tools/test_skill.py": [

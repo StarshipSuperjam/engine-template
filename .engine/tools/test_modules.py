@@ -2,7 +2,7 @@
 """Self-tests for the module system: manifest grammar (module.v1 / engine.v1),
 the ownership-coherence leg, and the module-coherence consumer.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the load-bearing teeth: the manifest schemas bite on each malformed shape, the
 ownership leg flags orphans and double-claims, the two committed schema rules resolve their

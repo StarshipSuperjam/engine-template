@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for close: the turn-close Stop disposition gate + ambient-capture trigger.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Each test locks one load-bearing law, faking only the network (the
 demo-fidelity rule): the ephemeral session-keyed record round-trips and degrades SAFE; the gate HOLDS a

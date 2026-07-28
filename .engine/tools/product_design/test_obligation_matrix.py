@@ -2,7 +2,7 @@
 """Self-tests for the spec-obligation matrix (product_design/obligation_matrix.py) — the derived-committed
 criterion-by-criterion record of a product's settled acceptance criteria and its MVP-safe drift gate.
 
-Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the load-bearing facts nothing else does:
   - derivation is criterion-granular over `locked` docs/spec docs (one row per criterion), keyed by a

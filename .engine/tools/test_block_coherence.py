@@ -4,7 +4,7 @@
 The pure leg (validate.block_budget_findings) is exercised in test_hooks.py; these lock the TOOL: it
 assembles the live registry clean on the real repo, its ENGINE_BLOCK_FIXTURE seam lets a seeded bad
 registry inject (so the hard-check-bite meta-check can prove it bites), and its demo narrates a
-fail-then-pass. Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+fail-then-pass. Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
 import contextlib
