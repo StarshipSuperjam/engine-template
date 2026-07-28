@@ -202,8 +202,10 @@ jobs:
           fi
           # The gate's home-repo signal reads the on-disk git origin; this is the INDEPENDENT context signal.
           # Compare case-insensitively (owner/repo casing is not significant), matching is_home_repo's fold.
-          home="$(uv run --directory .engine --frozen -- python -c "import json; print(json.load(open('.engine/engine.json')).get('home_repository','').lower())")"
-          ran="$(uv run --directory .engine --frozen -- python -c "import json; print(json.load(open('${out}')).get('ran'))")"
+          # These reads use plain `python3` (present on the runner) so the RELATIVE engine.json path resolves
+          # from the workspace root — NOT `uv run --directory .engine`, which would chdir and break the path.
+          home="$(python3 -c "import json; print(json.load(open('.engine/engine.json')).get('home_repository','').lower())")"
+          ran="$(python3 -c "import json; print(json.load(open('${out}')).get('ran'))")"
           gh_repo="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           if [ "${gh_repo}" = "${home}" ] && [ "${ran}" != "True" ]; then
             echo "::error::The deployment gate did not run on an engine release cut (the engine could not recognize its own repository), so the release was stopped and nothing was changed. This is an engine defect to report."
