@@ -369,10 +369,11 @@ class TestCli(unittest.TestCase):
             self.assertEqual(module_manager.main(["add", "core"]), 1)
 
 
-def _man(mid, version="0.0.0", migrations=None, depends=None):
-    """A manifest DICT (the shape select_migrations / topological_order consume)."""
+def _man(mid, version="0.0.0", migrations=None, depends=None, retired_capabilities=None):
+    """A manifest DICT (the shape select_migrations / select_retired_capabilities / topological_order consume)."""
     return {"id": mid, "version": version, "status": "required",
-            "provides": {}, "depends": depends or {}, "migrations": migrations or {}}
+            "provides": {}, "depends": depends or {}, "migrations": migrations or {},
+            "retired_capabilities": retired_capabilities or {}}
 
 
 class TestSelectMigrations(unittest.TestCase):
@@ -687,6 +688,115 @@ class TestMigrationsSchema(unittest.TestCase):
         v = self._validator()
         for rel, m in module_manager.module_coherence.discover_manifests():
             self.assertEqual(list(v.iter_errors(m)), [], f"{rel} must validate against module.v1.json")
+
+
+class TestSelectRetiredCapabilities(unittest.TestCase):
+    """PURE retired-capability selection + ordering — announcement-only, no run/kind, nothing executes."""
+
+    def test_only_in_range_are_selected(self):
+        m = _man("a", retired_capabilities={
+            "0.1.0": {"description": "gone at 0.1"},
+            "0.2.0": {"description": "gone at 0.2"},
+            "0.3.0": {"description": "gone at 0.3"}})
+        sel = module_manager.select_retired_capabilities({"a": "0.1.0"}, {"a": "0.2.0"}, [m])
+        self.assertEqual(sel, [{"module_id": "a", "version": "0.2.0", "description": "gone at 0.2"}])
+
+    def test_fresh_adopter_at_target_sees_nothing(self):
+        # from == target: a fresh adopter who never had the capability gets no announcement
+        m = _man("a", retired_capabilities={"0.2.0": {"description": "x"}})
+        self.assertEqual(module_manager.select_retired_capabilities({"a": "0.2.0"}, {"a": "0.2.0"}, [m]), [])
+
+    def test_versions_order_numerically_not_lexically(self):
+        # the "0.10.0" < "0.9.0" string-sort bug guard: 0.9.0 must precede 0.10.0
+        m = _man("a", retired_capabilities={
+            "0.10.0": {"description": "ten"}, "0.9.0": {"description": "nine"}})
+        sel = module_manager.select_retired_capabilities({"a": "0.0.0"}, {"a": "0.10.0"}, [m])
+        self.assertEqual([s["version"] for s in sel], ["0.9.0", "0.10.0"])
+
+    def test_modules_emit_in_dependency_order(self):
+        base = _man("base", retired_capabilities={"1.0.0": {"description": "b"}})
+        ext = _man("ext", depends={"base": ""}, retired_capabilities={"1.0.0": {"description": "e"}})
+        # input order puts ext BEFORE base; topological order must still emit base first
+        sel = module_manager.select_retired_capabilities({"base": "0.0.0", "ext": "0.0.0"},
+                                                         {"base": "1.0.0", "ext": "1.0.0"}, [ext, base])
+        self.assertEqual([s["module_id"] for s in sel], ["base", "ext"])
+
+    def test_a_long_jump_catches_up_every_notice_in_range(self):
+        m = _man("a", retired_capabilities={
+            "0.1.0": {"description": "one"}, "0.2.0": {"description": "two"}, "0.3.0": {"description": "three"}})
+        sel = module_manager.select_retired_capabilities({"a": "0.0.0"}, {"a": "0.3.0"}, [m])
+        self.assertEqual([s["version"] for s in sel], ["0.1.0", "0.2.0", "0.3.0"])
+
+    def test_absent_block_selects_nothing(self):
+        self.assertEqual(
+            module_manager.select_retired_capabilities({"a": "0.0.0"}, {"a": "1.0.0"}, [_man("a")]), [])
+
+
+class TestRetiredCapabilitiesRender(unittest.TestCase):
+    """The notice reaches BOTH operator surfaces (unlike a migration description, which reaches only the
+    preview), and stray Markdown can't reshape the durable line."""
+
+    def test_pr_body_shows_the_retirement_section(self):
+        result = {"retired_capabilities": [
+            {"module_id": "core", "version": "0.5.0",
+             "description": "The engine no longer offers to bring a set-aside note back into search."}]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("Capabilities this update removed", body)
+        self.assertIn("bring a set-aside note back into search", body)
+
+    def test_pr_body_has_no_section_when_none_retired(self):
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"},
+                                                     {"retired_capabilities": []})
+        self.assertNotIn("Capabilities this update removed", body)
+
+    def test_preview_prints_the_retirement_line_and_is_not_a_bare_bump(self):
+        p = {"status": "update-available", "current": "0.4.0", "target_ref": "0.5.0",
+             "files": {}, "wires": {}, "migrations": [],
+             "retired_capabilities": [{"module_id": "core", "version": "0.5.0",
+                                       "description": "the one-shot cache reset is gone; use cleanup instead"}]}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            module_manager._render_upgrade_preview(p)
+        out = buf.getvalue()
+        self.assertIn("Removes a capability: the one-shot cache reset is gone; use cleanup instead", out)
+        self.assertNotIn("version bump only", out)   # a retirement-only preview is a real change, not "nothing"
+
+    def test_stray_markdown_in_the_notice_is_literalized(self):
+        # a leading block marker + embedded newlines must not reshape the durable Markdown line
+        self.assertEqual(module_manager._retired_capability_line("# Heading?\nthen a\n\ngap"),
+                         "- Heading? then a gap")
+        self.assertEqual(module_manager._retired_capability_text("   - dashed  "), "dashed")
+
+
+class TestRetiredCapabilitiesSchema(unittest.TestCase):
+    """module.v1.json `retired_capabilities`: a well-formed entry passes, a malformed one fails the same schema
+    the hard/CI module-manifest check enforces; and it is OPTIONAL, so present manifests stay valid."""
+
+    def _validator(self):
+        from jsonschema import Draft202012Validator
+        schema = module_manager.validate.load_json(
+            os.path.join(module_manager.validate.ROOT, ".engine", "schemas", "module.v1.json"))
+        return Draft202012Validator(schema)
+
+    def test_wellformed_entry_validates(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "retired_capabilities": {"1.0.0": {"description": "the old thing is gone; do X instead"}}}
+        self.assertEqual(list(self._validator().iter_errors(man)), [])
+
+    def test_entry_missing_description_is_rejected(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "retired_capabilities": {"1.0.0": {}}}
+        self.assertTrue(list(self._validator().iter_errors(man)))          # `description` is required
+
+    def test_announcement_only_extra_field_is_rejected(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "retired_capabilities": {"1.0.0": {"description": "x", "run": "migrations/x.py"}}}
+        self.assertTrue(list(self._validator().iter_errors(man)))          # no run/kind — announcement only
+
+    def test_empty_description_is_rejected(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "retired_capabilities": {"1.0.0": {"description": ""}}}
+        self.assertTrue(list(self._validator().iter_errors(man)))          # minLength 1
 
 
 class TestUpgradeEndToEnd(unittest.TestCase):

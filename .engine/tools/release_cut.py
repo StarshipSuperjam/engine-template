@@ -456,37 +456,57 @@ def _max_level(a: str, b: str) -> str:
     return a if order[a] >= order[b] else b
 
 
-def _migration_accumulation_violations(was: dict, present: dict) -> list:
-    """Every migration a RETAINED module shipped in the previous release but the candidate no longer declares —
-    a dropped migration version-key. Upgrades replay migrations by version RANGE (`module_manager.select_migrations`
-    runs each key where from < ver <= target), so a key silently removed from a manifest is SKIPPED on a
-    multi-version jump, never run — the #599 silent-skip class, at the migration layer. Keys are compared on
-    NORMALIZED version tuples (`validate._ver_tuple`), so a re-key ('0.4' -> '0.4.0', equal as versions) is not a
-    false drop. A whole REMOVED module is NOT checked here — it is inventoried as a removed capability, and its
-    still-unrun migrations for a lagging upgrader are a KNOWN BOUND handled with the min-upgradeable-from floor.
-    The sanctioned way to retire a transform is to KEEP its key with a no-op `run`, never to delete the key.
+def _norm_ver(v):
+    """A length-normalized version tuple, so a re-key ('0.4' -> '0.4.0', equal as versions but a 2- vs 3-tuple)
+    is never read as a dropped key. Migration/retirement keys are conventionally MAJOR.MINOR.PATCH but NOT
+    schema-enforced (the schemas constrain only the value, not the key), so this normalization is load-bearing.
+    Shared by both accumulation guards."""
+    t = validate._ver_tuple(v)
+    return t + (0,) * (3 - len(t)) if len(t) < 3 else t
+
+
+def _accumulation_violations(was: dict, present: dict, block: str, message) -> list:
+    """Every version-key a RETAINED module shipped in the previous release but the candidate no longer declares,
+    for the named version-keyed `block` (`migrations` or `retired_capabilities`). Both are replayed by version
+    RANGE at upgrade (from < ver <= target), so a key silently removed from a manifest is SKIPPED on a
+    multi-version jump — the #599 silent-skip class. Keys are compared on NORMALIZED tuples (`_norm_ver`). A
+    whole REMOVED module is NOT checked here — its still-unseen entries for a lagging upgrader are a KNOWN BOUND
+    handled with the min-upgradeable-from floor. `message(mid, ver)` builds the block-specific refusal line.
 
     Coverage assumes a POPULATED baseline: a missing baseline tree fails closed upstream (classify raises), but a
     baseline that resolves yet carries no module manifests compares against an empty set and finds no drop — loud
     in practice (every present module then reads as newly Added and forces a major floor), so the residual gap is
     low, but the hard fail-closed guarantee is only at the no-tree level."""
-    def _norm(v):
-        # Compare on a length-normalized version tuple so a re-key ('0.4' -> '0.4.0', equal as versions but a
-        # 2- vs 3-tuple) is not read as a drop. Keys are conventionally MAJOR.MINOR.PATCH but NOT schema-enforced
-        # (the migrations schema constrains only the value, not the key), so this normalization is load-bearing.
-        t = validate._ver_tuple(v)
-        return t + (0,) * (3 - len(t)) if len(t) < 3 else t
     out = []
     for mid, man in present.items():
         old = was.get(mid)
         if not old:
             continue
-        new_keys = {_norm(k) for k in (man.get("migrations") or {})}
-        for ver in sorted((old.get("migrations") or {}), key=validate._ver_tuple):
-            if _norm(ver) not in new_keys:
-                out.append(f"the '{mid}' capability dropped the upgrade step for version {ver} that the last "
-                           f"release shipped; an engine updating across this version would skip it")
+        new_keys = {_norm_ver(k) for k in (man.get(block) or {})}
+        for ver in sorted((old.get(block) or {}), key=validate._ver_tuple):
+            if _norm_ver(ver) not in new_keys:
+                out.append(message(mid, ver))
     return out
+
+
+def _migration_accumulation_violations(was: dict, present: dict) -> list:
+    """Dropped migration version-keys on retained modules. The sanctioned way to retire a transform is to KEEP
+    its key with a no-op `run`, never to delete the key — so a drop is always a defect the cut refuses."""
+    return _accumulation_violations(
+        was, present, "migrations",
+        lambda mid, ver: (f"the '{mid}' capability dropped the upgrade step for version {ver} that the last "
+                          f"release shipped; an engine updating across this version would skip it"))
+
+
+def _retired_capabilities_accumulation_violations(was: dict, present: dict) -> list:
+    """Dropped retired-capability version-keys on retained modules. Unlike a migration there is NO no-op form to
+    retire the announcement to: the key must persist for the life of the module, or a lagging upgrader crossing
+    that version silently never sees the notice. So the recovery is simply — never drop the key."""
+    return _accumulation_violations(
+        was, present, "retired_capabilities",
+        lambda mid, ver: (f"the '{mid}' capability dropped its retired-capability notice for version {ver} that "
+                          f"the last release shipped; an engine updating across this version would never see it "
+                          f"— restore the key (a retirement notice has no no-op form, so it must never be dropped)"))
 
 
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
@@ -543,6 +563,19 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             keys = ", ".join(sorted(new_migs - old_migs))
             inventory.append(f"'{mid}' gained a data/config migration ({keys}).")
             package_floor[mid] = _bump_at_least(man.get("version", "0.0.0"), "minor")
+        # A newly-announced retired capability floors its module minor too — it is an operator-visible removal.
+        # This RAISES the floor; it never certifies severity: a breaking removal must still carry its own
+        # major/impact signal (a whole-module removal already floors major above). Combine with any migration
+        # floor by taking the higher version, so a second writer never clobbers the first (design-review).
+        new_rets = set((man.get("retired_capabilities") or {}).keys())
+        old_rets = set((old.get("retired_capabilities") or {}).keys())
+        if new_rets - old_rets:
+            keys = ", ".join(sorted(new_rets - old_rets))
+            inventory.append(f"'{mid}' announced a retired capability ({keys}).")
+            floor = _bump_at_least(man.get("version", "0.0.0"), "minor")
+            prior = package_floor.get(mid)
+            package_floor[mid] = (floor if not prior
+                                  or validate._ver_tuple(floor) >= validate._ver_tuple(prior) else prior)
 
     # contract / seam / interface / wiring changes carry an AI-authored impact statement
     impacts = _impact_statements(baseline_tree)
@@ -573,6 +606,10 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # A dropped migration key on a retained module — the cut is refused on this, before apply writes (see
         # _cmd_propose). Empty on a clean diff; a stable field of the diff proposal so the refusal is legible.
         "migration_violations": _migration_accumulation_violations(was, present),
+        # A dropped retired-capability key — same range-skip class as a dropped migration, but the notice, not a
+        # transform, is what silently vanishes for a lagging upgrader. Its own field + its own refusal message,
+        # because the recovery differs: a retirement has no no-op form, so the only recourse is to never drop it.
+        "retired_capability_violations": _retired_capabilities_accumulation_violations(was, present),
     }
 
 
@@ -1313,16 +1350,24 @@ def _cmd_propose(args) -> int:
     proposal["merged_prs"] = ([] if args.baseline_tree
                               else merged_pr_titles(baseline.ref, _current_sha()))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
-    # A dropped migration key would be silently skipped on a multi-version upgrade (the #599 class at the
-    # migration layer) — REFUSE the cut here, before `apply` writes anything. `propose` runs under
-    # `set -euo pipefail` in release.yml, so this non-zero exit fails the release job at this step; apply and
-    # pr-body never run, so there is no PR body to carry the fact — the refusal message is the whole surface.
-    if proposal.get("migration_violations"):
-        _print_refusal({"reason": "an upgrade step was dropped", "violations": proposal["migration_violations"],
-                        "recovery": "nothing was written and no release was opened. Restore each dropped upgrade "
-                                    "step to the capability's settings file; to retire a step, keep its version "
-                                    "key and make its action do nothing — never delete the key, or engines that "
-                                    "have not yet run it will skip it forever."})
+    # A dropped migration key OR a dropped retired-capability notice would be silently skipped on a multi-version
+    # upgrade (the #599 class) — REFUSE the cut here, before `apply` writes anything. Both are reported together in
+    # ONE refusal so a maintainer fixing one isn't ambushed by the other on a re-run (design-review). `propose`
+    # runs under `set -euo pipefail` in release.yml, so this non-zero exit fails the release job at this step;
+    # apply and pr-body never run, so there is no PR body to carry the fact — the refusal message is the whole
+    # surface. The recovery differs by kind: a migration has a no-op escape hatch, a retirement notice does not.
+    mig_viol = proposal.get("migration_violations") or []
+    ret_viol = proposal.get("retired_capability_violations") or []
+    if mig_viol or ret_viol:
+        recovery = ["nothing was written and no release was opened."]
+        if mig_viol:
+            recovery.append("Restore each dropped upgrade step to the capability's settings file; to retire a "
+                            "step, keep its version key and make its action do nothing — never delete the key.")
+        if ret_viol:
+            recovery.append("Restore each dropped retired-capability notice by keeping its version key — a "
+                            "retirement notice has no no-op form, so it must never be dropped.")
+        _print_refusal({"reason": "a version-keyed upgrade record was dropped",
+                        "violations": mig_viol + ret_viol, "recovery": " ".join(recovery)})
         return 2
     return 0
 
