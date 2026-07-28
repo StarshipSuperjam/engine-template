@@ -109,7 +109,8 @@ def _assert_ai_briefing(t, pack):
 # counts_state defaults to "offline" so the default healthy card reads the calm "all clear" marker; a test that
 # provides both counts gets "both"/total derived in _signals below.
 _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
-            "refused": False, "gate": "on", "reason": None, "finding_count": 0, "unrated_count": 0, "register": "",
+            "refused": False, "gate": "on", "reason": None, "protected_branch": "main",
+            "finding_count": 0, "unrated_count": 0, "register": "",
             "total_open": None, "counts_state": "offline", "all_open_register": None,
             "blocking_findings": [], "blocking_finding_fingerprint": None,
             "debt_count": 0, "debt_as_of": None, "att_lines": [],

@@ -776,7 +776,10 @@ def detect_team(*, root: str | None = None, slug: str | None = None, gh_api=None
         repo = gh(f"repos/{slug}")
         if isinstance(repo, dict) and (repo.get("owner") or {}).get("type") == "Organization":
             signals.append("the project belongs to an organization")
-        _branch = urllib.parse.quote(repo_identity.resolve_default_branch(), safe="")
+        # Resolve the branch from the TARGET tree (`base`), not the process cwd — detect_team runs against the
+        # arrival target, which can be a different repo whose default branch is not `main` (mirrors the `base`
+        # scoping the CODEOWNERS signal above and `derive_default_branch`'s target scoping).
+        _branch = urllib.parse.quote(repo_identity.resolve_default_branch(base), safe="")
         reviews = gh(f"repos/{slug}/branches/{_branch}/protection/required_pull_request_reviews")
         if isinstance(reviews, dict) and (reviews.get("required_approving_review_count") or 0) > 0:
             signals.append("changes here already require a review before merging")

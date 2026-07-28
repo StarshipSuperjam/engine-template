@@ -216,10 +216,12 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
     hook fired it unasked, and it is gone with it. An operator asking twice is not a race, so what remains is
     the check that matters: a stale branch ref is only replaced after CONFIRMING no open pull request is
     backed by it."""
+    import urllib.parse  # noqa: E402 — lazy: quote the resolved branch before it hits a token-bearing API path
     import repo_identity  # noqa: E402 — lazy: the shared default-branch resolver (dependency-light)
     base = repo_identity.resolve_default_branch()
+    _base_q = urllib.parse.quote(base, safe="")
     try:
-        head = observer._get(gh, f"/repos/{gh.repo}/git/ref/heads/{base}")
+        head = observer._get(gh, f"/repos/{gh.repo}/git/ref/heads/{_base_q}")
         base_sha = (head or {}).get("object", {}).get("sha")
         if not isinstance(base_sha, str) or not base_sha:
             return None
@@ -244,7 +246,7 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
         put = {"message": title, "content": encoded, "branch": branch}
         # proposal.json ships as a committed placeholder, so it already exists on the branch — the Contents API needs
         # the existing blob sha to UPDATE it (omitting it 422s). A fresh tree without the file -> no sha -> create.
-        existing = observer._get(gh, f"/repos/{gh.repo}/contents/{observer._PROPOSAL_PATH}?ref={base}")
+        existing = observer._get(gh, f"/repos/{gh.repo}/contents/{observer._PROPOSAL_PATH}?ref={_base_q}")
         file_sha = (existing or {}).get("sha")
         if isinstance(file_sha, str) and file_sha:
             put["sha"] = file_sha

@@ -360,14 +360,16 @@ class TestPriorDigestsRead(unittest.TestCase):
         audit_digest.render_prior_digests("you/p", "tok", transport=t)
         self.assertIn("per_page=20", seen[0])
 
-    def test_reads_from_main_so_the_in_flight_digest_is_never_fed_back(self):
-        # The prior digests come from the base branch (main); the in-flight digest this run is producing is
-        # not committed to main yet, so the run is never fed its own output as a prior.
+    def test_reads_from_the_default_branch_so_the_in_flight_digest_is_never_fed_back(self):
+        # The prior digests come from the default branch (pinned to "main" here for determinism — the base
+        # resolves via GITHUB_DEFAULT_BRANCH -> recorded -> origin/HEAD -> "main"); the in-flight digest this
+        # run is producing is not committed to it yet, so the run is never fed its own output as a prior.
         seen = []
         def t(method, path, body):
             seen.append(path)
             return (200, []) if "/commits?" in path else (404, None)
-        audit_digest.render_prior_digests("you/p", "tok", transport=t)
+        with mock.patch.dict(os.environ, {"GITHUB_DEFAULT_BRANCH": "main"}, clear=False):
+            audit_digest.render_prior_digests("you/p", "tok", transport=t)
         self.assertIn("sha=main", seen[0])
 
     def test_a_huge_digest_is_capped_not_unbounded(self):

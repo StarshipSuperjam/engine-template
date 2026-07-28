@@ -9,8 +9,12 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import protection_guard  # noqa: E402
+import repo_identity     # noqa: E402
 
 
 class TestLocalNoteIsDisclosedNoop(unittest.TestCase):
@@ -28,6 +32,31 @@ class TestLocalNoteIsDisclosedNoop(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "soft")
         self.assertIn("Branch protection was not checked here", findings[0]["message"])
         self.assertIs(findings[0].get("not_applicable"), True)
+
+
+class TestMainProbesTheResolvedBranch(unittest.TestCase):
+    """The CI merge-gate script (`main()`, the literal check engine-ci runs with a token) probes the RESOLVED
+    default branch — never a hard-coded 'main' — and URL-quotes it before the token-bearing rules API path."""
+
+    def _probe(self, branch: str):
+        seen = {}
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "t"}, clear=False), \
+             mock.patch.object(repo_identity, "resolve_default_branch", return_value=branch), \
+             mock.patch.object(protection_guard, "resolve_tier", return_value="solo"), \
+             mock.patch.object(protection_guard, "missing_floor", return_value=[]), \
+             mock.patch.object(protection_guard, "get_json",
+                               side_effect=lambda path, token, **kw: (seen.__setitem__("path", path) or [])):
+            rc = protection_guard.main()
+        return rc, seen.get("path")
+
+    def test_probes_the_resolved_default_branch(self):
+        rc, path = self._probe("master")
+        self.assertEqual(rc, 0)
+        self.assertEqual(path, "/repos/o/r/rules/branches/master")
+
+    def test_url_quotes_a_slash_containing_branch(self):
+        _, path = self._probe("release/1.0")
+        self.assertEqual(path, "/repos/o/r/rules/branches/release%2F1.0")
 
 
 if __name__ == "__main__":

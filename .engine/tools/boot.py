@@ -1693,7 +1693,7 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             "🚀 **This looks like a fresh copy of the engine template — first-time setup hasn't finished "
             "yet.** That's the one thing to do before we start building: it swaps in your own project's "
-            "starting files and turns on your safety gate, so your main branch is protected. Say **set up my "
+            "starting files and turns on your safety gate, so your default branch is protected. Say **set up my "
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
@@ -1752,7 +1752,7 @@ def render_dashboard(s: dict) -> str:
         branch = s.get("protected_branch") or PROTECTED_BRANCH
         pinned.append(
             f"⛔ **Your safety gate is off** — `{branch}` isn't protected, so unreviewed work "
-            f"could reach your default branch ({s['reason']}). Say **turn my safety gate back on** and I'll "
+            f"could reach it ({s['reason']}). Say **turn my safety gate back on** and I'll "
             f"re-enable branch protection for you — you'll approve a one-time GitHub permission, and I never "
             f"ask you to type commands yourself.")
     elif s["gate"] == "unknown":
@@ -2390,7 +2390,7 @@ def _pushed_alarms(s: dict) -> list:
         # silent flip. terse keeps a COMPACT handle so the collapse still buys brevity.
         branch = s.get("protected_branch") or PROTECTED_BRANCH
         full = (f"{RELAY_MARKER} their safety gate is off — `{branch}` isn't protected, so "
-                f"unreviewed work could reach the default branch ({s['reason']}); tell them they can say "
+                f"unreviewed work could reach it ({s['reason']}); tell them they can say "
                 f"'turn my safety gate back on' and the engine will re-enable branch protection for them "
                 f"(they approve a one-time GitHub permission — never a typed command).")
         terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "

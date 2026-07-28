@@ -119,6 +119,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # audit_digest reads the prior digests from the default branch; without this it would fall back to
+          # "main" and 404 the history read on a `master` repo, reporting "no prior self-reviews" every cron.
+          GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # Audit-over-audit: the self-review reads its OWN recent committed digests as over-time

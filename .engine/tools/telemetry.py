@@ -2004,8 +2004,8 @@ def _run_cli(argv: list) -> int:
     branch's CI check-runs (the first signal of record) and reconciles the engine-labelled issues for the
     `ci/` source: a failing check is tracked, and once it is green again its item auto-resolves. Reads
     GITHUB_REPOSITORY + GITHUB_TOKEN (the GitHub token, never the Claude OAuth token) and the default branch
-    from GITHUB_DEFAULT_BRANCH (the workflow passes `github.ref_name`, which on a scheduled run is the
-    default branch; falls back to 'main' when unset).
+    via the shared resolver: GITHUB_DEFAULT_BRANCH (the workflow passes `github.ref_name`, which on a
+    scheduled run is the default branch), then the recorded manifest, then `origin/HEAD`, then 'main'.
 
     SAFETY: auto-resolve is scoped to the `ci/` source-ids OBSERVED this pass, so it never touches an
     out-of-band issue (a hooks fail-open alarm, a migration/resurrection finding); and a failed OR partial CI

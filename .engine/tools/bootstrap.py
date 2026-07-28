@@ -60,12 +60,13 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
-import boot  # noqa: E402  (repo_slug, gh_token, PROTECTED_BRANCH — the shared GitHub-context helpers)
+import boot  # noqa: E402  (repo_slug, gh_token — the shared GitHub-context helpers)
 import repo_identity  # noqa: E402  (resolve_default_branch — the authoritative branch the protection floor lands on)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the minimal ensure this inherits)
@@ -630,7 +631,7 @@ class ControlPlane:
         endpoint (the default token can read it) and protection_guard's own evaluation. Raises
         BootstrapError on an unreadable response — never a false 'protected'."""
         status, data, _ = self._transport(
-            "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
+            "GET", f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
         return protection_guard.missing_floor(data, protection_guard.REQUIRED_CHECKS, tier=self.tier)
@@ -656,7 +657,7 @@ class ControlPlane:
         redundant rulesets list; it is resolved here when not supplied. Raises BootstrapError on an
         unreadable response (fail-closed — never guess the set)."""
         status, data, _ = self._transport(
-            "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
+            "GET", f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
         if own_id == "__resolve__":

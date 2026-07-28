@@ -164,7 +164,10 @@ class TeamSwitch:
         """Perform or resume the switch to team (idempotent). Refuses to proceed while any prerequisite is unmet
         (returns the single next step — never a half-done switch). On a ready repo: record the identity, wire the
         git author, DELEGATE the team-ruleset application to the control plane, verify, and flip the tier."""
-        branch = branch or boot.PROTECTED_BRANCH
+        # branch=None passes through so ControlPlane.apply resolves the AUTHORITATIVE default itself (env ->
+        # recorded -> origin/HEAD -> "main") — the same self-healing branch the safety gate reports, never the
+        # un-self-healed import-time display constant (which lands protection on `main` on a `master` repo
+        # deployed before the recorded key existed).
         if self._current_tier() == TEAM:
             return {"status": "already", "message": "Already in team mode — nothing to do."}
         gaps = self.unmet_prerequisites(login)
@@ -201,7 +204,8 @@ class TeamSwitch:
         """Switch back to solo (idempotent). Re-applies the solo floor and drops the identity record. This is a
         WEAKENING (it removes the required approval), so the manifest change it writes routes through the
         guardrail-ack when committed — the weakening guard's identity-downgrade detector catches it."""
-        branch = branch or boot.PROTECTED_BRANCH
+        # branch=None passes through so ControlPlane.apply resolves the authoritative default itself (as in
+        # apply above) — the solo floor is re-applied on the real default branch, not the display constant.
         if self._current_tier() == SOLO:
             return {"status": "already", "message": "Already in on-your-own (solo) mode — nothing to do."}
         cp = self._cp_factory(SOLO)
