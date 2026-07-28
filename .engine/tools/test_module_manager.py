@@ -409,6 +409,14 @@ class TestSelectMigrations(unittest.TestCase):
         self.assertEqual(
             module_manager.select_migrations({"a": "0.0.0"}, {"a": "1.0.0"}, [_man("a")]), [])
 
+    def test_a_two_part_boundary_key_is_selected_not_skipped(self):
+        # #689: a two-part target ('0.4') must include a three-part boundary key ('0.4.0') — they are the SAME
+        # version. Un-normalized, (0,4,0) <= (0,4) is False (a shorter tuple sorts BELOW), so the boundary step
+        # was wrongly skipped; the length-normalized comparison includes it. Fails on main, passes after the fix.
+        m = _man("a", migrations={"0.4.0": {"description": "x", "run": "migrations/a.py", "kind": "config"}})
+        sel = module_manager.select_migrations({"a": "0.3.0"}, {"a": "0.4"}, [m])
+        self.assertEqual([s["version"] for s in sel], ["0.4.0"])
+
 
 class TestRunMigrations(unittest.TestCase):
     """The runner's execution + the no-backup guard. A migration .py is loaded by path and run; only the
@@ -730,6 +738,14 @@ class TestSelectRetiredCapabilities(unittest.TestCase):
     def test_absent_block_selects_nothing(self):
         self.assertEqual(
             module_manager.select_retired_capabilities({"a": "0.0.0"}, {"a": "1.0.0"}, [_man("a")]), [])
+
+    def test_a_two_part_boundary_key_is_shown_not_skipped(self):
+        # #689: same boundary edge as the migration selector — a two-part target ('0.4') must still show a
+        # three-part retirement notice keyed at the boundary ('0.4.0'); the notice exists to reach the very
+        # lagging upgrader, so it must never vanish at the boundary. Fails on main, passes after the fix.
+        m = _man("a", retired_capabilities={"0.4.0": {"description": "gone at 0.4"}})
+        sel = module_manager.select_retired_capabilities({"a": "0.3.0"}, {"a": "0.4"}, [m])
+        self.assertEqual(sel, [{"module_id": "a", "version": "0.4.0", "description": "gone at 0.4"}])
 
 
 class TestRetiredCapabilitiesRender(unittest.TestCase):
