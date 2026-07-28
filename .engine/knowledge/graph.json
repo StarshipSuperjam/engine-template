@@ -4188,7 +4188,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b860e651c87837fe4bf41844dd9b6e83e97ec329f9a8484d6595b73cadc5619e",
+        "fingerprint": "sha256:6cb8f0399fb542ca926827c41b51875214de98470323fa499e48159469ecb254",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6060,13 +6060,16 @@
       "name": ".engine/tools/agent_bindings.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:repo_identity"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:813b776242ce7a62d9a7a63c0a27d7cadff6ff18de728741853e0783d29490cb",
+        "fingerprint": "sha256:5ecb380c2c10b07247f4f0ba5e7ebc5e7bcbd6789e759b14ed833f026c360cd8",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -9290,6 +9293,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:module_surfaces",
+      "name": ".engine/tools/module_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_surfaces",
+      "source": {
+        "fingerprint": "sha256:8c50b13da515cdd0d1131b7803d0f2028bba0bae4d3487fbe6a419b9e15fac1b",
+        "path": ".engine/tools/module_surfaces.py"
+      },
+      "status": "active",
+      "summary": "The module-surfaces registry — every file an engine MODULE provides, mapped to its owning module id.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:moment",
@@ -9818,7 +9845,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:43374d8ab4f3cc9441e085a05ceddcc89f108a5091f46169103665a5777e5834",
+        "fingerprint": "sha256:a37329a0b0c8a2a502322056f1c9866f2b76b66cbdceb73662ca27cc9c12a061",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -10530,7 +10557,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:940204886e5f159a85f745d80f0d5e86365d80bfe46dcc2296a37c37dea68a56",
+        "fingerprint": "sha256:3da9b9ddbeda9a9ea2dea77f07558f1c786154f498f1ea9fcc3db5a6f44e491f",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -11363,12 +11390,13 @@
         ],
         "tests": [
           "tool:engine_help",
+          "tool:module_catalog",
           "tool:validate"
         ]
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:be6adef0831b21e6edfdc4a00c27ced92fa864005c1ea3f2efb4e2b0d2354275",
+        "fingerprint": "sha256:7f7ba42e988e8e8263be9b1da41a6b9dc8f9b09c26e3926c81a60537bae2a08c",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -11730,7 +11758,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:0219a82424814cf3b35cdec6a0120c07ba259c1438ba734decb0c4403ba231af",
+        "fingerprint": "sha256:372629804f1156f87bda02215964d01b2dc397671550d5464965ff8b7675150a",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -11982,12 +12010,13 @@
           "tool:knowledge_gen",
           "tool:knowledge_index",
           "tool:knowledge_query",
+          "tool:repo_identity",
           "tool:validate"
         ]
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:2fbcec3e3707bdb5303d59b1cf2bc61f9c4a4bbc54c3a7e4a615aa2eae704362",
+        "fingerprint": "sha256:1f16c88bc7e47566c06e8fb5b40350bf776331564fd91bfb6f3ebe2387d4922d",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -12128,13 +12157,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:agent_coherence_check",
           "tool:lens_consumption_check",
           "tool:validate"
         ]
       },
       "slug": "test_lens_consumption",
       "source": {
-        "fingerprint": "sha256:6e837e2561dbfcfe8302f639831d7130dce84914c331724aa29b7b30d554dbac",
+        "fingerprint": "sha256:614fd527aba0e693d9261a4e59a05e0ef8014d737543e9c7e379e4854053dae3",
         "path": ".engine/tools/test_lens_consumption.py"
       },
       "status": "active",
@@ -12415,11 +12445,36 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:50ef372c19c8371abdf2c2adeef312831c3935e2018cde6130c2d51be57ef127",
+        "fingerprint": "sha256:cd33645e31a57f53881642d22dbe47c6d423bd4d13bf23ba4bc88ef419e5a9ab",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
       "summary": "Self-tests for the module manager — `remove` + the group-scoped uv-sync derivation, `add`",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_module_surfaces",
+      "name": ".engine/tools/test_module_surfaces.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_surfaces",
+          "tool:repo_identity",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_module_surfaces",
+      "source": {
+        "fingerprint": "sha256:03ef51df0435c33b003348c1e97b95ab26671f858f25613d80576339555d060e",
+        "path": ".engine/tools/test_module_surfaces.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the module-surfaces registry: it stays in sync with the manifests (in the source repo), and",
       "type": "tool"
     },
     {
@@ -12608,7 +12663,7 @@
       },
       "slug": "test_optional_module_isolation",
       "source": {
-        "fingerprint": "sha256:b1d2ea76671dd5cdab71093853bd5b4a1b2b693ece2c55de7b0efc07356ea8f0",
+        "fingerprint": "sha256:89fb37190227aace63ca4b72101704ab392e03ae71baea054e9622d308595c23",
         "path": ".engine/tools/test_optional_module_isolation.py"
       },
       "status": "active",
@@ -12708,12 +12763,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:module_coherence",
           "tool:validate"
         ]
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:6292cb46bafe02297b32758b696bc9d211d54339aeb2f7b73a1a6946a260f9e3",
+        "fingerprint": "sha256:f031270cd2601b373f3cbda8cbcb581bd4397401d21e31a64df2df5e0c501b8c",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -12839,7 +12895,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:9523b1ddbf046a86b3949848c6c3af18efa2004155c57dc63e01bd05a228ca24",
+        "fingerprint": "sha256:d082b7e0fd12b3e9eeafdc3d5f522fca584e0702a5a0782853bd0814d58bd774",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -12990,7 +13046,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:d7bc1819048e34a37541dba93ed9cd7b2e246bf8158f4f52657916ffcec3ed05",
+        "fingerprint": "sha256:44519f7481d71e30c8a4f5a3b53a183d4b01f913b31cf30ba1188633a1775f63",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -13435,6 +13491,7 @@
         "tests": [
           "tool:bootstrap",
           "tool:github_client",
+          "tool:module_coherence",
           "tool:protection_guard",
           "tool:validate",
           "tool:weakening_guard"
@@ -13442,7 +13499,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:f1bf0645cdbbddf1229974b9f9614118fb9dfe040e0ec4655ee05d46c285cae5",
+        "fingerprint": "sha256:6a32c3b39f5eba4e0dfb6c5f2da696cb59955e8897d878efcdefc28a1af9167e",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -13856,7 +13913,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:3d5a38bf419fc684a5b06a82a3894475e2033f84d6f9d4e1c55c981b385e232f",
+        "fingerprint": "sha256:0c021fae72f1a65c01d8f1c65fd69474c4ef7828cbfad8a27991753e9f0cf10c",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -14042,6 +14099,7 @@
         "imports": [
           "tool:hooks",
           "tool:knowledge_gen",
+          "tool:module_surfaces",
           "tool:moment",
           "tool:telemetry"
         ],
@@ -14051,7 +14109,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:a88ba01f081264e0dd06648e65e2e0596f6165b74b03d33ed6637fc2f4d83c6a",
+        "fingerprint": "sha256:9f06b00ffd9eff809b396be4b7dde7dcbb540f2a2f8daf01821b34fb339fea9c",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

@@ -110,16 +110,18 @@ def _archive_baseline(tag: str, dest: str) -> str:
 
 
 def _decline_optional_modules(tree: str) -> list:
-    """Model a deployment that DECLINED every optional (`default-on`) add-on, using the engine's OWN per-module
-    removal run inside the tree (`module_manager.py remove`) — so the files, the `engine.json` packages entry,
-    the tool-runtime dependency groups, the wiring, and coherence are all reconciled exactly as a real decline
-    leaves them, never a hand-rolled deletion that drifts (e.g. a stale `default-groups` the uv-group-drift
-    check would then red on). The required substrate that lazily imports an optional subtree stays — the exact
-    #663 shape. Returns the declined module ids. Raises GateError on any failure."""
+    """Model a deployment that DECLINED every declinable add-on — both `default-on` and `optional` status —
+    using the engine's OWN per-module removal run inside the tree (`module_manager.py remove`), so the files,
+    the `engine.json` packages entry, the tool-runtime dependency groups, the wiring, and coherence are all
+    reconciled exactly as a real decline leaves them, never a hand-rolled deletion that drifts (e.g. a stale
+    `default-groups` the uv-group-drift check would then red on). The required substrate that lazily imports an
+    optional subtree stays — so this still contains the exact #663 shape (a declined default-on module) — and
+    declining the `optional` add-ons on top is the #646 shape (a deployment whose self-test suite must stay
+    green when an add-on is absent). Returns the declined module ids. Raises GateError on any failure."""
     modules_dir = os.path.join(tree, ".engine", "modules")
     if not os.path.isdir(modules_dir):
         raise GateError("the candidate tree has no .engine/modules directory to project a declined shape from")
-    default_on = []
+    declinable = []
     for mid in sorted(os.listdir(modules_dir)):
         man_path = os.path.join(modules_dir, mid, "manifest.json")
         if not os.path.isfile(man_path):
@@ -128,22 +130,23 @@ def _decline_optional_modules(tree: str) -> list:
             status = validate.load_json(man_path).get("status")
         except Exception as exc:                          # noqa: BLE001
             raise GateError(f"could not read module manifest for {mid} ({exc})")
-        if status == "default-on":                        # only default-on modules are installed-and-declinable
-            default_on.append(mid)
-    if not default_on:
-        # A declined projection that declined NOTHING is identical to the default one — the #663 shape would
-        # silently stop being tested (e.g. if the `default-on` status vocabulary were renamed). Fail closed,
-        # loudly, rather than let the gate keep reporting green while the declined arm covers nothing.
-        raise GateError("could not project a module-declined deployment: found no installed optional "
-                        "(default-on) module to decline — the #663 shape would go untested. This is likely a "
-                        "module-manifest vocabulary change; the gate must be updated before the next cut.")
+        if status in ("default-on", "optional"):          # every add-on the operator may decline at setup
+            declinable.append(mid)
+    if not declinable:
+        # A declined projection that declined NOTHING is identical to the default one — the #663/#646 shapes
+        # would silently stop being tested (e.g. if the status vocabulary were renamed). Fail closed, loudly,
+        # rather than let the gate keep reporting green while the declined arm covers nothing.
+        raise GateError("could not project a module-declined deployment: found no installed declinable "
+                        "(default-on or optional) module to decline — the #663/#646 shapes would go untested. "
+                        "This is likely a module-manifest vocabulary change; the gate must be updated before "
+                        "the next cut.")
     env = {**os.environ, _NESTED_ENV: "1"}
-    for mid in default_on:
+    for mid in declinable:
         r = _run([sys.executable, os.path.join("tools", "module_manager.py"), "remove", mid, "--json"],
                  cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
         if r.returncode != 0:
             raise GateError(f"could not project a declined shape (removing {mid}: {_tail(r.stderr or r.stdout)})")
-    return default_on
+    return declinable
 
 
 def _project_to_deployed(dest: str, *, decline_optional: bool = False) -> list:
@@ -224,16 +227,24 @@ def _suite_in(tree: str, label: str) -> dict:
     env = {**os.environ, _NESTED_ENV: "1"}
     r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
              cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
-    return {"passed": r.returncode == 0,
-            "detail": "" if r.returncode == 0 else f"{label}: self-tests red\n{_tail(r.stderr, 3000)}"}
+    if r.returncode == 0:
+        return {"passed": True, "detail": ""}
+    # Surface the FULL FAIL/ERROR roster up front: several declined-shape tests can break together, and the
+    # 3000-char tail keeps only the last traceback — the earlier failing test ids would vanish with no marker,
+    # forcing a slow one-at-a-time diagnostic loop across multi-minute gate re-runs.
+    summary = [ln for ln in (r.stderr or "").splitlines() if ln.startswith(("FAIL:", "ERROR:"))]
+    roster = (f"failing tests ({len(summary)}):\n" + "\n".join(summary) + "\n\n") if summary else ""
+    return {"passed": False, "detail": f"{label}: self-tests red\n{roster}last-failure detail:\n{_tail(r.stderr, 3000)}"}
 
 
 def _arm_operates() -> dict:
-    """Arm A. Project the candidate to the deployed shape (default and optional-declined) and assert it
-    operates. Default: validator + full suite (subsumes the retired belt). Declined: validator (whose
-    knowledge-coverage check is the #663 detector, exercised by the declined projection's own regen). Each
-    projection needs its OWN mutable copy (projecting/declining rewrites the tree in place), so each arm
-    captures a fresh candidate archive from the (unchanged) working tree rather than sharing one."""
+    """Arm A. Project the candidate to the deployed shape (default and add-on-declined) and assert it operates.
+    Default: validator + full suite (subsumes the retired belt). Declined: validator (whose knowledge-coverage
+    check is the #663 detector, exercised by the declined projection's own regen) AND the full self-test suite
+    (the #646 detector — a shipped test that assumes an optional add-on is installed reds the declined
+    projection's own suite, which a deployment that declined that add-on would hit). Each projection needs its
+    OWN mutable copy (projecting/declining rewrites the tree in place), so each arm captures a fresh candidate
+    archive from the (unchanged) working tree rather than sharing one."""
     failures: list = []
     with tempfile.TemporaryDirectory() as d:
         default_tree = _archive_candidate(os.path.join(d, "default"))
@@ -245,9 +256,10 @@ def _arm_operates() -> dict:
     with tempfile.TemporaryDirectory() as d:
         declined_tree = _archive_candidate(os.path.join(d, "declined"))
         declined = _project_to_deployed(declined_tree, decline_optional=True)
-        res = _validate_in(declined_tree, f"operate/declined({','.join(declined) or 'none'})")
-        if not res["passed"]:
-            failures.append(res["detail"])
+        label = f"operate/declined({','.join(declined) or 'none'})"
+        for res in (_validate_in(declined_tree, label), _suite_in(declined_tree, label)):
+            if not res["passed"]:
+                failures.append(res["detail"])
     return {"passed": not failures, "failures": failures}
 
 

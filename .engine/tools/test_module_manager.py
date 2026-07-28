@@ -113,10 +113,19 @@ class TestUvGroupDerivation(unittest.TestCase):
         self.assertEqual(module_manager.normalize_pep735("my__group..x"), "my-group-x")
 
     def test_derive_matches_committed_default_groups_on_the_real_repo(self):
-        # The drift gate: the committed [tool.uv] default-groups equals what the present set derives.
+        # The drift gate: the committed [tool.uv] default-groups equals what the present set derives. This
+        # leg holds in any deployment — a declined module drops out of both sides together.
         self.assertEqual(module_manager.derive_uv_groups(), module_manager.committed_default_groups())
-        # Two dependency-carrying modules ship today: core, and the semantic recall module (numpy).
-        self.assertEqual(module_manager.committed_default_groups(), ["core", "memory-semantic-recall"])
+        # Core always carries dependencies; the semantic-recall module (numpy) carries a group only when it is
+        # installed, so a deployment that DECLINED it legitimately has just ["core"] here (#646).
+        import module_coherence
+        installed = {m.get("id") for _p, m in module_coherence.discover_manifests()}
+        groups = module_manager.committed_default_groups()
+        self.assertIn("core", groups)
+        if "memory-semantic-recall" in installed:
+            self.assertIn("memory-semantic-recall", groups)
+        else:
+            self.assertNotIn("memory-semantic-recall", groups)
 
     def test_a_module_with_no_dependency_group_is_excluded(self):
         with tempfile.TemporaryDirectory() as d:

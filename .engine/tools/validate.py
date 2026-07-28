@@ -776,7 +776,10 @@ def _coverage_fingerprint(rule, ctx):
 
 def _coverage_links(rule, ctx):
     """Every relative Markdown link must resolve to an existing file. A link that resolves
-    OUTSIDE the repo cannot be checked in a CI checkout, so it is a soft note, never hard."""
+    OUTSIDE the repo cannot be checked in a CI checkout, so it is a soft note, never hard. A link into a
+    surface owned by a module this deployment DECLINED is likewise a note, never hard — the target is gone
+    because the operator opted the module out, not because the link is broken (#646)."""
+    import module_surfaces as _module_surfaces  # lazy: avoids a validate<->module_surfaces import cycle
     tier = rule["tier"]
     exclude = set((rule.get("params") or {}).get("exclude_dirs", []))
     findings = []
@@ -795,6 +798,12 @@ def _coverage_links(rule, ctx):
                 continue
             inside = os.path.abspath(resolved).startswith(ROOT + os.sep)
             line_no = text[:m.start()].count("\n") + 1
+            declined_owner = _module_surfaces.declined_surface_owner(resolved) if inside else None
+            if declined_owner:
+                findings.append(finding("soft", f"Markdown link to '{target}', a surface of the declined "
+                                f"module '{declined_owner}' (absent here because it was opted out, not a broken "
+                                f"link). {rule['message']}", loc(path, line_no)))
+                continue
             sev = tier if inside else "soft"
             findings.append(finding(sev, f"Broken Markdown link to '{target}'. {rule['message']}",
                             loc(path, line_no)))

@@ -215,6 +215,12 @@ class TestReportPartitioning(unittest.TestCase):
     def test_run_check_shows_a_dormant_check_note_in_full(self):
         # End-to-end: the operator runs one dormant check by id to learn what it is. That path sets no
         # source_rule, so its no-op must print in full (its name + prose), not a nameless summary line.
+        # dependency-pinning ships with the OPTIONAL dependency-discipline module; a deployment that DECLINED it
+        # has no such check id, so skip there (#646) — the render behaviour itself is covered
+        # deployment-invariantly by test_noop_without_source_rule_renders_in_full above. The assertion strings
+        # below are specific to dependency-pinning's own dormancy prose.
+        if not os.path.isfile(os.path.join(validate.CHECK_DIR, "dependency-pinning.json")):
+            self.skipTest("dependency-discipline declined — its dependency-pinning check is absent here")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = validate.run_check("engine/check/dependency-pinning", {})

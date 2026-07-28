@@ -15,6 +15,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import repo_identity  # noqa: E402  (dependency-light home-repo signal; scopes the dangling-override leg)
+
 _AGENTS_REL = os.path.join(".claude", "agents")
 _BINDINGS_REL = os.path.join(".engine", "policies", "model-bindings.json")
 _FM_KEY = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
@@ -119,9 +122,24 @@ def check(root: str | None = None) -> list[str]:
         got = {"model": fm.get("model"), "effort": fm.get("effort")}
         if got != want:
             problems.append(f"{fm['name']}: stamped {got} != binding {want} — run agent_bindings.py render")
-    for override in (bindings.get("overrides") or {}):
-        if override not in names:
-            problems.append(f"override '{override}' names no installed persona")
+    # A dangling override — one naming no installed persona — is a source-authoring concern: in the engine's
+    # OWN repo every persona ships, so an override matching none is a genuine typo or a stale entry worth
+    # flagging. In a DEPLOYED repo the operator may DECLINE an optional review pack, which removes its personas
+    # while the core-owned bindings file still carries their (now dormant) overrides — a benign state, not
+    # drift. So run this leg ONLY when the checkout is CONFIDENTLY the home repo: a readable git origin that
+    # matches the recorded home. Deliberately fail toward NOT-home when the origin is unreadable — the safe
+    # direction here, since running the leg in a possibly-deployed repo (e.g. an arrival before its remote is
+    # set) would re-red the very #646 symptom this closes. The unconditional drift leg above still runs
+    # everywhere, so a persona silently downgraded to a weaker model is still caught in any deployment.
+    own = repo_identity.origin_slug(root)
+    try:
+        home = repo_identity.home_repository(root)
+    except Exception:  # noqa: BLE001 — a malformed manifest cannot confirm home; skip the leg (never red a deployment)
+        home = None
+    if own is not None and home is not None and repo_identity.slug_eq(own, home):
+        for override in (bindings.get("overrides") or {}):
+            if override not in names:
+                problems.append(f"override '{override}' names no installed persona")
     return problems
 
 

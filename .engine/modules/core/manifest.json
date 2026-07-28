@@ -82,7 +82,8 @@
     ],
     "provisioning": [
       ".engine/provisioning/first-run-assets.json",
-      ".engine/provisioning/module-catalog.json"
+      ".engine/provisioning/module-catalog.json",
+      ".engine/provisioning/module-surfaces.json"
     ],
     "codex-skill": [
       ".agents/skills/engine-conduct/SKILL.md",

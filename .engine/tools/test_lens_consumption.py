@@ -70,8 +70,19 @@ class TestLiveRepository(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             rc = lc.main(["demo"])
         self.assertEqual(rc, 0)
-        self.assertIn("all clear", buf.getvalue())
-        self.assertIn("turns RED", buf.getvalue())
+        out = buf.getvalue()
+        # The fail-then-pass narration assumes review packs are installed. A deployment that DECLINED both
+        # review packs has no reviews to consume, so the demo prints the empty-roster line and returns before
+        # the fail/pass halves — a legitimate state, not a failure (#646). Key the assertion on whether any
+        # review persona is actually installed.
+        import agent_coherence_check
+        reviews_installed = any(a.get("role") in {"plan-review", "pre-submission-review"} and a.get("lens")
+                                for a in agent_coherence_check.engine_agents())
+        if reviews_installed:
+            self.assertIn("all clear", out)
+            self.assertIn("turns RED", out)
+        else:
+            self.assertIn("no review packs are installed", out)
 
 
 if __name__ == "__main__":
