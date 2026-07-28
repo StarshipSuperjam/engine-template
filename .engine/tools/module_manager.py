@@ -349,12 +349,13 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
 
 def _archive_tree(ref: str, dest_dir: str) -> str:
     """The OFFLINE sibling of `_fetch_release_tree`: materialize a local tag/ref's tree via `git archive`
-    piped into `dest_dir` — no network, no token. Used by the real-tag regression belt to upgrade a genuine
-    past release's tree and assert the reconciled result passes the engine's full CI (the proof the synthetic
-    fixture cannot make — B1). Returns `dest_dir` ITSELF: `git archive` writes the tree with NO owner-repo-sha
-    wrapper directory (unlike GitHub's tarball), so there is no top-level dir to descend into (arch-N2).
-    Raises if the ref's tree object is absent (a shallow checkout with no tags — the belt skips on that)."""
-    import subprocess   # local: only the offline belt needs it
+    piped into `dest_dir` — no network, no token. The cut-time deployment gate uses it to project a genuine
+    past release to its deployed shape and practice-upgrade it to the release candidate, asserting the
+    structural gate stays green — the proof a synthetic fixture cannot make. Returns `dest_dir` ITSELF: `git
+    archive` writes the tree with NO owner-repo-sha wrapper directory (unlike GitHub's tarball), so there is no
+    top-level dir to descend into (arch-N2). Raises if the ref's tree object is absent (a shallow checkout with
+    no tags — the gate blocks the cut on that)."""
+    import subprocess   # local: only the offline projection needs it
     os.makedirs(dest_dir, exist_ok=True)
     proc = subprocess.run(["git", "-C", validate.ROOT, "archive", "--format=tar", ref],
                           capture_output=True, timeout=120)
@@ -1606,8 +1607,9 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
 # full CI: the full `engine-ci` required check is a TWO-step job (the validator AND the self-tests), and its
 # hard checks read a PR/event/network context that does not exist pre-open on the operator's machine
 # (arch-S4, feasibility-B1/S1). This subset reads the reconciled TREE live and is exactly what #599 trips —
-# and none of it reaches the network or needs the repo token. The full-CI proof lives in the tests' real-tag
-# belt and the cut-time upgrade-path matrix (Slice 4), never on an operator's upgrade.
+# and none of it reaches the network or needs the repo token. The full-CI proof lives in the cut-time
+# deployment gate, which practice-upgrades real past releases to the candidate before a release is cut (#664),
+# never on an operator's upgrade.
 _STRUCTURAL_GATE_CHECK_IDS = frozenset({
     "engine/check/catalog-coverage",        # a delivered/removed file leaving the surface catalog incomplete
     "engine/check/census-completeness",     # the census of catalogued surfaces vs the tree
@@ -1641,8 +1643,8 @@ def _coherence_only_gate(body: str) -> list:
     `ROOT/script` and so cannot run against a throwaway fixture tree (B1). The in-process path is NEVER a real
     deployed upgrade (`in_process` ⇒ an injected release tree + injected callables — a real upgrade fetches a
     release and spawns a child), so the full gate on the child path is the one that matters, and it is proven
-    against a real reconciled tree by the tests' real-tag belt + `demo_599`. `body` is accepted for signature
-    parity with `_reconcile_gate`."""
+    against a real reconciled tree by `demo_599` and by the cut-time deployment gate's practice upgrades from
+    real past releases (#664). `body` is accepted for signature parity with `_reconcile_gate`."""
     return list(module_coherence.check_coherence())
 
 

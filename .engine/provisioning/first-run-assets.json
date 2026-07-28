@@ -29,6 +29,7 @@
     ".engine/tools/demo_599c_migration_accumulation.py",
     ".engine/tools/demo_599d_upgrade_floor.py",
     ".engine/tools/demo_663_optional_module_upgrade.py",
+    ".engine/tools/demo_664_release_gate.py",
     ".engine/tools/demo_home_repo_seam.py",
     ".engine/tools/demo_mechanic_build.py",
     ".engine/tools/demo_mechanic_orientation.py",

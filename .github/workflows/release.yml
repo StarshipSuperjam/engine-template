@@ -176,6 +176,37 @@ jobs:
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/knowledge_gen.py generate
           uv run --directory .engine --frozen -- python tools/self_map.py generate
+      # Deployment gate (#664): prove this release OPERATES and UPGRADES when deployed BEFORE the pull request
+      # is written or opened. Placed after the map refresh and before the PR steps, so a red fails the job and
+      # NO pull request is ever opened (the branch/commit/push all live in the final step). Fails CLOSED: any
+      # block or setup error exits nonzero and stops the cut. The gate is home-repo only; a deployed repo
+      # cutting ITS OWN product runs it inert (ran=false), which is correct — but on a genuine ENGINE cut it
+      # MUST run, so if this IS the engine's home repo (github.repository == the recorded home, an independent
+      # signal) yet the gate reported it did not run, that is an origin-signal misdetection and the cut fails
+      # closed rather than shipping the engine ungated.
+      - name: Verify the release operates and upgrades when deployed
+        timeout-minutes: 45
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          out="${RUNNER_TEMP}/deployment-gate.json"
+          uv run --directory .engine --frozen -- python tools/release_gate.py --json > "${out}"
+          gate_rc=$?
+          cat "${out}"
+          if [ "${gate_rc}" -ne 0 ]; then
+            echo "::error::This release would not operate or upgrade cleanly when deployed, so no release pull request was opened and nothing was changed. See the deployment-gate output above; fix the problem and cut the release again (a transient infrastructure hiccup clears by re-running the release-gate workflow)."
+            echo "### Deployment gate: BLOCKED — the release was not opened" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          home="$(python3 -c "import json; print(json.load(open('.engine/engine.json')).get('home_repository',''))")"
+          ran="$(python3 -c "import json; print(json.load(open('${out}')).get('ran'))")"
+          if [ "${GITHUB_REPOSITORY}" = "${home}" ] && [ "${ran}" != "True" ]; then
+            echo "::error::The deployment gate did not run on an engine release cut (the engine could not recognize its own repository), so the release was stopped and nothing was changed. This is an engine defect to report."
+            echo "### Deployment gate: BLOCKED — it did not run on an engine cut" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          echo "### Deployment gate: passed — the release operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"
       # Render the pull-request body from the proposal + the recorded versions — the maintainer's whole evidence
       # bundle, authored by the tool (never composed in this shell) so the readiness legibility has one home.
       - name: Write the release pull-request summary
