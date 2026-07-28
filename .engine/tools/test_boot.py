@@ -149,6 +149,30 @@ def _blocking(n):
     return [{"number": str(i), "title": f"broken thing {i}"} for i in range(1, n + 1)]
 
 
+class TestRepoSlug(unittest.TestCase):
+    """`repo_slug` derives `owner/repo` from the origin remote when no `GITHUB_REPOSITORY` env is set."""
+
+    def _slug(self, url):
+        # Exercise the real regex, not the CI env short-circuit: clear GITHUB_REPOSITORY and inject the URL the
+        # git read would return. patch.dict restores the env afterward.
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITHUB_REPOSITORY", None)
+            with mock.patch.object(boot, "_run", return_value=url):
+                return boot.repo_slug()
+
+    def test_mixed_case_host_parses_like_lowercase(self):
+        # Host names are case-insensitive by specification: `GitHub.com` parses like `github.com`, so the live
+        # GitHub reads do not go quiet on a hand-configured mixed-case origin (#625).
+        self.assertEqual(self._slug("https://GitHub.com/owner/name.git"), "owner/name")
+        self.assertEqual(self._slug("git@GitHub.com:owner/name.git"), "owner/name")
+        self.assertEqual(self._slug("ssh://git@GitHub.COM/owner/name"), "owner/name")
+
+    def test_mixed_case_look_alike_still_rejected(self):
+        # IGNORECASE folds only the literal host, never the structural anchor that rejects a look-alike.
+        self.assertIsNone(self._slug("https://notGitHub.com/owner/name.git"))
+        self.assertIsNone(self._slug("https://EvilGitHub.com/owner/name.git"))
+
+
 class TestFirstRunOffer(unittest.TestCase):
     """#353: a fresh (or partway-set-up) copy of the template gets the onboarding OFFER pinned at the TOP of the
     dashboard; a workshop / finished project shows nothing; and the offer suppresses the redundant safety-gate-off

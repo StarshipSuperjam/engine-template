@@ -99,6 +99,23 @@ class TestBeltHostAnchor(unittest.TestCase):
             # slug_eq normalizes case / .git — an SSH-vs-HTTPS-vs-case skew still matches
             self.assertTrue(mechanic_build.product_checkout_matches("ACME/Product", p))
 
+    def test_belt_true_on_a_mixed_case_genuine_github_host(self):
+        # Host names are case-insensitive by specification, so `GitHub.com` IS a genuine github.com origin: a
+        # checkout on it that matches the target must classify `ok`, never `untrusted-host` (#625). The belt was
+        # over-refusing a legitimate build. The look-alike rejection stays case-independent (structural anchor).
+        self.assertEqual(mechanic_build._github_slug("https://GitHub.com/acme/product.git"), _TARGET)
+        self.assertEqual(mechanic_build._github_slug("git@GitHub.com:acme/product.git"), _TARGET)
+        self.assertIsNone(mechanic_build._github_slug("https://notGitHub.com/acme/product.git"))
+        # U+0130 folds to ASCII `i` under Unicode case-folding: `re.ASCII` on the belt's flag must keep this
+        # homograph host out, else it would authorize a cross-repo write against a look-alike origin (#625).
+        self.assertIsNone(mechanic_build._github_slug("https://gİthub.com/acme/product.git"))
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _product(tmp, origin="https://GitHub.com/acme/product.git")
+            self.assertTrue(mechanic_build.product_checkout_matches(_TARGET, p))
+            subprocess.run(["rm", "-rf", p], check=False)
+            bad = _product(tmp, origin="https://notGitHub.com/acme/product.git")
+            self.assertIs(mechanic_build.product_checkout_matches(_TARGET, bad), False)
+
     def test_belt_denies_look_alike_host(self):
         # BLOCKING-2 regression: notgithub.com CONTAINS "github.com" as a substring; an unanchored parse would
         # extract acme/product and the belt would PASS an attacker-controlled host — under subprocess-in-place

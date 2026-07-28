@@ -383,6 +383,20 @@ class TestSlugParsing(unittest.TestCase):
                 subprocess.run(["git", "remote", "add", "origin", url], cwd=d)
                 self.assertEqual(ee.current_repo(d), want, f"{url} -> {want}")
 
+    def test_slug_from_a_mixed_case_host(self):
+        # Host names are case-insensitive by specification: `GitHub.com` parses like `github.com`, so a
+        # qualification is not spuriously refused for a hand-configured mixed-case origin (#625). A mixed-case
+        # look-alike still returns None — IGNORECASE folds only the literal host, not the anchor.
+        with tempfile.TemporaryDirectory() as d:
+            for url, want in (("git@GitHub.com:owner/repo.git", "owner/repo"),
+                              ("https://GitHub.com/owner/repo.git", "owner/repo"),
+                              ("https://notGitHub.com/owner/repo.git", None)):
+                subprocess.run(["git", "init", "-q"], cwd=d)
+                subprocess.run(["git", "remote", "remove", "origin"], cwd=d,
+                               capture_output=True)
+                subprocess.run(["git", "remote", "add", "origin", url], cwd=d)
+                self.assertEqual(ee.current_repo(d), want, f"{url} -> {want}")
+
 
 class TestBootPostureRelay(unittest.TestCase):
     """Boot wires the deriver's posture into the AI-facing Tier-0 briefing and pushes a drift alarm only on

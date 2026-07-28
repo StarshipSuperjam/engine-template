@@ -184,7 +184,11 @@ def repo_slug() -> str | None:
         return None
     # host-anchored: github.com must be the URL host (after an optional scheme and optional `user@`), never a
     # substring of a look-alike (notgithub.com, github.com.evil.com) — a mis-parsed slug would target the wrong repo.
-    m = re.search(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", url.strip())
+    # IGNORECASE: host names are case-insensitive by spec (`GitHub.com` == `github.com`). ASCII keeps the fold
+    # ASCII-only, so a Unicode homograph (`gİthub.com`, U+0130 folds to `i`) cannot satisfy the host literal. The
+    # flags fold only the literal host, not the structural anchors, so no look-alike is newly accepted (#625).
+    m = re.search(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
+                  url.strip(), re.IGNORECASE | re.ASCII)
     return m.group(1) if m else None
 
 
