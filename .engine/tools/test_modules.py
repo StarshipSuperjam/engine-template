@@ -341,9 +341,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # the self-validation corpus is validators-core's (60 rules: the disposition-issue-resolution check
         # (engine-template #292 — confirms a PR's cited follow-up issues resolve to real
         # engine-labeled issues, the first non-offline meta-check unit) atop the read-only-persona write-lock
-        # guard (this change — every read-only review/audit persona must block the file-writing
-        # tools, the live consumer of agent_coherence_findings) atop the negative-fixture meta-check
-        # (engine-template #286 — the checker-of-checkers; dormant until wired live) atop
+        # guard (the read-only-persona write-lock guard — every read-only review/audit persona must block
+        # the file-writing tools, the live consumer of agent_coherence_findings) atop the negative-fixture
+        # meta-check (engine-template #286 — the checker-of-checkers) atop
         # the untracked-surface detector
         # (engine-template #281 — names a surface file git is not tracking, e.g. sync-conflict cruft) atop
         # the optional-module catalog schema gate

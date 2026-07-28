@@ -1398,8 +1398,8 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         self.assertTrue(passed, f"minimal update PR body failed the completeness gate: {findings}")
 
     def test_validation_section_claims_only_the_consistency_check_not_ci(self):
-        # Consent honesty: the full-CI gate is a later slice, so this body must NOT claim the CI/full suite
-        # passed — only the consistency check that actually runs before the update is opened.
+        # Consent honesty: this body is authored before the update PR opens, so the PR's CI has not run yet —
+        # it must NOT claim the CI/full suite passed, only the consistency check that runs before the update is opened.
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {}).lower()
         self.assertIn("consistency check", body)
         self.assertNotIn("ci suite", body)

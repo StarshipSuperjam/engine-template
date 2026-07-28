@@ -420,7 +420,7 @@ def _demo() -> int:
           "faked here (no pull request is opened, your files are untouched). On this build repo the\n"
           "attention ranking is mostly empty, so step 4 shows the value the engine READS changing, which is\n"
           "the part your tuning controls. Some settings (the background-monitoring ones) only take effect\n"
-          "once that monitoring is switched on in a later part of the engine.")
+          "once that monitoring is switched on elsewhere in the engine.")
     # Self-check: the saved value is the value the engine actually reads (step 4 — the load-bearing claim).
     ok = after.get("budget_orientation") == 0.40
     if not ok:

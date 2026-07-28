@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""First-run setup orchestrator — the GATHER and CONFIRM half.
+"""First-run setup orchestrator.
 
 The instantiator stands a freshly-generated repo up: it derives the repo's coordinates, takes the
 operator's one non-derivable choice (the identity tier) and their feature selection, then writes the engine
 manifest as the resumability checkpoint — after which the later phases (apply, verify, retire) install the
-selection and the engine's own guardrails. This file ships the **non-destructive front half**: GATHER
-(present the choices) and CONFIRM (write the checkpoint). The destructive/installing APPLY phase, the VERIFY
-pause, and self-RETIRE land in core slices 27b/27c.
+selection and the engine's own guardrails. It carries the full first-run lifecycle: the non-destructive
+GATHER (present the choices) and CONFIRM (write the checkpoint), then the destructive/installing APPLY phase,
+the VERIFY pause, and self-RETIRE.
 
 The signal model:
 - The instantiator's own presence is the "this repo is not set up yet" signal; it self-deletes at retire,

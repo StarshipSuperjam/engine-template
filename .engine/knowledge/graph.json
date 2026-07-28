@@ -5163,7 +5163,7 @@
       },
       "slug": "ambient-capture.v1",
       "source": {
-        "fingerprint": "sha256:50d5242c1b41a82f3a808acedc85da7385d3420caebf3349c09296131784bdd6",
+        "fingerprint": "sha256:3d4b478db7529e53a019cebc5e9ac63b431cbf5a86dfdf01c4a245c68d610ea8",
         "path": ".engine/schemas/ambient-capture.v1.json"
       },
       "status": "active",
@@ -6469,7 +6469,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:e55b85cb179feb9b9c948d6418b6813902b0ac83fe0edb363e5a52a7b596d6a3",
+        "fingerprint": "sha256:ff8d1d43e9a1b8b3cb9311f27c731c9ba45e655d31d5aa9d64f5d12a36fb0018",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -6613,7 +6613,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:609fbbaf8fd375ed9a7851c2d8b080398f6e11212d3d169d57497683e634b018",
+        "fingerprint": "sha256:966ea02f11a3cc7251099dd80458eda770301efc6d7d9124eeaef25490a5cd60",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -8038,7 +8038,7 @@
       },
       "slug": "dependency_discipline.__init__",
       "source": {
-        "fingerprint": "sha256:d7ed4238b6b5d6d02322e3054f8086f7025cae357b8f0fbea05fe302329feb07",
+        "fingerprint": "sha256:404aca068e83d561c4a95b78f62576791ff832616480f0a5e4892495192903db",
         "path": ".engine/tools/dependency_discipline/__init__.py"
       },
       "status": "active",
@@ -8603,11 +8603,11 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:4ae7017dbaa4a429dde1d6c7b6b43f17db74a88e1678fef4d4def94df90c4cd1",
+        "fingerprint": "sha256:daba944172d5be70942a2fd2ee0f56fd6e0bb072bb3ebd75ed64b74ae3aa5de2",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
-      "summary": "First-run setup orchestrator — the GATHER and CONFIRM half.",
+      "summary": "First-run setup orchestrator.",
       "type": "tool"
     },
     {
@@ -8691,7 +8691,7 @@
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:b3a51c55039481117324f718a529c12fc69b72ed377d5310e414df80763520fb",
+        "fingerprint": "sha256:524cbcae3ffe09d2ce76b4c59bd697d03b2a96ba885568736f4e0a07f4121a7f",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
@@ -8925,7 +8925,7 @@
       },
       "slug": "lens_consumption_check",
       "source": {
-        "fingerprint": "sha256:a434b6f4971eecd40fb45953bcc95e1b1ef561652895438dbcbec67d8f567fc5",
+        "fingerprint": "sha256:4146536a582866cba8fc9aee6b0c5a2e3e91e77168d966d51090658c8894c34a",
         "path": ".engine/tools/lens_consumption_check.py"
       },
       "status": "active",
@@ -9243,7 +9243,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:4777f8feb4a3b548580b7f7aa3de0242351297a24d1b04098034a5c4e3f29145",
+        "fingerprint": "sha256:b1465c2f26915f83c3db8795cafdee19480e25ca10eaff054263bccbaa4bd8b2",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -9448,7 +9448,7 @@
       },
       "slug": "pinning",
       "source": {
-        "fingerprint": "sha256:81a31ffad972c52841900325c252b44d24cbec89a39e5daaa720bfa8e506c84c",
+        "fingerprint": "sha256:260a3a23613940bc237d71b108dfcf9094e9f7eb58ceb231f62d395c3e9c7928",
         "path": ".engine/tools/dependency_discipline/pinning.py"
       },
       "status": "active",
@@ -9793,7 +9793,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:bdda385d2005b49f00f5513e7ef857cabe25c6187c2bb5a69c533e67034f3e53",
+        "fingerprint": "sha256:88058e207385e3b2b45ca46467c59605ce9a1166b6884a64e1e67ff0e4b2dd35",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -9914,7 +9914,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:2c1e0437a21882fe75fd7cbf6f06f3772da824d4f93bed3cb0d68028e91e43d3",
+        "fingerprint": "sha256:9d7a008b6a678259236adfd94fcc62d1a40d8880b1bc9441fd04499e4b65742b",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -10354,7 +10354,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:277d47e071ad2a895506c89335812cfcbb00bda0ba8f6e189e393f284d4fc44a",
+        "fingerprint": "sha256:f10874dbe9051101ed6fdd7b66c46cab2fa566365040f0b2427d21da2ba946ec",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -11730,7 +11730,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:41ac64a036921e5978c99f29ac881f0870aa3333a87ca43845866a9dadd59c3d",
+        "fingerprint": "sha256:0219a82424814cf3b35cdec6a0120c07ba259c1438ba734decb0c4403ba231af",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -12415,7 +12415,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:1eb13f1f51cac31b884f4f258f7b88d66ddc58423a18cbb55a63a1b4dc5b01c2",
+        "fingerprint": "sha256:50ef372c19c8371abdf2c2adeef312831c3935e2018cde6130c2d51be57ef127",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12443,7 +12443,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:657a2da0bf43861f4ba5cd794f51337dc59a79b57427af9fa759b4673ad59311",
+        "fingerprint": "sha256:8f8128094835db03d7a5286eb21f3d875ae1246238d7373303f221e1f3fd4cdc",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -13933,7 +13933,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:ded4b69aa8d57f2b4a700a01c4ca900f71e87378b9789b0dd01341f9ce2b1f55",
+        "fingerprint": "sha256:c380c7a668055718d586f87180e8d49aab49f3d6e9c988b77010e36dd2bf0a49",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",
@@ -14092,7 +14092,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:372bd2cbbba889d6b93fa8749081e877c60f432205a34648989a591127292cbe",
+        "fingerprint": "sha256:309e9bf2bbff6485e859dc041204739b501a3cc0b4884552ba594f09802d8d55",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

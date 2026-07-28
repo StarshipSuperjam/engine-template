@@ -31,7 +31,7 @@ alias / eval / substitution / a piped (non-heredoc) stdin / a temp-file written 
 more best-effort form recovered, never a closing of the hole. (Conversely a body passed as an unexpanded shell
 variable — `-b "$BODY"` — cannot be read, so it reroutes even if its value would conform; the redirect's
 `--body-file` path is the clean way through.) The catch-all for everything the gate misses is the `on:issues`
-CI backstop (a later slice); the only unbypassable guarantee is the protected-branch merge.
+CI backstop; the only unbypassable guarantee is the protected-branch merge.
 
 SELF-CONTAINED RUNTIME. No network, no label application, no import of the helper at runtime (it holds no
 producer roster). The markers are pinned here as the SINGLE SOURCE the CI backstop also imports; a test

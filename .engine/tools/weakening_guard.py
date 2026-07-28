@@ -79,9 +79,9 @@ _FLOOR_ENFORCEMENT_CONFIG = (
     ".claude/settings.json",      # wires the PreToolUse write-gate + the other enforcement hooks (was ABSENT —
     #                               a live hole; a PR gutting those hooks passed the guard with NO ack)
     ".codex/hooks.json",          # the Codex runtime's mirror of settings.json — the SAME hole, closed on
-    #                               arrival (whole file for now; its engine entries wire the same gates)
-    ".codex/config.toml",         # the Codex helper-server registration (whole file for now, mirroring the
-    #                               settings.json posture; a fence-scoped guard is the recorded refinement)
+    #                               arrival (guarded whole-file; its engine entries wire the same gates)
+    ".codex/config.toml",         # the Codex helper-server registration (guarded whole-file, mirroring the
+    #                               settings.json posture)
     ".engine/policies/provider-exceptions.json",  # the parity check's sanctioned-exception ledger — the file
     #                               that grants exemptions from an enforcement check is itself guarded, or
     #                               widening an exception would be the quiet way around the check (eADR-0034)
