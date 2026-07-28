@@ -137,6 +137,24 @@ class TestOriginSlug(unittest.TestCase):
             repo = _repo(self.tmp, f"ok{i}", origin=url)
             self.assertEqual(repo_identity.origin_slug(repo), want, url)
 
+    def test_accepts_a_mixed_case_host(self):
+        # Host names are case-insensitive by specification, so `GitHub.com` IS the real host and must parse like
+        # `github.com` across every transport (#625). A mixed-case LOOK-ALIKE still rejects: IGNORECASE folds
+        # only the literal `github.com`, never the structural anchors that reject a look-alike.
+        for i, url in enumerate((
+            "https://GitHub.com/owner/name.git",
+            "git@GitHub.com:owner/name.git",
+            "ssh://git@GitHub.COM/owner/name",
+        )):
+            repo = _repo(self.tmp, f"mc{i}", origin=url)
+            self.assertEqual(repo_identity.origin_slug(repo), "owner/name", url)
+        for i, url in enumerate((
+            "https://notGitHub.com/evil/repo.git",
+            "https://EvilGitHub.com/StarshipSuperjam/engine-template.git",
+        )):
+            repo = _repo(self.tmp, f"mcla{i}", origin=url)
+            self.assertIsNone(repo_identity.origin_slug(repo), f"{url} must not parse to a slug")
+
 
 class TestSlugPrimitives(unittest.TestCase):
     def test_normalize_casefolds_and_strips_git_suffix_and_slash(self):
@@ -201,6 +219,56 @@ class TestIsDownstreamCopyStrict(unittest.TestCase):
             repo_identity.is_downstream_copy_strict(repo)
         self.assertTrue(repo_identity.is_home_repo(repo),
                         "is_home_repo must keep failing TOWARD home — the two fail-directions are deliberate")
+
+
+class TestGithubHostParsersAgree(unittest.TestCase):
+    """#625 was a DRIFT bug: several hand-copied `github.com` host parsers scattered across the tree disagreed on
+    case — one carried `re.IGNORECASE`, the others did not — so on a mixed-case origin they reached opposite
+    conclusions. This pins the SHARED contract across every origin parser so the same divergence cannot silently
+    recur: each must read a mixed-case host and reject the same look-alikes. It asserts only the common
+    transports; `repo_identity`'s form deliberately accepts a few extra shapes (e.g. a bare-start host) the
+    anchored `^...$` forms do not, which is outside this contract."""
+
+    def _parsers(self):
+        # Lazy imports keep this focused module's top-level surface light; every parser is reached through a
+        # uniform `url -> slug|None` adapter so the battery below hits all of them identically.
+        import boot
+        import execution_environment
+        import first_run_health
+        import mechanic_build
+
+        def _via_regex(rx):
+            return lambda u: (rx.search(u).group(1) if rx.search(u) else None)
+
+        def _via_boot(u):
+            # boot.repo_slug reads GITHUB_REPOSITORY first, then git origin; clear the env and inject the URL so
+            # the regex path is what runs. patch.dict restores the env afterward.
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("GITHUB_REPOSITORY", None)
+                with mock.patch.object(boot, "_run", return_value=u):
+                    return boot.repo_slug()
+
+        return {
+            "repo_identity": _via_regex(repo_identity._GITHUB_SLUG_RE),
+            "execution_environment": _via_regex(execution_environment._SLUG_RE),
+            "first_run_health": _via_regex(first_run_health._GITHUB_SLUG_RE),
+            "mechanic_build": mechanic_build._github_slug,
+            "boot": _via_boot,
+        }
+
+    def test_every_parser_reads_a_mixed_case_host(self):
+        for url in ("https://GitHub.com/owner/name.git",
+                    "git@GitHub.com:owner/name.git",
+                    "ssh://git@GitHub.COM/owner/name"):
+            for name, parse in self._parsers().items():
+                self.assertEqual(parse(url), "owner/name", f"{name} must read {url}")
+
+    def test_every_parser_rejects_the_same_look_alikes(self):
+        for url in ("https://notGitHub.com/owner/name.git",
+                    "https://EvilGitHub.com/owner/name.git",
+                    "https://github.com.evil.com/owner/name.git"):
+            for name, parse in self._parsers().items():
+                self.assertIsNone(parse(url), f"{name} must reject {url}")
 
 
 if __name__ == "__main__":

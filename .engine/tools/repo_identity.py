@@ -41,8 +41,10 @@ _ENGINE_MANIFEST_REL = ".engine/engine.json"
 # `owner/repo` out of an https or ssh GitHub remote URL, tolerating a trailing `.git` and/or slash. The host is
 # ANCHORED to the scheme/userinfo boundary (`//github.com`, `git@github.com`, or a bare-start `github.com`) so a
 # look-alike host — `notgithub.com/evil/repo`, `evilgithub.com/owner/repo`, or a `github.com` path segment under
-# another host — cannot mis-parse into a slug that `slug_eq` would then read as the engine's home.
-_GITHUB_SLUG_RE = re.compile(r"(?:^|@|//)github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+# another host — cannot mis-parse into a slug that `slug_eq` would then read as the engine's home. IGNORECASE
+# because host names are case-insensitive by specification (`GitHub.com` is `github.com`): it folds only the
+# literal `github.com`, never the structural anchors, so no look-alike host is newly accepted (#625).
+_GITHUB_SLUG_RE = re.compile(r"(?:^|@|//)github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE)
 
 
 def _run(args: list) -> "str | None":

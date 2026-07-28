@@ -48,8 +48,12 @@ import checkout_health  # noqa: E402  (the OFFLINE readers + fail-soft health pr
 
 # owner/repo parsed ONLY from a genuine github.com origin. The leading host anchor is load-bearing: `github.com`
 # must be the URL host (after an optional scheme and optional `user@`), never a substring of a look-alike
-# (`notgithub.com`, `github.com.evil.com`) — see the module docstring's HOST ANCHOR note.
-_GITHUB_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+# (`notgithub.com`, `github.com.evil.com`) — see the module docstring's HOST ANCHOR note. IGNORECASE folds only
+# the literal host (`GitHub.com` == `github.com`, case-insensitive by spec), never the structural anchors, so
+# the security boundary is unchanged — no look-alike host is newly accepted; a genuine mixed-case origin that
+# previously mis-classified as `untrusted-host` is now read correctly (#625).
+_GITHUB_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
+                             re.IGNORECASE)
 
 # Plain-language refusal messages (operator-facing: name the cause AND the remedy, never the raw token).
 _REFUSALS = {

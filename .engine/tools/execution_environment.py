@@ -141,7 +141,10 @@ def _engine_release(root: str) -> str | None:
 
 # Host-anchored (^...) so a look-alike host (notgithub.com/owner/repo) can never match as a substring — the
 # same discipline boot's repo_slug uses, because a mis-parsed slug would scope a qualification to the wrong repo.
-_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+# IGNORECASE: host names are case-insensitive by spec (`GitHub.com` == `github.com`); it folds only the literal
+# host, not the structural anchors, so no look-alike is newly accepted (#625).
+_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
+                      re.IGNORECASE)
 
 
 def current_repo(root: str) -> str | None:

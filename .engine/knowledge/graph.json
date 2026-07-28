@@ -6390,7 +6390,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:444b7231fc9f2ba86eeb1746ee22be5502c34f1851cac75cb4ca8e5ed450ff19",
+        "fingerprint": "sha256:4a35776777e1f031fcf7ce1dcfaaa0f811cc61240d65ce8481d98c7519f286a0",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8284,7 +8284,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:3c6e03a4eb13499b4e9c93ed84fd3339aca4854f8b27dcb09ba307bac36e70b6",
+        "fingerprint": "sha256:a2b0f6a4a6d0052b7f86f7ffde2c52cd0478426338917f6ebedf76971ef6904c",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -9068,7 +9068,7 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:2659c96750aeadecede6f5777de3dd98ebdab5fe392044346e7f94b2a654aff5",
+        "fingerprint": "sha256:0e37dc71db1c523bd773c37354a23b4ef9d32043977bce8e64563fb45ae17c0b",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
@@ -9905,7 +9905,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:49b24fa1f26eb75ccb779d81b5a45176bb70169f7013ab5fe47d029181e8fedc",
+        "fingerprint": "sha256:22347dd723812bbe696be4d20060698bf1b3ea4dda60378df0884bd6f59b1b12",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -10777,7 +10777,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:53044d5abdaa074adb0a1994f11b3c8dd691f3b56c4c463ad2070344afa1cc19",
+        "fingerprint": "sha256:38288fce732100a0252e75967ff0d3aa329c85be260c286635fa74eda51747b3",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11540,7 +11540,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:149e9100b6ecde6c136679ad95c08fa7f68992ed3f63e6f2afc83268beebda7d",
+        "fingerprint": "sha256:1c9cc98bd1123e3737ca57dcbd85012e4e71b4273d2abb0f453032f2b2e1b09e",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -12271,7 +12271,7 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:6b0415f934a23b42880f0a04fd2864de5d6344af02a964b3bfff6e9a9e13c10e",
+        "fingerprint": "sha256:46de3756292699243c9a6bad9db16945f73d1992d26e8da0d6dce0ab3024bebb",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",
@@ -13045,12 +13045,16 @@
           "module:core"
         ],
         "tests": [
+          "tool:boot",
+          "tool:execution_environment",
+          "tool:first_run_health",
+          "tool:mechanic_build",
           "tool:repo_identity"
         ]
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:b50c68d41ccca0eb1f3e67033aa6e7e2de9429f341e3b453767a045f503a5184",
+        "fingerprint": "sha256:04e39b070e696231b455983f3bd4d990e906a5b4777f6ac3e8382a6860fb9c8a",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
