@@ -89,6 +89,16 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertFalse(asp._is_home_repo("somebody/else"))        # a different repo -> deployed lane
         self.assertFalse(asp._is_home_repo(None))                   # unknown -> deployed lane (safe direction)
 
+    def test_is_home_repo_fails_toward_deployed_when_home_read_raises(self):
+        # home_repository() is fail-LOUD on a malformed manifest (it RAISES). _is_home_repo must swallow that
+        # to the deployed lane, never let it flip us onto the home lane or crash the promotion pass.
+        orig = module_coherence.home_repository
+        self.addCleanup(lambda: setattr(module_coherence, "home_repository", orig))
+        def boom():
+            raise ValueError("malformed manifest")
+        module_coherence.home_repository = boom
+        self.assertFalse(asp._is_home_repo("StarshipSuperjam/engine-template"))  # a raise -> deployed lane, no crash
+
     def test_source_id_is_keyed_on_the_file_not_the_message(self):
         # The live line-count is per-occurrence; the source_id must stay stable as it changes, so the
         # same surface collapses onto one tracked Issue rather than forking a new one each run.

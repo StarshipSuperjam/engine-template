@@ -10,8 +10,11 @@ What it shows, on a REAL temporary over-budget doc fixture:
       turns it into exactly one tracked record;
   (2) the LOCAL lane (the file is unclaimed — an operator-authored doc) renders WITHOUT the upstream
       caveat and offers the trim/raise/leave choice;
-  (3) the MACHINERY lane (the same file, with ownership injected to simulate a template-shipped file)
-      renders WITH the plain upstream-durability caveat the operator asked for;
+  (3) the MACHINERY lane in a DOWNSTREAM copy (the same file, with ownership injected to simulate a
+      template-shipped file) renders WITH the plain upstream-durability caveat the operator asked for;
+  (3b) the HOME lane (the same machinery file, but the target repo IS the engine's own home) renders
+      fix-HERE — no upstream caveat, offering the local trim / raise-recorded-budget choice — because
+      pointing the engine's own source "upstream" would point it at itself;
   (4) promoting a record opens exactly one issue, and re-promoting the same finding UPDATES it rather than
       opening a duplicate (source-keyed dedup holds);
   (5) the rendered machinery issue body, exactly as it would appear in the tracker (read it for jargon).
@@ -68,8 +71,24 @@ def _demo() -> int:
         mach_recs = asp.budget_records(_CLOCK, claims={_FIXTURE_REL: ["core"]})
         mrec = next(r for r in mach_recs if r["source_id"] == f"{asp.SOURCE_PREFIX}{_FIXTURE_REL}")
         mach_has_caveat = _UPSTREAM_PHRASE in mrec["body_core"]
-        print(f"(3) MACHINERY lane (ownership injected): upstream caveat present? {mach_has_caveat}  "
+        print(f"(3) MACHINERY lane (downstream copy): upstream caveat present? {mach_has_caveat}  "
               f"(expected True — a local trim is overwritten on the next upgrade).")
+
+        # (3b) The HOME lane: the SAME machinery file, but the target repo IS the engine's own home
+        #      (the recorded home_repository). Forced deterministically by filing "into" the recorded home
+        #      slug, so _is_home_repo confirms origin==home; a repo with no recorded home cannot show this.
+        home_slug = asp.module_coherence.home_repository()
+        if home_slug:
+            home_recs = asp.budget_records(_CLOCK, claims={_FIXTURE_REL: ["core"]}, repo=home_slug)
+            hrec = next(r for r in home_recs if r["source_id"] == f"{asp.SOURCE_PREFIX}{_FIXTURE_REL}")
+            home_no_caveat = _UPSTREAM_PHRASE not in hrec["body_core"]
+            home_fix_here = "Raise its recorded budget" in hrec["body_core"]
+            print(f"(3b) HOME lane (target repo == recorded home {home_slug}): upstream caveat present? "
+                  f"{not home_no_caveat}  fix-here offered? {home_fix_here}  (expected: no caveat, fix-here).")
+            home_ok = home_no_caveat and home_fix_here
+        else:
+            print("(3b) HOME lane: skipped — this repo records no home_repository, so the lane cannot be shown.")
+            home_ok = True
 
         # (4) Promote the machinery record, then re-promote it — dedup must hold (one issue, then updated).
         fake = telemetry._FakeGitHub()
@@ -136,7 +155,7 @@ def _demo() -> int:
         link_ok = any(link in r["body_core"] for r in cat_recs if r["source_id"] == f"{asp.SOURCE_PREFIX}{cat_rel}")
         print(f"(7) A debt body for a catalogued surface links to \"what is broken\" on GitHub: {link_ok}.")
 
-        ok = (one_local and (not local_has_caveat) and mach_has_caveat and dedup_ok and marker_ok
+        ok = (one_local and (not local_has_caveat) and mach_has_caveat and home_ok and dedup_ok and marker_ok
               and resolve_ok and link_ok)
     finally:
         try:

@@ -23,7 +23,8 @@ upstream report itself ("never phone home"); logging it there stays the operator
 engine's OWN home repo (the target repo's slug equals the recorded home_repository): there the machinery IS the
 project, so the same file is fixable right here (trim it, or raise its recorded budget), and pointing "upstream"
 would point the repo at itself — so the home lane says fix-here instead. Home-ness is the strict-positive
-origin==home test (_is_home_repo, fail toward the deployed lane so a copy is never mis-told the fix sticks). A
+target-slug-equals-home test (_is_home_repo compares the target repo's own slug to the recorded home, NOT the
+git origin, and fails toward the deployed lane so a copy is never mis-told the fix sticks). A
 budget overage on a file THIS PROJECT owns (local state, not machinery) is fixable here in either repo.
 Ownership is the authoritative machinery test (module_coherence.provides_claims, the live-filesystem manifest
 claims). Today every budget-governed surface is module-owned machinery, so the local lane is built and
@@ -92,10 +93,11 @@ def _neutralize(text: str) -> str:
 def _is_home_repo(repo: str | None) -> bool:
     """True ONLY when the target repo is CONFIRMED to be the engine's own home — its slug equals the recorded
     `home_repository`. Fails toward NOT-home (the deployed/upstream lane): a repo whose home cannot be read, or
-    that differs, is treated as a downstream copy. This is the strict-positive origin==home test, deliberately
-    NOT `is_home_repo`'s fail-TOWARD-home — the wrong direction here would tell a real deployed repo whose
-    manifest could not be read "fix it here, it sticks", which is false. `repo` is the slug the Issues are
-    filed into (GITHUB_REPOSITORY), so it is the right thing to place against home."""
+    that differs, is treated as a downstream copy. This is the strict-positive target-slug-equals-home test —
+    it compares the caller's `repo` STRING (in practice GITHUB_REPOSITORY, the slug the Issues are filed into),
+    NOT `repo_identity`'s on-disk git `origin`, and it deliberately fails toward the deployed lane rather than
+    inheriting `is_home_repo`'s fail-TOWARD-home: the wrong direction here would tell a real deployed repo whose
+    manifest could not be read "fix it here, it sticks", which is false."""
     try:
         return module_coherence.slug_eq(repo, module_coherence.home_repository())
     except Exception:  # noqa: BLE001 — a malformed manifest must never flip us onto the home lane
@@ -121,6 +123,15 @@ def _entity_reference(rel: str, repo: str | None) -> list | None:
         return None
     url = f"https://github.com/{repo}/blob/HEAD/{rel}"
     return [(_neutralize(f"The file that is over its length limit — {rel}"), url)]
+
+
+# The closing bullet every lane ends on — the self-review + auto-close reassurance. Defined once so a future
+# wording change lands in one place, not three (technical-integrity review of #658).
+_SELF_REVIEW_TRAILER = (
+    "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
+    "on its own** once the file is back under its limit — that only clears the flag, it does not "
+    "change the file for you."
+)
 
 
 def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
@@ -156,9 +167,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             "- **Or leave it** — it is only a nudge and never blocks anything.\n"
             "- The engine has not sent anything to that upstream project and will not; logging it there "
             "is yours to decide.\n"
-            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
-            "on its own** once the file is back under its limit — that only clears the flag, it does not "
-            "change the file for you."
+            + _SELF_REVIEW_TRAILER
         )
     elif machinery and home:
         what_this_is = (
@@ -173,12 +182,10 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             "Because this is the engine's own source, a fix here lasts — there is no upstream to send it "
             "to. You can:\n\n"
             "- **Trim it** in an ordinary change, or\n"
-            "- **Raise its recorded budget** with a reason in the length-budget rule (a guarded change "
-            "you sign off deliberately), or\n"
+            "- **Raise its recorded budget** with a reason in the length-budget rule (an edit to a "
+            "protected settings file, which you sign off on deliberately), or\n"
             "- **Leave it** — it is only a nudge and never blocks anything.\n"
-            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
-            "on its own** once the file is back under its limit — that only clears the flag, it does not "
-            "change the file for you."
+            + _SELF_REVIEW_TRAILER
         )
     else:
         what_this_is = (
@@ -192,9 +199,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             "- **Trim it** in an ordinary change, or\n"
             "- **Raise its budget** with a recorded reason, or\n"
             "- **Leave it** — it is only a nudge and never blocks anything.\n"
-            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
-            "on its own** once the file is back under its limit — that only clears the flag, it does not "
-            "change the file for you."
+            + _SELF_REVIEW_TRAILER
         )
     body_core = issue_author.render_engine_issue_body(
         what_this_is=what_this_is, whats_next=whats_next, references=_entity_reference(rel, repo))
