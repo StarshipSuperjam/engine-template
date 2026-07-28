@@ -14,7 +14,7 @@ WITHOUT dragging the modes/close/hooks lifecycle machinery that lives in `module
 `pull_request_target`-adjacent path. `module_coherence` re-exports the slug primitives from here rather than
 keeping its own, so the two can never drift apart. Other modules — `first_run_health`, `boot`, `instantiator`,
 `weakening_guard` — still carry their own origin/home readers with their own fail-directions; this is the
-single home for the primitives it defines, not yet the only reader of that state in the tree.
+single home for the primitives it defines, though not the only reader of that state in the tree.
 
 Two contracts callers rely on:
   - `is_home_repo(root)` reads the EXAMINED checkout's ON-DISK git origin (`git -C <root> remote get-url

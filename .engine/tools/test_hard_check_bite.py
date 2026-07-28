@@ -70,9 +70,9 @@ def _write(path: str, text: str) -> None:
 
 
 class TestLiveFixturesBite(unittest.TestCase):
-    """The committed fixtures all bite — the real-repo regression. An empty check_dir keeps roster(b) out (the
-    live custom/script instances are backfilled in a later slice), so this proves roster(a) + the custom/script
-    fail-closed modes against the shipped fixtures."""
+    """The committed fixtures all bite — the real-repo regression. An empty check_dir keeps roster(b) out
+    (roster(b) is the live custom/script instances discovered from the check rules, so an empty check_dir
+    yields none), so this proves roster(a) + the custom/script fail-closed modes against the shipped fixtures."""
 
     def test_every_kind_and_failclosed_mode_bites(self):
         with tempfile.TemporaryDirectory() as empty:

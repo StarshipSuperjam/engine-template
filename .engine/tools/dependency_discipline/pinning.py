@@ -11,7 +11,7 @@ distinct from "could not run" and never a silent pass.
 
 Honest floor: detection is ROOT-LEVEL and PRESENCE-BASED — it does not walk subdirectories and does not parse
 individual version specifiers (a `requirements.txt` with loose ranges counts as a pin record). It is a soft
-hygiene nudge, not a guarantee; a deeper per-package or monorepo audit is a later refinement.
+hygiene nudge, not a guarantee, and does not attempt a per-package or monorepo audit.
 
 Tiers / blocking: every finding is `soft`, so this check never blocks a merge even in CI's blocking-gate
 context. Read-only: it inspects file presence only and never writes (the read-only mutation firewall).

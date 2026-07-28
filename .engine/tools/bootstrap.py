@@ -35,13 +35,10 @@ without modifying a rule the operator set themselves. The exact pieces added are
 ("the ruleset is augmented, never weakened"). Greenfield
 (no product ruleset) is unchanged: the engine creates and owns its own ruleset.
 
-Scope OUT of this slice (named, deferred):
-  - module manager add/remove + group-scoped uv-sync derivation + the orphan-wire reverse coherence leg
-  - engine updater/upgrade + migrations (module_manager); CODEOWNERS renderer (wiring), with its
-    live first-run/upgrade wire owed to the instantiator (which captures the operator handle)
-  - the operator verb + boot's one-click-fix copy update
-  - the second engine-scheme (spec-marker) label, deferred to the product-design module (core ensures only the
-    engine-domain label here)
+This tool owns ruleset provisioning. Module add/remove, engine upgrade + migrations, the CODEOWNERS
+renderer, and the operator verb live in their own tools (module_manager, wiring). Of the two engine-scheme
+labels, first-run provisioning here ensures only the engine-domain one; the second (spec-marker) label lives
+in the product-design module.
 """
 # `from __future__ import annotations` (PEP 563) is LOAD-BEARING, not cosmetic: the first-run
 # instantiator imports this module and runs it on the operator's SYSTEM python during the

@@ -10,7 +10,7 @@ no build stage consumes — an installed-yet-unconsumed review is one that ships
 the operator's changes, exactly the coherence hole the agents surface says must be disclosed and never
 left as a check-only signal.
 
-This is the "build-orchestration slice" the agent grammar's dangling-lens posture was deferred to: the
+This is where the agent grammar's dangling-lens posture is enforced: the
 consumed set (which gate consumes which lens) is build orchestration's to record, and this consumer
 diffs the installed personas against it. Today installed == consumed (the four plan-review + five
 pre-submission lenses are all consumed), so the check is green; it bites only when a review persona is

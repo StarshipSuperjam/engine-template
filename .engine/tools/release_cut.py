@@ -4,10 +4,11 @@
 
 The engine and every module carry a version (`.engine/engine.json` `engine_release` + the
 `packages` map; each `.engine/modules/<id>/manifest.json` `version`). The module manager
-*consumes* a published release (fetch + overlay + migrate); nothing yet *produces* one — this tool
-is that missing half: it decides the next version from what changed since the last release, and it
+*consumes* a published release (fetch + overlay + migrate); this tool *produces* one:
+it decides the next version from what changed since the last release, and it
 records the chosen versions into the manifests. It does NOT tag, open a PR, or publish a Release —
-that GitHub-facing plumbing is later slices; this is the version-decision core they drive.
+that GitHub-facing plumbing lives in the terminal cut (`release_terminal.py`, driven by
+`release-publish.yml`); this is the version-decision core it builds on.
 
 Two subcommands, split so consent attaches to a proposal the writer cannot silently drift from:
 
