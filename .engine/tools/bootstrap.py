@@ -60,12 +60,14 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
-import boot  # noqa: E402  (repo_slug, gh_token, PROTECTED_BRANCH — the shared GitHub-context helpers)
+import boot  # noqa: E402  (repo_slug, gh_token — the shared GitHub-context helpers)
+import repo_identity  # noqa: E402  (resolve_default_branch — the authoritative branch the protection floor lands on)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the minimal ensure this inherits)
 import weakening_guard  # noqa: E402  (ACK_LABEL — reuse the frozen guardrail-ack name, never re-decide it)
@@ -629,7 +631,7 @@ class ControlPlane:
         endpoint (the default token can read it) and protection_guard's own evaluation. Raises
         BootstrapError on an unreadable response — never a false 'protected'."""
         status, data, _ = self._transport(
-            "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
+            "GET", f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
         return protection_guard.missing_floor(data, protection_guard.REQUIRED_CHECKS, tier=self.tier)
@@ -655,7 +657,7 @@ class ControlPlane:
         redundant rulesets list; it is resolved here when not supplied. Raises BootstrapError on an
         unreadable response (fail-closed — never guess the set)."""
         status, data, _ = self._transport(
-            "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
+            "GET", f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
         if own_id == "__resolve__":
@@ -727,7 +729,10 @@ class ControlPlane:
     def apply(self, branch: str | None = None, announce=None) -> Result:
         """Idempotently ensure the protection floor is in force on the branch, then ensure the engine
         labels. `announce(text)` surfaces operator copy at the right moments (default: print)."""
-        branch = branch or boot.PROTECTED_BRANCH
+        # The gate's one-click repair lands the protection floor on the AUTHORITATIVE default branch (env ->
+        # recorded -> origin/HEAD -> "main"), the same branch boot's safety-gate signal probes — so the fix
+        # can never protect a different branch than the one reported unprotected.
+        branch = branch or repo_identity.resolve_default_branch()
         copy = load_copy()
         say = announce if announce is not None else (lambda text: print(text))
 
@@ -941,7 +946,7 @@ class ControlPlane:
         # product ruleset that carries them (bounded, never a product's own rules), never delete, disclose.
         # This is deadlock-prevention first: the engine's checks must come off before its workflows vanish.
         try:
-            prod_ids = self.product_rulesets(branch=boot.PROTECTED_BRANCH)
+            prod_ids = self.product_rulesets(branch=repo_identity.resolve_default_branch())
         except BootstrapError:
             prod_ids = []
         for rid in prod_ids:
@@ -1060,11 +1065,15 @@ def main(argv: list | None = None) -> int:
         prog="bootstrap",
         description="Turn the protected-branch safety gate on (the control-plane bootstrap).")
     parser.add_argument("--repo", default=None, help="owner/repo (default: derived from the git remote)")
-    parser.add_argument("--branch", default=boot.PROTECTED_BRANCH, help="the protected branch")
+    parser.add_argument("--branch", default=None,
+                        help="the protected branch (default: the repo's resolved default branch)")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("status", help="report whether the safety gate is on (read-only)")
     sub.add_parser("apply", help="turn the safety gate on (idempotent)")
     args = parser.parse_args(argv)
+    # Resolve the default once for whichever verb runs (env -> recorded -> origin/HEAD -> "main"), so a repo
+    # whose default is not `main` is reported and repaired on its real branch.
+    args.branch = args.branch or repo_identity.resolve_default_branch()
     if args.cmd == "status":
         return cmd_status(args)
     if args.cmd == "apply":

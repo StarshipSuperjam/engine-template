@@ -22,9 +22,11 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
 from github_client import get_json  # noqa: E402 — sibling import after the path insert
+import repo_identity  # noqa: E402  (resolve_default_branch — the shared, env-authoritative default-branch resolver)
 
 # Frozen required-check names this guard expects the ruleset to bind. These are
 # the literal job names of the seed's two required checks; renaming either one,
@@ -126,7 +128,11 @@ def emit(findings: list) -> int:
 
 def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
-    branch = os.environ.get("PROTECTED_BRANCH", "main")
+    # The branch this merge-gate verifies: the workflow sets PROTECTED_BRANCH from the repo's AUTHORITATIVE
+    # live default (github.event.repository.default_branch), which the resolver reads first; recorded ->
+    # origin/HEAD -> "main" are the local/degraded fallbacks. Never raises (fail-soft) so the gate can only
+    # emit a finding, never crash to an ambiguous disposition.
+    branch = repo_identity.resolve_default_branch()
     token = os.environ.get("GITHUB_TOKEN", "")
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the FINDING SEVERITY (hard/soft), passed by the kind
     identity_tier = resolve_tier()  # the repo's solo/team IDENTITY tier — DISTINCT from the severity above; decides
@@ -144,7 +150,8 @@ def main() -> int:
                       "access token is available, which is normal on your own machine. The "
                       "check that can actually block a bad merge runs in CI."}])
     try:
-        rules = get_json(f"/repos/{repo}/rules/branches/{branch}", token, user_agent=UA)
+        rules = get_json(f"/repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}",
+                         token, user_agent=UA)
     except Exception as e:  # token present but the API could not be read -> fail closed in CI
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' "

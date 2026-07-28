@@ -45,12 +45,14 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import moment  # noqa: E402  (the time seam — today_utc: the UTC calendar day the digest must date by)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
+import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
 
 
 # The committed digest's home: a file under .engine/audits/ (already a registered infra dir, beside the
@@ -263,10 +265,6 @@ USER_AGENT = "engine-audit-digest"
 # The digest's repo-relative path — what the commits/contents API key on (AUDIT_DIGEST_PATH is absolute).
 DIGEST_REPO_PATH = os.path.relpath(AUDIT_DIGEST_PATH, validate.ROOT).replace(os.sep, "/")
 
-# The branch the prior digests are read from — the same base the digest pull requests target. The
-# in-flight digest this run produces is not committed to it yet, so the run is never fed its own output.
-PRIOR_DIGESTS_BASE = "main"
-
 # The corroboration window: how many of the most recent committed digests the self-review is fed
 # (oldest→newest). A plain bound — a build-spec leaf recorded with the maintainer — wide enough to catch
 # an intermittent finding that comes and goes across cycles, not only one that persists every run. Each
@@ -322,11 +320,14 @@ class _DigestHistory:
     issue-shaped — this reads the commits + contents APIs for one file's history."""
 
     def __init__(self, repo: str, token: str, *, path: str = DIGEST_REPO_PATH,
-                 base: str = PRIOR_DIGESTS_BASE, transport=None):
+                 base: "str | None" = None, transport=None):
         self.repo = repo
         self.token = token
         self.path = path
-        self.base = base
+        # The branch prior digests are read from — the same base the digest pull requests target. Resolved
+        # here (NOT a module-level default arg pinned at import) from GITHUB_DEFAULT_BRANCH (which audit-prep
+        # sets) -> recorded manifest -> origin/HEAD -> "main", so a `master` repo reads its own history.
+        self.base = base or repo_identity.resolve_default_branch(env_var="GITHUB_DEFAULT_BRANCH")
         self._transport = transport or self._http
 
     def _http(self, method: str, path: str, body=None):
@@ -349,7 +350,8 @@ class _DigestHistory:
         per_page = min(100, max(1, int(limit)))   # GitHub caps a commits page at 100; a recent read never paginates
         status, commits = self._transport(
             "GET",
-            f"/repos/{self.repo}/commits?path={self.path}&sha={self.base}&per_page={per_page}",
+            f"/repos/{self.repo}/commits?path={self.path}"
+            f"&sha={urllib.parse.quote(self.base, safe='')}&per_page={per_page}",
             None)
         if status in (404, 409):   # 404 path/branch never committed, 409 empty repo — no history yet
             return []

@@ -16,6 +16,7 @@ tests lock the contracts the scope detectors rely on, against throwaway offline 
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -275,6 +276,111 @@ class TestGithubHostParsersAgree(unittest.TestCase):
                     "https://gİthub.com/owner/name.git"):
             for name, parse in self._parsers().items():
                 self.assertIsNone(parse(url), f"{name} must reject {url}")
+
+
+@contextlib.contextmanager
+def _no_branch_env():
+    """Run with the two branch env vars absent, restored on exit — so a runner that happens to export
+    PROTECTED_BRANCH / GITHUB_DEFAULT_BRANCH can't mask the recorded/git resolution these tests exercise."""
+    with mock.patch.dict(os.environ, clear=False):
+        os.environ.pop("PROTECTED_BRANCH", None)
+        os.environ.pop("GITHUB_DEFAULT_BRANCH", None)
+        yield
+
+
+def _branch_repo(tmp: str, name: str, *, default_branch: "str | None" = None,
+                 origin_head: "str | None" = None) -> str:
+    """A throwaway git checkout recording `default_branch` in its manifest (omitted when None) and, when
+    `origin_head` is given, an `origin/HEAD` pointing at it (set WITHOUT a real remote fetch — the offline
+    equivalent of what a clone leaves behind)."""
+    root = os.path.join(tmp, name)
+    os.makedirs(os.path.join(root, ".engine"), exist_ok=True)
+    _git(root, "init", "-q")
+    manifest: dict = {"engine_release": "0.0.0"}
+    if default_branch is not None:
+        manifest["default_branch"] = default_branch
+    with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    if origin_head is not None:
+        _git(root, "remote", "add", "origin", "https://github.com/x/y.git")
+        _git(root, "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{origin_head}")
+    return root
+
+
+class TestDefaultBranch(unittest.TestCase):
+    """The single recorded-value reader. UNLIKE `home_repository` it is fail-SOFT (see the malformed case)."""
+
+    def setUp(self):
+        self.tmp = _mkdtemp(self)
+
+    def test_reads_the_recorded_default_branch(self):
+        root = _branch_repo(self.tmp, "r", default_branch="master")
+        self.assertEqual(repo_identity.default_branch(root), "master")
+
+    def test_none_when_key_absent(self):
+        root = _branch_repo(self.tmp, "r")
+        self.assertIsNone(repo_identity.default_branch(root))
+
+    def test_none_when_blank(self):
+        root = _branch_repo(self.tmp, "r", default_branch="   ")
+        self.assertIsNone(repo_identity.default_branch(root))
+
+    def test_fail_soft_none_on_a_malformed_manifest(self):
+        # The DELIBERATE CONTRAST with home_repository (which RAISES here): default_branch degrades to None so
+        # boot — which reads it at IMPORT — can never crash the tree on a corrupt manifest, and every caller
+        # falls through to its next source. `test_home_repository_raises_on_a_malformed_manifest` pins the other.
+        root = _branch_repo(self.tmp, "r", default_branch="master")
+        with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        self.assertIsNone(repo_identity.default_branch(root))
+
+
+class TestResolveDefaultBranch(unittest.TestCase):
+    """The one shared resolver: env_var override -> recorded -> origin/HEAD -> 'main', always non-empty."""
+
+    def setUp(self):
+        self.tmp = _mkdtemp(self)
+
+    def test_env_var_wins(self):
+        root = _branch_repo(self.tmp, "r", default_branch="master")
+        with mock.patch.dict(os.environ, {"PROTECTED_BRANCH": "from-env"}):
+            self.assertEqual(repo_identity.resolve_default_branch(root), "from-env")
+
+    def test_present_but_empty_env_falls_through(self):
+        # The `or` idiom, NOT os.environ.get(k, default): a workflow expression that expanded to "" on a
+        # payload-less trigger must fall through to the recorded value, never pin the gate to an empty branch.
+        root = _branch_repo(self.tmp, "r", default_branch="master")
+        with mock.patch.dict(os.environ, {"PROTECTED_BRANCH": ""}):
+            self.assertEqual(repo_identity.resolve_default_branch(root), "master")
+
+    def test_recorded_preferred_over_origin_head(self):
+        root = _branch_repo(self.tmp, "r", default_branch="master", origin_head="trunk")
+        with _no_branch_env():
+            self.assertEqual(repo_identity.resolve_default_branch(root), "master")
+
+    def test_origin_head_self_heals_a_pre_recorded_key_deployment(self):
+        # A repo deployed BEFORE the recorded key existed: no manifest default, but git still knows it.
+        root = _branch_repo(self.tmp, "r", default_branch=None, origin_head="master")
+        with _no_branch_env():
+            self.assertEqual(repo_identity.resolve_default_branch(root), "master")
+
+    def test_main_is_the_last_resort(self):
+        root = _branch_repo(self.tmp, "r")  # no recorded key, no origin/HEAD
+        with _no_branch_env():
+            self.assertEqual(repo_identity.resolve_default_branch(root), "main")
+
+    def test_reads_the_named_env_var(self):
+        root = _branch_repo(self.tmp, "r")
+        with mock.patch.dict(os.environ, {"GITHUB_DEFAULT_BRANCH": "release"}):
+            self.assertEqual(
+                repo_identity.resolve_default_branch(root, env_var="GITHUB_DEFAULT_BRANCH"), "release")
+
+    def test_always_returns_non_empty_even_on_a_malformed_manifest(self):
+        root = _branch_repo(self.tmp, "r")
+        with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json ")
+        with _no_branch_env():
+            self.assertEqual(repo_identity.resolve_default_branch(root), "main")
 
 
 if __name__ == "__main__":

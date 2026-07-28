@@ -50,6 +50,7 @@ import issue_author  # noqa: E402  (the shared issue-authoring helper — assemb
 import standing_situation  # noqa: E402  (the read-only "where we are" derive; telemetry refreshes its offline cache on this same GitHub pass — pure leaf, imports nothing back, so no cycle)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build for the issue read/write transport)
 import moment  # noqa: E402  (the time seam — the trailing-Z wire shape; pure stdlib leaf, imports nothing back)
+import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
 
 # ---- constants -------------------------------------------------------------
 
@@ -715,7 +716,8 @@ class GitHubIssues:
             # check name, so a re-run's fresh green supersedes a stale red of the same name — the current
             # outcome, which is what a live-derived signal reconciles against.
             status, data = self._transport(
-                "GET", f"/repos/{self.repo}/commits/{ref}/check-runs?filter=latest&per_page=100&page={page}",
+                "GET", f"/repos/{self.repo}/commits/{urllib.parse.quote(ref, safe='')}/check-runs"
+                f"?filter=latest&per_page=100&page={page}",
                 None)
             if status >= 400 or not isinstance(data, dict) or "check_runs" not in data:
                 raise DegradedReadError(f"GitHub returned {status} reading check-runs for {ref}")
@@ -2003,8 +2005,8 @@ def _run_cli(argv: list) -> int:
     branch's CI check-runs (the first signal of record) and reconciles the engine-labelled issues for the
     `ci/` source: a failing check is tracked, and once it is green again its item auto-resolves. Reads
     GITHUB_REPOSITORY + GITHUB_TOKEN (the GitHub token, never the Claude OAuth token) and the default branch
-    from GITHUB_DEFAULT_BRANCH (the workflow passes `github.ref_name`, which on a scheduled run is the
-    default branch; falls back to 'main' when unset).
+    via the shared resolver: GITHUB_DEFAULT_BRANCH (the workflow passes `github.ref_name`, which on a
+    scheduled run is the default branch), then the recorded manifest, then `origin/HEAD`, then 'main'.
 
     SAFETY: auto-resolve is scoped to the `ci/` source-ids OBSERVED this pass, so it never touches an
     out-of-band issue (a hooks fail-open alarm, a migration/resurrection finding); and a failed OR partial CI
@@ -2019,7 +2021,9 @@ def _run_cli(argv: list) -> int:
         print("usage: telemetry.py run   (needs GITHUB_REPOSITORY and GITHUB_TOKEN in the environment; it "
               "uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
-    branch = os.environ.get("GITHUB_DEFAULT_BRANCH") or "main"
+    # The workflow sets GITHUB_DEFAULT_BRANCH (github.ref_name on the scheduled run); the resolver reads it
+    # first, then the recorded manifest -> origin/HEAD -> "main" for a local/degraded run.
+    branch = repo_identity.resolve_default_branch(env_var="GITHUB_DEFAULT_BRANCH")
     now = moment.utc_now()
     gh = GitHubIssues(repo, token)
     cache = Cache(argv[0]) if argv else Cache()

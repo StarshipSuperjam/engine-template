@@ -39,6 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import repo_identity     # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
 
 # The two derived-committed members, repo-relative (the exact paths git reports in a conflict). Membership
 # is by property (a fully source-deterministic committed file); v1 has exactly these two.
@@ -77,11 +78,9 @@ def _current_branch(root: str) -> str | None:
 
 
 def _default_branch(root: str) -> str:
-    """The repo's default branch name, resolved from origin/HEAD, else the PROTECTED_BRANCH env / 'main'."""
-    head = _run(["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"], root)
-    if head:
-        return head.split("origin/", 1)[1] if head.startswith("origin/") else head
-    return os.environ.get("PROTECTED_BRANCH", "main")
+    """The repo's default branch name via the shared resolver (PROTECTED_BRANCH env -> recorded manifest ->
+    origin/HEAD -> 'main'), so the reconcile base can never diverge from the branch the safety gate protects."""
+    return repo_identity.resolve_default_branch(root)
 
 
 def _dirty(root: str) -> bool:

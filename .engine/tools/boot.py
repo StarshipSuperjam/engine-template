@@ -68,10 +68,12 @@ import re
 import subprocess
 import sys
 import unicodedata
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import moment            # noqa: E402  (the trailing-Z time seam; pure stdlib leaf)
+import repo_identity     # noqa: E402  (default_branch / resolve_default_branch — the shared default-branch reader)
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import work_record       # noqa: E402  (#394: the merged-PR titles behind the ranked recent-decisions digest)
@@ -124,7 +126,13 @@ SESSION_START_SOURCES = ("startup", "resume", "clear")
 # (POSIX bin/python or Windows Scripts/python.exe under the same venv root) — so one committed repo boots
 # on every OS, including a mixed-OS team (#407 build-spec leaf). No per-OS re-render at generation.
 
-PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
+# The DISPLAY/fallback default branch, resolved cheaply at import (env override -> recorded manifest -> "main")
+# with NO git call, so importing boot — which nearly every tool does — stays a pure, non-crashing read even on
+# a malformed manifest (`default_branch` is fail-soft). The SAFETY GATE does not rely on this constant: it
+# resolves the authoritative branch at call time through `repo_identity.resolve_default_branch` (which adds the
+# `origin/HEAD` self-heal for repos deployed before the recorded key existed) and threads the result into the
+# operator copy as `protected_branch`. This repo's own manifest records no `default_branch`, so it stays "main".
+PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH") or repo_identity.default_branch() or "main"
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 # The schema read_state validates the committed cursor against on read: a schema_version-1 cursor
 # whose INNER shape is broken is refused, never rendered as a confident cursor. Loaded lazily
@@ -276,7 +284,8 @@ def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
 
 # ---- governance alarms (relayed from the substrates; pinned at the top of the card) ---------
 
-def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, str | None]:
+def protected_branch_signal(repo: str | None, token: str | None,
+                            branch: str | None = None) -> tuple[str, str | None]:
     """The protected-branch governance signal, RELAYED from protection_guard (the control-plane's own
     evaluation), in three honest states:
       ("off", reason)       -> the gate is NOT in force: a pinned governance alarm that OFFERS the fix.
@@ -289,9 +298,13 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     """
     if not repo or not token:
         return "unknown", None
+    # The branch to probe is the AUTHORITATIVE default (env -> recorded -> origin/HEAD -> "main"), resolved at
+    # call time so it self-heals a pre-recorded-key deployment; quoted so a malformed name can never redirect
+    # this token-bearing request off its `/rules/branches/` path.
+    branch = branch or repo_identity.resolve_default_branch()
     try:
         rules = protection_guard.get_json(
-            f"/repos/{repo}/rules/branches/{PROTECTED_BRANCH}", token,
+            f"/repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", token,
             user_agent=protection_guard.UA)  # reuse the protection guard's UA — the same probe, same identity
         if not isinstance(rules, list):   # a 200 with an unexpected body (an error object, null) is NOT
             return "unknown", None         # a confirmation that protection is on -> honest "unknown"
@@ -1208,7 +1221,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     boot reaches the substrates, so the status verb re-gathers and renders the same way."""
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
-    gate, reason = protected_branch_signal(repo, token)
+    # Resolve the authoritative default branch ONCE and thread it into both the gate probe and the operator
+    # copy, so the safety-gate line names the branch the gate actually checked (not the display fallback).
+    protected_branch = repo_identity.resolve_default_branch()
+    gate, reason = protected_branch_signal(repo, token, branch=protected_branch)
     finding_count, register, low_severity_count, findings = open_findings(repo, token)
     # The operator's OWN open-issue count (their product backlog — issues WITHOUT the engine label), a
     # DELIBERATELY separate read from the engine findings above so the two degrade independently. None when
@@ -1515,7 +1531,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         execution = None
     return {
         "state": state, "refused": refused,
-        "gate": gate, "reason": reason,
+        "gate": gate, "reason": reason, "protected_branch": protected_branch,
         "finding_count": finding_count, "register": register,
         # The whole-backlog total + its all-open register + the ONE degraded-state decision (computed above), so
         # the marker and the dashboard headline read the same number and degrade the same way (they only relay).
@@ -1677,7 +1693,7 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             "🚀 **This looks like a fresh copy of the engine template — first-time setup hasn't finished "
             "yet.** That's the one thing to do before we start building: it swaps in your own project's "
-            "starting files and turns on your safety gate, so your main branch is protected. Say **set up my "
+            "starting files and turns on your safety gate, so your default branch is protected. Say **set up my "
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
@@ -1730,18 +1746,20 @@ def render_dashboard(s: dict) -> str:
 
     if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
-        # bootstrap.ControlPlane.apply(branch=PROTECTED_BRANCH) on the operator's consent — the shared
-        # repair-offer contract (boot-session-start.md). boot never imports bootstrap (bootstrap imports
-        # boot -> a cycle) and never applies the fix itself: read-only of canonical state.
+        # bootstrap.ControlPlane.apply() on the operator's consent — the shared repair-offer contract
+        # (boot-session-start.md), which resolves the same authoritative default branch this line names. boot
+        # never imports bootstrap (bootstrap imports boot -> a cycle) and never applies the fix itself.
+        branch = s.get("protected_branch") or PROTECTED_BRANCH
         pinned.append(
-            f"⛔ **Your safety gate is off** — `{PROTECTED_BRANCH}` isn't protected, so unreviewed work "
-            f"could reach your main branch ({s['reason']}). Say **turn my safety gate back on** and I'll "
+            f"⛔ **Your safety gate is off** — `{branch}` isn't protected, so unreviewed work "
+            f"could reach it ({s['reason']}). Say **turn my safety gate back on** and I'll "
             f"re-enable branch protection for you — you'll approve a one-time GitHub permission, and I never "
             f"ask you to type commands yourself.")
     elif s["gate"] == "unknown":
         degraded.append(
             f"I couldn't verify your safety gate from here (no GitHub access), so **don't assume "
-            f"`{PROTECTED_BRANCH}` is protected** — confirm it before merging anything important.")
+            f"`{s.get('protected_branch') or PROTECTED_BRANCH}` is protected** — confirm it before merging "
+            f"anything important.")
 
     # Engine findings NO LONGER pin a ⚠ here. A routine finding count is the engine's own housekeeping (the
     # operator's lowest priority in a deployed repo), so it renders only as a quiet facts line below and is
@@ -2370,19 +2388,21 @@ def _pushed_alarms(s: dict) -> list:
         # it"). The offer is a plain-language handle — the assistant runs bootstrap.ControlPlane.apply on
         # consent (boot-session-start.md); it names the one-time GitHub permission, never an over-promised
         # silent flip. terse keeps a COMPACT handle so the collapse still buys brevity.
-        full = (f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
-                f"unreviewed work could reach the main branch ({s['reason']}); tell them they can say "
+        branch = s.get("protected_branch") or PROTECTED_BRANCH
+        full = (f"{RELAY_MARKER} their safety gate is off — `{branch}` isn't protected, so "
+                f"unreviewed work could reach it ({s['reason']}); tell them they can say "
                 f"'turn my safety gate back on' and the engine will re-enable branch protection for them "
                 f"(they approve a one-time GitHub permission — never a typed command).")
         terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
-                 f"unreviewed work could still reach `{PROTECTED_BRANCH}`; the fix still stands: they can "
+                 f"unreviewed work could still reach `{branch}`; the fix still stands: they can "
                  f"say 'turn my safety gate back on' and the engine re-enables it.")
         alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
                        "full": full, "terse": terse, "worse": full})
     elif s["gate"] == "unknown":
         alarms.append({"key": "gate", "value": ["unknown", None], "collapsible": False, "full": (
             f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
-            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")})
+            f"assume `{s.get('protected_branch') or PROTECTED_BRANCH}` is protected — confirm before merging "
+            f"anything important.")})
     if s["refused"]:
         alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "

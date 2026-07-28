@@ -1486,12 +1486,13 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
     "branch is pushed" claim would be false there. Each caller frames its own surrounding recovery; this
     boundary supplies only the diagnostics both callers share."""
     import subprocess, urllib.request, urllib.error, json as _json, boot, github_client  # local: only the real open needs these
+    import repo_identity  # local: the shared default-branch resolver (dependency-light)
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     if not slug or not tok:
         raise RuntimeError("could not determine the engine repository / credentials to open the update "
                            "pull request.")
-    base = getattr(boot, "PROTECTED_BRANCH", "main")
+    base = repo_identity.resolve_default_branch()
     # STAGE-AND-PUSH. A git step failing here means the branch was NOT (fully) pushed, so the recovery is the
     # OPPOSITE of the POST-failure case below — there is no branch to open a pull request from yet. The most
     # common cause is a leftover branch from an earlier partial attempt colliding on `checkout -b`, so the

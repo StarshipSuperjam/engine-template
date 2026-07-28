@@ -6157,6 +6157,7 @@
         "imports": [
           "tool:github_client",
           "tool:moment",
+          "tool:repo_identity",
           "tool:restore_vault",
           "tool:validate"
         ],
@@ -6166,7 +6167,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:e2b1f5c0454ae329cf3023403dc55a710a3c9ae70dc5760e82f64725141a004c",
+        "fingerprint": "sha256:8acc3ccfaaea60f3d222f06c061ecb91b6e470d58a4bdf78ac7054129cb29fd6",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -6378,6 +6379,7 @@
           "tool:protection_guard",
           "tool:providers",
           "tool:recall",
+          "tool:repo_identity",
           "tool:restore_vault",
           "tool:standing_situation",
           "tool:telemetry",
@@ -6390,7 +6392,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d0008be37257dcd37eb568a56cb90993fd60ed0d98f5180b9137629a8f1f44c3",
+        "fingerprint": "sha256:9912b6e449bc71782f95a817a43af2f833911e94660a548482115a7718afce40",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6456,6 +6458,7 @@
           "tool:boot",
           "tool:github_client",
           "tool:protection_guard",
+          "tool:repo_identity",
           "tool:telemetry",
           "tool:validate",
           "tool:weakening_guard"
@@ -6466,7 +6469,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:838f8ec9e70aec0aad126c379a21e1201e8e3aecd7e164272286318a4f121412",
+        "fingerprint": "sha256:3bd4f82a58ef412f39bbce91756b3b7eef5b2e5fdc3280d1df008831be333c31",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -6553,7 +6556,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:boot"
+          "tool:boot",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -6561,7 +6565,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:79aef4da1797eae6067b474ad2b4d148303cec7fc949312fc72d08c482ec0adf",
+        "fingerprint": "sha256:709a3e2ee8dd224e69029dac6e28e75b4de941528c374a23011ee7863f07a45d",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -6814,6 +6818,7 @@
           "tool:github_client",
           "tool:issue_author",
           "tool:moment",
+          "tool:repo_identity",
           "tool:spec_referent",
           "tool:telemetry",
           "tool:validate"
@@ -6824,7 +6829,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:9b34f5643fca252ffbbf39dea2f237e6abd428dea85b87469ba22495c2c49f03",
+        "fingerprint": "sha256:080015b8ebc728ddf993351911ac446eacfe443498bd91846ba6b1b50901c349",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -8222,6 +8227,7 @@
           "tool:forget",
           "tool:ledger",
           "tool:records",
+          "tool:repo_identity",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -8231,7 +8237,7 @@
       },
       "slug": "erase",
       "source": {
-        "fingerprint": "sha256:d560cf7cec81ec3b6f14ec71fddf4c58d0137eb4dacb5aaa8aa187f0b7560cbf",
+        "fingerprint": "sha256:c406511620f76c95a6183ac5fab77835af0d3c874eaa231058af1da46dd4a9d5",
         "path": ".engine/tools/memory/erase.py"
       },
       "status": "active",
@@ -8597,7 +8603,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:e58c01d57942f0cabd9bccd8b46939339e53e818de80f5705d684372e42a6e4a",
+        "fingerprint": "sha256:338ec2b03fde9f1361bc2e40f666f04b4f4ac40ef46dc7f0d1c64bb1ee1f46f3",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9263,6 +9269,7 @@
           "tool:memory.__init__",
           "tool:module_coherence",
           "tool:release_cut",
+          "tool:repo_identity",
           "tool:restore_vault",
           "tool:self_map",
           "tool:telemetry",
@@ -9275,7 +9282,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:ca6de8882d6ce4fbbe2d0b1e32c4c4bffe609f73d412542aa8afc2abc509db3b",
+        "fingerprint": "sha256:b1d5e31094a83fb41d0d1c7bf7d212da506f40fdb5d1689073e7c55acdd5db04",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9528,6 +9535,7 @@
         "imports": [
           "tool:boot",
           "tool:demo_pr_reconcile",
+          "tool:repo_identity",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -9537,7 +9545,7 @@
       },
       "slug": "pr_reconcile",
       "source": {
-        "fingerprint": "sha256:9ad1ecdcf26f46f5ad463d270c63c117cbd78e46189616e05be3295263b4b505",
+        "fingerprint": "sha256:e0dad636667d7763cbcaf5dc874a2c9fcac8a73720370d10d41caba3eb2dce3d",
         "path": ".engine/tools/pr_reconcile.py"
       },
       "status": "active",
@@ -9619,7 +9627,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:github_client"
+          "tool:github_client",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -9627,7 +9636,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:83565420c8b03c83093962d85b68df68a638430723bda2eeaaf3069637bd974e",
+        "fingerprint": "sha256:1d79f72c19e8fdb8ad161827397e12214c5e103cc2a4ed29f4ccf44fe6220d2b",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -9905,7 +9914,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:e20778e69e8c9473956dc2cd469ecdff5765a4ca8650da17c0a731f96ffe2fd4",
+        "fingerprint": "sha256:2c1e0437a21882fe75fd7cbf6f06f3772da824d4f93bed3cb0d68028e91e43d3",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -10370,7 +10379,7 @@
       },
       "slug": "team_switch",
       "source": {
-        "fingerprint": "sha256:3a6e7026cf0db73df249259b53317f7aac59fcf07e0dd610941a035ddaa7943c",
+        "fingerprint": "sha256:540a2efa056eb8c9b6a069996882b4889eeb7e819534942d994ef7432bb1ecab",
         "path": ".engine/tools/team_switch.py"
       },
       "status": "active",
@@ -10389,6 +10398,7 @@
           "tool:github_client",
           "tool:issue_author",
           "tool:moment",
+          "tool:repo_identity",
           "tool:standing_situation",
           "tool:validate"
         ],
@@ -10398,7 +10408,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:5f42780990dcb7f7c6d5269089c56365797d2a00d30e2c69fae0ff4080e0899d",
+        "fingerprint": "sha256:a564acdf60ba3f3a3c6b5d26acba1561e4691f0e4001d97595c5a7e18e13de1c",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -10598,7 +10608,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:74481341d0ad42e0ee8b9532febfcbd3fd35b04edc541ac7065813c4d5d48389",
+        "fingerprint": "sha256:830f274b5c7874aa1da5e53fb59d13df3938a80434e4dd6a09508a22bcbcdf8c",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -10777,7 +10787,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:38288fce732100a0252e75967ff0d3aa329c85be260c286635fa74eda51747b3",
+        "fingerprint": "sha256:4dbe528e122d3c576c19b08d7ac72c0105704d3ffe524f9896d48293518b7a4a",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11825,7 +11835,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:b70b278e3217c8f90883b234684a697c40aaeb179d5c673f60aebcb47947cfd5",
+        "fingerprint": "sha256:1975aee73f21014338ed0ab0b08d73fd9cad1c3f93cf94bfe74026c506eab382",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12790,11 +12800,15 @@
       "predicates": {
         "provided_by": [
           "module:core"
+        ],
+        "tests": [
+          "tool:protection_guard",
+          "tool:repo_identity"
         ]
       },
       "slug": "test_protection_guard",
       "source": {
-        "fingerprint": "sha256:80ec87ce7f8ebe895ad31c02486a86d716da137ca82a45593f65dfc74b279c28",
+        "fingerprint": "sha256:78a61b46043bb12c98da57fa104f77ba209e8367f909d7fc1ca6f0f790a6577b",
         "path": ".engine/tools/test_protection_guard.py"
       },
       "status": "active",
@@ -13054,7 +13068,7 @@
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:ece0363596a3b7976900807aeb577b02dbab59a3326264b3e98c97eea710afc0",
+        "fingerprint": "sha256:82e820d9002f60cd57b5da5264e0181a0f6b7820e594ba06d716de769f1ec577",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
@@ -13866,7 +13880,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:bc687846d396cafc2c11f94b9197116a20ed0654726ca42fad7d8cb069bada7e",
+        "fingerprint": "sha256:7fe41ea7f376437b432a482bd87f269b828445a2e222f9ae9a43031e98e36099",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -13910,6 +13924,7 @@
           "tool:attention_rank",
           "tool:boot",
           "tool:operator_overrides",
+          "tool:repo_identity",
           "tool:validate"
         ],
         "provided_by": [
@@ -13918,7 +13933,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:c2c66eb486825a96edca57f07ec82c622f89cf5ed68a646d3e1de255ce70280d",
+        "fingerprint": "sha256:ded4b69aa8d57f2b4a700a01c4ca900f71e87378b9789b0dd01341f9ce2b1f55",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",
@@ -14136,7 +14151,8 @@
       "predicates": {
         "imports": [
           "tool:boot",
-          "tool:moment"
+          "tool:moment",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -14144,7 +14160,7 @@
       },
       "slug": "work_record",
       "source": {
-        "fingerprint": "sha256:469597c245fd1e74b7d3e63216c75929ab3ba1a21b72704fcbd58a52b2ff7f09",
+        "fingerprint": "sha256:e607931e9e94964790c6fea22ae3a188d79800d542f77a506c252d99d530945c",
         "path": ".engine/tools/work_record.py"
       },
       "status": "active",

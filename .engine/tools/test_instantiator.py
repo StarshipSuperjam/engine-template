@@ -364,6 +364,21 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0", default_branch=None)
             self.assertNotIn("default_branch", res["manifest"])
 
+    def test_persists_a_master_default_branch_for_a_brownfield_arrival(self):
+        # #671 regression: a brownfield target whose default branch is `master` must RECORD `master`, so
+        # deployed runtime + workflows key off it — never a hard-coded `main`. Exercises the two-step arrival
+        # path: derive the branch from GitHub's authoritative `default_branch`, then persist it in the manifest.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            branch = inst.derive_default_branch(slug="acme/legacy",
+                                                gh_api=lambda _p: {"default_branch": "master"})
+            self.assertEqual(branch, "master", "the authoritative GitHub default_branch is what arrival records")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0", default_branch=branch)
+            self.assertEqual(res["manifest"]["default_branch"], "master")
+            with open(res["path"], encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["default_branch"], "master")
+
     def test_carries_the_recorded_home_forward_across_setup(self):
         # #367: the update home is seeded as data and carried across first-run setup (like the release),
         # so a generated repo keeps where its engine updates from. Validates against the closed engine schema.

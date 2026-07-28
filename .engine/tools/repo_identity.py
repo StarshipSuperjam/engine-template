@@ -56,8 +56,8 @@ def _run(args: list) -> "str | None":
         out = subprocess.run(args, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
-    if out.returncode != 0:
-        return None
+    if out is None or out.returncode != 0:   # `out is None` only under a mocked subprocess (a test stubbing
+        return None                          # subprocess.run -> None); honor the "never raises" contract there
     return out.stdout.strip() or None
 
 
@@ -104,6 +104,52 @@ def home_repository(root: "str | None" = None) -> "str | None":
     engine = _manifest(root) or {}
     home = engine.get("home_repository")
     return home if isinstance(home, str) and home.strip() else None
+
+
+def default_branch(root: "str | None" = None) -> "str | None":
+    """The repo's default branch NAME recorded in `root`'s manifest (schema: engine.v1.json `default_branch`) —
+    derived from GitHub/git at first-run setup and preserved as operator config. `None` when the manifest is
+    absent, records no/blank default, OR is malformed. UNLIKE `home_repository`, this reader is fail-SOFT on a
+    malformed manifest (returns None, never raises): no default-branch caller needs the loud failure the update
+    path relies on, every caller wants a fallback branch instead, and `boot` reads this at IMPORT time where a
+    raise would crash nearly every tool in the tree. This is the single recorded-value reader —
+    `checkout_health._persisted_default_branch` delegates here."""
+    try:
+        engine = _manifest(root) or {}
+    except Exception:  # noqa: BLE001 — a malformed manifest degrades to "no recorded default", never crashes
+        return None
+    branch = engine.get("default_branch")
+    return branch.strip() if isinstance(branch, str) and branch.strip() else None
+
+
+def _origin_head(root: "str | None" = None) -> "str | None":
+    """The branch `origin/HEAD` points at, read OFFLINE from disk (`git symbolic-ref refs/remotes/origin/HEAD`),
+    stripped of its `origin/` prefix, or None. It follows a repo's live git default (set at clone, updated by
+    `git remote set-head`), so it self-heals a repo whose manifest predates the recorded `default_branch` key."""
+    args = ["git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]
+    if root is not None:
+        args = ["git", "-C", root, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]
+    head = _run(args)
+    if not head:
+        return None
+    return head.split("origin/", 1)[1] if head.startswith("origin/") else head
+
+
+def resolve_default_branch(root: "str | None" = None, *, env_var: str = "PROTECTED_BRANCH") -> str:
+    """The ONE default-branch resolver every Python caller shares, so the safety-gate signal, the CI merge-gate,
+    and the gate's own one-click repair can never key off DIFFERENT branches: `env_var` override -> recorded
+    manifest (`default_branch`) -> git `origin/HEAD` -> `"main"`. ALWAYS returns a non-empty name. Uses the
+    `or` idiom, NEVER `os.environ.get(key, default)`, so a PRESENT-BUT-EMPTY env — a workflow expression that
+    expanded to nothing on a trigger that carries no repository payload — falls through to the next source
+    rather than pinning `""`. OFFLINE: in CI the workflow supplies the authoritative (non-PR-controllable)
+    branch through `env_var`, so a stale or hostile recorded manifest can never override it to a greener
+    answer; the `origin/HEAD` step self-heals a repo deployed BEFORE the recorded key existed. `env_var` is the
+    workflow-set variable the call site reads — `PROTECTED_BRANCH` for the branch-protection paths,
+    `GITHUB_DEFAULT_BRANCH` for the audit/telemetry paths."""
+    env = os.environ.get(env_var)
+    if env and env.strip():
+        return env.strip()
+    return default_branch(root) or _origin_head(root) or "main"
 
 
 def origin_slug(root: "str | None" = None) -> "str | None":

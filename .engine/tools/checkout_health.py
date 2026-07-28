@@ -77,6 +77,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import repo_identity  # noqa: E402  (the single recorded default_branch reader — dependency-light, no cycle)
+
 # The engine files whose absence marks a checkout stranded (the two binary states).
 _ENGINE_FILES = (os.path.join(".claude", "settings.json"), ".engine")
 
@@ -292,14 +295,14 @@ def _is_lossless(main: str) -> tuple[bool, list[str]]:
 
 def _persisted_default_branch(main: str) -> str | None:
     """The default-branch name the instantiator derived at first run and persisted as operator config in the
-    engine manifest (`<main>/.engine/engine.json`, key `default_branch` — #342). Read OFFLINE. None when
-    absent/unreadable/malformed — the construction repo and any pre-persistence checkout have no such key, so
-    the caller falls back to live resolution."""
+    engine manifest (`<main>/.engine/engine.json`, key `default_branch` — #342). Read OFFLINE via the single
+    recorded reader `repo_identity.default_branch`. None when absent/unreadable/malformed — the construction
+    repo and any pre-persistence checkout have no such key, so the caller falls back to live resolution. The
+    try/except keeps this read fail-SOFT (never raises) so the off-main classifier that anchors on it
+    degrades rather than crashes on an unreadable manifest (#567)."""
     try:
-        with open(os.path.join(main, ".engine", "engine.json"), encoding="utf-8") as fh:
-            val = json.load(fh).get("default_branch")
-        return val.strip() if isinstance(val, str) and val.strip() else None
-    except Exception:  # noqa: BLE001 — absent / unreadable / malformed manifest -> no persisted name
+        return repo_identity.default_branch(main)
+    except Exception:  # noqa: BLE001 — preserve the swallow-all contract the off-main classifier relies on
         return None
 
 

@@ -119,6 +119,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # audit_digest reads the prior digests from the default branch; without this it would fall back to
+          # "main" and 404 the history read on a `master` repo, reporting "no prior self-reviews" every cron.
+          GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # Audit-over-audit: the self-review reads its OWN recent committed digests as over-time
@@ -207,6 +210,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # The branch the recency baseline is read from — github.ref_name (the scheduled run's default
+          # branch), NOT github.event.repository.default_branch (empty on schedule). Without it the baseline
+          # read would default to "main" and 404 on a repo whose default is e.g. "master", stale-flagging
+          # every conformance row every cron.
+          GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # The standing product-spec-conformance sweep (#449): when this project has settled a
@@ -281,6 +289,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}  # same authoritative default as the feed step above
         run: |
           set -euo pipefail
           # The standing product-spec-conformance sweep's promote half (#449): parse the persona's
@@ -391,7 +400,7 @@ jobs:
           your settings.
           EOF
           gh pr create \
-            --base main \
+            --base "${{ github.ref_name }}" \
             --head "${branch}" \
             --title "Maintenance: engine self-review digest (${stamp})" \
             --body-file "${RUNNER_TEMP}/pr-body.md"
