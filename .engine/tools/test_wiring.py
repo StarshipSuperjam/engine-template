@@ -17,6 +17,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -747,7 +748,7 @@ class TestFoundationIgnores(_Redirected):
     def _gi(self):
         return wiring.GITIGNORE_PATH
 
-    def test_apply_writes_the_keyed_fence_with_exactly_the_three_lines(self):
+    def test_apply_writes_the_keyed_fence_with_the_foundation_lines(self):
         outcome = wiring.apply_foundation_ignores(self._gi())
         self.assertEqual(outcome["status"], "written")
         text = _read(self._gi())
@@ -830,6 +831,48 @@ class TestCommittedFoundationIgnores(unittest.TestCase):
         body = text.split("\n")[span[0] + 1:span[1]]
         self.assertEqual(body, wiring.FOUNDATION_IGNORE_LINES,
                          "the committed fence body must equal the single-source constant (no drift)")
+
+
+class TestFoundationIgnoresBytecodeInADeployedRepo(unittest.TestCase):
+    """#675 acceptance: the projected foundation fence keeps the engine's OWN Python bytecode out of a
+    deployed repo's `git status`. A dirty `git status --porcelain` after a read-only diagnostics run is the
+    real (and only) symptom — the surface census already excludes `__pycache__` by name via
+    module_coherence.PRUNE_DIRS, so it cannot witness this fix; only git-status cleanliness can. Git-backed (a
+    throwaway repo) so the behaviour is proven end-to-end and offline, and it exercises BOTH cache depths the
+    issue names — the shallow `.engine/tools/` and the deep `.engine/modules/core/migrations/` — so a fence
+    narrowed to one level (`.engine/*/__pycache__/`) would fail it. Fails on today's bytecode-less fence."""
+
+    @staticmethod
+    def _git(root, *a):
+        return subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=False)
+
+    def test_projected_fence_keeps_engine_bytecode_out_of_git_status(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._git(root, "init", "-q")
+            # Project the engine's foundation fence and commit it, exactly as a deployed repo carries it
+            # (first-run places the fence, then it is tracked).
+            gi = os.path.join(root, ".gitignore")
+            self.assertEqual(wiring.apply_foundation_ignores(gi)["status"], "written")
+            self._git(root, "add", "-A")
+            self._git(root, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "seed")
+            # A diagnostics run writes bytecode at BOTH depths the issue names.
+            caches = [
+                os.path.join(root, ".engine", "tools", "__pycache__", "wiring.cpython-312.pyc"),
+                os.path.join(root, ".engine", "modules", "core", "migrations",
+                             "__pycache__", "0001.cpython-312.pyc"),
+            ]
+            for c in caches:
+                os.makedirs(os.path.dirname(c), exist_ok=True)
+                with open(c, "w", encoding="utf-8") as fh:
+                    fh.write("# regenerable bytecode\n")
+            # The criterion the operator sees: a read-only diagnostics pass leaves the tree clean.
+            porcelain = self._git(root, "status", "--porcelain").stdout
+            self.assertEqual(porcelain, "", f"engine bytecode dirtied git status:\n{porcelain}")
+            # And each cache path is ignored specifically by the projected fence — at both depths.
+            for c in caches:
+                rel = os.path.relpath(c, root)
+                self.assertEqual(self._git(root, "check-ignore", rel).returncode, 0,
+                                 f"{rel} is not ignored by the projected fence")
 
 
 # ---- the Codex seams (codex-hook -> .codex/hooks.json; codex-mcp -> .codex/config.toml) -------

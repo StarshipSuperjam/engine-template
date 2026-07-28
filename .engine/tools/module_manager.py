@@ -1257,8 +1257,8 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     fi = (result.get("foundation_ignores") or {}).get("status")
     if fi == "written":
         shared.append("- Updated the engine's ignore list (the marked block in .gitignore that keeps the "
-                      "engine's own tool files and per-session folders out of git) to this version. Any ignore "
-                      "lines you added yourself are untouched.")
+                      "engine's own tool files, per-session folders, and regenerable caches out of git) to this "
+                      "version. Any ignore lines you added yourself are untouched.")
     elif fi == "degraded":
         shared.append("- Could not update the engine's ignore list — the marked block in .gitignore looked "
                       "damaged, so I left the file unchanged. Check the marker lines, then update again.")

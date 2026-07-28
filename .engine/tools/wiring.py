@@ -303,7 +303,14 @@ FOUNDATION_IGNORES_FENCE = "foundation-ignores"
 # in this list would make the first apply rewrite the file. `.engine/.venv/` + `.engine/.uv/` are the uv
 # tool-runtime; `.claude/worktrees/` is the platform's per-session worktree dir (so a sibling session never
 # pollutes the main tree's git status, keeping the operator-checkout-strand pre-check's clean-tree read true).
-FOUNDATION_IGNORE_LINES = [".engine/.venv/", ".engine/.uv/", ".claude/worktrees/"]
+# `.engine/**/__pycache__/` is the engine's own regenerable Python bytecode: running the engine's tools (the
+# status readout, the validator, the self-test discovery run) writes `__pycache__/*.pyc` under `.engine/`, and
+# without this a read-only diagnostics pass dirties a deployed repo's `git status` (#675). Scoped to `.engine/`
+# — never a repo-wide `__pycache__/` — so the fence stays in the engine's corner and never asserts an ignore
+# rule over the operator's product tree, which may not even be Python. Its effect is purely `git status`
+# cleanliness: the surface census / untracked-surface detector already excludes bytecode by name via
+# module_coherence.PRUNE_DIRS, so the two mechanisms are distinct — neither makes the other redundant.
+FOUNDATION_IGNORE_LINES = [".engine/.venv/", ".engine/.uv/", ".claude/worktrees/", ".engine/**/__pycache__/"]
 
 
 def apply_foundation_ignores(path: str) -> dict:
