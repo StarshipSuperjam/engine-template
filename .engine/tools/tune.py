@@ -193,12 +193,13 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     import subprocess
     import urllib.request
     import json as _json
-    import boot  # local: only the real open needs boot's slug/token/base
+    import boot  # local: only the real open needs boot's slug/token
+    import repo_identity  # local: the shared default-branch resolver (dependency-light)
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     if not slug or not tok:
         raise RuntimeError("could not determine the engine repository / credentials to open the pull request.")
-    base = getattr(boot, "PROTECTED_BRANCH", "main")
+    base = repo_identity.resolve_default_branch()
     subprocess.run(["git", "checkout", "-b", branch], cwd=validate.ROOT, check=True, capture_output=True)
     subprocess.run(["git", "add", *paths], cwd=validate.ROOT, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", title], cwd=validate.ROOT, check=True, capture_output=True)

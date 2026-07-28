@@ -1041,5 +1041,35 @@ class TestCodexMcpSeam(_Redirected):
                          ("codex-mcp", "engine-knowledge"))
 
 
+class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
+    """#671: the shipped workflows (foundation infra, overlaid verbatim onto every deployment) must DERIVE the
+    repo's default branch, never freeze a literal `main` — else on a repo whose default is `master` the merge
+    gate checks the wrong branch and the release/audit pull requests target a base that does not exist. Per
+    trigger: engine-ci (pull_request) and release (workflow_dispatch) carry the repository payload, so they
+    read github.event.repository.default_branch; audit-prep (schedule) does NOT, so it reads github.ref_name."""
+
+    def _wf(self, name: str) -> str:
+        with open(os.path.join(validate.ROOT, ".github", "workflows", name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_engine_ci_derives_the_protected_branch(self):
+        wf = self._wf("engine-ci.yml")
+        self.assertIn("PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}", wf)
+        self.assertNotIn("PROTECTED_BRANCH: main", wf)
+
+    def test_release_pr_base_is_derived(self):
+        wf = self._wf("release.yml")
+        self.assertIn('--base "${{ github.event.repository.default_branch }}"', wf)
+        self.assertNotIn("--base main", wf)
+
+    def test_audit_prep_uses_the_schedule_safe_ref_name(self):
+        wf = self._wf("audit-prep.yml")
+        self.assertIn('--base "${{ github.ref_name }}"', wf)
+        self.assertNotIn("--base main", wf)
+        # the conformance-feed step must hand conformance_sweep the same default so its baseline read keys off
+        # the real branch (a literal "main" 404s the baseline on a `master` repo, stale-flagging every row).
+        self.assertIn("GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}", wf)
+
+
 if __name__ == "__main__":
     unittest.main()

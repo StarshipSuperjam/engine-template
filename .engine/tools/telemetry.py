@@ -50,6 +50,7 @@ import issue_author  # noqa: E402  (the shared issue-authoring helper — assemb
 import standing_situation  # noqa: E402  (the read-only "where we are" derive; telemetry refreshes its offline cache on this same GitHub pass — pure leaf, imports nothing back, so no cycle)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build for the issue read/write transport)
 import moment  # noqa: E402  (the time seam — the trailing-Z wire shape; pure stdlib leaf, imports nothing back)
+import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
 
 # ---- constants -------------------------------------------------------------
 
@@ -2019,7 +2020,9 @@ def _run_cli(argv: list) -> int:
         print("usage: telemetry.py run   (needs GITHUB_REPOSITORY and GITHUB_TOKEN in the environment; it "
               "uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
-    branch = os.environ.get("GITHUB_DEFAULT_BRANCH") or "main"
+    # The workflow sets GITHUB_DEFAULT_BRANCH (github.ref_name on the scheduled run); the resolver reads it
+    # first, then the recorded manifest -> origin/HEAD -> "main" for a local/degraded run.
+    branch = repo_identity.resolve_default_branch(env_var="GITHUB_DEFAULT_BRANCH")
     now = moment.utc_now()
     gh = GitHubIssues(repo, token)
     cache = Cache(argv[0]) if argv else Cache()

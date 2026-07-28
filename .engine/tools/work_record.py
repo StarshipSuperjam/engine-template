@@ -42,8 +42,13 @@ in flight (attention records `git` as available, not degraded; boot shows "Nothi
 Run the demo: uv run --directory .engine -- python tools/work_record.py demo
 """
 from __future__ import annotations
+import os
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import repo_identity  # noqa: E402  (default_branch — the recorded fallback for the on-default-branch test)
 
 import moment  # the trailing-Z time seam; a stdlib-only leaf, so importing it keeps this module leaf-and-acyclic
 
@@ -85,9 +90,17 @@ def _z(ts: str | None) -> str | None:
 
 
 def _default_branch(run) -> str:
-    """The repo's default branch short name (from origin/HEAD), falling back to 'main' when it can't be read."""
+    """This checkout's default branch short name for the on-default-branch test: origin/HEAD via the
+    injectable runner (git truth for THIS checkout) first, then the recorded manifest `default_branch`, then
+    'main'. Origin/HEAD is preferred here on purpose — the question is "am I sitting on the default branch?",
+    which the checkout's own git answers best; the shared SAFETY resolver (repo_identity.resolve_default_branch)
+    is recorded-first instead, because a protected-branch decision wants the authoritative recorded/env value.
+    The recorded read is only a fallback for a checkout whose origin/HEAD is unset (so a `master` repo no
+    longer silently reads 'main')."""
     head = run(["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])  # e.g. "refs/remotes/origin/main"
-    return head.rsplit("/", 1)[-1] if head else "main"
+    if head:
+        return head.rsplit("/", 1)[-1]
+    return repo_identity.default_branch() or "main"
 
 
 def _current_branch(run) -> tuple[str, str | None] | None:

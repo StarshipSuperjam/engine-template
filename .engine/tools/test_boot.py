@@ -1480,6 +1480,38 @@ class TestGovernanceAlarms(unittest.TestCase):
         line = [l for l in boot.must_push(_signals(gate="off", reason="x")) if "safety gate" in l.lower()][0]
         self.assertIn("turn my safety gate back on", line.lower())
 
+    def test_protected_branch_signal_probes_the_resolved_branch_url_quoted(self):
+        # The gate probes the branch it is HANDED (the authoritative resolved default, not a hard-coded "main"),
+        # URL-quoted so a name with a slash stays one path segment and a malformed/hostile name can never
+        # redirect this token-bearing request off its /rules/branches/ path.
+        seen = {}
+        with mock.patch.object(boot.protection_guard, "get_json",
+                               side_effect=lambda path, token, **kw: (seen.__setitem__("path", path) or [])), \
+             mock.patch.object(boot.protection_guard, "missing_floor", return_value=[]):
+            boot.protected_branch_signal("o/r", "t", branch="master")
+            self.assertEqual(seen["path"], "/repos/o/r/rules/branches/master")
+            boot.protected_branch_signal("o/r", "t", branch="release/1.0")
+            self.assertEqual(seen["path"], "/repos/o/r/rules/branches/release%2F1.0")
+
+    def test_protected_branch_signal_resolves_the_default_when_branch_omitted(self):
+        # branch=None -> the gate resolves the authoritative default itself (env -> recorded -> origin/HEAD),
+        # so a `master` repo is probed on `master` even when boot's import-time display constant is "main".
+        seen = {}
+        with mock.patch.object(boot.repo_identity, "resolve_default_branch", return_value="master"), \
+             mock.patch.object(boot.protection_guard, "get_json",
+                               side_effect=lambda path, token, **kw: (seen.__setitem__("path", path) or [])), \
+             mock.patch.object(boot.protection_guard, "missing_floor", return_value=[]):
+            boot.protected_branch_signal("o/r", "t")
+            self.assertEqual(seen["path"], "/repos/o/r/rules/branches/master")
+
+    def test_gate_copy_names_the_resolved_protected_branch(self):
+        # The safety-gate copy names the branch the gate actually CHECKED (threaded through as protected_branch),
+        # so on a repo whose default is `master` the operator reads `master`, not the display fallback.
+        dash = boot.render_dashboard(_signals(gate="off", reason="x", protected_branch="master"))
+        self.assertIn("`master`", dash)
+        push = "\n".join(boot.must_push(_signals(gate="off", reason="x", protected_branch="master")))
+        self.assertIn("`master`", push)
+
     def test_protected_branch_signal_three_states(self):
         # no repo/token -> unknown (never a false "on")
         self.assertEqual(boot.protected_branch_signal(None, None), ("unknown", None))

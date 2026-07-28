@@ -216,8 +216,8 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
     hook fired it unasked, and it is gone with it. An operator asking twice is not a race, so what remains is
     the check that matters: a stale branch ref is only replaced after CONFIRMING no open pull request is
     backed by it."""
-    import boot  # noqa: E402 — lazy: only for the protected-branch name
-    base = getattr(boot, "PROTECTED_BRANCH", "main")
+    import repo_identity  # noqa: E402 — lazy: the shared default-branch resolver (dependency-light)
+    base = repo_identity.resolve_default_branch()
     try:
         head = observer._get(gh, f"/repos/{gh.repo}/git/ref/heads/{base}")
         base_sha = (head or {}).get("object", {}).get("sha")

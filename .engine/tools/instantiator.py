@@ -29,6 +29,7 @@ import contextlib
 import json
 import os
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (ROOT/ENGINE_DIR + paths)
@@ -429,7 +430,7 @@ def derive_identity(root: str | None = None) -> dict:
     (The operator handle, used later to render code-ownership, is captured in the apply phase.)"""
     slug = boot.repo_slug()
     owner, name = slug.split("/", 1) if slug and "/" in slug else (None, None)
-    return {"owner": owner, "name": name, "branch": boot.PROTECTED_BRANCH}
+    return {"owner": owner, "name": name, "branch": repo_identity.resolve_default_branch()}
 
 
 def selectable(catalog_entries: list) -> dict:
@@ -775,7 +776,8 @@ def detect_team(*, root: str | None = None, slug: str | None = None, gh_api=None
         repo = gh(f"repos/{slug}")
         if isinstance(repo, dict) and (repo.get("owner") or {}).get("type") == "Organization":
             signals.append("the project belongs to an organization")
-        reviews = gh(f"repos/{slug}/branches/{boot.PROTECTED_BRANCH}/protection/required_pull_request_reviews")
+        _branch = urllib.parse.quote(repo_identity.resolve_default_branch(), safe="")
+        reviews = gh(f"repos/{slug}/branches/{_branch}/protection/required_pull_request_reviews")
         if isinstance(reviews, dict) and (reviews.get("required_approving_review_count") or 0) > 0:
             signals.append("changes here already require a review before merging")
     return {"detected": bool(signals), "reason": signals[0] if signals else None, "signals": signals}
@@ -1458,7 +1460,7 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
         return {"step": "control-plane", "status": "degraded", "detail": "no project/sign-in", "protected": False}
     cp = bootstrap.ControlPlane(repo, token, transport=control_transport, refresh_fn=gh_refresh,
                                 issues=control_issues)
-    result = cp.apply(branch=boot.PROTECTED_BRANCH, announce=say)
+    result = cp.apply(announce=say)  # branch=None -> apply resolves the authoritative default (env->recorded->origin/HEAD)
     say(bootstrap.render(result))
     _persist_control_plane_marker(root, result.marker)
     return {"step": "control-plane", "status": result.status, "mode": result.mode,
