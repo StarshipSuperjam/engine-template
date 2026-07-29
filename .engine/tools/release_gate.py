@@ -62,6 +62,27 @@ _DRIVER_EXPECT_ROOT = "ENGINE_GATE_EXPECT_ROOT"
 _DRIVER_CANDIDATE = "ENGINE_GATE_CANDIDATE"
 
 
+def _nested_env(**extra) -> dict:
+    """The environment for every process this gate spawns INSIDE a projection — the in-projection validator and
+    self-test suite, the module-remove/regen steps, and the upgrade driver. A projection is a synthetic deployed
+    tree with NO real pull request, so each nested run must have the same offline posture as a LOCAL developer
+    run — never carrying this release workflow's GitHub-Actions identity. Leaking the ambient CI/PR env
+    (`GITHUB_EVENT_PATH`, `GITHUB_ACTIONS`, `CI`, `GITHUB_TOKEN`, …) makes the PR-context checks fire against a
+    projection that has no PR: `pr-body-completeness` reads a no-PR event's empty body as "sections missing", and
+    `disposition-issue-resolution` fail-closes on "in CI but no token" — the false reds that blocked the first
+    live cut (#676's first exercise). Strip the Actions/CI harness vars BY PREFIX (so a future GITHUB_*/RUNNER_*
+    -keyed check stays neutralised too) and keep everything else (PATH, HOME, UV_*, locale — none of which the
+    nested `git`/`sys.executable` runs need from Actions). This silences ONLY the no-PR context checks: gating is
+    static suite config and the structural operate/upgrade checks red off the file tree, not the environment, so
+    a genuine deployed-shape failure still blocks the cut. `GITHUB_TOKEN` is among the stripped keys, so the
+    practice-upgrade child is denied the repo token here too — the driver keeps an explicit belt-and-suspenders
+    pop so that property stays legible at its own spawn. EVERY nested spawn must build its env through this
+    helper; a bare `{**os.environ}` at a new spawn would re-open the leak."""
+    keep = {k: v for k, v in os.environ.items()
+            if k != "CI" and not k.startswith(("GITHUB_", "RUNNER_", "ACTIONS_"))}
+    return {**keep, _NESTED_ENV: "1", **extra}
+
+
 class GateError(RuntimeError):
     """A gate step that could not complete — a setup/projection failure, or an unexpected error. It is a
     BLOCK, never a skip: the caller reports the cut as gated. Distinct from an arm finding a real red (also a
@@ -140,7 +161,7 @@ def _decline_optional_modules(tree: str) -> list:
                         "(default-on or optional) module to decline — the #663/#646 shapes would go untested. "
                         "This is likely a module-manifest vocabulary change; the gate must be updated before "
                         "the next cut.")
-    env = {**os.environ, _NESTED_ENV: "1"}
+    env = _nested_env()
     for mid in declinable:
         r = _run([sys.executable, os.path.join("tools", "module_manager.py"), "remove", mid, "--json"],
                  cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
@@ -167,7 +188,7 @@ def _project_to_deployed(dest: str, *, decline_optional: bool = False) -> list:
         elif os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
     declined = _decline_optional_modules(dest) if decline_optional else []
-    env = {**os.environ, _NESTED_ENV: "1"}
+    env = _nested_env()
     for cmd in (["init", "-b", "main"],
                 ["remote", "add", "origin", _DEPLOYED_ORIGIN],
                 ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"],
@@ -212,19 +233,24 @@ def _worktree_digest() -> str:
 
 def _validate_in(tree: str, label: str) -> dict:
     """Run the CI validator suite inside a projected tree. Returns {passed, detail}."""
-    env = {**os.environ, _NESTED_ENV: "1"}
+    env = _nested_env()
     r = _run([sys.executable, os.path.join("tools", "validate.py"), "--suite", "CI"],
              cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
-    # The hard findings print BEFORE the (verbose, disclosed-no-op) notes section — keep that, drop the notes,
-    # so the failure detail carries the actual reason rather than a tail of "not applicable here" disclosures.
-    head = (r.stdout + r.stderr).split("\nnotes (", 1)[0]
+    # report() prints the verbose (disclosed-no-op) "notes (…)" section FIRST, then the "FAIL (…)" hard-finding
+    # section — so keep the FAIL section (the actual reason) and drop the notes preamble that precedes it. A red
+    # WITHOUT that exact section — a CONFIG ERROR (returncode 2), a traceback, or the non-gating advisory render
+    # — has no marker, so fall back to the full tail rather than blanking the reason (the empty-log symptom this
+    # replaces: splitting on "\nnotes (" discarded the whole FAIL section that follows it).
+    combined = r.stdout + r.stderr
+    marker = "\nFAIL ("
+    detail_body = combined[combined.index(marker):] if marker in combined else combined
     return {"passed": r.returncode == 0,
-            "detail": "" if r.returncode == 0 else f"{label}: validator red\n{_tail(head, 3000)}"}
+            "detail": "" if r.returncode == 0 else f"{label}: validator red\n{_tail(detail_body, 3000)}"}
 
 
 def _suite_in(tree: str, label: str) -> dict:
     """Run the whole self-test suite inside a projected tree. Returns {passed, detail}."""
-    env = {**os.environ, _NESTED_ENV: "1"}
+    env = _nested_env()
     r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
              cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
     if r.returncode == 0:
@@ -292,10 +318,11 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
         proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
         _project_to_deployed(proj, decline_optional=False)
         _assert_isolated(proj)
-        env = {**os.environ, _NESTED_ENV: "1",
-               _DRIVER_EXPECT_ROOT: os.path.abspath(proj),
-               _DRIVER_CANDIDATE: os.path.abspath(candidate)}
-        env.pop("GITHUB_TOKEN", None)                    # practice mode opens no PR; deny the token outright
+        env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj),
+                             _DRIVER_CANDIDATE: os.path.abspath(candidate)})
+        env.pop("GITHUB_TOKEN", None)                    # already stripped by _nested_env; kept in place so the
+                                                         # "practice mode opens no PR, deny the token outright"
+                                                         # property stays legible at this sensitive spawn
         run = _run([sys.executable, "-c", _driver_source()],
                    cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
         if run.returncode != 0 or "GATE_RESULT:" not in run.stdout:

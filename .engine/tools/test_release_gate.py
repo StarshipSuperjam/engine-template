@@ -254,5 +254,65 @@ class TestDeclineVocabulary(unittest.TestCase):
                       "covering the add-on-declined shape; update release_gate._decline_optional_modules")
 
 
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestNestedEnvScrub(unittest.TestCase):
+    """Every process the gate spawns inside a projection runs with the release workflow's GitHub-Actions
+    identity stripped. A projection has no real pull request, so leaking the ambient CI/PR env made the
+    PR-context checks (pr-body-completeness, disposition-issue-resolution) misfire and block the first live
+    cut; `_nested_env` restores the offline posture of a local run. `patch.dict` restores os.environ after."""
+
+    _CI_VARS = {"CI": "true", "GITHUB_ACTIONS": "true", "GITHUB_EVENT_PATH": "/x/event.json",
+                "GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "secret", "RUNNER_TEMP": "/t", "ACTIONS_ID": "1"}
+
+    def test_strips_actions_ci_identity_keeps_the_rest(self):
+        with mock.patch.dict(os.environ, {**self._CI_VARS, "PATH": "/usr/bin", "UV_CACHE_DIR": "/c"}, clear=False):
+            env = rg._nested_env()
+        for leaked in self._CI_VARS:
+            self.assertNotIn(leaked, env, f"{leaked} leaked into a projection spawn")   # no PR/CI identity
+        self.assertEqual(env.get(rg._NESTED_ENV), "1")                                  # the re-entry guard is set
+        self.assertEqual(env.get("PATH"), "/usr/bin")                                   # a non-Actions var is kept
+        self.assertEqual(env.get("UV_CACHE_DIR"), "/c")                                 # the tool-runtime var kept
+
+    def test_extra_keys_carry_through_and_token_still_denied(self):
+        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "secret"}, clear=False):
+            env = rg._nested_env(**{rg._DRIVER_CANDIDATE: "/cand"})
+        self.assertEqual(env[rg._DRIVER_CANDIDATE], "/cand")           # the driver's extra reaches the child
+        self.assertNotIn("GITHUB_TOKEN", env)                          # ...and the token is still stripped
+
+
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestOperateArmReporting(unittest.TestCase):
+    """`_validate_in` surfaces the validator's FAIL section as the failure reason. report() prints the verbose
+    "notes (…)" section BEFORE the "FAIL (…)" one, so the reason must be read from the FAIL marker — reading the
+    text before "notes (" yields an empty string, the blank-log bug that hid the first live cut's real red."""
+
+    # a red laid out exactly as validate.report() emits it: the notes section first, then the hard-finding FAIL
+    _RED = ("\nnotes (2):\n  - some disclosed no-op\n  - 1 check(s) not applicable here\n"
+            "\nFAIL (2 hard finding(s)) [suite: CI] — blocks the merge:\n"
+            "  - Required section '## Purpose' is missing from the pull-request body.\n"
+            "  - Couldn't check the follow-up issues cited in this change's Review.\n")
+
+    def test_fail_section_is_surfaced_not_the_empty_preamble(self):
+        with mock.patch.object(rg, "_run", return_value=_proc(1, self._RED, "")):
+            res = rg._validate_in("/tmp/proj", "operate/default")
+        self.assertFalse(res["passed"])
+        self.assertIn("operate/default: validator red", res["detail"])
+        self.assertIn("Required section '## Purpose' is missing", res["detail"])   # the actual reason, not blank
+        self.assertNotIn("some disclosed no-op", res["detail"])                    # the notes preamble is dropped
+
+    def test_reason_without_fail_marker_falls_back_to_full_output(self):
+        # a CONFIG ERROR / crash red carries no "FAIL (" section — the reason must still surface, never blank
+        with mock.patch.object(rg, "_run", return_value=_proc(2, "", "CONFIG ERROR: cannot load the suite")):
+            res = rg._validate_in("/tmp/proj", "operate/default")
+        self.assertFalse(res["passed"])
+        self.assertIn("CONFIG ERROR", res["detail"])
+
+    def test_green_run_has_no_detail(self):
+        with mock.patch.object(rg, "_run", return_value=_proc(0, "\nOK — suite 'CI' passed", "")):
+            res = rg._validate_in("/tmp/proj", "operate/default")
+        self.assertTrue(res["passed"])
+        self.assertEqual(res["detail"], "")
+
+
 if __name__ == "__main__":
     unittest.main()
