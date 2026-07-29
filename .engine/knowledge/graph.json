@@ -9845,7 +9845,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:a37329a0b0c8a2a502322056f1c9866f2b76b66cbdceb73662ca27cc9c12a061",
+        "fingerprint": "sha256:09c49a802cbcc7be72865df95ee09645dcc80bd0d5a48e04d585371d1189f7e8",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -13066,7 +13066,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:44519f7481d71e30c8a4f5a3b53a183d4b01f913b31cf30ba1188633a1775f63",
+        "fingerprint": "sha256:f08c9d879e4fff8d867e80eb22ab4ce916aa4525882ca2e5294d975e8c7e47eb",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
