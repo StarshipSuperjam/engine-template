@@ -279,6 +279,32 @@ class TestNestedEnvScrub(unittest.TestCase):
         self.assertEqual(env[rg._DRIVER_CANDIDATE], "/cand")           # the driver's extra reaches the child
         self.assertNotIn("GITHUB_TOKEN", env)                          # ...and the token is still stripped
 
+    def test_scrub_defeats_the_pr_context_leak_end_to_end(self):
+        # The #676 incident proven through the REAL validate.get_pr_body in a spawned child, not just the
+        # helper in isolation: a workflow_dispatch event (no pull_request) leaked into the gate's parent env
+        # makes get_pr_body read "" — which pr-body-completeness evaluates as "sections missing" — but a child
+        # launched through _nested_env() sees the CI identity stripped, so get_pr_body reads None and the
+        # PR-context checks no-op. Guards the conjunction (leaked env -> wrong verdict; scrub -> fixed) against
+        # a future regression to _nested_env's prefix list OR get_pr_body's None-vs-"" behaviour.
+        tools_dir = os.path.dirname(os.path.abspath(validate.__file__))
+        with tempfile.TemporaryDirectory() as d:
+            event = os.path.join(d, "event.json")
+            with open(event, "w", encoding="utf-8") as fh:
+                json.dump({"action": "workflow_dispatch"}, fh)         # a dispatch event carries no pull_request
+            leak = {"GITHUB_EVENT_PATH": event, "GITHUB_ACTIONS": "true", "CI": "true", "GITHUB_TOKEN": "x"}
+            with mock.patch.dict(os.environ, leak, clear=False):
+                self.assertEqual(validate.get_pr_body(None), "")       # the raw leak WOULD misfire ("" is not None)
+                probe = ("import os, sys; sys.path.insert(0, os.getcwd()); import validate; "
+                         "print(repr(validate.get_pr_body(None))); "
+                         "print(any(k in os.environ for k in "
+                         "('CI', 'GITHUB_ACTIONS', 'GITHUB_EVENT_PATH', 'GITHUB_TOKEN')))")
+                r = subprocess.run([sys.executable, "-c", probe], cwd=tools_dir,
+                                   env=rg._nested_env(), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[0], "None")                             # scrubbed child: get_pr_body -> None (no PR)
+        self.assertEqual(lines[1], "False")                            # no CI identity reached the child
+
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestOperateArmReporting(unittest.TestCase):
