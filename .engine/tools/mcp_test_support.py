@@ -33,6 +33,12 @@ async def call_tool_json(server, name: str, args: dict) -> dict:
         if res.is_error:
             text = res.content[0].text if res.content else "<no content>"
             raise AssertionError(f"tool {name!r} errored: {text}")
+        if not res.content:
+            # A future SDK minor shifting success payloads to structured_content-only would land here as a
+            # diagnosable message, not a bare IndexError — SDK-shape churn is this file's job to contain.
+            raise AssertionError(f"tool {name!r} succeeded but returned no text content "
+                                 f"(structured_content={res.structured_content!r}) — the SDK's result "
+                                 f"shape has changed; update mcp_test_support to match")
         return json.loads(res.content[0].text)
 
 
@@ -69,9 +75,15 @@ async def stdio_health(engine_dir: str, script_rel: str, timeout_s: float = 120.
 
     A failure here re-raises with the command and the likely causes named — a bare TimeoutError or a
     nested ExceptionGroup explains nothing to the person whose server just silently failed to launch.
-    (On success, asyncio may still print benign subprocess-teardown chatter when the suite runs without
-    `-b`; a transport repr beside a green result is noise, not a crash.)"""
+
+    THE ASYNCIO LOGGER IS SILENCED FOR THE CALL'S DURATION, and the reason is an SDK import side effect
+    this file exists to absorb: `MCPServer.__init__` reconfigures the ROOT logger (logging.basicConfig
+    with a real stderr handle) the moment a server module is imported, which binds a handler BEFORE
+    unittest's `-b` buffering takes hold — so asyncio's subprocess-transport chatter (loops run in debug
+    mode under IsolatedAsyncioTestCase) would otherwise print on passing tests even under `-b`, defeating
+    CI's discard-on-success hygiene. Measured, not assumed."""
     import asyncio
+    import logging
 
     from mcp import ClientSession, StdioServerParameters, stdio_client
 
@@ -85,6 +97,9 @@ async def stdio_health(engine_dir: str, script_rel: str, timeout_s: float = 120.
                 res = await session.call_tool("health", {})
                 return json.loads(res.content[0].text)
 
+    asyncio_log = logging.getLogger("asyncio")
+    prev_level = asyncio_log.level
+    asyncio_log.setLevel(logging.WARNING)
     try:
         return await asyncio.wait_for(_go(), timeout=timeout_s)
     except TimeoutError as e:
@@ -94,10 +109,12 @@ async def stdio_health(engine_dir: str, script_rel: str, timeout_s: float = 120.
             f"  Likely causes: a first launch fetching packages without a network connection, or the "
             f"server crashing before the handshake. Run the launch command by hand to see its stderr."
         ) from e
-    except BaseException as e:  # noqa: BLE001 — a nested ExceptionGroup here explains nothing on its own
+    except Exception as e:  # cancellation and interrupts pass through untouched — they are not launch failures
         raise AssertionError(
             f"the MCP server failed to launch or complete the stdio handshake.\n"
             f"  launch: {' '.join(argv)}\n"
             f"  Underlying error: {type(e).__name__}: {e}\n"
             f"  Run the launch command by hand to see the server's own stderr."
         ) from e
+    finally:
+        asyncio_log.setLevel(prev_level)

@@ -9073,7 +9073,7 @@
       },
       "slug": "mcp_test_support",
       "source": {
-        "fingerprint": "sha256:ef2d93b495c9281d735c143818032cc4afb45c0548ace0c1ef7affc71e0881fa",
+        "fingerprint": "sha256:3cc3d23636cf1ec7be32e7e561ff0825881b6705c9f5ba2f67455c9019b40e22",
         "path": ".engine/tools/mcp_test_support.py"
       },
       "status": "active",
@@ -12083,7 +12083,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:adb875449002a730c1bd6791738fe67e4fa516f7f1ed72e0ab6eedf15b6ec420",
+        "fingerprint": "sha256:7c433667c8e97bc35ea9c9352cf73e665c9f6b3622524320d01759c48882ea3b",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -12329,7 +12329,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:bf02a9642866e04f45cb4874e8ca5c8825acb1e48a4e7cd1b8ce0b209763a475",
+        "fingerprint": "sha256:dbe0e0b9f8210640fc4f8e3cf9b6012d60247396a7a139246dbc7ef470b18d25",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
