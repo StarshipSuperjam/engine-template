@@ -348,6 +348,8 @@ class StdioLaunchTest(unittest.IsolatedAsyncioTestCase):
         # deployment (it just never appears in the model's tool list). The in-memory tests above never run
         # `server.run()`, never resolve the frozen environment, and never complete a handshake; this one
         # runs the documented argv as a real subprocess and asserts the handshake and the health answer.
+        # HEALTH-ONLY: the stdio child gets an allowlisted env, so the ENGINE_MEMORY_DIR test override
+        # cannot reach it — a richer call here would hit the operator's REAL store (see stdio_health).
         engine_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         data = await mts.stdio_health(engine_dir, "tools/memory/mcp_server.py")
         self.assertEqual(data, {"status": "ok", "server": "engine-memory"})

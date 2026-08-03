@@ -351,6 +351,12 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
     real protocol path a caller sees, no Claude Desktop, no subprocess. The server's tools delegate to the
     op-set over the LIVE committed graph."""
 
+    async def _call(self, name, args):
+        """Same convenience the memory suite's base class carries — kept in lockstep so a reader moving
+        between the two sibling suites can pattern-match either way without an AttributeError."""
+        import knowledge_mcp_server as srv
+        return await mts.call_tool_json(srv.server, name, args)
+
     async def test_tools_list_is_exactly_the_op_set(self):
         import knowledge_mcp_server as srv
         tools = await mts.list_tool_objects(srv.server)
@@ -361,20 +367,16 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((t.description or "").strip(), f"tool {t.name!r} lost its description")
 
     async def test_health_is_content_free_and_fixed_identity(self):
-        import knowledge_mcp_server as srv
         with mock.patch.object(kq, "with_degrade", side_effect=AssertionError("health read graph")):
-            data = await mts.call_tool_json(srv.server, "health", {})
+            data = await self._call("health", {})
         self.assertEqual(data, {"status": "ok", "server": "engine-knowledge-graph"})
 
     async def test_call_tool_get_entity_delegates(self):
-        import knowledge_mcp_server as srv
-        data = await mts.call_tool_json(srv.server, "get-entity", {"id": "module:core"})
+        data = await self._call("get-entity", {"id": "module:core"})
         self.assertEqual(data["entity"]["id"], "module:core")
 
     async def test_call_tool_neighbors_matches_the_library(self):
-        import knowledge_mcp_server as srv
-        data = await mts.call_tool_json(
-            srv.server, "neighbors", {"id": "schema:check.v1", "direction": "in"})
+        data = await self._call("neighbors", {"id": "schema:check.v1", "direction": "in"})
         expected = kq.neighbors("schema:check.v1", direction="in")
         self.assertEqual({n["id"] for n in data["neighbors"]}, {n["id"] for n in expected})
         self.assertTrue(len(data["neighbors"]) >= 1)
@@ -389,14 +391,13 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             result, _ = real(fn, **kw)
             return result, "KNOWLEDGE DEGRADED: test note"
         with mock.patch.object(kq, "with_degrade", fake):
-            data = await mts.call_tool_json(srv.server, "get-entity", {"id": "module:core"})
+            data = await self._call("get-entity", {"id": "module:core"})
         self.assertEqual(data["entity"]["id"], "module:core")
         self.assertEqual(data["degraded"], "KNOWLEDGE DEGRADED: test note")
 
     async def test_tool_has_no_degraded_key_on_a_fresh_committed_read(self):
         # The real committed graph is present in this checkout, so a normal read carries no degrade note.
-        import knowledge_mcp_server as srv
-        data = await mts.call_tool_json(srv.server, "get-entity", {"id": "module:core"})
+        data = await self._call("get-entity", {"id": "module:core"})
         self.assertNotIn("degraded", data)
 
     async def test_server_launches_over_stdio_and_answers_health(self):

@@ -61,15 +61,22 @@ async def stdio_health(engine_dir: str, script_rel: str, timeout_s: float = 120.
     This is the launch-seam smoke test the in-memory client cannot provide: it is the only coverage of
     `server.run()`, the frozen-environment resolution, and the stdio handshake — the seam where a dead
     server fails SILENTLY in a deployment (it simply never appears in the model's tool list). The timeout
-    bounds the first-launch case where uv must still materialize the environment."""
+    bounds the first-launch case where uv must still materialize the environment.
+
+    HEALTH-ONLY BY DESIGN. The stdio client hands the child an allowlisted environment (HOME/PATH/…), so
+    a test override like ENGINE_MEMORY_DIR CANNOT reach it — a richer call here would hit the operator's
+    REAL store, not a test cabinet. `health` is content-free, which is what makes this safe; keep it so.
+
+    A failure here re-raises with the command and the likely causes named — a bare TimeoutError or a
+    nested ExceptionGroup explains nothing to the person whose server just silently failed to launch.
+    (On success, asyncio may still print benign subprocess-teardown chatter when the suite runs without
+    `-b`; a transport repr beside a green result is noise, not a crash.)"""
     import asyncio
 
     from mcp import ClientSession, StdioServerParameters, stdio_client
 
-    params = StdioServerParameters(
-        command="uv",
-        args=["run", "--directory", engine_dir, "--frozen", "--", "python", script_rel],
-    )
+    argv = ["uv", "run", "--directory", engine_dir, "--frozen", "--", "python", script_rel]
+    params = StdioServerParameters(command=argv[0], args=argv[1:])
 
     async def _go() -> dict:
         async with stdio_client(params) as (read, write):
@@ -78,4 +85,19 @@ async def stdio_health(engine_dir: str, script_rel: str, timeout_s: float = 120.
                 res = await session.call_tool("health", {})
                 return json.loads(res.content[0].text)
 
-    return await asyncio.wait_for(_go(), timeout=timeout_s)
+    try:
+        return await asyncio.wait_for(_go(), timeout=timeout_s)
+    except TimeoutError as e:
+        raise AssertionError(
+            f"the MCP server did not answer `health` within {timeout_s:.0f}s.\n"
+            f"  launch: {' '.join(argv)}\n"
+            f"  Likely causes: a first launch fetching packages without a network connection, or the "
+            f"server crashing before the handshake. Run the launch command by hand to see its stderr."
+        ) from e
+    except BaseException as e:  # noqa: BLE001 — a nested ExceptionGroup here explains nothing on its own
+        raise AssertionError(
+            f"the MCP server failed to launch or complete the stdio handshake.\n"
+            f"  launch: {' '.join(argv)}\n"
+            f"  Underlying error: {type(e).__name__}: {e}\n"
+            f"  Run the launch command by hand to see the server's own stderr."
+        ) from e
