@@ -1191,6 +1191,9 @@
   ".engine/tools/local_references.py": [
    "core"
   ],
+  ".engine/tools/mcp_test_support.py": [
+   "core"
+  ],
   ".engine/tools/mechanic_build.py": [
    "core"
   ],
