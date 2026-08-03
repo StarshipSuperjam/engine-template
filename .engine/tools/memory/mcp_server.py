@@ -42,6 +42,10 @@ from __future__ import annotations
 import os
 import sys
 
+# Third-party import first: it needs nothing from the path bootstrap below, and importing it above the
+# sys.path mutation closes the shadowing hazard (a same-named module in tools/ could otherwise win).
+from mcp.server import MCPServer
+
 # Make the package parent (.engine/tools) importable so `from memory import …` resolves both when launched as a
 # script via .mcp.json (`python tools/memory/mcp_server.py`) and when imported as `memory.mcp_server` in a test.
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,11 +54,9 @@ if _PARENT not in sys.path:
 
 from memory import forget, index, ledger, recall, records  # noqa: E402
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
-
 SERVER_NAME = "engine-memory"
 
-server = FastMCP(SERVER_NAME)
+server = MCPServer(SERVER_NAME)
 
 
 @server.tool(
