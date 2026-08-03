@@ -8767,7 +8767,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:ff6fe96809dfa94d0ec9d25b8853ec35386c4426198def0f826f6d91d46a4105",
+        "fingerprint": "sha256:503563a6f3e051acf5178513dda5f5590ec94df74ad40d0a22f2417bf7782bc4",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "status": "active",
@@ -9053,11 +9053,31 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:046714166f9dde07e3dbd6d3342587c83fa7fa3ee314d23f4344c740e5898ed0",
+        "fingerprint": "sha256:3062a9e863b51685730cc521a4679c12868f512a15a2fa3a23fdb63675c2051d",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
       "summary": "The engine-memory MCP server: the conforming fallback for memory recall (search.json).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:mcp_test_support",
+      "name": ".engine/tools/mcp_test_support.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "mcp_test_support",
+      "source": {
+        "fingerprint": "sha256:ef2d93b495c9281d735c143818032cc4afb45c0548ace0c1ef7affc71e0881fa",
+        "path": ".engine/tools/mcp_test_support.py"
+      },
+      "status": "active",
+      "summary": "mcp_test_support.py — the ONE place tests talk MCP to an engine server.",
       "type": "tool"
     },
     {
@@ -12057,12 +12077,13 @@
           "tool:knowledge_gen",
           "tool:knowledge_index",
           "tool:knowledge_mcp_server",
-          "tool:knowledge_query"
+          "tool:knowledge_query",
+          "tool:mcp_test_support"
         ]
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:a6fe3747097312a58322cf0100bf22ce3715cdb8673171952cb57eb6dbf6107e",
+        "fingerprint": "sha256:adb875449002a730c1bd6791738fe67e4fa516f7f1ed72e0ab6eedf15b6ec420",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -12301,13 +12322,14 @@
           "tool:index",
           "tool:ledger",
           "tool:mcp_server",
+          "tool:mcp_test_support",
           "tool:records",
           "tool:validate"
         ]
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:5bbbb63258226bbe376fc94038a49531305ca155c3f941a793ac86c1cba1a6cc",
+        "fingerprint": "sha256:bf02a9642866e04f45cb4874e8ca5c8825acb1e48a4e7cd1b8ce0b209763a475",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
