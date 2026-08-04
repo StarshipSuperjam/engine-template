@@ -4439,7 +4439,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:77114ad81750dca6bed6f432ac442761128b5a6b865cd9247267b9272d13ba43",
+        "fingerprint": "sha256:383c0c980ffe50e03cf2b124c990dd31de00e44ac0a6e2986bae09deaae621d5",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10302,7 +10302,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:0ee742c6d90eaf405edfce55a6b86d6170c68122ec9500db0bc45ee847cb9572",
+        "fingerprint": "sha256:1811b818851e10a9c90bcb848a6e5f42938940fb91349dad51d0c585a08454f7",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -13708,7 +13708,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:b8334a9f7b79972d09d0ca55a95bec760a0ad72cd264f1fa2c3de9ed07cf59df",
+        "fingerprint": "sha256:297221c9c47977a77e06a012158ac715da96018314761ccdbb8087f12a6bcafd",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",

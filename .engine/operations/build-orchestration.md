@@ -90,7 +90,9 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    … -b` run CI uses (`.github/workflows/engine-ci.yml`) and makes one run enough to read: it buffers each
    test's stdout so demo walkthroughs never bury the `Ran N … OK` summary, forces the child's stdin to
    end-of-input so no demo blocks under an attached terminal, prints a heartbeat so a live run is never
-   mistaken for a hang, and writes the full output to a log whose path it prints — so **read that log, never
+   mistaken for a hang, and writes the full output to a log whose path it prints — the log is kept whether
+   the run passes or fails (a later run sweeps any older than a day), so its announced path always points at
+   a readable file and a missing log is never a failure signal. So **read that log, never
    pipe the run through `tail`/`grep`**, which truncates the tracebacks and forces a re-run. **The suite
    runs about 4 minutes (4,000+ tests, varying with machine and cache)** — run it with a generous timeout
    or in the background: a tool whose command timeout defaults to ~2 minutes cuts it off mid-run, which
