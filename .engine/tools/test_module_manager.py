@@ -158,6 +158,79 @@ class TestUvGroupDerivation(unittest.TestCase):
                 '[tool.uv]\ndefault-groups = [\n  "base",\n]\n', ["base"])
 
 
+class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
+    """#757 — an engine update reconciles its OWN tool-runtime dependency-group selection so the update's pull
+    request is born green, and the structural gate now carries `uv-group-drift` so a fail-open reconcile refuses
+    cleanly instead of opening a self-red pull request. The end-to-end tail + gate behaviour is the shipped
+    falsification demo; these pin the pieces it rests on."""
+
+    def test_the_reconcile_gate_carries_uv_group_drift(self):
+        # The gate membership is the safety net's whole hinge — a typo would fail open silently (the rule_filter
+        # would simply never collect the check), so pin the EXACT registered id.
+        self.assertIn("engine/check/uv-group-drift", module_manager._STRUCTURAL_GATE_CHECK_IDS)
+
+    def test_reconcile_removes_a_group_the_deployment_declined(self):
+        # The field case of #757: committed default-groups lists a group whose module the deployment does not
+        # have, so the re-derive drops it and the rewrite lands the smaller selection.
+        with tempfile.TemporaryDirectory() as d:
+            py = os.path.join(d, "pyproject.toml")
+            with open(py, "w") as fh:
+                fh.write('[dependency-groups]\nbase = ["p"]\noptx = ["q"]\n'
+                         '[tool.uv]\ndefault-groups = ["base", "optx"]\n')
+            derived = module_manager.derive_uv_groups(manifests=[_m("base")], pyproject_path=py)
+            self.assertEqual(derived, ["base"])                       # optx declined -> dropped
+            self.assertTrue(module_manager._maybe_rewrite_default_groups(derived, pyproject_path=py))
+            self.assertEqual(module_manager.committed_default_groups(pyproject_path=py), ["base"])
+
+    def test_reconcile_adds_a_group_the_deployment_has(self):
+        # The mirror the demo drives end-to-end: committed UNDER-lists what the present set derives, so the
+        # rewrite adds the missing group back.
+        with tempfile.TemporaryDirectory() as d:
+            py = os.path.join(d, "pyproject.toml")
+            with open(py, "w") as fh:
+                fh.write('[dependency-groups]\nbase = ["p"]\noptx = ["q"]\n'
+                         '[tool.uv]\ndefault-groups = ["base"]\n')
+            derived = module_manager.derive_uv_groups(manifests=[_m("base"), _m("optx")], pyproject_path=py)
+            self.assertEqual(derived, ["base", "optx"])
+            self.assertTrue(module_manager._maybe_rewrite_default_groups(derived, pyproject_path=py))
+            self.assertEqual(module_manager.committed_default_groups(pyproject_path=py), ["base", "optx"])
+
+    def test_refuse_reason_names_the_group_cause_for_a_drift_finding(self):
+        # When the blocking gate finding IS the group-drift check, the refusal names the dependency-group cause
+        # and points at undo + report — never the generic dead-end "retry", which cannot help the only way this
+        # drift survives the wholesale pyproject overlay (a malformed release array).
+        drift = [{"severity": "hard", "source_rule": "engine/check/uv-group-drift", "message": "..."}]
+        reason = module_manager._reconcile_refuse_reason(drift)
+        self.assertIn("dependency groups", reason)
+        self.assertIn("update home", reason)
+        self.assertNotIn("Run the update again to retry", reason)
+        # any OTHER structural finding keeps the generic retry/undo recourse
+        other = [{"severity": "hard", "source_rule": "engine/check/self-map-drift", "message": "..."}]
+        self.assertIn("Run the update again to retry", module_manager._reconcile_refuse_reason(other))
+
+    def test_pr_body_discloses_the_group_delta_and_the_changed_file(self):
+        result = {"groups_reconciled": True, "groups_before": ["core"],
+                  "groups_after": ["core", "memory-semantic-recall"]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("tool-runtime dependency groups", body)          # the Scope disclosure
+        self.assertIn("now installed: memory-semantic-recall", body)   # the delta, not just the new list
+        self.assertIn(".engine/pyproject.toml", body)                  # Files of interest names the changed file
+
+    def test_pr_body_omits_the_group_lines_when_not_reconciled(self):
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"},
+                                                     {"groups_reconciled": False})
+        self.assertNotIn("tool-runtime dependency groups", body)
+        self.assertNotIn(".engine/pyproject.toml", body)
+
+    def test_the_757_falsification_demo_passes(self):
+        # The shipped end-to-end falsification (real upgrade tail + real structural gate). Running it here is
+        # what makes it travel under `unittest discover` and guard #757 in every generated repo — demo_599's
+        # permanent-regression pattern.
+        import demo_757_upgrade_reconciles_default_groups as demo
+        import quiet_call
+        self.assertEqual(quiet_call.run(demo.main), 0)
+
+
 class TestRemoveEndToEnd(unittest.TestCase):
     """The live `remove` mutation glue — reversal, deletion, engine.json update, group re-derivation,
     idempotence, and post-removal coherence — exercised by the shipped fail-then-pass demo against a

@@ -7089,6 +7089,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_757_upgrade_reconciles_default_groups",
+      "name": ".engine/tools/demo_757_upgrade_reconciles_default_groups.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:engine_fixture",
+          "tool:module_manager",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_757_upgrade_reconciles_default_groups",
+      "source": {
+        "fingerprint": "sha256:f51152dd30f2cae24242dd11bed470991bcd924d612a63ab7bf9416c3ccb081f",
+        "path": ".engine/tools/demo_757_upgrade_reconciles_default_groups.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for issue #757 — an engine update RECONCILES its own tool-runtime dependency-group",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_760_add_release_tag",
       "name": ".engine/tools/demo_760_add_release_tag.py",
       "owner": "core",
@@ -9377,7 +9402,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:acdea982e7932c3055d85e8537c1e7318442a0286c12a42472a556658407fa52",
+        "fingerprint": "sha256:a312d12e44d9f6b19a88557c30e39d1599bb41d7735dbf15bafdb8eb434c9456",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12593,6 +12618,7 @@
           "tool:demo_594_rollback_discard",
           "tool:demo_594_upgrade_tail_reexec",
           "tool:demo_599_upgrade_reconcile",
+          "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_760_add_release_tag",
           "tool:ledger",
           "tool:memory.__init__",
@@ -12608,7 +12634,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:a84da64e84ab2a6f51653c6839ca16f28df275b711ea668f4bbdab10159857ac",
+        "fingerprint": "sha256:4702da6aa9f684016b69e2653ee37158905a6515fc998abdd95fc81776b81d61",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
