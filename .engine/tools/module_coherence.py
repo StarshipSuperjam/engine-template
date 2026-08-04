@@ -153,6 +153,22 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
                    ".engine/provisioning/readme-seed.md"}
 
+# PRESERVE_DATA — committed per-deployment DATA files that ARE declared in a module's `provides` (so they are
+# engine-OWNED surface) yet hold a value the deployment BINDS that a release must NOT overwrite. This is the
+# OPPOSITE carve-out to OPERATOR_CONFIG above: OPERATOR_CONFIG is preserved *by being outside `provides`*;
+# these stay fully inside `provides` and stay OWNED. So they must NOT be added to any ownership / CODEOWNERS /
+# orphan carve-out (doing so would wrongly read them as product-mergeable and un-own them). The preservation
+# is ONLY on the update overlay's copy leg, which skips them CREATE-IF-ABSENT: a fresh arrival still receives
+# the release placeholder; an upgrade over an already-bound value leaves it untouched (module_manager threads
+# this through every `_overlay_copy_map` consumer, so the merge-time overwrite disclosure stays in lockstep).
+# EXACT repo-relative paths, never a bare name — `.engine/memory-backup/pointer.json` holds the deployment's
+# minted backup namespace (#814's confirmed silent-loss case: the overlay's raw `shutil.copyfile` bypasses the
+# `skip-worktree` mitigation), and its fixture twin `.engine/_fixtures/memory-pointer-public-safety/pointer.json`
+# shares the basename and must NOT be swept in by a loose match. Derived artifacts that merely diverge per
+# deployment (`.engine/knowledge/graph.json`, `.engine/product-spec-matrix.json`) are NOT here — they are
+# REGENERATED post-overlay from the deployment's own tree instead (module_manager.REGENERATED_DERIVED).
+PRESERVE_DATA = {".engine/memory-backup/pointer.json"}
+
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
 # (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index).
@@ -339,6 +355,42 @@ def is_deployment_private(path: str) -> bool:
     These sit OUTSIDE `engine_owned_paths` (they are ownership carve-outs), so the leak check unions them in
     explicitly, closing the gap where a deployment's private content could ride upstream unflagged."""
     return path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS))
+
+
+# The .engine/ subdirectory holding the engine's own accreted per-instance state — written fresh at first-run
+# setup, never carried in a release seed (see is_engine_generated_unshipped).
+_ENGINE_STATE_DIR = ".engine/state"
+
+
+def is_engine_generated_unshipped(path: str) -> bool:
+    """True iff `path` is one of the engine's OWN apply-generated .engine/ files that a freshly cut release does
+    NOT ship — so it falls outside both the release file set and the release-globbed `engine_owned_paths`, and a
+    resumed brownfield arrival would otherwise read the engine's own output back as a project collision (#695).
+    Two families, each engine-owned by declaration yet unshipped: the engine manifest (ENGINE_MANIFEST_REL — a
+    FOUNDATION_INFRA member, but _FOUNDATION_KEYED-excluded from the overlay and version-bumped in place, so
+    never copied from a release), and the per-instance state store (.engine/state/*.json — core's `provides.state`,
+    written by the first-run state seed, not in the release seed).
+
+    Recognition is EXACT for the manifest and SINGLE-SEGMENT for state (a direct .json child of .engine/state/,
+    never a nested path), and CASE-SENSITIVE throughout — deliberately NOT fnmatch, whose `*` crosses `/` and
+    whose match case-folds on a case-insensitive filesystem, either of which would fold an operator file onto an
+    engine one (the case-fold trap the resume recognizer already guards against). It defers to the
+    operator/deployment-private carve-out FIRST, so an operator file that happens to sit under one of these
+    namespaces still surfaces. Scoped this narrowly — to these two engine-generated families, NOT to every
+    `provides` glob — precisely because operators DO author committed files under .engine/ (OPERATOR_CONFIG,
+    DEPLOYMENT_CONTRACTS): a broad provides-pattern match would silently drop them, whereas these two families
+    never hold operator content."""
+    if is_deployment_private(path):
+        return False
+    if path == ENGINE_MANIFEST_REL:
+        return True
+    # .engine/state/*.json — a flat .json child of the state store. This mirrors core's manifest `provides.state`
+    # glob; the shape is re-declared here (not derived from the manifest) so recognition stays independent of the
+    # target tree, whose manifests are absent/partial when this runs on a brownfield arrival. A drift guard
+    # (test_state_recognition_matches_core_provides) couples this shape to provides.state, so a manifest change
+    # can't silently leave the recognizer out of step — the detector/writer-drift class this change fixed for AGENTS.md.
+    parent, _, name = path.rpartition("/")
+    return parent == _ENGINE_STATE_DIR and name.endswith(".json")
 
 
 def _walk_engine_files() -> list:
