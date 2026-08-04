@@ -33,6 +33,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import engine_fixture           # noqa: E402  (the shared tracked-only fixture clone)
 import validate                 # noqa: E402
 import module_manager as mm     # noqa: E402  (its _redirect_root points the generators at the fixture tree)
 import knowledge_gen            # noqa: E402  (the real graph generator under test)
@@ -40,26 +41,6 @@ import knowledge_gen            # noqa: E402  (the real graph generator under te
 # The optional module a deployment can decline — its subtree and its manifest, both removed to model opt-out.
 _SEMANTIC_SUBTREE_REL = os.path.join(".engine", "tools", "memory", "semantic")
 _SEMANTIC_MANIFEST_REL = os.path.join(".engine", "modules", "memory-semantic-recall", "manifest.json")
-
-_COPY_IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "worktrees", "node_modules", "*.pyc", ".git")
-_COPY_DIRS = (".engine", ".claude", ".codex", ".agents", ".github")
-_COPY_FILES = (".mcp.json", ".gitignore", "CLAUDE.md", "AGENTS.md")
-
-
-def _clone_engine(real_root: str, dest: str) -> str:
-    """Copy this repo's real engine surface into `dest` — a genuine engine whose graph generates cleanly, so
-    the falsification isolates the optional-subtree behaviour, not a broken fixture."""
-    os.makedirs(dest, exist_ok=True)
-    for rel in _COPY_DIRS:
-        src = os.path.join(real_root, rel)
-        if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(dest, rel), ignore=_COPY_IGNORE, symlinks=True)
-    for rel in _COPY_FILES:
-        src = os.path.join(real_root, rel)
-        if os.path.isfile(src):
-            shutil.copy2(src, os.path.join(dest, rel))
-    return dest
-
 
 def _decline_optional_module(tree: str) -> None:
     """Remove the optional meaning-based-recall module from the clone — its tool subtree AND its manifest — so
@@ -92,7 +73,7 @@ def main() -> int:
 
     # ---- POSITIVE: the carve-out drops the absent-subtree imports; the graph regenerates cleanly ----
     with tempfile.TemporaryDirectory() as d:
-        tree = _clone_engine(real_root, os.path.join(d, "declined"))
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "declined"))
         _decline_optional_module(tree)
         graph_path = os.path.join(tree, ".engine", "knowledge", "graph.json")
         raised = None
@@ -113,7 +94,7 @@ def main() -> int:
 
     # ---- NEGATIVE CONTROL: disable the carve-out — the resolver raises exactly as #663 did ----
     with tempfile.TemporaryDirectory() as d:
-        tree = _clone_engine(real_root, os.path.join(d, "declined"))
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "declined"))
         _decline_optional_module(tree)
         graph_path = os.path.join(tree, ".engine", "knowledge", "graph.json")
         original = knowledge_gen._OPTIONAL_MODULE_SUBTREES

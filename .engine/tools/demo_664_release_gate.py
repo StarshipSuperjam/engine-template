@@ -24,37 +24,17 @@ directly: `uv run --directory .engine -- python tools/demo_664_release_gate.py`.
 """
 from __future__ import annotations
 import os
-import shutil
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import engine_fixture           # noqa: E402  (the shared tracked-only fixture clone)
 import validate                 # noqa: E402
 import release_gate as rg       # noqa: E402  (the shipped gate helpers under test)
 
 _KNOWLEDGE_GEN_REL = os.path.join(".engine", "tools", "knowledge_gen.py")
 _CARVE_OUT_LINE = '_OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})'
 _CARVE_OUT_DISABLED = "_OPTIONAL_MODULE_SUBTREES = frozenset()"
-
-_COPY_IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "worktrees", "node_modules", "*.pyc", ".git")
-_COPY_DIRS = (".engine", ".claude", ".codex", ".agents", ".github")
-_COPY_FILES = (".mcp.json", ".gitignore", "CLAUDE.md", "AGENTS.md")
-
-
-def _clone_engine(real_root: str, dest: str) -> str:
-    """Copy this repo's real engine surface into `dest` — a genuine engine whose projection is clean, so the
-    falsification isolates the gate's behaviour, not a broken fixture."""
-    os.makedirs(dest, exist_ok=True)
-    for rel in _COPY_DIRS:
-        src = os.path.join(real_root, rel)
-        if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(dest, rel), ignore=_COPY_IGNORE, symlinks=True)
-    for rel in _COPY_FILES:
-        src = os.path.join(real_root, rel)
-        if os.path.isfile(src):
-            shutil.copy2(src, os.path.join(dest, rel))
-    return dest
-
 
 def _seed_rename_residue(tree: str) -> bool:
     """Introduce a genuine rename-residue import into the always-present memory substrate — a
@@ -97,7 +77,7 @@ def main() -> int:
 
     # ---- POSITIVE: a healthy candidate operates on the module-declined deployed shape ----
     with tempfile.TemporaryDirectory() as d:
-        tree = _clone_engine(real_root, os.path.join(d, "healthy"))
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "healthy"))
         blocked, detail = None, ""
         try:
             declined = rg._project_to_deployed(tree, decline_optional=True)   # real remove + map regen
@@ -114,7 +94,7 @@ def main() -> int:
 
     # ---- NEGATIVE CONTROL: a candidate that regressed the #663 carve-out is BLOCKED ----
     with tempfile.TemporaryDirectory() as d:
-        tree = _clone_engine(real_root, os.path.join(d, "regressed"))
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "regressed"))
         if not _disable_carve_out(tree):
             failures.append("NEGATIVE: could not seed the regression (carve-out line not found)")
         else:
@@ -131,7 +111,7 @@ def main() -> int:
 
     # ---- NEGATIVE CONTROL (upgrade arm): a candidate that cannot regenerate its wiring map is BLOCKED ----
     with tempfile.TemporaryDirectory() as d:
-        tree = _clone_engine(real_root, os.path.join(d, "residue"))
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "residue"))
         if not _seed_rename_residue(tree):
             failures.append("NEGATIVE(upgrade): could not seed the rename residue (mcp_server.py not found)")
         else:

@@ -6944,6 +6944,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_fixture",
           "tool:module_manager",
           "tool:validate"
         ],
@@ -6953,7 +6954,7 @@
       },
       "slug": "demo_594_upgrade_tail_reexec",
       "source": {
-        "fingerprint": "sha256:f156ea2ddc3b473328c4c76f917969e30eb8c0fb576fead6c9d62196b0ba83d9",
+        "fingerprint": "sha256:ebaf989d4b8745bee41ca479d7267b0bd1a38c9817d7d7e6ed933f7300259f44",
         "path": ".engine/tools/demo_594_upgrade_tail_reexec.py"
       },
       "status": "active",
@@ -6968,6 +6969,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_fixture",
           "tool:module_manager",
           "tool:provider_parity_check",
           "tool:validate"
@@ -6978,7 +6980,7 @@
       },
       "slug": "demo_599_upgrade_reconcile",
       "source": {
-        "fingerprint": "sha256:6305cadc03801200f2dfb703bf476d6a2307b92986f6af14410c97755ab83eb2",
+        "fingerprint": "sha256:427e88084e5877eeba55496c92240a4a93ff5b3c68e92e182c3ec8106c51f92c",
         "path": ".engine/tools/demo_599_upgrade_reconcile.py"
       },
       "status": "active",
@@ -7040,6 +7042,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_fixture",
           "tool:knowledge_gen",
           "tool:module_manager",
           "tool:validate"
@@ -7050,7 +7053,7 @@
       },
       "slug": "demo_663_optional_module_upgrade",
       "source": {
-        "fingerprint": "sha256:0299505201acc4d2b533d13c2713d77fa7e16c5fba1d45f5fe4edec6c779fe9c",
+        "fingerprint": "sha256:08e11e6fa58fb35ceb5b050ecbcf1dba9e7533e561538a56f2332142a74966e8",
         "path": ".engine/tools/demo_663_optional_module_upgrade.py"
       },
       "status": "active",
@@ -7065,6 +7068,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_fixture",
           "tool:release_gate",
           "tool:validate"
         ],
@@ -7074,7 +7078,7 @@
       },
       "slug": "demo_664_release_gate",
       "source": {
-        "fingerprint": "sha256:2773ea570a412c826b8af1493f126b5b1f71f947d006716f3fbfc2c1fb86607e",
+        "fingerprint": "sha256:1d5b78a5359303c0601b305449ab4a8764e80f1aa1d8cd997b29e505df48eec6",
         "path": ".engine/tools/demo_664_release_gate.py"
       },
       "status": "active",
@@ -8117,6 +8121,26 @@
       },
       "status": "active",
       "summary": "embed.py — turns text into a vector using the vendored word table.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:engine_fixture",
+      "name": ".engine/tools/engine_fixture.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_fixture",
+      "source": {
+        "fingerprint": "sha256:ff44da05589f98f5c3c9780471b6222b67e879a721e3326ffc53e57262e4c0ad",
+        "path": ".engine/tools/engine_fixture.py"
+      },
+      "status": "active",
+      "summary": "Shared fixture builder for the upgrade / reconcile / release-gate falsification demos.",
       "type": "tool"
     },
     {
@@ -11416,6 +11440,29 @@
       },
       "status": "active",
       "summary": "Self-tests for the doc surface: the doc.v1 operator-doc-frontmatter grammar, the committed doc",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_engine_fixture",
+      "name": ".engine/tools/test_engine_fixture.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:engine_fixture"
+        ]
+      },
+      "slug": "test_engine_fixture",
+      "source": {
+        "fingerprint": "sha256:d30bd18d6c3ae4157a4d199d058cb9ce1cbd45209d0ae31860276a6e9806d8a4",
+        "path": ".engine/tools/test_engine_fixture.py"
+      },
+      "status": "active",
+      "summary": "Regression tests for `engine_fixture.clone_engine` — the tracked-only demo fixture clone (#850).",
       "type": "tool"
     },
     {

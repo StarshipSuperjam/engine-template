@@ -1089,6 +1089,9 @@
   ".engine/tools/disposition_issue_resolution_check.py": [
    "core"
   ],
+  ".engine/tools/engine_fixture.py": [
+   "core"
+  ],
   ".engine/tools/engine_help.py": [
    "core"
   ],
@@ -1603,6 +1606,9 @@
    "core"
   ],
   ".engine/tools/test_doc.py": [
+   "core"
+  ],
+  ".engine/tools/test_engine_fixture.py": [
    "core"
   ],
   ".engine/tools/test_engine_help.py": [
