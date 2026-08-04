@@ -3269,7 +3269,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:91b39348b7b3f24b465623b4e5a7a7e573ae2b5441ea42256265495649bd6036",
+        "fingerprint": "sha256:8626d4077c02136c6942508a63b4b51d8f98ec9786febe26c80346264e305aee",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -4799,7 +4799,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:90333bb4f1ca601fc8cac7c4d784763699e97018beb579b7fe8ee21d2d5c55e2",
+        "fingerprint": "sha256:1aec26ab7e180027f27a411fe869b546bbcdfbbcb0e8fac51fc8002398522be4",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -9101,7 +9101,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:3062a9e863b51685730cc521a4679c12868f512a15a2fa3a23fdb63675c2051d",
+        "fingerprint": "sha256:87467df2b39547cbbdba2d25076861bb1d63e9141b997bb15d64fb8efe1061f8",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -9263,7 +9263,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:b2b89a93bd3a5081e3e66f04e792c9b8dbe5341cbcc74728ccab95384d67fec5",
+        "fingerprint": "sha256:bd5dbb88c6b9fce3e34d33fed66f8aa10b9f0232895111f5518462a935bc3688",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -9572,7 +9572,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:f5c25bd3b9bc62b8063962d8c73b76572fd3923784595d39fba563281444abc9",
+        "fingerprint": "sha256:b5a6237abaa659a3c880fdda90f15d8d692f5fc12f981d7cf02e722b07fe8a1b",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -12523,7 +12523,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:b80e8d07e025782fb48aeecd6246239d316947dbac38be17a887908e3c6b4ae4",
+        "fingerprint": "sha256:45ef7358b470a0b5555f447e7056471f2978bf8448927dd0f7fd2218c22f2529",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
