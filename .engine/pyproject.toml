@@ -21,9 +21,10 @@
 # downstream — a ceiling would trade that discovery signal for silence, with the
 # operator learning of the next major only by chance. What fixes the bytes that run is
 # the committed uv.lock plus the `--frozen` flag on CI, the hooks, and the MCP server
-# launches — NOT this specifier. Two engine paths (module add, first-run provisioning)
-# currently run a plain `uv sync` that can re-resolve past the lock; issue #853 tracks
-# closing that door.
+# launches — NOT this specifier. The two engine paths that once ran a plain `uv sync`
+# able to re-resolve past the lock — module add / update / rollback re-sync and first-run
+# provisioning — now pass `--frozen` too (issue #853), so no engine path re-resolves past
+# the committed lock.
 # `default-groups` lists it so
 # every `uv sync`/`uv run` (CI and local) resolves it with no per-command flag.
 # A future dep-carrying module declares its own group under [dependency-groups]; the

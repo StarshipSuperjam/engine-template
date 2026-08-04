@@ -368,13 +368,19 @@ def _archive_tree(ref: str, dest_dir: str) -> str:
 
 
 def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | None = None) -> str:
-    """Resolve a target release ref to a CONCRETE tag. A pinned tag/sha passes through unchanged; None or
-    "latest" is resolved to the repository's latest published release tag via the GitHub releases API — so
-    the engine never fetches, runs, or RECORDS a moving ref (the tag-pin is the supply-chain control). THE NETWORK BOUNDARY for ref resolution — only the real
-    upgrade path reaches it (the injected release_tree path passes a concrete ref), so it is part of the
-    same named inductive gap as the release fetch (never run in the construction repo)."""
+    """Resolve a target release ref to a CONCRETE, fetchable tag. A pinned tag/sha passes through unchanged;
+    None or "latest" is resolved to the repository's latest published release tag via the GitHub releases
+    API; a BARE version (`0.4.1` — the shape the manifest records, since `_bump_engine_manifest` strips the
+    leading `v`) is resolved to the home's real published tag (`v0.4.1` or `0.4.1`), so a home that tags
+    releases `vX.Y.Z` is fetched correctly instead of 404ing on the bare version (issue #760). The engine
+    never fetches, runs, or RECORDS a moving ref (the tag-pin is the supply-chain control). THE NETWORK
+    BOUNDARY for ref resolution — only the real add/upgrade path reaches it (the injected release_tree path
+    passes a concrete ref), so it is part of the same named inductive gap as the release fetch (never run in
+    the construction repo)."""
     if ref and ref != "latest":
-        return ref
+        if not _is_bare_version(ref):
+            return ref                                                  # a real tag / sha — pinned, untouched
+        return _resolve_bare_version_tag(ref, repo=repo, token=token)   # bare X.Y.Z -> the home's real tag
     import urllib.request, json as _json, boot   # local: only the real resolve needs these
     slug = repo or boot.repo_slug()
     if not slug:
@@ -390,6 +396,66 @@ def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | 
     if not tag:
         raise _NoPublishedRelease("the engine repository has no published release to update to.")
     return tag
+
+
+# ---- bare-version -> published-tag resolution (issue #760) ------------------------------------------
+# `_bump_engine_manifest` records the engine release BARE (it strips a leading `v`), so the manifest holds a
+# VERSION (`0.4.1`), not a fetchable TAG. A home tags its releases either `vX.Y.Z` (the common convention) or
+# bare `X.Y.Z`; `add`/`upgrade` must resolve the bare version to whichever tag the home actually published,
+# rather than fetching the bare version verbatim (which 404s on a `v`-tagging home — the #760 bug). Resolution
+# is a DIRECT `releases/tags/{tag}` lookup per candidate, never a paginated releases LIST (a list drops an
+# older pinned version off page 1, and admits drafts/pre-releases) — authoritative and O(1) per candidate.
+
+_BARE_VERSION = re.compile(r"\d+\.\d+\.\d+")
+
+
+def _is_bare_version(ref: str | None) -> bool:
+    """True iff `ref` is a bare semantic version like `0.4.1` — a VERSION, not a fetchable tag. A real tag
+    (`v0.4.1`), a sha, a branch, or `latest`/None is not bare and the resolver leaves it untouched."""
+    return bool(ref) and _BARE_VERSION.fullmatch(ref) is not None
+
+
+def _release_ref_candidates(version: str) -> list[str]:
+    """The tags a bare `version` could have been published under, in probe order. `v`-first matches the
+    dominant convention (and the `v` that `_bump_engine_manifest` strips on the way in), so the usual home
+    resolves in a single probe; the bare candidate covers a home that tags without the prefix."""
+    return [f"v{version}", version]
+
+
+def _release_tag_published(tag: str, repo: str | None = None, token: str | None = None) -> bool:
+    """Does the home publish a RELEASE at this exact `tag`? A direct `releases/tags/{tag}` lookup: 200 -> True;
+    404 -> False (try the next candidate); any other failure propagates so the caller degrades on a transport
+    fault, never silently. THE NETWORK BOUNDARY for tag resolution — joins `_resolve_release_ref` /
+    `_fetch_release_tree` as a named inductive gap (never run in the construction repo; tests inject it)."""
+    import urllib.request, urllib.error, boot   # local: only the real probe needs these
+    slug = repo or boot.repo_slug()
+    if not slug:
+        raise RuntimeError("could not determine the engine repository to resolve the release tag.")
+    tok = token if token is not None else boot.gh_token()
+    url = f"https://api.github.com/repos/{slug}/releases/tags/{tag}"
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "engine-module-manager"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
+            resp.read()
+        return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
+
+
+def _resolve_bare_version_tag(version: str, repo: str | None = None, token: str | None = None) -> str:
+    """Resolve a bare recorded `version` (`0.4.1`) to the home's real published tag, probing the candidates in
+    order. Raises `_NoPublishedRelease` (classified MISSING by `_release_is_missing`, so the caller refuses
+    LOUDLY and names the home) when no candidate is a published release — never a silent wrong or moving ref.
+    A transport fault on a probe propagates (the caller degrades to the current version)."""
+    for cand in _release_ref_candidates(version):
+        if _release_tag_published(cand, repo=repo, token=token):
+            return cand
+    raise _NoPublishedRelease(f"the engine's update home publishes no release for version {version}.")
 
 
 def _home_repository() -> str | None:
@@ -500,6 +566,9 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
                                   f"record it, then you can add the module again. Nothing was changed."}
             tmp = tempfile.mkdtemp(prefix="engine-add-")
             try:
+                # `engine_release` is recorded BARE (0.4.1); resolve it to the home's real published tag
+                # (v0.4.1 or 0.4.1) before fetching, so a `v`-tagging home isn't fetched as a 404 (#760).
+                target_ref = _resolve_release_ref(target_ref, repo=home)
                 release_tree = _fetch_release_tree(target_ref, tmp, repo=home)
             except Exception as exc:
                 if _release_is_missing(exc):   # recorded home, but no such release/repo -> refuse, NAME it
@@ -1250,13 +1319,15 @@ def _bump_engine_manifest(target_versions: dict, engine_release: str) -> dict:
 
 
 def _resync_tool_runtime() -> bool:
-    """Group-scoped `uv sync` rebuilds the tool-runtime from the overlaid lockfile BEFORE migrations run
-    in it (provisioning step 3) — shelled via subprocess (the bootstrap.py pattern). It materializes the
+    """Group-scoped `uv sync --frozen` rebuilds the tool-runtime from the overlaid lockfile BEFORE migrations
+    run in it (provisioning step 3) — shelled via subprocess (the bootstrap.py pattern). `--frozen` installs
+    exactly the overlaid/restored lock and never re-resolves past it, so a module add or an engine
+    update/rollback can't silently pull a newer version than the lock pins (issue #853). It materializes the
     runtime only and never mutates a gitignored data store. Returns True on success. NEVER runs in tests /
     the demo (the injected-release path skips it) — one of the four named inductive gaps."""
     import subprocess   # local: only the real re-sync needs it
     try:
-        subprocess.run(["uv", "sync"], cwd=os.path.join(validate.ROOT, ".engine"),
+        subprocess.run(["uv", "sync", "--frozen"], cwd=os.path.join(validate.ROOT, ".engine"),
                        check=True, capture_output=True, timeout=300)
         return True
     except Exception:   # noqa: BLE001 — degrade: the caller surfaces a re-sync failure, never crashes
