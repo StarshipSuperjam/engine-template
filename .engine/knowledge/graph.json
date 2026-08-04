@@ -8630,7 +8630,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:daba944172d5be70942a2fd2ee0f56fd6e0bb072bb3ebd75ed64b74ae3aa5de2",
+        "fingerprint": "sha256:72bc9d2342279b5a40c362490f650a5ee824e10a9c229cd4291c136df3a9488b",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9290,7 +9290,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:c9d409cfea13cb37b34fcaf35e21659f43d9fef06591ce9ee6cfc8ac15936e8a",
+        "fingerprint": "sha256:596337bcda20a915d1bede621afc3f903aeea590419998ea0bff59f28421d3bc",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -11952,7 +11952,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:4034523a36ba132785f624a424c751568c03156fca553bd914ecb612612214b8",
+        "fingerprint": "sha256:98f097695c6dfaef83c0bf6a6ea89c41e1e0a3d4da7c9f8dac8c7693187d2c0a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
