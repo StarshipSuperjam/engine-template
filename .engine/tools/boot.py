@@ -87,6 +87,7 @@ import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
+import hooks_path_health  # noqa: E402  (#707/#708: the broken-core.hooksPath detector + repair; boot relays its detection)
 import first_run_health  # noqa: E402  (#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
 import greenfield_intake  # noqa: E402  (the first-engagement "no description yet" detector; boot relays + offers)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
@@ -1348,6 +1349,15 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         absent_home = None
     try:
+        # The broken-core.hooksPath signal (#707/#708; part of #690), RELAYED from hooks_path_health's OFFLINE,
+        # READ-ONLY detection (boot computes no new state): git's `core.hooksPath` is SET to a directory that no
+        # longer exists, so a git hook the operator relies on is silently disabled. Fires on the current worktree,
+        # so a new worktree self-heals on its own first boot; degrades QUIETLY to None otherwise. boot OFFERS a
+        # consented repair (or, for a shared-relative / global value it won't auto-touch, operator-guided help).
+        hooks_path = hooks_path_health.detect_broken_hooks_path()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        hooks_path = None
+    try:
         # The PRODUCT signal, RELAYED from checkout_health's OFFLINE manifest read (boot reads no manifest
         # itself — its relay-only discipline). The recorded product repo is present ONLY when this engine
         # builds a repo DIFFERENT from the one it is deployed into (eADR-0026); absent for the common
@@ -1584,6 +1594,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         "off_main": off_main,
         # the absent-update-home signal (#367): the engine's manifest records no home to fetch updates from, or None
         "absent_home": absent_home,
+        # the broken-core.hooksPath signal (#707/#708): git's core.hooksPath is set to a directory that no longer
+        # exists (a git hook silently disabled), or None (unset / resolves / unresolvable). Rendered at the top of
+        # the offer tier below the governance alarms; collapse decided hook-side, never retire-eligible.
+        "hooks_path": hooks_path,
         # the PRODUCT signal (eADR-0026): the repo this engine builds when it differs from the deployed-into
         # repo, or None for the common self-building case (the dashboard then shows no product line)
         "product_repository": product_repository,
@@ -1906,6 +1920,39 @@ def render_dashboard(s: dict) -> str:
             "record it, then updates will work. (Recording where the engine updates from is a newer part of the "
             "engine, so you may "
             "be seeing this for a long-standing setup for the first time, not something that just broke.)")
+
+    # The broken-core.hooksPath OFFER (#707/#708; part of #690), surfaced read-only at the TOP of the offer tier
+    # (above the tidy-ups — a silently disabled safety hook outranks a leftover license), but still BELOW the
+    # governance alarms: a stale hooksPath cannot let anything reach protected `main` (git just runs no hook), so
+    # it is NOT a governance alarm (eADR-0033: a new operator alarm arrives ranked behind the governance-critical
+    # ones). The line is CONTENT-FREE — it never echoes the raw config value or path (an externally-writable
+    # value must not reach the operator surface in the engine's voice), and keeps git verbs off the surface (the
+    # leaf law). "fixable" OFFERS the consented auto-repair; "manual" (a shared-relative / global value the
+    # removal-only repair won't touch) gives a SAFE operator-guided path, never a dead-end handle. boot OFFERS
+    # only; the assistant runs hooks_path_health.repair(apply=True) on consent (the strand model). The
+    # retire/collapse decision is HOOK-SIDE (_relay_lines): the pure status-verb path (no ledger) renders FULL.
+    hp = s.get("hooks_path")
+    if hp:
+        if hp.get("plan_kind") == "manual":
+            pinned.append(
+                "🪝 **A safety hook on your project is switched off** — git's hook-folder setting points at a "
+                "folder that no longer exists, so a check meant to run before your work is pushed isn't running. "
+                "**Nothing is wrong with your project and nothing is at risk.** I'm not clearing this one on my "
+                "own because the setting is shared in a way that could still be in use by another copy of your "
+                "project — say **look at my hook path** and I'll check it with you and set it right safely.")
+        elif hp.get("collapsed"):
+            pinned.append(
+                "🪝 A safety hook on your project is still switched off (unchanged since last session) — git's "
+                "hook-folder setting points at a folder that no longer exists, so a pre-push check isn't running; "
+                "the fix still stands: say **fix my hook path** and I'll clear the stale setting for you.")
+        else:
+            pinned.append(
+                "🪝 **A safety hook on your project is switched off** — git's hook-folder setting points at a "
+                "folder that no longer exists (often left behind after a project folder is moved or renamed), so a "
+                "check meant to run before your work is pushed isn't running. **Nothing is wrong with your project "
+                "and nothing is at risk** — the setting just needs clearing. It's a setting on your computer, not a "
+                "change to your project's files, so say **fix my hook path** and I'll clear it (it goes back to "
+                "git's normal default).")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
@@ -2342,6 +2389,13 @@ def present_marker_line(s: dict) -> str:
     if behind and behind.get("state") == "unavailable":
         return (f"▸ {PRESENT_MARKER}: I couldn't check whether your project folder has the newest shared work — "
                 "I changed nothing")
+    hp = s.get("hooks_path")   # a silently disabled git hook (safety); ranked below the governance/checkout alarms
+    if hp:
+        if hp.get("plan_kind") == "manual":
+            return (f"⚠ {PRESENT_MARKER}: a safety hook on your project is switched off — say 'look at my hook "
+                    "path' and I'll check it with you and set it right safely")
+        return (f"⚠ {PRESENT_MARKER}: a safety hook on your project is switched off — say 'fix my hook path' and "
+                "I'll clear the stale setting")
     if s.get("staged_update"):   # a recovery OFFER (not a ⚠ alarm): an update was started but not finished
         return (f"▸ {PRESENT_MARKER}: an engine update looks half-finished — type /engine-upgrade and I'll help "
                 "you finish it or undo it")
@@ -2584,6 +2638,15 @@ def _relay_lines(s: dict) -> list:
             s["greenfield_intake"] = {**gf, "retired": True}
         else:
             eligible.append({"key": "greenfield_intake", "value": gf_fp})
+    # The broken-hooksPath offer rides this SAME single decide() call (#707/#708), like off_main/foreign_license —
+    # it is NOT a pushed governance alarm (it renders only in the dashboard, at the top of the offer tier). It is
+    # deliberately NOT retire-eligible (a silently disabled safety hook must never be silenceable), so there is NO
+    # retire honor here — it always joins the ledger pass and, when unchanged, collapses to a terse reminder that
+    # still names the consequence and the fix (anti-habituation on a potentially long-lived alarm).
+    hp = s.get("hooks_path")
+    hp_fp = hp.get("fingerprint") if hp else None
+    if hp_fp is not None:
+        eligible.append({"key": "hooks_path", "value": hp_fp})
     # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
     # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
     decision = boot_alarm_ledger.decide(eligible)
@@ -2628,6 +2691,11 @@ def _relay_lines(s: dict) -> list:
     if gf_fp is not None and not s.get("greenfield_intake", {}).get("retired"):
         r = results.get("greenfield_intake", {"outcome": "full", "prior": None})
         s["greenfield_intake"] = {**s["greenfield_intake"], "collapsed": r.get("outcome") == "collapse"}
+    # Stamp the hooksPath collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY, so the
+    # status verb (no ledger) leaves it absent and renders the offer FULL (fail-toward-showing).
+    if hp_fp is not None:
+        r = results.get("hooks_path", {"outcome": "full", "prior": None})
+        s["hooks_path"] = {**s["hooks_path"], "collapsed": r.get("outcome") == "collapse"}
     lines: list = []
     for a in alarms:
         if not a["collapsible"]:

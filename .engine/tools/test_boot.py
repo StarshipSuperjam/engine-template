@@ -121,7 +121,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
             "fast_search_unavailable": False,
-            "set_aside": None, "foreign_license": None, "first_run": None, "greenfield_intake": None,
+            "set_aside": None, "foreign_license": None, "hooks_path": None,
+            "first_run": None, "greenfield_intake": None,
             "operator_backlog_count": None, "operator_backlog_register": None,
             "operator_backlog_degraded": False}
 
@@ -148,6 +149,48 @@ def _blocking(n):
     """n blocking-finding rows ({number, title}) — what needs_attention surfaces for the never-shed relay and
     its collapse fingerprint. Numbers 1..n, so the derived fingerprint is a stable identity set."""
     return [{"number": str(i), "title": f"broken thing {i}"} for i in range(1, n + 1)]
+
+
+class TestHooksPathOffer(unittest.TestCase):
+    """#707/#708: a set-and-missing core.hooksPath surfaces a content-free offer at the TOP of the offer tier
+    (above the license tidy-up, below the governance alarms). A fixable value offers the consented auto-repair;
+    a shared-relative/global value gives a safe operator-guided path, never a dead-end; an unchanged alarm
+    collapses to a terse reminder that still carries the fix; and the present-marker flags the disabled hook."""
+
+    def test_none_renders_nothing(self):
+        self.assertNotIn("hook-folder setting", boot.render_dashboard(_signals(hooks_path=None)))
+
+    def test_fixable_renders_offer_with_handle(self):
+        dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False}))
+        self.assertIn("hook-folder setting", dash)
+        self.assertIn("fix my hook path", dash)
+
+    def test_collapsed_is_terse_but_keeps_the_handle(self):
+        dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": True}))
+        self.assertIn("unchanged since last session", dash)
+        self.assertIn("fix my hook path", dash)  # the terse reminder still carries the fix offer
+
+    def test_manual_gives_a_guided_path_not_the_autofix_handle(self):
+        dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "manual", "collapsed": False}))
+        self.assertIn("look at my hook path", dash)
+        self.assertNotIn("say **fix my hook path**", dash)  # no dead-end auto-fix handle for needs-manual
+
+    def test_offer_pins_above_the_license_tidy_up(self):
+        fl = {"present": True, "main": "/proj", "fingerprint": "seed-x", "pr_open": False}
+        dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False},
+                                              foreign_license=fl))
+        self.assertLess(dash.index("hook-folder setting"), dash.index("license file"))
+
+    def test_present_marker_flags_the_disabled_hook(self):
+        marker = boot.present_marker_line(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False}))
+        self.assertIn("safety hook", marker)
+        self.assertTrue(marker.startswith("⚠"))
+
+    def test_present_marker_ranks_below_governance(self):
+        # a governance-critical alarm (gate off) still wins the one-line marker over the hook offer.
+        marker = boot.present_marker_line(_signals(gate="off", reason="branch protection not found",
+                                                   hooks_path={"plan_kind": "fixable", "collapsed": False}))
+        self.assertIn("safety gate is off", marker)
 
 
 class TestRepoSlug(unittest.TestCase):
