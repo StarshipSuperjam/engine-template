@@ -3177,7 +3177,7 @@ class TestUpgradeReconcileDrop(unittest.TestCase):
             eng["removed_capabilities"] = {"extra": {"description": TestUpgradeReconcileDrop._DESC}}
         module_manager._write_json(os.path.join(release, ".engine", "engine.json"), eng)
 
-    def _run(self, record=True, with_data=False, untracked_data=False):
+    def _run(self, record=True, with_data=False, untracked_data=False, untracked_in_dir=False):
         opened = []
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
@@ -3194,11 +3194,17 @@ class TestUpgradeReconcileDrop(unittest.TestCase):
                 _git(live, "commit", "-qm", "seed")
                 if untracked_data:   # a file extra owns, added AFTER the commit -> untracked -> not deletable
                     self._write_file(live, ".engine/extra/data.json", "operator data\n")
+                if untracked_in_dir:   # an untracked stray INSIDE the module's own manifest folder
+                    self._write_file(live, ".engine/modules/extra/scratch.txt", "operator scratch\n")
                 res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
                                              opener=lambda **k: opened.append(k) or {"number": 7},
                                              backup=lambda *a, **k: {"ok": 1})
                 snap = {
                     "extra_dir": os.path.isdir(os.path.join(live, ".engine", "modules", "extra")),
+                    "extra_manifest": os.path.exists(
+                        os.path.join(live, ".engine", "modules", "extra", "manifest.json")),
+                    "extra_scratch": os.path.exists(
+                        os.path.join(live, ".engine", "modules", "extra", "scratch.txt")),
                     "extra_tool": os.path.exists(os.path.join(live, ".engine", "tools", "extra_tool.py")),
                     "extra_data": os.path.exists(os.path.join(live, ".engine", "extra", "data.json")),
                     "packages": validate.load_json(os.path.join(live, ".engine", "engine.json")).get("packages"),
@@ -3244,6 +3250,16 @@ class TestUpgradeReconcileDrop(unittest.TestCase):
         self.assertTrue(snap["extra_data"], "an untracked file a dropped module owns must NOT be deleted")
         self.assertTrue(any(".engine/extra/data.json" in x for x in res["orphans_removed"]["left_in_place"]))
 
+    def test_an_untracked_file_inside_the_manifest_folder_is_left_in_place(self):
+        # a whole-`rmtree` of .engine/modules/extra/ would silently take an untracked co-located file the undo
+        # can't restore — the manifest-folder retire must leave it, like the file leg does, while still
+        # de-registering the module (its tracked manifest.json IS removed).
+        res, snap, _body, _opened = self._run(record=True, untracked_in_dir=True)
+        self.assertTrue(res.get("applied"), f"the drop-upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(snap["extra_scratch"], "an untracked file inside the manifest folder must NOT be deleted")
+        self.assertFalse(snap["extra_manifest"], "the tracked manifest must be removed (the module de-registers)")
+        self.assertTrue(any("scratch.txt" in x for x in res["orphans_removed"]["left_in_place"]))
+
     def test_the_preview_discloses_the_drop_without_applying(self):
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
@@ -3258,6 +3274,72 @@ class TestUpgradeReconcileDrop(unittest.TestCase):
         self.assertFalse(out.get("refused"), f"preview refused a recorded drop: {out.get('reason')}")
         self.assertTrue(any(r["module_id"] == "extra" for r in out["removed_capabilities"]))
         self.assertTrue(still_there, "the preview must not delete anything")
+
+    def test_the_preview_refuses_an_unrecorded_drop(self):
+        # the preview must refuse an UNRECORDED drop exactly as the apply does (a broken/incomplete release) —
+        # the third refusal site the design requires (upgrade, overlay, AND preview).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            self._release_drops_extra(release, record=False)   # drops extra WITHOUT a removal record
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live)
+                out = module_manager.plan_upgrade(release_tree=release, target_ref="v0.2.0")
+        self.assertTrue(out.get("refused"), "the preview must refuse an unrecorded drop")
+        self.assertEqual(out.get("status"), "missing-module")
+        self.assertIn("does not contain the installed module 'extra'", out.get("reason", ""))
+
+    def test_two_dropped_modules_are_both_reconciled_and_announced(self):
+        # the accumulated 'lagging upgrader' case: a release drops TWO whole modules at once — both must
+        # reconcile and both must be announced (the loops are keyed off the multi-id dropped set).
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            # release engine.json: survivors = base only; drops extra AND extra2, each with its own notice
+            module_manager._write_json(
+                os.path.join(release, ".engine", "engine.json"),
+                {"engine_release": "0.2.0", "packages": {"base": "0.2.0"}, "identity": "solo",
+                 "home_repository": "acme/engine-home",
+                 "removed_capabilities": {"extra": {"description": self._DESC},
+                                          "extra2": {"description": "The second helper is gone; use base."}}})
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live)
+                # a second dropped module
+                eng = os.path.join(live, ".engine")
+                os.makedirs(os.path.join(eng, "modules", "extra2"))
+                module_manager._write_json(
+                    os.path.join(eng, "modules", "extra2", "manifest.json"),
+                    {"id": "extra2", "version": "0.0.0", "status": "optional",
+                     "provides": {"tool": [".engine/tools/extra2_tool.py"]}, "depends": {}, "migrations": {},
+                     "wires": []})
+                with open(os.path.join(eng, "tools", "extra2_tool.py"), "w", encoding="utf-8") as fh:
+                    fh.write("# extra2 v0\n")
+                ep = os.path.join(eng, "engine.json")
+                e = validate.load_json(ep)
+                e["packages"]["extra2"] = "0.0.0"
+                module_manager._write_json(ep, e)
+                _git(live, "init", "-q")
+                _git(live, "config", "user.email", "t@t")
+                _git(live, "config", "user.name", "t")
+                _git(live, "add", "-A")
+                _git(live, "commit", "-qm", "seed")
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: opened.append(k) or {"number": 7},
+                                             backup=lambda *a, **k: {"ok": 1})
+                dirs_gone = (not os.path.isdir(os.path.join(eng, "modules", "extra"))
+                             and not os.path.isdir(os.path.join(eng, "modules", "extra2")))
+                pkgs = validate.load_json(ep).get("packages")
+        self.assertTrue(res.get("applied"), f"the two-drop upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(dirs_gone, "both dropped modules' folders must be removed")
+        self.assertNotIn("extra", pkgs)
+        self.assertNotIn("extra2", pkgs)
+        announced = {r["module_id"] for r in res["removed_capabilities"]}
+        self.assertEqual(announced, {"extra", "extra2"}, "both removals must be announced")
 
 
 class TestRemoveRemovalNotice(unittest.TestCase):

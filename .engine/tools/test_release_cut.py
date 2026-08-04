@@ -447,9 +447,12 @@ class RemovedCapabilityAccumulation(unittest.TestCase):
             self.assertEqual(t.engine()["removed_capabilities"]["legacy"]["description"], "gone")
 
     def test_apply_does_not_overwrite_a_prior_removed_in(self):
+        # 'old' is ALREADY stamped AND named in removed_modules, so the stamping loop DOES iterate it — the
+        # not-already-stamped guard is what keeps its prior removed_in (0.1.0). Drop that guard and this becomes
+        # 0.2.0 and the test fails, so it is not vacuous.
         with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0",
                    removed_capabilities={"old": {"description": "d", "removed_in": "0.1.0"}}) as t:
-            proposal = {"engine_floor_version": None, "package_floor": {}, "removed_modules": []}
+            proposal = {"engine_floor_version": None, "package_floor": {}, "removed_modules": ["old"]}
             r = rc.apply("0.2.0", None, {}, proposal, dry_run=False)
             self.assertTrue(r["applied"])
             self.assertEqual(t.engine()["removed_capabilities"]["old"]["removed_in"], "0.1.0")

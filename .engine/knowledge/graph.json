@@ -4642,7 +4642,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:23e4053a3374856e84a03a746586011d3288420c63c3346740dbcee905520154",
+        "fingerprint": "sha256:bf80ffb9898a6bbe3d7a33a6160fcb359e4c0556ce18008678860d196f8cf8cf",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -4782,7 +4782,7 @@
       },
       "slug": "module-remove",
       "source": {
-        "fingerprint": "sha256:38f7160e1891f4b9d5a6466b40d6196900fbda45a0817bc3410164213da8c7f1",
+        "fingerprint": "sha256:831b7116b45661dc6644d009c87c61247dd77c85846236f7c85e8bab32428505",
         "path": ".engine/operations/module-remove.md"
       },
       "status": "active",
@@ -7004,7 +7004,7 @@
       },
       "slug": "demo_599_upgrade_reconcile",
       "source": {
-        "fingerprint": "sha256:c524cbe8facae19731700dae6473b78bde034fc4f312959b78620479b39b9748",
+        "fingerprint": "sha256:328a5e98e536f1934520eb60af0f4de151befdcdd4bd01add227e9fa06e1dd91",
         "path": ".engine/tools/demo_599_upgrade_reconcile.py"
       },
       "status": "active",
@@ -9400,7 +9400,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:4630934afcb1d00daf7ebb2696e8e85060621d95a6074fe2329c928be0ca7b17",
+        "fingerprint": "sha256:757e5bbd6cc1a2623f30c6e02d013c34db60a93a5b5d701144216af8ab80eac2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9936,7 +9936,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:29817c9e2b7429cc37e2e3b6d9740402773fb244bc71b25de93603cca0107d56",
+        "fingerprint": "sha256:394107d498c4c241b7628ad08928bf773dad4b2302fdc546e1348dfc8008ac3c",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -12631,7 +12631,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:47f51a68f88950bc30ec6e848d63e1b5ea8b8684878a3511c02b06a90141eece",
+        "fingerprint": "sha256:1e9dafce2695101d460657930461163bdfb5e399151447956efcf593244cf1fe",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -13207,7 +13207,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:ee25a4f8a887c5a6380f9da731617643f9d92cc4af8418f5b9f0599adbc63a96",
+        "fingerprint": "sha256:384c5e3c04da167d444e0c5417d31daa2a466062d6b676695ded0d336e1caba8",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

@@ -548,10 +548,9 @@ def _removed_capability_violations(baseline_tree: str | None, removed_modules: l
     for mid in sorted(set(removed_modules)):
         if mid not in live_rc:
             out.append(f"the '{mid}' capability was removed but no plain-language removal notice was recorded "
-                       f"for it — add engine.json removed_capabilities: {{ \"{mid}\": {{ \"description\": "
-                       f"\"…what an operator could ask for before and no longer can…\" }} }} (or re-run the "
-                       f"removal with `remove {mid} --removal-notice \"…\"`), so the update can tell the operator "
-                       f"what they lost instead of refusing")
+                       f"for it — add it to engine.json removed_capabilities: {{ \"{mid}\": {{ \"description\": "
+                       f"\"…what an operator could ask for before and no longer can…\" }} }} so the update can "
+                       f"tell the operator what they lost instead of refusing")
     floor = live_engine.get("min_upgradeable_from")
     base_rc = _engine_in_tree(baseline_tree).get("removed_capabilities") or {}
     for mid in sorted(base_rc):
@@ -562,7 +561,9 @@ def _removed_capability_violations(baseline_tree: str | None, removed_modules: l
             continue   # obsolete: no supported upgrader can still hold the module → safe to prune
         out.append(f"the '{mid}' removal notice recorded by the last release was dropped; an engine still "
                    f"holding '{mid}' would update across the removal and never learn what it lost — restore the "
-                   f"key (or, once its removed_in is at or below min_upgradeable_from, it may be pruned)")
+                   f"key (it may only be pruned once the version it was removed in, removed_in, is at or below "
+                   f"this release's oldest-still-upgradeable version, min_upgradeable_from — after which no "
+                   f"engine can still hold '{mid}')")
     return out
 
 
@@ -1472,9 +1473,10 @@ def _cmd_propose(args) -> int:
             recovery.append("Restore each dropped retired-capability notice by keeping its version key — a "
                             "retirement notice has no no-op form, so it must never be dropped.")
         if rem_viol:
-            recovery.append("For each removed module, record its plain-language removal notice in engine.json "
-                            "removed_capabilities (or re-run the removal with `remove <id> --removal-notice "
-                            "\"…\"`) — a whole-module removal has no no-op form, so the notice is required.")
+            recovery.append("For each removed module, add its plain-language removal notice to engine.json "
+                            "removed_capabilities by hand (the module is already gone, so this is an edit, not "
+                            "another `remove`) — a whole-module removal has no no-op form, so the notice is "
+                            "required.")
         if dep_viol:
             recovery.append("Keep each still-depended-on capability, or remove its dependents too.")
         _print_refusal({"reason": "a required release record is missing, dropped, or inconsistent",

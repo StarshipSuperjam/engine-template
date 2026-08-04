@@ -56,10 +56,10 @@ def _orphan_parity_finding(root: str) -> bool:
                for f in (provider_parity_check.findings("hard", root=root) or []))
 
 
-def _deliver_only(release_tree, candidates, old_owned, old_by_id, dropped_ids=()):
+def _deliver_only(release_tree, candidates, old_owned, old_by_id, dropped_ids=(), tracked=None):
     """The NEGATIVE-CONTROL reconcile: the DELIVER leg only, no DELETE — reproduces the copy-only overlay that
-    left #599's rename orphans in place. Accepts (and ignores) `dropped_ids` to match _reconcile_surface's
-    signature, since the tail now passes it."""
+    left #599's rename orphans in place. Accepts (and ignores) `dropped_ids`/`tracked` to match
+    _reconcile_surface's signature, since the tail now passes them."""
     delivered = mm._deliver_synced(release_tree, candidates, project_retire=True)
     fixtures = sorted(r for r in delivered
                       if any(r == ns or r.startswith(ns + "/") for ns in mm.module_coherence.FIXTURE_PATHS))

@@ -58,7 +58,9 @@ CLI:
   python tools/module_manager.py sync-groups         # re-derive + rewrite [tool.uv] default-groups
   python tools/module_manager.py add <id> [--json]   # fetch + install a module at the current release
   python tools/module_manager.py plan-remove <id>    # read-only: refusal reasons / what remove would do
-  python tools/module_manager.py remove <id> [--json]
+  python tools/module_manager.py remove <id> [--removal-notice "…"] [--json]
+      # --removal-notice: on a release-publishing engine, record in plain language what an operator could ask
+      #   for before and no longer can — the release cut refuses to ship a whole-module removal without it.
   python tools/module_manager.py upgrade [ref]           # preview an update (checks only; changes nothing)
   python tools/module_manager.py upgrade [ref] --confirm [--json]  # apply the whole-engine update vX -> vY
   python tools/module_manager.py demo                # mutation-free fail-then-pass (remove + add + upgrade; fixtures)
@@ -304,9 +306,11 @@ def remove(module_id: str, removal_notice: str | None = None) -> dict:
             _write_json(_engine_manifest_path(), engine)
     if not removal_notice:
         result["notes"].append(
-            f"If this engine publishes releases, record what removing '{module_id}' takes away — re-run with "
-            f"`remove {module_id} --removal-notice \"…what an operator could ask for before and no longer "
-            f"can…\"`, or the release cut will ask for it.")
+            f"If this engine publishes releases, record what removing '{module_id}' takes away by adding it to "
+            f"engine.json's removed_capabilities — {{ \"{module_id}\": {{ \"description\": \"…what an operator "
+            f"could ask for before and no longer can…\" }} }} — or the release cut will ask for it. (Next time, "
+            f"pass --removal-notice at removal to record it in one step; '{module_id}' is already gone now, so "
+            f"the notice is a hand-edit here.)")
 
     # (4) re-derive + rewrite the tool-runtime dependency-group selection for the remaining set
     try:
@@ -1596,7 +1600,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         risk_bullets,
         ("a capability you could use is gone (see Scope); and the update changes and removes engine-owned files, "
          "with every removal and anything it could not apply disclosed in Scope."
-         if retired else
+         if caps_lost else
          "the update changes and removes engine-owned files; every removal and anything it could not apply is "
          "disclosed in Scope."))
     out += release_cut.pr_section(
@@ -1897,7 +1901,7 @@ def _glob_namespace_prefixes(old_by_id: dict) -> tuple:
 
 
 def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old_by_id: dict,
-                       dropped_ids=()) -> tuple:
+                       dropped_ids=(), tracked=None) -> tuple:
     """The #599 reconcile: drive the deployed FILE surface to `provision(release)`. ADD — deliver every
     `engine_synced_map` member the tree lacks or that differs (fixtures + any overlay-missed file), projected
     so the first-run-retired set is never delivered. DELETE — reusing `remove_engine`'s compute-the-whole-set-
@@ -1923,7 +1927,8 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     # DELETE — compute the WHOLE candidate set first (the live globs need the files still on disk).
     keep = set(synced.keys()) | set(_FOUNDATION_KEYED)
     exact_cv, prefix_cv = _reconcile_carveouts()
-    tracked = module_coherence._tracked_paths()   # git-tracked relpaths, or None when git is unavailable
+    if tracked is None:                            # git-tracked relpaths, or None when git is unavailable
+        tracked = module_coherence._tracked_paths()   # (threaded from the caller so a drop-upgrade reads git once)
     # The FILE-delete leg reconciles the committed fixture namespace like any other owned surface (#699): a
     # fixture the release NO LONGER SHIPS must retire, not survive (a superseded `not-applicable.json` that
     # lingered was #599's residual — it reddens `engine-ci`). Fixtures are in NO module's `provides` (so never
@@ -1946,8 +1951,11 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
                        and os.path.isfile(os.path.join(validate.ROOT, rel)))
     glob_prefixes = _glob_namespace_prefixes(old_by_id)
     # Every file a WHOLE-dropped module owns (#688): its removal is automatic/release-initiated, so the
-    # recoverability guard below applies to ALL of them, not only the glob-suspect ones.
-    dropped_owned = set(module_coherence.engine_owned_paths(
+    # recoverability guard below applies to ALL of them, not only the glob-suspect ones. Use `provides_claims`
+    # (the module's OWN `provides` files) — NOT `engine_owned_paths`, which unions in the global FOUNDATION_INFRA
+    # set unrelated to any dropped module (inert here since foundation paths are always in `keep`, but the guard
+    # must mean exactly "this module's files").
+    dropped_owned = set(module_coherence.provides_claims(
         [(f".engine/modules/{mid}/manifest.json", old_by_id.get(mid) or {}) for mid in (dropped_ids or ())]))
     removed = {"engine": [], "suspect": [], "left_in_place": []}
     for rel in to_delete:
@@ -1991,29 +1999,52 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     return fixtures_delivered, removed
 
 
-def _retire_dropped_module_dirs(dropped_ids, removed: dict) -> None:
-    """Delete each intentionally-dropped module's OWN manifest folder (`.engine/modules/<id>/`) — the one part
+def _retire_dropped_module_dirs(dropped_ids, removed: dict, tracked=None) -> None:
+    """Retire each intentionally-dropped module's OWN manifest folder (`.engine/modules/<id>/`) — the one part
     of a whole-module removal the file-reconcile leg cannot cover, because a manifest is never in its module's
     `provides` (so never in `old_owned`). Left behind, the folder is a ZOMBIE: `discover_manifests` still reports
     the module installed while `packages` no longer lists it, an incoherence the structural gate would fail on.
-    Mirrors remove()'s `shutil.rmtree(_modules_dir(mid))` step, git-tracked-guarded like every reconcile
-    deletion (an untracked stray is left in place, since the undo cannot restore it). Buckets into the shared
-    `removed` dict so the folder shows in the update's dropped-files list."""
-    tracked = module_coherence._tracked_paths()
+
+    Removes the TRACKED files under the folder (de-registering the module — its manifest is tracked) and LEAVES
+    any UNTRACKED file in place, surfacing it: a whole-module drop is automatic and release-initiated, so the
+    same recoverability invariant the file-delete leg keeps — an untracked, undo-unrestorable file is never
+    deleted — must hold for the WHOLE owned surface, not just the `provides` paths (a plain `rmtree` here would
+    silently take an untracked co-located file the undo could not bring back; security review). Then prunes the
+    now-empty directories. When git is unavailable (`tracked is None`) the guard cannot run and the undo is also
+    unavailable, so it mirrors remove()/the file leg and removes the folder wholesale (the pre-existing residual).
+    `tracked` is threaded from the caller to avoid a second `git ls-files` per drop-upgrade."""
+    if tracked is None:
+        tracked = module_coherence._tracked_paths()
     for mid in sorted(set(dropped_ids or ())):
         d = _modules_dir(mid)
         if not os.path.isdir(d):
             continue
-        rel = f".engine/modules/{mid}/manifest.json"
-        if tracked is not None and rel not in tracked:
-            removed["left_in_place"].append(
-                f".engine/modules/{mid}/ — left in place: the engine does not track it, so I did not remove it.")
+        if tracked is None:   # git unavailable — the recoverability guard cannot run; mirror remove()'s rmtree
+            try:
+                shutil.rmtree(d)
+                removed["engine"].append(f".engine/modules/{mid}/")
+            except OSError as exc:
+                removed["left_in_place"].append(
+                    f".engine/modules/{mid}/ (could not remove: {_plain_oserror(exc)})")
             continue
-        try:
-            shutil.rmtree(d)
-            removed["engine"].append(f".engine/modules/{mid}/")
-        except OSError as exc:
-            removed["left_in_place"].append(f".engine/modules/{mid}/ (could not remove: {_plain_oserror(exc)})")
+        for root, _dirs, files in os.walk(d, topdown=False):
+            for fn in files:
+                p = os.path.join(root, fn)
+                rel = os.path.relpath(p, validate.ROOT).replace(os.sep, "/")
+                if rel not in tracked:
+                    removed["left_in_place"].append(
+                        f"{rel} — left in place: it looks like a file you added (the engine does not track "
+                        f"it), so I did not remove it. Delete it yourself if you don't need it.")
+                    continue
+                try:
+                    os.remove(p)
+                except OSError as exc:
+                    removed["left_in_place"].append(f"{rel} (could not remove: {_plain_oserror(exc)})")
+            try:
+                os.rmdir(root)   # prunes the folder only once nothing (an untracked residual) remains under it
+            except OSError:
+                pass
+        removed["engine"].append(f".engine/modules/{mid}/")   # its tracked surface is gone → the module retired
 
 
 
@@ -2187,16 +2218,19 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     tail["applied"] = True   # the working copy is now mutated (overlay + seams); any refusal below is half-state
     # (b2) RECONCILE the file surface to provision(release) — the #599 authority the copy-only overlay is not.
     # A refusal (a bad retire manifest, a containment escape) surfaces cleanly: staged, un-merged, nothing opened.
+    # Read the git-tracked set ONCE and thread it to both the reconcile and the dropped-module retire below (the
+    # recoverability guard both apply), so a drop-upgrade spawns a single `git ls-files`.
+    tracked = module_coherence._tracked_paths()
     try:
         tail["fixtures_delivered"], tail["orphans_removed"] = _reconcile_surface(
-            release_tree, candidates, old_owned, old_by_id, dropped_ids=dropped_ids)
+            release_tree, candidates, old_owned, old_by_id, dropped_ids=dropped_ids, tracked=tracked)
     except _UpgradeRefused as ur:
         tail["reason"] = ur.reason
         return tail
     # (b3) RETIRE each intentionally-dropped module's OWN manifest folder — the one teardown step the file
     # reconcile can't cover (a manifest is never in its module's `provides`), mirroring remove()'s rmtree. Runs
     # BEFORE the manifest bump and the gate, so the gate sees a coherent tree (no folder for a pruned package).
-    _retire_dropped_module_dirs(dropped_ids, tail["orphans_removed"])
+    _retire_dropped_module_dirs(dropped_ids, tail["orphans_removed"], tracked=tracked)
     # (c) MIGRATIONS (selected + dependency-ordered; the no-backup guard already pre-flighted in phase 1).
     tail["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
     if tail["migrations"].get("refused"):
@@ -2517,8 +2551,17 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
                                             # list it as replaced (that would contradict the apply — plan/apply drift)
             (replaced if os.path.exists(os.path.join(validate.ROOT, rel)) else added_files).append(rel)
         out["files"] = {"replaced": replaced, "added": added_files}
-        # SETTINGS (wiring) — the shared identity delta, so the preview reports the apply's own reversals.
+        # SETTINGS (wiring) — the shared identity delta, so the preview reports the apply's own reversals. A
+        # WHOLE-dropped module has ALL its wires reversed by the apply (`_apply_wiring_deltas`' dropped leg, via
+        # `wiring.reverse_all`), INCLUDING identity-less wires (a `permission`, an `ontology-entry`) that
+        # `_wiring_delta` omits — so add those here too, or the preview would under-report a reversal the apply
+        # performs (the "preview mirrors apply" invariant). Identity-bearing wires of a dropped module already
+        # appear in the delta's `removed`, so only the identity-less ones are added.
         out["wires"] = _wiring_delta(old_by_id, candidates)
+        for mid in dropped_ids:
+            for w in (old_by_id.get(mid) or {}).get("wires") or []:
+                if wiring.declared_wire_identity(w) is None:
+                    out["wires"]["removed"].append((mid, w))
         # STORED-DATA / CONFIG changes — the same pure selector the apply pre-flights with.
         selected = select_migrations(from_versions, out["target_versions"], list(candidates.values()))
         out["migrations"] = [{"module_id": s.get("module_id"), "version": s.get("version"),
@@ -2625,10 +2668,10 @@ def _render_upgrade_preview(p: dict) -> None:
                 else "a setting" if m.get("kind") == "config" else "an engine record")
         print(f"  Changes {what}: {m.get('description') or m.get('module_id')}")
     retired = p.get("retired_capabilities") or []
-    for r in retired:
-        print(f"  Removes a capability: {_retired_capability_text(r.get('description'))}")
     removed_caps = p.get("removed_capabilities") or []
-    for r in removed_caps:
+    # A within-module retirement and a whole-module removal read identically to the operator ("a capability is
+    # gone"), so they render through one loop (a dropped module can never also be in retired — no double-count).
+    for r in retired + removed_caps:
         print(f"  Removes a capability: {_retired_capability_text(r.get('description'))}")
     if any(m.get("kind") == "data" for m in migs):
         if p.get("backed_up") is True:
@@ -3126,9 +3169,7 @@ def _render_upgrade(result: dict) -> None:
         print(f"  - ran update: {r}")
     for r in result.get("migrations", {}).get("refused", []):
         print(f"  - {r}")
-    for r in result.get("retired_capabilities", []):
-        print(f"  - removed a capability: {_retired_capability_text(r.get('description'))}")
-    for r in result.get("removed_capabilities", []):
+    for r in (result.get("retired_capabilities", []) + result.get("removed_capabilities", [])):
         print(f"  - removed a capability: {_retired_capability_text(r.get('description'))}")
     for line in result.get("notes", []):
         print("  - " + line)
@@ -4197,7 +4238,8 @@ def _render_rollback(r: dict, applied: bool) -> None:
 def main(argv: list) -> int:
     if not argv:
         print("usage: module_manager.py {status | sync-groups | add <id> [--json] | "
-              "plan-remove <id> | remove <id> [--json] | upgrade [ref] [--confirm] [--json] | "
+              "plan-remove <id> | remove <id> [--removal-notice \"…\"] [--json] | "
+              "upgrade [ref] [--confirm] [--json] | "
               "rollback [--confirm] [--json] | "
               "remove-engine [--confirm] [--keep-protection|--remove-protection] [--json] | demo}",
               file=sys.stderr)
