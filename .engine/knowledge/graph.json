@@ -4419,7 +4419,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:0d6b9a995ed0982067df88ffc195f94fb2d838aa3bd7217b2607580ec4f76bbd",
+        "fingerprint": "sha256:802836f9e384e4fc65d0de8d270d985f86889f59b5ad2b7d64e0967a11f45234",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6396,7 +6396,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:6e3723145322c2a0e6621829986e1720b371fb99818d0e1fdd4446ac4753f157",
+        "fingerprint": "sha256:918eace4a834e4fa867326ae88c410f8fefe8bd0663d3d0c6a627fb9e8d377a7",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8571,7 +8571,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:f9809392d777f250df40a7d189751d8003841098c5ac4f95b8e7b46702c19deb",
+        "fingerprint": "sha256:a6601e21d417b6cc195ed4d392b5dba1810fe4ae5a46fe8b142fddfb7560f58d",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -10902,7 +10902,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:c8b7787df631ea5330d21daffa40ad5678c41ea90e090aae058f72ed56c9b53d",
+        "fingerprint": "sha256:bcbd5d9eebd88b4b03d1a57673f23bb41bb8c2c395b914e8d346e02ba0f10f20",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11918,7 +11918,7 @@
       },
       "slug": "test_hooks_path_health",
       "source": {
-        "fingerprint": "sha256:6f4b51017fd745882c68f2ffadead61a9a6b06185a7d7b07790408b3e6d2d17a",
+        "fingerprint": "sha256:c7c6dd6126587947da3d4f8126351c74cb0df43a75bdb20629c74568984a1062",
         "path": ".engine/tools/test_hooks_path_health.py"
       },
       "status": "active",
