@@ -811,7 +811,9 @@ def _codex_config_is_engine_owned(text: str) -> bool:
     or removing a fenced block via fence_apply/fence_reverse is a deterministic text transform that needs
     no TOML validation to stay safe, so the engine may proceed. ANY non-fence byte — or a malformed fence,
     which _applied_fence_ids skips so its bytes survive the strip — leaves the remainder non-empty → False
-    → the caller still skips loud and byte-identical (the never-touch-an-operator-config invariant). Pure
+    → the caller still skips loud and byte-identical (the never-touch-an-operator-config invariant); a
+    badly-interleaved fence instead makes fence_reverse raise WiringError, which codex_mcp_apply/reverse
+    catch as a no-write _fail — the same fail-safe outcome (config untouched). Pure
     text: it reads the already-read buffer, not the disk. This is what lets a SECOND engine codex-mcp wire
     land on the config the FIRST wire just created, instead of mistaking it for pre-existing operator
     config (#751); it also fixes the same skip on the module-add path."""

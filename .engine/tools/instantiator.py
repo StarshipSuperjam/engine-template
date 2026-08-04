@@ -3236,20 +3236,28 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         # but NOT the upgrade tail's _reconcile_gate: that subset shells out to codex-provider-parity, which
         # imports tomllib and so is fatal on the 3.9 arrival floor arrive() runs on. Structural coherence is
         # already gated by verify()'s hard check and retire()'s own precondition.
-        module_manager._regen_indexes()
-        gate_findings = (gate or _arrival_index_gate)()
+        try:
+            module_manager._regen_indexes()
+            gate_findings = (gate or _arrival_index_gate)()
+        except Exception as exc:  # noqa: BLE001 — surfaced-never-a-crash: the gate re-derives the graph/self-map
+            # (canonical_graph/canonical_map), and _regen_indexes swallows only its OWN generator failures, so an
+            # unexpected raise here must degrade to a clean refusal, never escape arrive() as a traceback.
+            gate_findings = [validate.finding(
+                "hard", f"the engine could not check its own generated knowledge index "
+                        f"({type(exc).__name__}: {exc})")]
         result["gate_findings"] = gate_findings
-        if any(f.get("severity") == "hard" for f in gate_findings):
-            for f in gate_findings:
-                if f.get("severity") == "hard":
-                    say(f.get("message") or "")   # surface WHICH index drifted, not just that one did
+        hard = [f for f in gate_findings if f.get("severity") == "hard"]
+        if hard:
+            for f in hard:
+                where = (f.get("location") or {}).get("file")   # name WHICH index drifted, not the generic
+                say("  - inconsistent engine index: " + (where or "the generated knowledge index"))
             return {**result, "proceeded": True,
-                    "reason": "the engine is installed, but a check of its own generated knowledge index "
-                              "found it still inconsistent with the deployed sources after regenerating it, "
-                              "so the arrival was NOT opened for review and nothing was merged. Re-running "
-                              "regenerates and re-checks; if it refuses again this is an engine defect to "
-                              "report (the sources and the generated index disagree), not something further "
-                              "re-runs fix. The setup files were left in place."}
+                    "reason": "the engine is installed, but a check of its own generated knowledge index found "
+                              "it inconsistent with the deployed sources, so the arrival was NOT opened for "
+                              "review and nothing was merged. This is an engine defect to report — the sources "
+                              "and the generated index disagree, and re-running the arrival regenerates them the "
+                              "same way, so it will not clear on its own. The setup files were left in place; "
+                              "nothing here needs a hand-commit."}
         # (7) Land the arrival as a reviewed pull request on the TARGET (the merge wall; the operator approves).
         if opener is not None:
             # `Feature:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): arriving in a
