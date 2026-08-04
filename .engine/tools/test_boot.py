@@ -158,33 +158,44 @@ class TestHooksPathOffer(unittest.TestCase):
     collapses to a terse reminder that still carries the fix; and the present-marker flags the disabled hook."""
 
     def test_none_renders_nothing(self):
-        self.assertNotIn("hook-folder setting", boot.render_dashboard(_signals(hooks_path=None)))
+        self.assertNotIn("your project's hooks", boot.render_dashboard(_signals(hooks_path=None)))
 
     def test_fixable_renders_offer_with_handle(self):
         dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False}))
-        self.assertIn("hook-folder setting", dash)
+        self.assertIn("your project's hooks", dash)
         self.assertIn("fix my hook path", dash)
+        self.assertNotIn("nothing is at risk", dash.lower())  # accurate framing, not a false all-clear
 
     def test_collapsed_is_terse_but_keeps_the_handle(self):
         dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": True}))
         self.assertIn("unchanged since last session", dash)
         self.assertIn("fix my hook path", dash)  # the terse reminder still carries the fix offer
+        self.assertNotIn("pre-push", dash)         # no git-hook jargon in the recurring line
 
     def test_manual_gives_a_guided_path_not_the_autofix_handle(self):
         dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "manual", "collapsed": False}))
         self.assertIn("look at my hook path", dash)
         self.assertNotIn("say **fix my hook path**", dash)  # no dead-end auto-fix handle for needs-manual
 
+    def test_manual_collapses_to_a_terse_reminder(self):
+        # the longest-lived variant must collapse (anti-habituation) while keeping the consequence + handle.
+        full = boot.render_dashboard(_signals(hooks_path={"plan_kind": "manual", "collapsed": False}))
+        terse = boot.render_dashboard(_signals(hooks_path={"plan_kind": "manual", "collapsed": True}))
+        self.assertNotEqual(full, terse)
+        self.assertIn("unchanged since last session", terse)
+        self.assertIn("look at my hook path", terse)
+
     def test_offer_pins_above_the_license_tidy_up(self):
         fl = {"present": True, "main": "/proj", "fingerprint": "seed-x", "pr_open": False}
         dash = boot.render_dashboard(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False},
                                               foreign_license=fl))
-        self.assertLess(dash.index("hook-folder setting"), dash.index("license file"))
+        self.assertLess(dash.index("your project's hooks"), dash.index("license file"))
 
     def test_present_marker_flags_the_disabled_hook(self):
-        marker = boot.present_marker_line(_signals(hooks_path={"plan_kind": "fixable", "collapsed": False}))
-        self.assertIn("safety hook", marker)
-        self.assertTrue(marker.startswith("⚠"))
+        for kind in ("fixable", "manual"):
+            marker = boot.present_marker_line(_signals(hooks_path={"plan_kind": kind, "collapsed": False}))
+            self.assertIn("safety check", marker)
+            self.assertTrue(marker.startswith("⚠"))
 
     def test_present_marker_ranks_below_governance(self):
         # a governance-critical alarm (gate off) still wins the one-line marker over the hook offer.

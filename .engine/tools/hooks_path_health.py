@@ -237,7 +237,10 @@ def repair(cwd: str | None = None, apply: bool = False) -> dict:
     for step in a["plan"]:
         scope = "worktree" if step == "unset-worktree" else "local"
         val = _scoped(top, scope)  # re-read at apply time
-        if not _missing(val, top):  # became valid (or absent) since detection -> do not touch (TOCTOU guard)
+        # Re-verify THIS scope's plan gate against the LIVE value immediately before unsetting (TOCTOU): the value
+        # must still resolve to a missing dir, and — for the shared value — still be ABSOLUTE (a value that flipped
+        # to relative in the window could resolve to a real dir in a peer worktree, so it is never auto-unset).
+        if not _missing(val, top) or (step == "unset-local" and not os.path.isabs(val)):
             skipped.append(step)
             continue
         rc = _status(["git", "-C", top, "config", f"--{scope}", "--unset", _HOOKS_PATH_KEY])
@@ -245,9 +248,14 @@ def repair(cwd: str | None = None, apply: bool = False) -> dict:
             did.append(step)
         else:
             skipped.append(step)
-    resolved = assess(cwd)["status"] != "fixable"
-    return {"status": "fixed" if resolved else "partial",
-            "applied": True, "did": did, "skipped": skipped, "top": top}
+    # Success is whole-config clean, NOT merely "nothing auto-fixable left": a residual needs-manual value
+    # (a shared-relative or global/system broken value the removal-only repair won't touch) means a hook is STILL
+    # disabled, so report needs-manual (routing the operator to the guided path) — never a false "fixed".
+    if detect_broken_hooks_path(cwd) is None:
+        status = "fixed"
+    else:
+        status = "needs-manual" if assess(cwd)["status"] == "needs-manual" else "partial"
+    return {"status": status, "applied": True, "did": did, "skipped": skipped, "top": top}
 
 
 # ---- in-tool demo: a self-checking falsification (issues #707, #708) --------------------------
@@ -320,7 +328,7 @@ def _demo() -> int:
               and dry["applied"] is False and not _blank(still_set)
               and done["status"] == "fixed" and after is None
               and r_valid["status"] == "healthy" and valid_survives
-              and "hook-folder setting" in rendered)  # boot renders the actual hooks_path offer line
+              and "your project's hooks" in rendered)  # boot renders the actual hooks_path offer line
         if not ok:
             print("\nDEMO UNEXPECTED: detection, repair, or the boot offer line did not behave as expected.",
                   file=sys.stderr)
@@ -333,16 +341,19 @@ def main(argv: list) -> int:
         return _demo()
     if argv and argv[0] == "repair":
         r = repair(apply="--apply" in argv)
-        status = r["status"]
+        status, applied = r["status"], r.get("applied", False)
         if status == "healthy":
             print("core.hooksPath resolves to a real directory (or is unset) — nothing to repair.")
         elif status == "needs-manual":
-            print("core.hooksPath points at a missing directory, but it is a shared relative or global/system "
-                  "value the automatic repair won't touch — it may be in use by another worktree.")
-        elif r["applied"]:
-            print(f"Cleared the stale core.hooksPath ({', '.join(r['did']) or 'nothing — it had already changed'}).")
-        else:
-            print(f"Would clear the stale core.hooksPath: {', '.join(r['plan'])} (dry-run; add --apply to do it).")
+            pre = f"Cleared {', '.join(r['did'])}; " if applied and r.get("did") else ""
+            print(f"{pre}a shared or global core.hooksPath still points at a missing directory that the automatic "
+                  "repair won't change — it may be in use by another worktree; investigate it with the operator.")
+        elif not applied:
+            print(f"Would clear the stale core.hooksPath: {', '.join(r['plan'])} (dry-run; add --apply to apply).")
+        elif status == "fixed":
+            print(f"Cleared the stale core.hooksPath ({', '.join(r['did']) or 'it had already changed'}).")
+        else:  # partial
+            print(f"Cleared {', '.join(r['did']) or 'nothing'}; some steps couldn't complete — re-run to retry.")
         return 0
     d = detect_broken_hooks_path()
     print("healthy — core.hooksPath resolves (or is unset)" if d is None

@@ -1933,26 +1933,37 @@ def render_dashboard(s: dict) -> str:
     # retire/collapse decision is HOOK-SIDE (_relay_lines): the pure status-verb path (no ledger) renders FULL.
     hp = s.get("hooks_path")
     if hp:
-        if hp.get("plan_kind") == "manual":
+        manual = hp.get("plan_kind") == "manual"
+        collapsed = hp.get("collapsed")
+        if manual and collapsed:
+            # Terse manual reminder — the LONGEST-lived variant (a global / shared-relative value the auto-repair
+            # won't touch can persist for many sessions), so it MUST collapse to avoid habituation, while still
+            # naming the consequence and the operator-guided handle.
             pinned.append(
-                "🪝 **A safety hook on your project is switched off** — git's hook-folder setting points at a "
-                "folder that no longer exists, so a check meant to run before your work is pushed isn't running. "
-                "**Nothing is wrong with your project and nothing is at risk.** I'm not clearing this one on my "
-                "own because the setting is shared in a way that could still be in use by another copy of your "
-                "project — say **look at my hook path** and I'll check it with you and set it right safely.")
-        elif hp.get("collapsed"):
+                "🪝 A safety check on your project still isn't running reliably (unchanged since last session) — "
+                "the setting that points git to your project's hooks points at a folder that no longer exists, and "
+                "it's set in a way I won't change on my own; the fix still stands: say **look at my hook path** and "
+                "I'll sort it out with you.")
+        elif manual:
             pinned.append(
-                "🪝 A safety hook on your project is still switched off (unchanged since last session) — git's "
-                "hook-folder setting points at a folder that no longer exists, so a pre-push check isn't running; "
-                "the fix still stands: say **fix my hook path** and I'll clear the stale setting for you.")
+                "🪝 **A safety check on your project isn't running reliably** — the setting that tells git where "
+                "your project's hooks live points at a folder that no longer exists. **Your existing files and "
+                "history are safe**, but that check can't be relied on until the setting is sorted out. I'm not "
+                "clearing this one on my own because it's set in a way that could still be in use by another copy of "
+                "your project — say **look at my hook path** and I'll check it with you and clear it safely.")
+        elif collapsed:
+            pinned.append(
+                "🪝 A safety check on your project still isn't running reliably (unchanged since last session) — "
+                "the setting that points git to your project's hooks points at a folder that no longer exists; the "
+                "fix still stands: say **fix my hook path** and I'll clear the stale setting for you.")
         else:
             pinned.append(
-                "🪝 **A safety hook on your project is switched off** — git's hook-folder setting points at a "
-                "folder that no longer exists (often left behind after a project folder is moved or renamed), so a "
-                "check meant to run before your work is pushed isn't running. **Nothing is wrong with your project "
-                "and nothing is at risk** — the setting just needs clearing. It's a setting on your computer, not a "
-                "change to your project's files, so say **fix my hook path** and I'll clear it (it goes back to "
-                "git's normal default).")
+                "🪝 **A safety check on your project isn't running reliably** — the setting that tells git where "
+                "your project's hooks live points at a folder that no longer exists (often left behind after a "
+                "project folder is moved or renamed). **Your existing files and history are safe**, but that check "
+                "can't be relied on until the setting is cleared. It's a setting on your computer, not a change to "
+                "your project's files, so say **fix my hook path** and I'll clear it (it goes back to git's normal "
+                "default).")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
@@ -2392,10 +2403,10 @@ def present_marker_line(s: dict) -> str:
     hp = s.get("hooks_path")   # a silently disabled git hook (safety); ranked below the governance/checkout alarms
     if hp:
         if hp.get("plan_kind") == "manual":
-            return (f"⚠ {PRESENT_MARKER}: a safety hook on your project is switched off — say 'look at my hook "
-                    "path' and I'll check it with you and set it right safely")
-        return (f"⚠ {PRESENT_MARKER}: a safety hook on your project is switched off — say 'fix my hook path' and "
-                "I'll clear the stale setting")
+            return (f"⚠ {PRESENT_MARKER}: a safety check on your project isn't running reliably — say 'look at my "
+                    "hook path' and I'll check it with you and clear it safely")
+        return (f"⚠ {PRESENT_MARKER}: a safety check on your project isn't running reliably — say 'fix my hook "
+                "path' and I'll clear the stale setting")
     if s.get("staged_update"):   # a recovery OFFER (not a ⚠ alarm): an update was started but not finished
         return (f"▸ {PRESENT_MARKER}: an engine update looks half-finished — type /engine-upgrade and I'll help "
                 "you finish it or undo it")

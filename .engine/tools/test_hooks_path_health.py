@@ -137,6 +137,31 @@ class TestDetect(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(hp.detect_broken_hooks_path(cwd=tmp))  # not a git repo -> fail-soft None
 
+    def test_tilde_existing_is_healthy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, "myhooks"))
+            r = _repo(tmp, "r")
+            _set(r, "~/myhooks")
+            with mock.patch.dict(os.environ, {"HOME": home}):
+                self.assertIsNone(hp.detect_broken_hooks_path(cwd=r))  # ~ expands to an existing dir -> healthy
+
+    def test_global_missing_is_needs_manual(self):
+        # a broken value in GLOBAL config the removal-only repair cannot address -> fires as manual. Isolate the
+        # global/system config to temp files so the developer's real ~/.gitconfig is never read or written.
+        with tempfile.TemporaryDirectory() as tmp:
+            r = _repo(tmp, "r")
+            gcfg = os.path.join(tmp, "gitconfig-global")
+            with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": gcfg, "GIT_CONFIG_SYSTEM": os.devnull}):
+                subprocess.run(["git", "config", "--global", "core.hooksPath", os.path.join(tmp, "gone")],
+                               capture_output=True, check=False)
+                d = hp.detect_broken_hooks_path(cwd=r)
+                self.assertIsNotNone(d)
+                self.assertTrue(d["external_broken"])
+                self.assertEqual(d["effective_scope"], "external")
+                self.assertEqual(d["plan_kind"], "manual")
+                self.assertEqual(hp.repair(cwd=r, apply=True)["status"], "needs-manual")  # never touches global
+
 
 class TestRepair(unittest.TestCase):
     def test_dry_run_mutates_nothing(self):
@@ -239,6 +264,47 @@ class TestRepair(unittest.TestCase):
             r = _repo(tmp, "r")
             rc = hp._status(["git", "-C", r, "config", "--local", "--unset", "core.hooksPath"])
             self.assertEqual(rc, 5)
+
+    def test_mixed_worktree_and_relative_shared_reports_needs_manual(self):
+        # A worktree with its OWN broken absolute override AND a broken RELATIVE shared value: the auto-repair
+        # clears the override (correct, safe) but the residual relative-shared value is still broken -> the
+        # repair must report needs-manual (a hook is still disabled), never a false "fixed".
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            _set(main, "rel-gone")  # shared, relative, missing (never auto-unset)
+            wt = _worktree(main, "wt")
+            _git(wt, "config", "--worktree", "core.hooksPath", os.path.join(tmp, "abs-gone"))
+            res = hp.repair(cwd=wt, apply=True)
+            self.assertEqual(res["did"], ["unset-worktree"])
+            self.assertEqual(res["status"], "needs-manual")
+            self.assertIsNotNone(hp.detect_broken_hooks_path(cwd=wt))  # still disabled
+
+    def test_local_then_global_reports_needs_manual(self):
+        # A broken absolute LOCAL value masking a broken GLOBAL value: unsetting local is correct, but the now
+        # effective global value is still broken -> needs-manual, not "fixed".
+        with tempfile.TemporaryDirectory() as tmp:
+            r = _repo(tmp, "r")
+            gcfg = os.path.join(tmp, "gitconfig-global")
+            with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": gcfg, "GIT_CONFIG_SYSTEM": os.devnull}):
+                subprocess.run(["git", "config", "--global", "core.hooksPath", os.path.join(tmp, "g-gone")],
+                               capture_output=True, check=False)
+                _set(r, os.path.join(tmp, "l-gone"))  # local, absolute, missing (auto-fixable)
+                res = hp.repair(cwd=r, apply=True)
+                self.assertEqual(res["did"], ["unset-local"])
+                self.assertEqual(res["status"], "needs-manual")
+
+    def test_apply_time_isabs_guard_skips_a_relative_shared_value(self):
+        # SG re-check: if the live --local value is relative at apply time (a concurrent absolute->relative flip),
+        # the unset-local step is skipped — a relative shared value could be valid in a peer worktree.
+        with tempfile.TemporaryDirectory() as tmp:
+            r = _repo(tmp, "r")
+            _set(r, "rel-gone")  # relative, missing
+            top = hp._toplevel(r)
+            stale_plan = {"status": "fixable", "plan": ["unset-local"], "top": top, "detail": None}
+            with mock.patch.object(hp, "assess", return_value=stale_plan):
+                res = hp.repair(cwd=r, apply=True)
+            self.assertIn("unset-local", res["skipped"])
+            self.assertEqual(_get(r), "rel-gone")  # the relative shared value survives
 
 
 class TestCLI(unittest.TestCase):
