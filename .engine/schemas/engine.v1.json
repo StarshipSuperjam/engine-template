@@ -21,6 +21,27 @@
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
+    "removed_capabilities": {
+      "description": "The release cut's own inventory of capabilities removed by dropping a WHOLE module — the sibling of a surviving module's manifest-level `retired_capabilities`, kept HERE because a removed module has no manifest left to carry its own notice. Each key is a removed module's id; each value carries the plain-language line the update shows the operator (`description`) and the engine release the removal took effect in (`removed_in`, stamped by the cut). This block does DOUBLE duty: it is the operator-facing explanation AND the release's proof that the module's absence is intentional (not a broken or incomplete release) — which is what authorizes the update to reconcile the module away rather than refuse. Unlike the append-only, version-keyed `retired_capabilities`, this is CURRENT-STATE and keyed by module-id (one entry per removed module): the update announces it while a deployer still holds the module and this release no longer ships it, so no version-range history is needed. An entry accumulates and is never dropped while any supported upgrader could still hold the module (once `removed_in` is at or below `min_upgradeable_from`, no such upgrader remains and the entry may be pruned). Optional: absent on a release that has removed no module, and on releases cut before this block shipped.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": {
+            "description": "The one plain-language line the update shows the operator — what they could ask the engine for before and no longer can, in operator language (for example 'The engine no longer offers to bring a set-aside note back into search; ask me to search your notes directly instead.'). Authored when the module is removed (via `remove --removal-notice` or by hand); never empty.",
+            "type": "string",
+            "minLength": 1
+          },
+          "removed_in": {
+            "description": "The engine release this removal took effect in, stamped by the release cut when it records the removal. Optional: an entry authored at removal time carries only `description` until the next cut stamps this, so a not-yet-stamped entry is valid.",
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+          }
+        }
+      }
+    },
     "identity": {
       "description": "The identity tier governing how the engine's own guardrails may change. solo: a single gate-holder — a guardrail can never weaken silently, but a weakening can still happen with the operator's explicit consent (the engine acts with the operator's credentials). team: a distinct engine identity holds enforcement-admin, so a guardrail cannot weaken at all. This is per-repository and re-chosen at first-run setup; it is not inherited from a template.",
       "enum": ["solo", "team"]

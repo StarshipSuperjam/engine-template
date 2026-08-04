@@ -852,7 +852,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall"
+          "contract:eADR-0038-memory-transcript-first-recall",
+          "contract:eADR-0039-whole-module-removal-reconcile"
         ]
       },
       "slug": "contract-frontmatter",
@@ -916,7 +917,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall"
+          "contract:eADR-0038-memory-transcript-first-recall",
+          "contract:eADR-0039-whole-module-removal-reconcile"
         ]
       },
       "slug": "contract-shape",
@@ -981,7 +983,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall"
+          "contract:eADR-0038-memory-transcript-first-recall",
+          "contract:eADR-0039-whole-module-removal-reconcile"
         ]
       },
       "slug": "contract-threshold",
@@ -4016,6 +4019,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0039-whole-module-removal-reconcile",
+      "name": ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0039-whole-module-removal-reconcile",
+      "source": {
+        "fingerprint": "sha256:bd996fae657ab200b10c76d1553648f5c12c7e9e455832017c64f2d58af5a75e",
+        "path": ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -5367,7 +5390,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:24120c8cbc500ed703952f2f161ecacbb64501dc74b71a9c7aa623bf88f9eedc",
+        "fingerprint": "sha256:de28e10e8b3bf43c5ed4b48fb1503f94aceb6a27405a513491b3d911475e8371",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -6981,7 +7004,7 @@
       },
       "slug": "demo_599_upgrade_reconcile",
       "source": {
-        "fingerprint": "sha256:427e88084e5877eeba55496c92240a4a93ff5b3c68e92e182c3ec8106c51f92c",
+        "fingerprint": "sha256:c524cbe8facae19731700dae6473b78bde034fc4f312959b78620479b39b9748",
         "path": ".engine/tools/demo_599_upgrade_reconcile.py"
       },
       "status": "active",
@@ -9377,7 +9400,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:acdea982e7932c3055d85e8537c1e7318442a0286c12a42472a556658407fa52",
+        "fingerprint": "sha256:4630934afcb1d00daf7ebb2696e8e85060621d95a6074fe2329c928be0ca7b17",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9913,7 +9936,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:88058e207385e3b2b45ca46467c59605ce9a1166b6884a64e1e67ff0e4b2dd35",
+        "fingerprint": "sha256:29817c9e2b7429cc37e2e3b6d9740402773fb244bc71b25de93603cca0107d56",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -12608,7 +12631,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:a84da64e84ab2a6f51653c6839ca16f28df275b711ea668f4bbdab10159857ac",
+        "fingerprint": "sha256:47f51a68f88950bc30ec6e848d63e1b5ea8b8684878a3511c02b06a90141eece",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12661,7 +12684,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f2593b1b046884a4867710e429bb2988926f45318f7d0290cc0fff6c1a82aa6f",
+        "fingerprint": "sha256:eaf1c0f7c926225c49b1dfcc851e93edf5d951609e01d138865fd62109a03265",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -13184,7 +13207,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:ba715aa5946c5579b82219a32a94a5a5194810fa9f631ab781a90629a631874b",
+        "fingerprint": "sha256:ee25a4f8a887c5a6380f9da731617643f9d92cc4af8418f5b9f0599adbc63a96",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
