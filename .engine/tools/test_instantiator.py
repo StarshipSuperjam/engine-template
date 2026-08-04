@@ -2663,6 +2663,14 @@ class TestIsEngineResumeSignals(unittest.TestCase):
         self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/State/state.json"))
         self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/ENGINE.JSON"))
 
+    def test_state_recognition_matches_core_provides(self):
+        # Drift guard: is_engine_generated_unshipped assumes the engine's state store is flat .json children of
+        # .engine/state/. That mirrors core's manifest provides.state; the shape is re-declared in the predicate
+        # (not derived) so recognition stays tree-independent, so this test couples the two — a manifest change to
+        # provides.state fails here, forcing the predicate to be updated in lockstep.
+        core = next(m for _p, m in module_coherence.discover_manifests() if m.get("id") == "core")
+        self.assertEqual(core.get("provides", {}).get("state"), [".engine/state/*.json"])
+
 
 class TestSharedStateClaudeFenceAware(unittest.TestCase):
     """The CLAUDE.md branch of _shared_state is fence-aware (#234 6b): an already-present engine floor is a
@@ -2692,6 +2700,21 @@ class TestSharedStateClaudeFenceAware(unittest.TestCase):
             with open(p, "wb") as fh:
                 fh.write(b"\xff\xfe\x00bad")
             self.assertEqual(inst._shared_state("CLAUDE.md", p), "unreadable")
+
+    def test_malformed_engine_fence_surfaces_not_silently_resumes(self):
+        # A start marker with no matching end (a prior run aborted mid-write) must read 'unreadable' (surface),
+        # never be silently dropped as a resume — for BOTH root floors. Guards the fence_present/WiringError
+        # branch the AGENTS.md fix introduced (which also tightened CLAUDE.md from a loose substring check).
+        import wiring
+        valid = wiring.fence_apply("# guide\n", inst._FLOOR_FENCE, ["Project status."], style=wiring.MD_FENCE)
+        broken = "\n".join(ln for ln in valid.splitlines() if "END engine-managed block" not in ln) + "\n"
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            with tempfile.TemporaryDirectory() as d:
+                p = os.path.join(d, name)
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(broken)
+                self.assertEqual(inst._shared_state(name, p), "unreadable",
+                                 f"{name}: a half-written engine fence must surface, never silently resume")
 
 
 class TestCollisionClaudeFenceAware(unittest.TestCase):
@@ -3151,6 +3174,28 @@ class TestArrive(unittest.TestCase):
             check = inst.collision_check(root=target, engine_paths=_COLLISION_ENGINE_PATHS)   # no release_root
             paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
             self.assertIn(".github/pull_request_template.md", paths)
+
+    def test_unreadable_github_occupant_surfaces(self):
+        # #754a fail-safe: a .github/ engine occupant the engine cannot READ must surface (never silently dropped
+        # as a resume) — the branch that guards against overwriting an operator file the compare couldn't read.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root ignores file permissions, so chmod 000 cannot make a file unreadable")
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            shipped = self._ship_github_engine_files(release)
+            p = os.path.join(target, ".github", "pull_request_template.md")
+            with open(p, "w") as fh:
+                fh.write(shipped[".github/pull_request_template.md"])   # identical bytes, BUT...
+            os.chmod(p, 0o000)                                          # ...the engine cannot read it
+            try:
+                engine_paths = self._release_engine_paths(release)
+                check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                             release_root=release)
+                paths = {pp for c in check["collisions"] if c["klass"] == 1 for pp in c["paths"]}
+                self.assertIn(".github/pull_request_template.md", paths)
+            finally:
+                os.chmod(p, 0o644)                                      # restore so tempdir cleanup succeeds
 
     def test_resume_recognizes_agents_floor_like_claude(self):
         # #754b: an AGENTS.md already carrying the engine floor fence is a resume (not surfaced), exactly like

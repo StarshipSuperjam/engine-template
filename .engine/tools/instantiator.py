@@ -2774,9 +2774,10 @@ def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) ->
 
 
 # The engine-owned .github/ control-plane artifacts, as glob PATTERNS — the SAME set used to scan the target
-# and (on a resume) the release tree, so the two can never drift. Derived from the exclusive globs (dropping the
-# leading `.engine/**`, which the os.walk below handles) so there is one declaration, not two.
-_GITHUB_ENGINE_GLOBS = _COLLISION_EXCLUSIVE_GLOBS[1:]
+# and (on a resume) the release tree, so the two can never drift. Filtered from the exclusive globs by the
+# .github/ prefix (the other member, `.engine/**`, is handled by the os.walk below) so there is one declaration,
+# not two — a prefix filter, not a positional slice, so reordering _COLLISION_EXCLUSIVE_GLOBS can't break it.
+_GITHUB_ENGINE_GLOBS = tuple(g for g in _COLLISION_EXCLUSIVE_GLOBS if g.startswith(".github/"))
 
 
 def _raw_bytes(path: str):
@@ -2854,9 +2855,8 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
             if os.path.islink(p):                       # #754a: a symlink is the operator's artifact, never a
                 found.add(rel)                          #        byte-match resume — always surface (no traversal)
                 continue
-            tb = _raw_bytes(p)
             rb = _raw_bytes(os.path.join(release_root, rel)) if (release_root and rel in release_github) else None
-            if tb is not None and rb is not None and tb == rb:
+            if rb is not None and _raw_bytes(p) == rb:  # read the target only when a release file exists to match
                 continue                                # #754a: byte-identical to the release engine file → resume
             found.add(rel)                              # byte-different / not-shipped / unreadable → surface
     found = sorted(found)

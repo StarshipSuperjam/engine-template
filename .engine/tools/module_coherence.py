@@ -368,6 +368,11 @@ def is_engine_generated_unshipped(path: str) -> bool:
         return False
     if path == ENGINE_MANIFEST_REL:
         return True
+    # .engine/state/*.json — a flat .json child of the state store. This mirrors core's manifest `provides.state`
+    # glob; the shape is re-declared here (not derived from the manifest) so recognition stays independent of the
+    # target tree, whose manifests are absent/partial when this runs on a brownfield arrival. A drift guard
+    # (test_state_recognition_matches_core_provides) couples this shape to provides.state, so a manifest change
+    # can't silently leave the recognizer out of step — the detector/writer-drift class this change fixed for AGENTS.md.
     parent, _, name = path.rpartition("/")
     return parent == _ENGINE_STATE_DIR and name.endswith(".json")
 
