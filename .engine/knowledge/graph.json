@@ -7089,6 +7089,29 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_760_add_release_tag",
+      "name": ".engine/tools/demo_760_add_release_tag.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_manager"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_760_add_release_tag",
+      "source": {
+        "fingerprint": "sha256:ec72f5f888271d4d417b2a0d82bb6bdc4151676bc996ef161319aaf81f283f02",
+        "path": ".engine/tools/demo_760_add_release_tag.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for issue #760 — `module add` (and `upgrade`) must resolve the engine's recorded",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -8654,7 +8677,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:72bc9d2342279b5a40c362490f650a5ee824e10a9c229cd4291c136df3a9488b",
+        "fingerprint": "sha256:903a4f9a2286ada1b4f29e30820166648c3a7cc6eae2e2a69d8468db7347c40f",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9354,7 +9377,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:ea1d21dc2ed666631953bece4c5fa5a373d0129e8745ca4eeb3ddf35ff17699d",
+        "fingerprint": "sha256:acdea982e7932c3055d85e8537c1e7318442a0286c12a42472a556658407fa52",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12000,7 +12023,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:98f097695c6dfaef83c0bf6a6ea89c41e1e0a3d4da7c9f8dac8c7693187d2c0a",
+        "fingerprint": "sha256:abb589c1c6fb5501ed5b092dd4b1e375b880318416136322e8ef99ad83114988",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12570,6 +12593,7 @@
           "tool:demo_594_rollback_discard",
           "tool:demo_594_upgrade_tail_reexec",
           "tool:demo_599_upgrade_reconcile",
+          "tool:demo_760_add_release_tag",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
@@ -12584,7 +12608,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:a7a46c19c2f2c9b8bf4ae1bc68724b413c92cee7d3653686fb5a899a8cdd172f",
+        "fingerprint": "sha256:a84da64e84ab2a6f51653c6839ca16f28df275b711ea668f4bbdab10159857ac",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

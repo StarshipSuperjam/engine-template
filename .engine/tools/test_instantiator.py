@@ -3570,5 +3570,16 @@ class TestSeedProductVersion(unittest.TestCase):
         self.assertEqual(said, [], "no disclosure on a no-op")
 
 
+class TestUvSyncFrozen(unittest.TestCase):
+    """#853: first-run provisioning must install exactly the committed lock, never re-resolve past it — so
+    `_uv_sync` must pass `--frozen`. Asserts the real argv so a future accidental drop of the flag goes red."""
+
+    def test_uv_sync_passes_frozen(self):
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as run:
+            self.assertTrue(inst._uv_sync("/abs/uv", []))
+        self.assertIn("--frozen", run.call_args[0][0])              # never a bare `uv sync` that can re-resolve
+        self.assertEqual(run.call_args[0][0][:3], ["/abs/uv", "sync", "--frozen"])
+
+
 if __name__ == "__main__":
     unittest.main()

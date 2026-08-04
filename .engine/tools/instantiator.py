@@ -922,13 +922,15 @@ def _install_uv() -> str | None:
 
 
 def _uv_sync(uv_path: str, groups: list) -> bool:
-    """Group-scoped `uv sync` into the engine-namespaced runtime, using the bootstrapped uv by absolute path
-    (mirrors module_manager._resync_tool_runtime; the kept group selection is already written into the
-    committed config by the delete-unselected step, so a plain sync is group-scoped). NEVER system python.
-    Returns True on success, False on any failure (degrade)."""
+    """Group-scoped `uv sync --frozen` into the engine-namespaced runtime, using the bootstrapped uv by
+    absolute path (mirrors module_manager._resync_tool_runtime; the kept group selection is already written
+    into the committed config by the delete-unselected step, so the sync is group-scoped). `--frozen` installs
+    exactly the committed lock and never re-resolves past it, so first-run provisioning can't silently pull a
+    newer version than the lock pins (issue #853). NEVER system python. Returns True on success, False on any
+    failure (degrade)."""
     import subprocess
     try:
-        subprocess.run([uv_path, "sync"], cwd=os.path.join(validate.ROOT, ".engine"),
+        subprocess.run([uv_path, "sync", "--frozen"], cwd=os.path.join(validate.ROOT, ".engine"),
                        check=True, capture_output=True, timeout=600)
         return True
     except Exception:  # noqa: BLE001 — unreachable index / resolution failure → degrade
