@@ -153,6 +153,22 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
                    ".engine/provisioning/readme-seed.md"}
 
+# PRESERVE_DATA — committed per-deployment DATA files that ARE declared in a module's `provides` (so they are
+# engine-OWNED surface) yet hold a value the deployment BINDS that a release must NOT overwrite. This is the
+# OPPOSITE carve-out to OPERATOR_CONFIG above: OPERATOR_CONFIG is preserved *by being outside `provides`*;
+# these stay fully inside `provides` and stay OWNED. So they must NOT be added to any ownership / CODEOWNERS /
+# orphan carve-out (doing so would wrongly read them as product-mergeable and un-own them). The preservation
+# is ONLY on the update overlay's copy leg, which skips them CREATE-IF-ABSENT: a fresh arrival still receives
+# the release placeholder; an upgrade over an already-bound value leaves it untouched (module_manager threads
+# this through every `_overlay_copy_map` consumer, so the merge-time overwrite disclosure stays in lockstep).
+# EXACT repo-relative paths, never a bare name — `.engine/memory-backup/pointer.json` holds the deployment's
+# minted backup namespace (#814's confirmed silent-loss case: the overlay's raw `shutil.copyfile` bypasses the
+# `skip-worktree` mitigation), and its fixture twin `.engine/_fixtures/memory-pointer-public-safety/pointer.json`
+# shares the basename and must NOT be swept in by a loose match. Derived artifacts that merely diverge per
+# deployment (`.engine/knowledge/graph.json`, `.engine/product-spec-matrix.json`) are NOT here — they are
+# REGENERATED post-overlay from the deployment's own tree instead (module_manager.REGENERATED_DERIVED).
+PRESERVE_DATA = {".engine/memory-backup/pointer.json"}
+
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
 # (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index).
