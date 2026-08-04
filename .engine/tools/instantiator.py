@@ -2745,15 +2745,22 @@ def _engine_relpaths(root: str) -> set:
 
 def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) -> bool:
     """Whether a found path inside the engine's OWN corner (.engine/) is the engine's own — a resume of a
-    partial/aborted prior arrival — rather than an operator file. Three signals, in order of completeness:
-    a gitignored throwaway/runtime subtree (a prune-dir name at any depth, or under a PRUNE_PATHS path); a file
-    the OVERLAY itself would place — its relpath is in `release_files`, the release tree's own .engine/ file set,
-    which is the COMPLETE signal on an arrival (the overlay's source IS the release, so module manifests and
-    everything else it carries are recognized, unlike the provides-only `owned` set); else the provides-derived
-    `owned` set (a fallback for a caller with no release tree). Both file signals are EXACT case-sensitive string
-    membership — never a filesystem existence check — so a case-insensitive filesystem can't fold an operator
-    file onto an engine one. The single caller passes only .engine/-prefixed paths, where the operator is not
-    supposed to own anything, so a path-membership resume is sound there (#669)."""
+    partial/aborted prior arrival — rather than an operator file. FOUR signals: a gitignored throwaway/runtime
+    subtree (a prune-dir name at any depth, or under a PRUNE_PATHS path); a file the OVERLAY itself would place —
+    its relpath is in `release_files`, the release tree's own .engine/ file set, the COMPLETE signal on an
+    arrival (the overlay's source IS the release, so module manifests and everything it carries are recognized,
+    unlike the provides-only `owned` set); the provides-derived `owned` set (a fallback for a caller with no
+    release tree); and the engine's own apply-GENERATED-but-unshipped files (the engine manifest and
+    .engine/state/*.json), which sit in NEITHER release_files NOR owned because a release does not carry them
+    (#695). Every signal is EXACT / single-segment case-SENSITIVE membership — never a filesystem existence check
+    and never a cross-'/' glob — so a case-insensitive filesystem can't fold an operator file onto an engine one.
+
+    Operators are NOT barred from .engine/: they author committed files there (OPERATOR_CONFIG, the per-instance
+    eADR stream `.engine/contracts/instance/`, an ad-hoc note), and those must still surface as collisions. The
+    signals hold that line by RECOGNIZING only what the engine positively ships or generates — an operator's
+    novel path is in none of them — and the generated-unshipped signal additionally defers to the
+    operator/deployment carve-out (`is_engine_generated_unshipped`), so a resume never silently drops operator
+    content (#754/#695 plan review corrected the earlier "operator owns nothing under .engine/" premise)."""
     segments = rel.split("/")
     if any(seg in _RESUME_PRUNE_DIRS for seg in segments):
         return True
@@ -2761,23 +2768,69 @@ def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) ->
         return True
     if release_files is not None and rel in release_files:
         return True
-    return rel in owned
+    if rel in owned:
+        return True
+    return module_coherence.is_engine_generated_unshipped(rel)   # #695: the engine's own generated-but-unshipped files
 
 
-def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=None) -> list:
+# The engine-owned .github/ control-plane artifacts, as glob PATTERNS — the SAME set used to scan the target
+# and (on a resume) the release tree, so the two can never drift. Derived from the exclusive globs (dropping the
+# leading `.engine/**`, which the os.walk below handles) so there is one declaration, not two.
+_GITHUB_ENGINE_GLOBS = _COLLISION_EXCLUSIVE_GLOBS[1:]
+
+
+def _raw_bytes(path: str):
+    """The file's raw bytes, or None when it can't be read — so a read error SURFACES the overlap (never a
+    silent 'equal'). Raw bytes, not decoded text: the .github/ resume signal is byte-IDENTITY, and an
+    undecodable file must not fold to empty or match."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def _release_github_engine_relpaths(release_root: str | None) -> set:
+    """The POSIX relpaths of the engine-owned .github/ artifacts the release actually ships — the exact
+    (case-sensitive) set a resumed arrival may byte-match a target occupant against. Empty when there is no
+    release tree, or it carries none of them (a partial arrival that stopped before the .github/ overlay), so
+    the caller then surfaces every .github/ occupant — the safe fallback (#754a)."""
+    import glob as _glob
+    out: set = set()
+    if not release_root:
+        return out
+    for pattern in _GITHUB_ENGINE_GLOBS:
+        for p in _glob.glob(os.path.join(release_root, pattern)):
+            if os.path.isfile(p) and not os.path.islink(p):   # a real release file to compare bytes against
+                out.add(os.path.relpath(p, release_root).replace(os.sep, "/"))
+    return out
+
+
+def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=None, release_root=None) -> list:
     """Class 1 — product files/dirs/symlinks sitting at an engine-exclusive path (the engine would replace
     them); lists the concrete occupants. The engine's own corner (.engine/) is WALKED with os.walk, NOT a
     `**` glob: on Python 3.9 a `**` glob silently skips dot-prefixed entries (a hidden-only product .engine/
     would escape) and would follow symlink loops — os.walk does neither (followlinks=False). The named
     .github artifacts (no hidden names) use a plain glob.
 
-    RESUME (#669): a partial/aborted prior arrival leaves the engine's own overlay and its gitignored
-    .engine/.venv on disk; re-running must not read those back as an enormous operator collision. A found
-    path inside .engine/ is DROPPED (a resume, like class-2's engine-fence detection) when `_is_engine_resume`
-    says it is engine-owned or a throwaway/runtime subtree. The drop is SCOPED to .engine/ deliberately: a
-    .github/ artifact (pull_request_template.md, ISSUE_TEMPLATE/*.md) may be the OPERATOR's own file, and path
-    membership cannot tell a resume from a real collision there — so those always surface (never silently
-    overwritten). The whole #669 flood lives under .engine/, so .engine/-scoping clears it."""
+    RESUME (#669, #695): a partial/aborted prior arrival leaves the engine's own overlay (and its gitignored
+    .engine/.venv, and the files it GENERATED — the manifest, .engine/state/*.json) on disk; re-running must
+    not read those back as an operator collision. A found path inside .engine/ is DROPPED when `_is_engine_resume`
+    says it is engine-owned, engine-generated, or a throwaway/runtime subtree.
+
+    .github/ RESUME (#754): the engine also overlays .github/ control-plane files (engine-*.yml, the PR and issue
+    templates). Path membership alone cannot tell an operator's own .github/ file from a resume there — so
+    recognition is BYTE-IDENTITY against the release, the stronger signal: a .github/ occupant is dropped ONLY
+    when its bytes exactly match the engine file the release ships at that same relpath (the overlay would rewrite
+    it unchanged, so no operator content can be lost). Everything else SURFACES — a byte-different file
+    (operator-edited, or an older release's copy), a file the release does not ship (`release_root` absent, or a
+    partial arrival that stopped before the .github/ overlay), an unreadable file, and — always — a SYMLINK, whose
+    artifact is the link itself (byte-matching its target would destroy that intent and could write out of tree).
+    Membership is EXACT case-sensitive relpath, never a reconstructed-path existence check, so a case-insensitive
+    filesystem can't fold an operator file onto an engine one (the case-fold trap of 47f237c). This NARROWS — never
+    widens — what the operator is asked about: the same "surface, never silently overwrite" posture as before, now
+    able to recognize the engine's own byte-identical file as the resume it is (this overturns the earlier
+    "those always surface" rule, deliberately and only for the provably-lossless byte-identical case)."""
     import glob as _glob
     owned = set(engine_paths or ())
     found = set()
@@ -2790,13 +2843,22 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
                 p = os.path.join(dirpath, name)
                 if os.path.isfile(p) or os.path.islink(p):   # files + symlinked dirs; real subdirs skipped
                     rel = os.path.relpath(p, root).replace(os.sep, "/")
-                    if not _is_engine_resume(rel, owned, release_files):  # #669: skip the engine's own partial overlay
+                    if not _is_engine_resume(rel, owned, release_files):  # #669/#695: skip the engine's own output
                         found.add(rel)
-    for pattern in (".github/workflows/engine-*.yml", ".github/pull_request_template.md",
-                    ".github/ISSUE_TEMPLATE/*.md"):
+    release_github = _release_github_engine_relpaths(release_root)
+    for pattern in _GITHUB_ENGINE_GLOBS:
         for p in _glob.glob(os.path.join(root, pattern)):
-            if os.path.isfile(p) or os.path.islink(p):
-                found.add(os.path.relpath(p, root).replace(os.sep, "/"))
+            if not (os.path.isfile(p) or os.path.islink(p)):
+                continue
+            rel = os.path.relpath(p, root).replace(os.sep, "/")
+            if os.path.islink(p):                       # #754a: a symlink is the operator's artifact, never a
+                found.add(rel)                          #        byte-match resume — always surface (no traversal)
+                continue
+            tb = _raw_bytes(p)
+            rb = _raw_bytes(os.path.join(release_root, rel)) if (release_root and rel in release_github) else None
+            if tb is not None and rb is not None and tb == rb:
+                continue                                # #754a: byte-identical to the release engine file → resume
+            found.add(rel)                              # byte-different / not-shipped / unreadable → surface
     found = sorted(found)
     return [_collision(1, "collision-exclusive", found, copy)] if found else []
 
@@ -2829,17 +2891,24 @@ def _shared_state(rel: str, path: str) -> str:
         if not data:
             return "empty"
         return "resume" if _json_has_engine_entry(rel, data) else "additive"
-    if rel == "CLAUDE.md":
-        # Fence-aware: the engine's CLAUDE.md section shape IS the `floor` fence (wiring.MD_FENCE, the
-        # HTML-comment style, #234). An already-present engine floor is a 'resume' (no flag); a
-        # pre-existing project guide with no engine floor is 'additive' (the engine inserts its keyed section
-        # and keeps the rest). Mirrors the .gitignore branch below, but with the Markdown begin-token.
+    if rel in (_ROOT_CLAUDE_REL, _ROOT_AGENTS_REL):
+        # Fence-aware, for BOTH root instruction floors (CLAUDE.md and its Codex sibling AGENTS.md, #754): the
+        # engine's section IS the `floor` fence (wiring.MD_FENCE, the HTML-comment style, #234). An already-present
+        # engine floor is a 'resume' (no flag); a pre-existing project guide with no engine floor is 'additive'
+        # (the engine inserts its keyed section and keeps the rest). Detection uses the SAME tight fence check the
+        # writer uses (_insert_floor's wiring.fence_present(_FLOOR_FENCE, MD_FENCE)), so detector and writer agree
+        # on what counts as an already-applied floor — AGENTS.md was previously mis-read here (it fell through to
+        # the non-Markdown fence token below and always read 'additive', re-surfacing on every resume, #754). A
+        # malformed local fence is 'unreadable' rather than a crash (mirrors _insert_floor's WiringError handling).
         text = _read_text_opt(path)
         if text is None:
             return "unreadable"
         if not text.strip():
             return "empty"
-        return "resume" if wiring._MD_FENCE_BEGIN_TOKEN in text else "additive"
+        try:
+            return "resume" if wiring.fence_present(text, _FLOOR_FENCE, style=wiring.MD_FENCE) else "additive"
+        except wiring.WiringError:
+            return "unreadable"
     text = _read_text_opt(path)                         # fenced text (.gitignore)
     if text is None:
         return "unreadable"
@@ -2926,7 +2995,7 @@ def collision_check(*, root=None, engine_paths=None, copy=None, release_root=Non
     # The release's own .engine/ file set (the concrete overlay source) — the COMPLETE resume signal for class-1,
     # exact-string so a case-insensitive filesystem can't fold an operator file onto an engine one.
     release_files = _engine_relpaths(release_root) if release_root else None
-    collisions = (_class1_exclusive(base, copy, engine_paths, release_files) + _class2_shared(base, copy)
+    collisions = (_class1_exclusive(base, copy, engine_paths, release_files, release_root) + _class2_shared(base, copy)
                   + _class3_codeowners(base, engine_paths, copy))
     return {"collisions": collisions, "clean": not collisions,
             "checked": {"exclusive_globs": len(_COLLISION_EXCLUSIVE_GLOBS),

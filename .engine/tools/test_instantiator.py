@@ -2627,6 +2627,43 @@ class TestCollisionCli(unittest.TestCase):
                       "the bare verb short-circuits read-only here, never self-flagging the engine's own files")
 
 
+class TestIsEngineResumeSignals(unittest.TestCase):
+    """Direct coverage of _is_engine_resume's signals (previously exercised only transitively through
+    collision_check) and the narrow #695 generated-unshipped predicate it leans on."""
+    def test_generated_unshipped_recognizes_manifest_and_state(self):
+        self.assertTrue(module_coherence.is_engine_generated_unshipped(".engine/engine.json"))
+        self.assertTrue(module_coherence.is_engine_generated_unshipped(".engine/state/state.json"))
+        self.assertTrue(module_coherence.is_engine_generated_unshipped(".engine/state/anything.json"))
+
+    def test_generated_unshipped_is_single_segment_and_typed(self):
+        # SINGLE-segment (glob semantics, not fnmatch's cross-'/') and .json only — a nested path or a non-json
+        # file under .engine/state/ is NOT recognized.
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/state/sub/deep.json"))
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/state/notes.txt"))
+
+    def test_generated_unshipped_is_narrow_and_defers_to_operator(self):
+        # A broad provides-glob path is NOT recognized (proves the narrow scope), and operator/deployment
+        # content is never recognized.
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/knowledge/x.json"))
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/contracts/instance/0001.md"))
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/operator-overrides.json"))
+
+    def test_each_resume_signal_fires_independently(self):
+        owned = {".engine/tools/boot.py"}
+        release = {".engine/modules/core/manifest.json"}
+        self.assertTrue(inst._is_engine_resume(".engine/.venv/lib/x.py", owned))                       # prune dir
+        self.assertTrue(inst._is_engine_resume(".engine/modules/core/manifest.json", owned, release))  # release set
+        self.assertTrue(inst._is_engine_resume(".engine/tools/boot.py", owned))                        # owned set
+        self.assertTrue(inst._is_engine_resume(".engine/engine.json", owned))                          # generated
+        self.assertFalse(inst._is_engine_resume(".engine/knowledge/mine.json", owned))   # operator at a glob path
+
+    def test_resume_is_case_sensitive_for_the_generated_signal(self):
+        # The generated-unshipped signal is case-SENSITIVE (never fnmatch's case-fold), so an odd-cased operator
+        # file near the engine's state store is not folded onto it.
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/State/state.json"))
+        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/ENGINE.JSON"))
+
+
 class TestSharedStateClaudeFenceAware(unittest.TestCase):
     """The CLAUDE.md branch of _shared_state is fence-aware (#234 6b): an already-present engine floor is a
     'resume' (no flag), a pre-existing project guide is 'additive'."""
@@ -2982,6 +3019,207 @@ class TestArrive(unittest.TestCase):
             self.assertNotIn(".engine/modules/core/manifest.json", engine_paths)   # provides-set MISSES it...
             self.assertNotIn(".engine/modules/core/manifest.json", paths)          # ...yet it's resume-dropped
             self.assertFalse(any(p.startswith((".engine/.venv/", ".engine/.uv/")) for p in paths))
+
+    # --- resume recognition of the engine's OWN partial output (#754 / #695) ---
+
+    def _release_engine_paths(self, release):
+        """The provides-derived owned set, computed against the RELEASE tree exactly as arrive() does."""
+        with inst._redirect_root(release):
+            return module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+
+    def _ship_github_engine_files(self, release):
+        """Plant the engine .github/ control-plane files the overlay would place — the release fixture omits
+        them, so the #754a byte-compare needs a release side to match against (a real release ships these via
+        FOUNDATION_CODE). Returns {relpath: bytes-as-str} for the caller to mirror onto the target."""
+        files = {".github/workflows/engine-ci.yml": "name: engine-ci\non: [pull_request]\n",
+                 ".github/pull_request_template.md": "## Purpose\n\n- why\n",
+                 ".github/ISSUE_TEMPLATE/bug.md": "---\nname: Bug\n---\n"}
+        for rel, body in files.items():
+            p = os.path.join(release, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write(body)
+        return files
+
+    def test_resume_recognizes_generated_unshipped_engine_files(self):
+        # #695: the engine's OWN apply-generated files a release does NOT ship (.engine/engine.json,
+        # .engine/state/*.json) must read back as a resume, not a collision, on re-entry.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            for rel, body in ((".engine/engine.json", '{"engine": "test"}\n'),
+                              (".engine/state/state.json", '{"cursor": 0}\n')):
+                p = os.path.join(target, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write(body)
+            engine_paths = self._release_engine_paths(release)
+            self.assertNotIn(".engine/engine.json", engine_paths)   # not shipped → not in the owned set...
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertNotIn(".engine/engine.json", paths)          # ...yet recognized by the #695 signal
+            self.assertNotIn(".engine/state/state.json", paths)
+
+    def test_resume_still_surfaces_operator_files_under_engine(self):
+        # #695 safety: the NARROW generated-unshipped signal must not drop operator/deployment content under
+        # .engine/ — a deployment eADR and an operator file at a provides-glob path both still surface (the
+        # broad-pattern approach the plan review rejected would have silently dropped these).
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            for rel in (".engine/contracts/instance/0001.md",   # deployment eADR stream (DEPLOYMENT_CONTRACTS)
+                        ".engine/knowledge/mine.json"):          # operator file at a provides-glob path
+                p = os.path.join(target, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write("operator content\n")
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".engine/contracts/instance/0001.md", paths)
+            self.assertIn(".engine/knowledge/mine.json", paths)
+
+    def test_resume_recognizes_release_identical_github_files(self):
+        # #754a: a .github/ engine file whose bytes exactly match the release the arrival would overlay is the
+        # engine's own — recognized as a resume, not surfaced.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            shipped = self._ship_github_engine_files(release)
+            for rel, body in shipped.items():                   # the partial arrival wrote them identically
+                p = os.path.join(target, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write(body)
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            for rel in shipped:
+                self.assertNotIn(rel, paths, f"{rel} is byte-identical to the release → a resume")
+
+    def test_resume_surfaces_modified_and_non_release_github_files(self):
+        # #754a: a byte-DIFFERENT .github/ file (operator-edited) surfaces, and the byte-identity gate requires
+        # EXACT relpath membership — a file whose bytes match a DIFFERENT release path is not silently dropped.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            shipped = self._ship_github_engine_files(release)
+            with open(os.path.join(target, ".github", "pull_request_template.md"), "w") as fh:
+                fh.write("## Purpose\n\nOUR OWN checklist\n")         # operator-edited: byte-different
+            wf = os.path.join(target, ".github", "workflows")
+            os.makedirs(wf, exist_ok=True)
+            with open(os.path.join(wf, "engine-extra.yml"), "w") as fh:
+                fh.write(shipped[".github/pull_request_template.md"])  # same bytes, different UNSHIPPED path
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".github/pull_request_template.md", paths)
+            self.assertIn(".github/workflows/engine-extra.yml", paths)
+
+    def test_resume_always_surfaces_a_github_symlink(self):
+        # #754a: a .github/ occupant that is a SYMLINK is the operator's artifact (the link), never a byte-match
+        # resume — replacing it would destroy intent and could write out of tree. It surfaces even when the
+        # link's content matches the release byte-for-byte.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            shipped = self._ship_github_engine_files(release)
+            wf = os.path.join(target, ".github", "workflows")
+            os.makedirs(wf, exist_ok=True)
+            real = os.path.join(d, "elsewhere.yml")
+            with open(real, "w") as fh:
+                fh.write(shipped[".github/workflows/engine-ci.yml"])   # identical content, but reached via a link
+            os.symlink(real, os.path.join(wf, "engine-ci.yml"))
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".github/workflows/engine-ci.yml", paths)
+
+    def test_github_byte_recognition_requires_a_release_tree(self):
+        # Back-compat: with no release tree (release_root=None — the collision demo / surface-only callers),
+        # every .github/ engine occupant surfaces exactly as before, no byte-compare.
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "p")
+            os.makedirs(target); inst._build_arrival_product(target)
+            with open(os.path.join(target, ".github", "pull_request_template.md"), "w") as fh:
+                fh.write("anything\n")
+            check = inst.collision_check(root=target, engine_paths=_COLLISION_ENGINE_PATHS)   # no release_root
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".github/pull_request_template.md", paths)
+
+    def test_resume_recognizes_agents_floor_like_claude(self):
+        # #754b: an AGENTS.md already carrying the engine floor fence is a resume (not surfaced), exactly like
+        # CLAUDE.md — previously it fell through to the wrong fence token and re-surfaced every resume.
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            with open(os.path.join(target, "AGENTS.md"), "w") as fh:
+                fh.write(wiring.fence_apply("# Codex guide\n", inst._FLOOR_FENCE, ["Project status."],
+                                            style=wiring.MD_FENCE))
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            shared = {p for c in check["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertNotIn("AGENTS.md", shared)
+
+    def test_operator_agents_without_floor_still_surfaces(self):
+        # #754b: an AGENTS.md that is the operator's own guide with no engine floor still surfaces as additive
+        # (the engine inserts its keyed section, keeping the rest) — recognition is the floor fence, not presence.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            with open(os.path.join(target, "AGENTS.md"), "w") as fh:
+                fh.write("# Our Codex guide\nNo engine floor here.\n")
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            shared = {p for c in check["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertIn("AGENTS.md", shared)
+
+    def test_stop_after_verify_then_rerun_reports_clean_for_engine_output(self):
+        # #754/#695 end-to-end: model a first arrival that stopped after overlay+verify (its own output left on
+        # disk), then re-run the read-only collision check. Every file the arrival itself produced — the .engine/
+        # overlay, its generated engine.json + state, the engine .github/ control-plane files, and the inserted
+        # CLAUDE.md/AGENTS.md floors — reads back as a resume; only a genuine operator overlap still surfaces.
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            shipped = self._ship_github_engine_files(release)
+            shutil.copytree(os.path.join(release, ".engine"), os.path.join(target, ".engine"))   # the overlay
+            os.makedirs(os.path.join(target, ".engine", "state"), exist_ok=True)
+            with open(os.path.join(target, ".engine", "engine.json"), "w") as fh:
+                fh.write('{"engine": "test"}\n')                        # generated-but-unshipped
+            with open(os.path.join(target, ".engine", "state", "state.json"), "w") as fh:
+                fh.write('{"cursor": 0}\n')
+            for rel, body in shipped.items():                           # the engine .github/ files, identical
+                p = os.path.join(target, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write(body)
+            for name in ("CLAUDE.md", "AGENTS.md"):                     # the inserted floors
+                with open(os.path.join(target, name), "w") as fh:
+                    fh.write(wiring.fence_apply("# guide\n", inst._FLOOR_FENCE, ["Project status."],
+                                                style=wiring.MD_FENCE))
+            with open(os.path.join(target, ".github", "workflows", "engine-ci.yml"), "a") as fh:
+                fh.write("# the operator's own edit\n")                 # a genuine operator overlap: byte-different
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            class1 = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            shared = {p for c in check["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            for engine_own in (".engine/engine.json", ".engine/state/state.json",
+                               ".github/pull_request_template.md", ".github/ISSUE_TEMPLATE/bug.md"):
+                self.assertNotIn(engine_own, class1, f"{engine_own} is the engine's own output → a resume")
+            self.assertNotIn("AGENTS.md", shared)
+            self.assertNotIn("CLAUDE.md", shared)
+            self.assertIn(".github/workflows/engine-ci.yml", class1)    # the operator's edit DOES surface
 
     def test_arrival_binds_checkless_protection_end_to_end(self):
         # #673: the checkless flag must thread arrive -> apply -> _apply_control_plane -> ControlPlane, so the

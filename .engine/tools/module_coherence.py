@@ -341,6 +341,37 @@ def is_deployment_private(path: str) -> bool:
     return path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS))
 
 
+# The .engine/ subdirectory holding the engine's own accreted per-instance state — written fresh at first-run
+# setup, never carried in a release seed (see is_engine_generated_unshipped).
+_ENGINE_STATE_DIR = ".engine/state"
+
+
+def is_engine_generated_unshipped(path: str) -> bool:
+    """True iff `path` is one of the engine's OWN apply-generated .engine/ files that a freshly cut release does
+    NOT ship — so it falls outside both the release file set and the release-globbed `engine_owned_paths`, and a
+    resumed brownfield arrival would otherwise read the engine's own output back as a project collision (#695).
+    Two families, each engine-owned by declaration yet unshipped: the engine manifest (ENGINE_MANIFEST_REL — a
+    FOUNDATION_INFRA member, but _FOUNDATION_KEYED-excluded from the overlay and version-bumped in place, so
+    never copied from a release), and the per-instance state store (.engine/state/*.json — core's `provides.state`,
+    written by the first-run state seed, not in the release seed).
+
+    Recognition is EXACT for the manifest and SINGLE-SEGMENT for state (a direct .json child of .engine/state/,
+    never a nested path), and CASE-SENSITIVE throughout — deliberately NOT fnmatch, whose `*` crosses `/` and
+    whose match case-folds on a case-insensitive filesystem, either of which would fold an operator file onto an
+    engine one (the case-fold trap the resume recognizer already guards against). It defers to the
+    operator/deployment-private carve-out FIRST, so an operator file that happens to sit under one of these
+    namespaces still surfaces. Scoped this narrowly — to these two engine-generated families, NOT to every
+    `provides` glob — precisely because operators DO author committed files under .engine/ (OPERATOR_CONFIG,
+    DEPLOYMENT_CONTRACTS): a broad provides-pattern match would silently drop them, whereas these two families
+    never hold operator content."""
+    if is_deployment_private(path):
+        return False
+    if path == ENGINE_MANIFEST_REL:
+        return True
+    parent, _, name = path.rpartition("/")
+    return parent == _ENGINE_STATE_DIR and name.endswith(".json")
+
+
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
     (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), the committed-but-non-surface
