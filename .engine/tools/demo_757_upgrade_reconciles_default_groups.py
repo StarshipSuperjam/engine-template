@@ -156,6 +156,8 @@ def main() -> int:
         print(f"  the gate carried uv-group-drift and hard-flagged it: {drift_finding}")
         print(f"  the update REFUSED cleanly (no PR opened):     {refused}")
         print(f"  the refusal names the dependency-group cause:  {reason_names_groups}")
+        if not failed_open:
+            failures.append("NEGATIVE: the reconcile did not fail open on the multi-line array (the setup is wrong)")
         if not drift_finding:
             failures.append("NEGATIVE: the structural gate did NOT carry/flag uv-group-drift on the drifting tree")
         if not refused:

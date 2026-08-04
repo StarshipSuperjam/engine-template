@@ -218,6 +218,16 @@ class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
         self.assertIn("now installed: memory-semantic-recall", body)        # the delta vs the operator's prior
         self.assertIn(".engine/pyproject.toml", body)                       # Files of interest names the changed file
 
+    def test_pr_body_discloses_a_removed_group_the_direction_757_reported(self):
+        # #757's OWN field direction: a group dropped from the selection (a declined module the release listed)
+        # must render "no longer installed:" — the operator-facing supply-chain disclosure for the reported case.
+        result = {"groups_changed": True, "groups_before": ["core", "memory-semantic-recall"],
+                  "groups_after": ["core"]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("no longer installed: memory-semantic-recall", body)
+        self.assertIn("the full selection is now: core", body)
+        self.assertIn("changes which modules' Python dependencies", body)   # skimmable summary still fires
+
     def test_pr_body_omits_the_group_lines_when_selection_unchanged(self):
         # The common #757 case: the reconcile restored the operator's own selection (final == prior), so the
         # pyproject default-groups line has ZERO net change in the opened PR — the body must NOT announce a change

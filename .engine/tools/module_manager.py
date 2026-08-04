@@ -1489,11 +1489,13 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         scope += [f"- {r}" for r in left]
 
     # Tool-runtime dependency-group change (#757) — surfaced ONLY when the operator's committed selection
-    # genuinely changed across this update (`groups_changed` = the final selection differs from the TRUE
-    # pre-overlay committed value, so it is exactly what a git diff of the opened pull request shows — never the
-    # transient value the overlay wrote moments earlier). It decides which modules' Python dependencies the
-    # engine installs, a supply-chain-relevant change the operator must see at the merge. Shown as a delta
-    # against what the deployment had BEFORE the update, plus the full resulting selection.
+    # genuinely changed across this update (`groups_changed` = the final selection differs, AS A SET, from the
+    # deployment's TRUE pre-overlay committed value — the operator's real prior, not the transient value the
+    # overlay wrote moments earlier). It decides which modules' Python dependencies the engine installs, a
+    # supply-chain-relevant change the operator must see at the merge. A genuine add/remove is always backed by a
+    # real diff line; a pure reorder of an already non-canonical committed line installs the identical set and is
+    # deliberately not announced (and is unreachable in normal operation, where every write path emits sorted).
+    # Shown as a delta against what the deployment had BEFORE the update, plus the full resulting selection.
     if result.get("groups_changed"):
         before = result.get("groups_before") or []
         after = result.get("groups_after") or []
@@ -2159,10 +2161,11 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # release array, an unreadable file) — surfaced as a note, never a crash; the structural gate below now
     # carries `uv-group-drift`, so a fail-open that leaves real drift is REFUSED cleanly rather than opening a
     # red pull request. `groups_before` is the deployment's TRUE pre-overlay committed selection (captured in
-    # phase 1 BEFORE the overlay clobbered pyproject and threaded in here — the overlay's transient value is NOT
-    # a valid baseline), so `groups_changed` is the operator-facing NET change the opened pull request's diff
-    # actually shows: it is the disclosure signal, never the mere fact that a byte was rewritten this run (which
-    # fires even when the reconcile just restores the operator's prior value against the overlay).
+    # phase 1 before the overlay and threaded in here — the overlay's transient value is NOT a valid baseline;
+    # like `old_owned`, a prior interrupted run that already overlaid the tree is the one bounded exception, and
+    # it fails safe — see the capture site). So `groups_changed` is the operator-facing NET change the opened
+    # pull request's diff shows for a genuine change: it is the disclosure signal, never the mere fact that a byte
+    # was rewritten this run (which fires even when the reconcile just restores the operator's prior selection).
     try:
         tail["groups_after"] = derive_uv_groups()
         _maybe_rewrite_default_groups(tail["groups_after"])   # write the reconciled selection (close the drift)
