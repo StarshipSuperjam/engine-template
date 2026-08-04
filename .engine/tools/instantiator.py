@@ -3060,12 +3060,29 @@ def _preflight(version_info) -> str | None:
     return None
 
 
+def _arrival_index_gate() -> list:
+    """Arrival's pre-open drift gate: the SAME knowledge-graph + self-map drift checks CI enforces, run
+    IN-PROCESS so they hold on the Python 3.9 arrival floor (arrive() never re-execs into the 3.11 venv)
+    and under _redirect_root (both check() calls resolve their committed path at call time). Only the
+    indexes the tree actually carries are gated, mirroring _regen_indexes — never fabricate a verdict for
+    an index a minimal/brownfield tree does not ship. Returns a findings list (each an in-sync `note` or a
+    drift `hard`); arrive() refuses cleanly on any hard one. Deliberately NOT the upgrade tail's
+    _reconcile_gate: that subset shells out to codex-provider-parity, which imports tomllib and so is fatal
+    on the 3.9 floor #751 targets; structural coherence is already gated by verify() and retire()."""
+    findings = []
+    if os.path.isfile(knowledge_gen.GRAPH_PATH):
+        findings.append(knowledge_gen.check(path=knowledge_gen.GRAPH_PATH))
+    if os.path.isfile(self_map.SELF_MAP_PATH):
+        findings.append(self_map.check())
+    return findings
+
+
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
            keep=None, declined=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
-           control_repo=None, control_token=None, version_info=None) -> dict:
+           control_repo=None, control_token=None, version_info=None, gate=None) -> dict:
     """BROWNFIELD ARRIVAL (#234) — overlay the engine onto a LIVE
     product tree and run the SAME instantiator, with the collision check as the one brownfield-only gate. The
     engine isn't on the target yet, so this runs from the EXTRACTED release (`release_tree`, the documented
@@ -3100,7 +3117,7 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                          + ", ".join(sorted(contradictory)))
     result = {"proceeded": False, "surfaced": False, "stopped_on": None, "reason": None, "collisions": [],
               "overlaid": [], "floor": None, "agents_floor": None, "tier": None, "team": None, "steps": [],
-              "pr": None}
+              "pr": None, "gate_findings": []}
     with _redirect_root(target_root):
         # (0) PREFLIGHT — before any read or write, on the orchestrator's TRUE floor (>=3.9). Fail fast and
         # safe on a genuinely-unsupported interpreter so a runtime mismatch can never leave a partial install
@@ -3209,6 +3226,38 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             return {**result, "proceeded": True,
                     "reason": "the engine is installed but a consistency check did not pass, so the one-time "
                               "setup files were left in place; fix the cause and run the arrival again."}
+        # (6b) Regenerate the deployment-dependent indexes on the FINAL tree — AFTER retire() has projected
+        # the deployed set and deleted the first-run tools — then GATE on their drift before opening the PR.
+        # The overlay ships the release's CONSTRUCTION-shape graph/self-map, and the apply-time substrate
+        # re-derive (_apply_substrates) ran BEFORE retire, so without this the committed knowledge graph is
+        # stale for the deployed shape and CI rejects the arrival's own PR (#752). Regen reuses the upgrade
+        # tail's _regen_indexes (in-process, honours _redirect_root, covers the product-spec-matrix too). The
+        # gate is IN-PROCESS (_arrival_index_gate) — the same knowledge-graph + self-map drift CI enforces,
+        # but NOT the upgrade tail's _reconcile_gate: that subset shells out to codex-provider-parity, which
+        # imports tomllib and so is fatal on the 3.9 arrival floor arrive() runs on. Structural coherence is
+        # already gated by verify()'s hard check and retire()'s own precondition.
+        try:
+            module_manager._regen_indexes()
+            gate_findings = (gate or _arrival_index_gate)()
+        except Exception as exc:  # noqa: BLE001 — surfaced-never-a-crash: the gate re-derives the graph/self-map
+            # (canonical_graph/canonical_map), and _regen_indexes swallows only its OWN generator failures, so an
+            # unexpected raise here must degrade to a clean refusal, never escape arrive() as a traceback.
+            gate_findings = [validate.finding(
+                "hard", f"the engine could not check its own generated knowledge index "
+                        f"({type(exc).__name__}: {exc})")]
+        result["gate_findings"] = gate_findings
+        hard = [f for f in gate_findings if f.get("severity") == "hard"]
+        if hard:
+            for f in hard:
+                where = (f.get("location") or {}).get("file")   # name WHICH index drifted, not the generic
+                say("  - inconsistent engine index: " + (where or "the generated knowledge index"))
+            return {**result, "proceeded": True,
+                    "reason": "the engine is installed, but a check of its own generated knowledge index found "
+                              "it inconsistent with the deployed sources, so the arrival was NOT opened for "
+                              "review and nothing was merged. This is an engine defect to report — the sources "
+                              "and the generated index disagree, and re-running the arrival regenerates them the "
+                              "same way, so it will not clear on its own. The setup files were left in place; "
+                              "nothing here needs a hand-commit."}
         # (7) Land the arrival as a reviewed pull request on the TARGET (the merge wall; the operator approves).
         if opener is not None:
             # `Feature:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): arriving in a

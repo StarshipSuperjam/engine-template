@@ -804,14 +804,36 @@ def _codex_config_toml_guard(text: str, when: str):
                           f"The engine made no change.")
 
 
+def _codex_config_is_engine_owned(text: str) -> bool:
+    """True iff a NON-EMPTY .codex/config.toml consists ENTIRELY of well-formed engine-managed fences
+    (any number) plus whitespace — the engine's OWN prior output, with no operator bytes. Consulted ONLY
+    on the 3.9 floor (tomllib is None) before the fail-open skip: on an all-engine-fence file, splicing
+    or removing a fenced block via fence_apply/fence_reverse is a deterministic text transform that needs
+    no TOML validation to stay safe, so the engine may proceed. ANY non-fence byte — or a malformed fence,
+    which _applied_fence_ids skips so its bytes survive the strip — leaves the remainder non-empty → False
+    → the caller still skips loud and byte-identical (the never-touch-an-operator-config invariant); a
+    badly-interleaved fence instead makes fence_reverse raise WiringError, which codex_mcp_apply/reverse
+    catch as a no-write _fail — the same fail-safe outcome (config untouched). Pure
+    text: it reads the already-read buffer, not the disk. This is what lets a SECOND engine codex-mcp wire
+    land on the config the FIRST wire just created, instead of mistaking it for pre-existing operator
+    config (#751); it also fixes the same skip on the module-add path."""
+    ids = _applied_fence_ids(CODEX_CONFIG_PATH, text=text)
+    if not ids:
+        return False
+    remainder = text
+    for fid in ids:
+        remainder = fence_reverse(remainder, fid)
+    return remainder.strip() == ""
+
+
 def codex_mcp_apply(directive: dict) -> dict:
     try:
         name = directive["name"]
         _validate_mcp_name(name)
         body = render_codex_mcp_body(name, directive["definition"])
         text = _read_text(CODEX_CONFIG_PATH)
-        if tomllib is None and text.strip() != "":
-            return _fail(_CODEX_NO_TOMLLIB_APPLY, CODEX_CONFIG_PATH)  # never blind-write a config we can't read
+        if tomllib is None and text.strip() != "" and not _codex_config_is_engine_owned(text):
+            return _fail(_CODEX_NO_TOMLLIB_APPLY, CODEX_CONFIG_PATH)  # never blind-write an OPERATOR config we can't read
         _codex_config_toml_guard(text, "so the engine will not edit it")
         new = fence_apply(text, name, body)
         _codex_config_toml_guard(new, "after this change, so the change was not written")
@@ -831,8 +853,8 @@ def codex_mcp_reverse(directive: dict) -> dict:
         name = directive["name"]
         _validate_mcp_name(name)
         text = _read_text(CODEX_CONFIG_PATH)
-        if tomllib is None and text.strip() != "":
-            return _fail(_CODEX_NO_TOMLLIB_REVERSE, CODEX_CONFIG_PATH)  # never blind-write a config we can't read
+        if tomllib is None and text.strip() != "" and not _codex_config_is_engine_owned(text):
+            return _fail(_CODEX_NO_TOMLLIB_REVERSE, CODEX_CONFIG_PATH)  # never blind-write an OPERATOR config we can't read
         _codex_config_toml_guard(text, "so the engine will not edit it")
         new = fence_reverse(text, name)
         _codex_config_toml_guard(new, "after this change, so the change was not written")
@@ -989,17 +1011,19 @@ def declared_wire_identity(directive: dict):
     return None  # permission / ontology-entry / unknown: outside the reverse-leg seam set
 
 
-def _applied_fence_ids(path: str | None = None) -> list:
+def _applied_fence_ids(path: str | None = None, text: str | None = None) -> list:
     """The ids of every well-formed engine-managed fence currently in `path` (default: the live
     GITIGNORE_PATH, resolved at call time so test redirection holds; the codex-mcp leg passes
-    .codex/config.toml). The id is parsed from
+    .codex/config.toml). Pass `text` to enumerate an already-read buffer instead of re-reading `path`
+    from disk — a pure-text call the same-read predicates use (path is then only a label). The id is
+    parsed from
     each begin marker (single-homed off FENCE_BEGIN) and confirmed as a single well-formed begin..end
     pair via _find_fence; a malformed/half fence is skipped (the forward leg / fence_reverse surface it).
     Returns EVERY fence id, including the foundation FOUNDATION_IGNORES_FENCE — its carve-out from the
     orphan-wire reverse leg is applied one level up, in applied_engine_wires (it is a library-helper fence
     no manifest declares, so the reverse leg must not treat it as undeclared module wiring). This enumerator stays a pure "all fences" reader."""
     pre, post = FENCE_BEGIN.split("{id}")
-    lines = _read_text(GITIGNORE_PATH if path is None else path).split("\n")
+    lines = (_read_text(GITIGNORE_PATH if path is None else path) if text is None else text).split("\n")
     ids = []
     for ln in lines:
         if ln.startswith(pre) and ln.endswith(post) and len(ln) > len(pre) + len(post):
