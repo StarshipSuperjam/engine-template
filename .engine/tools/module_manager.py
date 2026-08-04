@@ -1637,6 +1637,18 @@ def _github_error_detail(exc) -> str:
     return "; ".join(parts)
 
 
+# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
+# self-heal. A few fast retries ride out that window. This inline retry is copied — not shared — across the
+# five tools that carry it (scope_profile, close_linkage_preflight, pr_reconcile, module_manager, tune),
+# matching the codebase's per-module retry convention (e.g. memory/capture.py's lock retry); keep the copies
+# identical. Applied ONLY to the `push` step below — checkout/add/commit are local and deterministic (retrying
+# `checkout -b` would collide on the leftover branch it already created), and on a persistent push failure the
+# original CalledProcessError propagates unchanged so the phase-aware #672 recovery message is byte-identical.
+_ORIGIN_RETRY_ATTEMPTS = 3
+_ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
+
+
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
@@ -1653,7 +1665,7 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
     names the failed step, surfaces git's stderr, and says to clear a leftover branch and run again — because a
     "branch is pushed" claim would be false there. Each caller frames its own surrounding recovery; this
     boundary supplies only the diagnostics both callers share."""
-    import subprocess, urllib.request, urllib.error, json as _json, boot, github_client  # local: only the real open needs these
+    import subprocess, time, urllib.request, urllib.error, json as _json, boot, github_client  # local: only the real open needs these
     import repo_identity  # local: the shared default-branch resolver (dependency-light)
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
@@ -1661,6 +1673,23 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
         raise RuntimeError("could not determine the engine repository / credentials to open the update "
                            "pull request.")
     base = repo_identity.resolve_default_branch()
+
+    def _run_step(step):
+        # Run one staged git step. The push is the only step that can hit a transient missing origin (#704), so
+        # retry it a bounded number of times; checkout/add/commit run once. On a persistent push failure the
+        # final CalledProcessError propagates unchanged, so the phase-aware #672 recovery message below is
+        # reached and byte-identical.
+        is_push = step[1] == "push"
+        for attempt in range(_ORIGIN_RETRY_ATTEMPTS if is_push else 1):
+            try:
+                subprocess.run(step, cwd=validate.ROOT, check=True, capture_output=True)
+                return
+            except subprocess.CalledProcessError:
+                if is_push and attempt < _ORIGIN_RETRY_ATTEMPTS - 1:
+                    time.sleep(_ORIGIN_RETRY_DELAY)
+                    continue
+                raise
+
     # STAGE-AND-PUSH. A git step failing here means the branch was NOT (fully) pushed, so the recovery is the
     # OPPOSITE of the POST-failure case below — there is no branch to open a pull request from yet. The most
     # common cause is a leftover branch from an earlier partial attempt colliding on `checkout -b`, so the
@@ -1669,7 +1698,7 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
     for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
-            subprocess.run(args, cwd=validate.ROOT, check=True, capture_output=True)
+            _run_step(args)
         except subprocess.CalledProcessError as exc:
             err = exc.stderr.decode("utf-8", errors="replace").strip() if isinstance(exc.stderr, bytes) \
                 else (exc.stderr or "").strip()

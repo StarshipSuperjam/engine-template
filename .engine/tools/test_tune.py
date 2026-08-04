@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tune  # noqa: E402
@@ -166,6 +167,72 @@ class TestCLIAndDemo(unittest.TestCase):
         text = buf.getvalue()
         self.assertIn("pull request", text.lower())
         self.assertIn("budget_orientation", text, "the demo shows the live attention read change")
+
+
+class TestOpenTunePrPushRetry(unittest.TestCase):
+    """#704: the real _open_tune_pr git+PR boundary rides out a transient missing-origin on the push (it
+    otherwise crashes raw). Every tune test injects a fake opener, so this real path is exercised only here —
+    driven directly with git (subprocess.run), the wait (time.sleep), and the PR POST (urlopen) faked, and
+    repo=/token= passed so boot is never consulted."""
+
+    def test_a_transient_push_failure_is_retried_and_the_pull_request_opens(self):
+        import subprocess
+        seen = {"push": 0, "checkout": 0}
+
+        def flaky(args, **kw):
+            if "push" in args:
+                seen["push"] += 1
+                if seen["push"] < 2:                          # fail once (the blip), then self-heal
+                    raise subprocess.CalledProcessError(1, args, stderr=b"fatal: could not read from remote\n")
+            if "checkout" in args:
+                seen["checkout"] += 1
+            return None
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps({"number": 4}).encode()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        with mock.patch("subprocess.run", side_effect=flaky), \
+             mock.patch("time.sleep") as slept, \
+             mock.patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: resp):
+            out = tune._open_tune_pr(branch="engine-tune-x", title="t", body="b", paths=["p"],
+                                     repo="acme/widget", token="secret-token-xyz")
+        self.assertEqual(out["number"], 4)                    # recovered -> the pull request opened
+        self.assertEqual(seen["push"], 2)                     # one retry
+        self.assertEqual(seen["checkout"], 1)                 # checkout is NOT retried
+        slept.assert_called_once()
+
+    def test_a_persistent_push_failure_still_raises(self):
+        import subprocess
+
+        def fail_push(args, **kw):
+            if "push" in args:
+                raise subprocess.CalledProcessError(1, args, stderr=b"fatal: Authentication failed\n")
+            return None
+        with mock.patch("subprocess.run", side_effect=fail_push), \
+             mock.patch("time.sleep"), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                tune._open_tune_pr(branch="engine-tune-x", title="t", body="b", paths=["p"],
+                                   repo="acme/widget", token="secret-token-xyz")
+
+    def test_checkout_failure_is_not_retried(self):
+        # Only the push is retried; a checkout failure raises on the first try (retrying would collide on the
+        # leftover branch).
+        import subprocess
+        calls = {"checkout": 0}
+
+        def fail_checkout(args, **kw):
+            if "checkout" in args:
+                calls["checkout"] += 1
+                raise subprocess.CalledProcessError(128, args, stderr=b"fatal: already exists\n")
+            return None
+        with mock.patch("subprocess.run", side_effect=fail_checkout), \
+             mock.patch("time.sleep"), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                tune._open_tune_pr(branch="engine-tune-x", title="t", body="b", paths=["p"],
+                                   repo="acme/widget", token="secret-token-xyz")
+        self.assertEqual(calls["checkout"], 1)                # tried once, not retried
 
 
 if __name__ == "__main__":

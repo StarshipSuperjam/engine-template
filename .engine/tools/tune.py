@@ -185,12 +185,25 @@ def _pr_body(policy_id: str, key: str, value) -> str:
         "saved in a place engine updates do not touch, so an update will not undo it.\n")
 
 
+# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
+# self-heal. A few fast retries ride out that window. This inline retry is copied — not shared — across the
+# five tools that carry it (scope_profile, close_linkage_preflight, pr_reconcile, module_manager, tune),
+# matching the codebase's per-module retry convention (e.g. memory/capture.py's lock retry); keep the copies
+# identical. Applied ONLY to the `push` step — checkout/add/commit are local and deterministic (retrying
+# `checkout -b` would collide on the leftover branch it already created); a persistent push failure still
+# raises, as before.
+_ORIGIN_RETRY_ATTEMPTS = 3
+_ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
+
+
 def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY: stage the saved override on a new branch, commit, push, and open a pull request
     so the change is reviewed + reversible like any change (mirrors the module-manager upgrade opener — git via subprocess, the PR via POST /pulls, slug/token via boot).
     INJECTED for tests + the demo (`set_value(opener=…)`), so this real path NEVER runs in the construction
     repo (a named inductive gap — no real deployment to tune, no PR to open here)."""
     import subprocess
+    import time
     import urllib.request
     import json as _json
     import boot  # local: only the real open needs boot's slug/token
@@ -203,7 +216,16 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     subprocess.run(["git", "checkout", "-b", branch], cwd=validate.ROOT, check=True, capture_output=True)
     subprocess.run(["git", "add", *paths], cwd=validate.ROOT, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", title], cwd=validate.ROOT, check=True, capture_output=True)
-    subprocess.run(["git", "push", "-u", "origin", branch], cwd=validate.ROOT, check=True, capture_output=True)
+    for attempt in range(_ORIGIN_RETRY_ATTEMPTS):   # push can hit a transient missing origin; retry, bounded (#704)
+        try:
+            subprocess.run(["git", "push", "-u", "origin", branch], cwd=validate.ROOT, check=True,
+                           capture_output=True)
+            break
+        except subprocess.CalledProcessError:
+            if attempt < _ORIGIN_RETRY_ATTEMPTS - 1:
+                time.sleep(_ORIGIN_RETRY_DELAY)
+                continue
+            raise
     url = f"https://api.github.com/repos/{slug}/pulls"
     payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
