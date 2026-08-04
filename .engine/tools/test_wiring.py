@@ -1070,14 +1070,42 @@ class TestCodexMcpSeam(_Redirected):
         self.assertIn("Python 3.11+", f["message"])
         self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), product, "no blind write of an unreadable config")
 
-    def test_reverse_skips_loud_on_nonempty_config_without_tomllib(self):
-        # Symmetric: reverse over a non-empty config it cannot validate skips loud, file unchanged.
-        wiring.apply(CODEX_MCP)                       # land the block WITH tomllib first
+    def test_reverse_skips_loud_on_config_with_operator_bytes_without_tomllib(self):
+        # Symmetric: reverse over a config carrying OPERATOR bytes it cannot validate skips loud, file
+        # unchanged. The engine fence plus operator content is NOT engine-owned, so the fail-open holds.
+        wiring.apply(CODEX_MCP)                       # land the engine block WITH tomllib first
+        with open(wiring.CODEX_CONFIG_PATH, "a", encoding="utf-8") as fh:
+            fh.write('\n# my own notes\n[mcp_servers.my-server]\ncommand = "npx"\n')
         self._without_tomllib()
         before = _read(wiring.CODEX_CONFIG_PATH)
         f = wiring.reverse(CODEX_MCP)
         self.assertEqual(f["severity"], "hard")
         self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), before, "no blind write of an unreadable config")
+
+    def test_reverse_proceeds_on_an_all_engine_config_without_tomllib(self):
+        # An entirely-engine-fenced config is the engine's OWN output, not operator config — so on 3.9,
+        # removing an engine block (a deterministic fence splice, no TOML parse) is safe and DOES proceed.
+        wiring.apply(CODEX_MCP)                       # land the engine block WITH tomllib first
+        self._without_tomllib()
+        f = wiring.reverse(CODEX_MCP)
+        self.assertEqual(f["severity"], "note", "an all-engine config is engine-owned — reverse proceeds")
+        self.assertNotIn(wiring.FENCE_BEGIN.format(id="engine-knowledge"),
+                         _read(wiring.CODEX_CONFIG_PATH), "the engine block was removed")
+
+    def test_apply_second_wire_onto_engine_owned_config_without_tomllib(self):
+        # #751: the FIRST codex-mcp wire creates .codex/config.toml (engine fence); the SECOND wire then
+        # sees a NON-EMPTY file. On 3.9 (no tomllib) the engine must recognize its own all-engine-fence
+        # output and STILL apply the second wire, rather than mistaking it for pre-existing operator config.
+        wiring.apply(CODEX_MCP)                       # first wire lands (empty -> one engine fence)
+        self._without_tomllib()
+        second = {"type": "codex-mcp", "name": "engine-memory",
+                  "definition": {"command": "uv", "args": ["run", "memory"]}}
+        f = wiring.apply(second)
+        self.assertEqual(f["severity"], "note", "second wire applies onto the engine's own config on 3.9")
+        text = _read(wiring.CODEX_CONFIG_PATH)
+        self.assertIn(wiring.FENCE_BEGIN.format(id="engine-knowledge"), text, "first block still present")
+        self.assertIn(wiring.FENCE_BEGIN.format(id="engine-memory"), text, "second block now present")
+        self.assertTrue(wiring.is_applied(second))
 
 
 class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
