@@ -138,6 +138,23 @@ and never forces. What differs is *what* each protects and *how* it declines:
   because the consent target changed, local/shared main lines diverged, or work is unsaved/paused. Spotting an
   off-main park is a newer check — a folder healthy before it existed isn't freshly broken, and the assistant
   says so the first time it surfaces.
+- **A broken git hook path — clear it (`hooks_path_health.repair`, #707/#708).** Git's `core.hooksPath` is set to
+  a directory that no longer exists (often left behind after a project folder was moved), so a git hook the
+  operator relies on — the deployed `pre-push` guardrail is the motivating case — is silently disabled;
+  `hooks_path_health` detects it OFFLINE and content-free (a directory-existence check that reads no hook
+  contents) and boot offers at the top of the offer tier, below the governance alarms. It carries **two** handles:
+  on **"fix my hook path"** the assistant runs `hooks_path_health.repair(apply=True)` — removal-only
+  (`git config --unset`), which only ever clears a value whose resolved directory does not exist (re-checked per
+  scope immediately before each unset), unsetting this worktree's own broken override and the shared value only
+  when it is absolute-and-missing (so new worktrees inherit clean); it never sweeps peer worktrees' overrides, and
+  reverting to git's default `.git/hooks` can lose no working hook. On **"look at my hook path"** (the
+  needs-manual case — a shared *relative* value that could resolve validly in a peer worktree, or a
+  `global`/`system` value the removal-only repair won't address) the assistant does **not** auto-change it: it
+  reads the specific broken scope with `hooks_path_health` (`detect`/`assess`), explains in plain words which
+  setting is stale and why it is held back, and clears it **with the operator's judgement** — never a silent
+  rewrite of a value another copy of their project may rely on. If a repair clears what it safely can but a
+  residual `needs-manual` value remains, it reports that honestly (never a false "fixed"). The alarm is
+  un-silenceable (never retire-eligible); an unchanged one collapses to a terse reminder that still carries the handle.
 - **A stranded pull request — reconcile (`pr_reconcile.reconcile`, #136).** A pull request that can't be merged:
   the reconcile acts only when the clash is confined to the engine's two internal index files — the knowledge
   graph and the self-map, the one clash that is *spurious* (both sides regenerate from one source tree) —
