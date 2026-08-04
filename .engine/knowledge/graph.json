@@ -6370,6 +6370,7 @@
           "tool:forget",
           "tool:greenfield_intake",
           "tool:hooks",
+          "tool:hooks_path_health",
           "tool:knowledge_gen",
           "tool:ledger_health",
           "tool:license_health",
@@ -6395,7 +6396,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:5e3983f5da8d2a4406fd51a16422f2e6fa85a2d2de492046c48455b2a028eeba",
+        "fingerprint": "sha256:6e3723145322c2a0e6621829986e1720b371fb99818d0e1fdd4446ac4753f157",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8552,6 +8553,29 @@
       },
       "status": "active",
       "summary": "The hooks contract substrate — the cross-cutting hook LAWS every local gate",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:hooks_path_health",
+      "name": ".engine/tools/hooks_path_health.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "hooks_path_health",
+      "source": {
+        "fingerprint": "sha256:f9809392d777f250df40a7d189751d8003841098c5ac4f95b8e7b46702c19deb",
+        "path": ".engine/tools/hooks_path_health.py"
+      },
+      "status": "active",
+      "summary": "hooks_path_health — the standing broken-`core.hooksPath` detector + repair (issues #707, #708; part of #690).",
       "type": "tool"
     },
     {
@@ -10878,7 +10902,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:4dbe528e122d3c576c19b08d7ac72c0105704d3ffe524f9896d48293518b7a4a",
+        "fingerprint": "sha256:c8b7787df631ea5330d21daffa40ad5678c41ea90e090aae058f72ed56c9b53d",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11876,6 +11900,29 @@
       },
       "status": "active",
       "summary": "Self-tests for the hooks contract substrate: the closed event inventory, the block",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_hooks_path_health",
+      "name": ".engine/tools/test_hooks_path_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:hooks_path_health"
+        ]
+      },
+      "slug": "test_hooks_path_health",
+      "source": {
+        "fingerprint": "sha256:6f4b51017fd745882c68f2ffadead61a9a6b06185a7d7b07790408b3e6d2d17a",
+        "path": ".engine/tools/test_hooks_path_health.py"
+      },
+      "status": "active",
+      "summary": "Regression coverage for hooks_path_health (issues #707, #708; part of #690).",
       "type": "tool"
     },
     {
