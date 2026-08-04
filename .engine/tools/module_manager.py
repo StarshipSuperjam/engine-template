@@ -410,8 +410,11 @@ _BARE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 
 
 def _is_bare_version(ref: str | None) -> bool:
-    """True iff `ref` is a bare semantic version like `0.4.1` — a VERSION, not a fetchable tag. A real tag
-    (`v0.4.1`), a sha, a branch, or `latest`/None is not bare and the resolver leaves it untouched."""
+    """True iff `ref` is a bare three-part semantic version like `0.4.1` — a VERSION, not a fetchable tag. A
+    real tag (`v0.4.1`), a sha, a branch, or `latest`/None is not bare and the resolver leaves it untouched.
+    A pre-release / build-metadata suffix (`0.4.1-rc1`) is deliberately treated as NOT bare and passes
+    through: the engine's release flow only ever records a stable `X.Y.Z` (the `releases/latest` resolution
+    excludes pre-releases), so this boundary is safe, not a gap."""
     return bool(ref) and _BARE_VERSION.fullmatch(ref) is not None
 
 

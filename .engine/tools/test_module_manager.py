@@ -463,6 +463,18 @@ class TestBareVersionTagResolution(unittest.TestCase):
         self.assertEqual(quiet_call.run(demo.main), 0)
 
 
+class TestFrozenLockSync(unittest.TestCase):
+    """#853: the runtime re-sync must install exactly the committed lock, never re-resolve past it — so it
+    must pass `--frozen`. This asserts the real argv so a future accidental drop of the flag goes red."""
+
+    def test_resync_tool_runtime_passes_frozen(self):
+        from unittest import mock
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as run:
+            self.assertTrue(module_manager._resync_tool_runtime())
+        self.assertIn("--frozen", run.call_args[0][0])              # never a bare `uv sync` that can re-resolve
+        self.assertEqual(run.call_args[0][0][:3], ["uv", "sync", "--frozen"])
+
+
 class TestCli(unittest.TestCase):
 
     def test_status_exits_zero(self):
