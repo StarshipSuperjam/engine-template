@@ -258,7 +258,7 @@ class TestDeclineVocabulary(unittest.TestCase):
 class TestNestedEnvScrub(unittest.TestCase):
     """Every process the gate spawns inside a projection runs with the release workflow's GitHub-Actions
     identity stripped. A projection has no real pull request, so leaking the ambient CI/PR env made the
-    PR-context checks (pr-body-completeness, disposition-issue-resolution) misfire and block the first live
+    PR-context check (pr-body-completeness) misfire and block the first live
     cut; `_nested_env` restores the offline posture of a local run. `patch.dict` restores os.environ after."""
 
     _CI_VARS = {"CI": "true", "GITHUB_ACTIONS": "true", "GITHUB_EVENT_PATH": "/x/event.json",

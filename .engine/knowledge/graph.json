@@ -1060,34 +1060,6 @@
       "type": "check"
     },
     {
-      "id": "check:disposition-issue-resolution",
-      "kind": "custom/script",
-      "name": ".engine/check/disposition-issue-resolution.json",
-      "owner": "validators-core",
-      "predicates": {
-        "enforced_by": [
-          "tool:disposition_issue_resolution_check"
-        ],
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ]
-      },
-      "slug": "disposition-issue-resolution",
-      "source": {
-        "fingerprint": "sha256:4233b285c29166bf2203592f2227b1b3f672301fc74b2196491d5f058442f24f",
-        "path": ".engine/check/disposition-issue-resolution.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
       "id": "check:doc-frontmatter",
       "kind": "schema",
       "name": ".engine/check/doc-frontmatter.json",
@@ -1321,7 +1293,7 @@
       },
       "slug": "hard-check-bite",
       "source": {
-        "fingerprint": "sha256:f184d0690b6e0a93994ba08ecc2fa4931443f0b4da70b4bbe40fb4b19e9291ce",
+        "fingerprint": "sha256:2f3a9f527eeecb80e060f4119021838e2c185b0b7b6a0d0f73e5514466f0e42d",
         "path": ".engine/check/hard-check-bite.json"
       },
       "status": "active",
@@ -4421,7 +4393,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:df7ac218b826961b5b5130c070ee7a47a411caf06091fc1030ea39bbaca5de49",
+        "fingerprint": "sha256:feb2cc6a0d5d9d606e2a1ca4a7a6b7902785273fcf22ec54e6923bf9af2df0e0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -8149,30 +8121,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "ci",
-      "guarded": true,
-      "id": "tool:disposition_issue_resolution_check",
-      "name": ".engine/tools/disposition_issue_resolution_check.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:github_client",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "disposition_issue_resolution_check",
-      "source": {
-        "fingerprint": "sha256:d2c96bc328a537d06d32a3cf9b0b269f3034b72600e3af2f50d3aa99a6b072d5",
-        "path": ".engine/tools/disposition_issue_resolution_check.py"
-      },
-      "status": "active",
-      "summary": "disposition-issue-resolution check (#292) — a `custom/script` CI-suite rule",
-      "type": "tool"
-    },
-    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:embed",
@@ -9986,7 +9934,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:09c49a802cbcc7be72865df95ee09645dcc80bd0d5a48e04d585371d1189f7e8",
+        "fingerprint": "sha256:896c43d0823a26d047587ab57b71fbafdba1c0d527e6c6b569f89958c0e4a5cc",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -11496,30 +11444,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_disposition_issue_resolution",
-      "name": ".engine/tools/test_disposition_issue_resolution.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:disposition_issue_resolution_check",
-          "tool:validate"
-        ]
-      },
-      "slug": "test_disposition_issue_resolution",
-      "source": {
-        "fingerprint": "sha256:08ace0b5bab0852be62fe6996ff612e8b921e0bf53e8fe159e04bf6d7ce33f5c",
-        "path": ".engine/tools/test_disposition_issue_resolution.py"
-      },
-      "status": "active",
-      "summary": "Tests for the disposition-issue-resolution check (#292) — disposition_issue_resolution_check.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_doc",
       "name": ".engine/tools/test_doc.py",
       "owner": "core",
@@ -11943,7 +11867,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:372629804f1156f87bda02215964d01b2dc397671550d5464965ff8b7675150a",
+        "fingerprint": "sha256:aab48e1329cfb725825848188c6f0440d7c2d965c702df5bea4898629a7ea030",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -12710,7 +12634,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:eaf1c0f7c926225c49b1dfcc851e93edf5d951609e01d138865fd62109a03265",
+        "fingerprint": "sha256:51e29e243ed18ef015f0a91c9ae4d41836621cc73b5f96c593b2eaf98adc5420",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -13258,7 +13182,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:f08c9d879e4fff8d867e80eb22ab4ce916aa4525882ca2e5294d975e8c7e47eb",
+        "fingerprint": "sha256:5c4858cc2b4756fa4357933b6dc6018e7047c34f30cf70c51441f7c92d24f393",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",

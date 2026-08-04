@@ -249,9 +249,6 @@
   ".engine/check/dependency-review.json": [
    "dependency-discipline"
   ],
-  ".engine/check/disposition-issue-resolution.json": [
-   "validators-core"
-  ],
   ".engine/check/doc-frontmatter.json": [
    "validators-core"
   ],
@@ -1095,9 +1092,6 @@
   ".engine/tools/dependency_discipline/test_review.py": [
    "dependency-discipline"
   ],
-  ".engine/tools/disposition_issue_resolution_check.py": [
-   "core"
-  ],
   ".engine/tools/engine_fixture.py": [
    "core"
   ],
@@ -1612,9 +1606,6 @@
    "core"
   ],
   ".engine/tools/test_design_review.py": [
-   "core"
-  ],
-  ".engine/tools/test_disposition_issue_resolution.py": [
    "core"
   ],
   ".engine/tools/test_doc.py": [
