@@ -7104,7 +7104,7 @@
       },
       "slug": "demo_757_upgrade_reconciles_default_groups",
       "source": {
-        "fingerprint": "sha256:f51152dd30f2cae24242dd11bed470991bcd924d612a63ab7bf9416c3ccb081f",
+        "fingerprint": "sha256:aae263c1a14cb5b6ed9fcc1a1c7652fe2cd152c50e54d0d73d4d2aabd0b0f974",
         "path": ".engine/tools/demo_757_upgrade_reconciles_default_groups.py"
       },
       "status": "active",
@@ -9402,7 +9402,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:a312d12e44d9f6b19a88557c30e39d1599bb41d7735dbf15bafdb8eb434c9456",
+        "fingerprint": "sha256:dbf283d1f721a36d9af0fe82048db027633ed8cece0855d15bdaa0cc0233806c",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12634,7 +12634,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:4702da6aa9f684016b69e2653ee37158905a6515fc998abdd95fc81776b81d61",
+        "fingerprint": "sha256:803ae6c7c74d82ccae3adb6f3527ec5b445a6ab4d50ccaacc225661222c93f7d",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

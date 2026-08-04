@@ -208,18 +208,23 @@ class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
         other = [{"severity": "hard", "source_rule": "engine/check/self-map-drift", "message": "..."}]
         self.assertIn("Run the update again to retry", module_manager._reconcile_refuse_reason(other))
 
-    def test_pr_body_discloses_the_group_delta_and_the_changed_file(self):
-        result = {"groups_reconciled": True, "groups_before": ["core"],
+    def test_pr_body_discloses_the_group_delta_against_the_true_prior(self):
+        # groups_changed = the final selection differs from the deployment's TRUE pre-overlay value, so the delta
+        # is measured against what the operator actually had (never the overlay's transient value).
+        result = {"groups_changed": True, "groups_before": ["core"],
                   "groups_after": ["core", "memory-semantic-recall"]}
         body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
-        self.assertIn("tool-runtime dependency groups", body)          # the Scope disclosure
-        self.assertIn("now installed: memory-semantic-recall", body)   # the delta, not just the new list
-        self.assertIn(".engine/pyproject.toml", body)                  # Files of interest names the changed file
+        self.assertIn("changes which modules' Python dependencies", body)   # the Scope disclosure + skimmable summary
+        self.assertIn("now installed: memory-semantic-recall", body)        # the delta vs the operator's prior
+        self.assertIn(".engine/pyproject.toml", body)                       # Files of interest names the changed file
 
-    def test_pr_body_omits_the_group_lines_when_not_reconciled(self):
-        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"},
-                                                     {"groups_reconciled": False})
-        self.assertNotIn("tool-runtime dependency groups", body)
+    def test_pr_body_omits_the_group_lines_when_selection_unchanged(self):
+        # The common #757 case: the reconcile restored the operator's own selection (final == prior), so the
+        # pyproject default-groups line has ZERO net change in the opened PR — the body must NOT announce a change
+        # nor list the file, matching what a git diff of the PR actually shows.
+        result = {"groups_changed": False, "groups_before": ["core"], "groups_after": ["core"]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertNotIn("changes which modules' Python dependencies", body)
         self.assertNotIn(".engine/pyproject.toml", body)
 
     def test_the_757_falsification_demo_passes(self):
