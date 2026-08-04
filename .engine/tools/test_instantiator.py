@@ -3500,6 +3500,97 @@ class TestArrive(unittest.TestCase):
                             opener=lambda **k: {"number": 1}, **_arrive_fakes())
             self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
 
+    def test_two_codex_mcp_wires_apply_on_the_3_9_floor(self):
+        # #751 end to end: two engine-owned codex-mcp wires. The FIRST creates .codex/config.toml; on the
+        # Python 3.9 floor (no tomllib) the SECOND used to see a now-non-empty file, mistake the engine's OWN
+        # config for pre-existing operator config, and skip — so verify refused ("declares a codex-mcp wire
+        # that is not applied") and the arrival halted. The arrival must now recognize its own all-engine
+        # config and apply BOTH, completing and opening the PR.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            wires = [{"type": "codex-mcp", "name": "engine-knowledge-graph",
+                      "definition": {"command": "uv", "args": ["run", "kg"]}},
+                     {"type": "codex-mcp", "name": "engine-memory",
+                      "definition": {"command": "uv", "args": ["run", "mem"]}}]
+            inst._write_json(os.path.join(release, ".engine", "modules", "codexwires", "manifest.json"),
+                             {"id": "codexwires", "version": "1.0.0", "status": "required",
+                              "provides": {}, "depends": {}, "wires": wires})
+            saved = inst.wiring.tomllib
+            inst.wiring.tomllib = None                        # the 3.9 orchestrator floor: tomllib is absent
+            self.addCleanup(lambda: setattr(inst.wiring, "tomllib", saved))
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None, opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertIsNotNone(res["pr"])                  # completed and opened — verify did not refuse
+            with open(os.path.join(target, ".codex", "config.toml"), encoding="utf-8") as fh:
+                cfg = fh.read()
+            self.assertIn(inst.wiring.FENCE_BEGIN.format(id="engine-knowledge-graph"), cfg)
+            self.assertIn(inst.wiring.FENCE_BEGIN.format(id="engine-memory"), cfg)   # the SECOND wire landed
+
+    def test_partial_profile_arrival_commits_a_fresh_knowledge_graph(self):
+        # #752 end to end: an arrival that projects a PARTIAL optional-module profile (a default-on module
+        # declined) and retires its first-run tools must commit a knowledge graph FRESH for the DEPLOYED
+        # shape — the overlay ships the release's construction copy, so without the post-retire regen + drift
+        # gate the committed graph is stale and CI rejects the arrival's own PR.
+        def _plant_default_on(release, mid="onby"):
+            inst._write_json(os.path.join(release, ".engine", "modules", mid, "manifest.json"),
+                             {"id": mid, "version": "1.0.0", "status": "default-on", "provides": {}, "depends": {}})
+            cat = inst._catalog_path(release)
+            with open(cat, encoding="utf-8") as fh:
+                entries = json.load(fh)
+            entries.append({"id": mid, "verb": "engine-onby", "category": "Verification & Validation",
+                            "status": "default-on", "description": "A default-on practice add-on."})
+            inst._write_json(cat, entries)
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _plant_default_on(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", declined=["onby"], decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None, opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertIsNotNone(res["pr"])                  # the drift gate passed and the PR opened
+            self.assertTrue(res["gate_findings"], "the gate ran over the committed graph")
+            self.assertTrue(all(f["severity"] == "note" for f in res["gate_findings"]))
+            with inst._redirect_root(target):                # the committed graph is in sync with the sources
+                self.assertEqual(inst.knowledge_gen.check()["severity"], "note",
+                                 "committed graph must be fresh for the deployed shape")
+
+    def test_arrival_index_gate_flags_a_stale_committed_graph(self):
+        # The REAL default gate (_arrival_index_gate) must turn a stale committed knowledge graph into a hard
+        # finding via the live knowledge_gen.check — the drift-awareness #752 was missing (a drift-blind gate
+        # is exactly how the stale graph escaped to CI).
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                           # real sources + a committed graph.json
+            with inst._redirect_root(d):
+                inst.knowledge_gen.generate(path=inst.knowledge_gen.GRAPH_PATH)   # make it fresh first
+                self.assertTrue(all(f["severity"] == "note" for f in inst._arrival_index_gate()))
+                inst._write_json(inst.knowledge_gen.GRAPH_PATH,                    # then drift it from the sources
+                                 {"schema_version": 1, "entities": [{"id": "ghost", "kind": "tool"}], "edges": []})
+                self.assertTrue(any(f["severity"] == "hard" for f in inst._arrival_index_gate()),
+                                "a stale committed graph must be a hard drift finding")
+
+    def test_arrival_refuses_and_opens_no_pr_on_a_hard_gate_finding(self):
+        # When the pre-open drift gate returns a hard finding, the arrival must NOT open a PR: the engine is
+        # installed (proceeded=True) but nothing is merged, the opener is never called, and the specific drift
+        # is carried in gate_findings rather than swallowed.
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="solo",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              gate=lambda: [validate.finding("hard", "seeded knowledge-graph drift", None)],
+                              announce=lambda t: None,
+                              opener=lambda **k: (opened.append(k), {"number": 1})[1], **_arrive_fakes())
+            self.assertTrue(res["proceeded"])                # installed...
+            self.assertIsNone(res["pr"])                     # ...but no PR opened
+            self.assertEqual(opened, [], "the opener must not be called when the gate is hard")
+            self.assertTrue(any(f["severity"] == "hard" for f in res["gate_findings"]))
+            self.assertIn("knowledge index", res["reason"])
+
 
 class TestArrivalDemoRunsGreen(unittest.TestCase):
     def test_arrival_demo_returns_true(self):
