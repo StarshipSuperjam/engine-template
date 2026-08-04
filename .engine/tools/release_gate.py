@@ -68,9 +68,8 @@ def _nested_env(**extra) -> dict:
     tree with NO real pull request, so each nested run must have the same offline posture as a LOCAL developer
     run — never carrying this release workflow's GitHub-Actions identity. Leaking the ambient CI/PR env
     (`GITHUB_EVENT_PATH`, `GITHUB_ACTIONS`, `CI`, `GITHUB_TOKEN`, …) makes the PR-context checks fire against a
-    projection that has no PR: `pr-body-completeness` reads a no-PR event's empty body as "sections missing", and
-    `disposition-issue-resolution` fail-closes on "in CI but no token" — the false reds that blocked the first
-    live cut (#676's first exercise). Strip the Actions/CI harness vars BY PREFIX (so a future GITHUB_*/RUNNER_*
+    projection that has no PR: `pr-body-completeness` reads a no-PR event's empty body as "sections missing" —
+    the false red that blocked the first live cut (#676's first exercise). Strip the Actions/CI harness vars BY PREFIX (so a future GITHUB_*/RUNNER_*
     -keyed check stays neutralised too) and keep everything else (PATH, HOME, UV_*, locale — none of which the
     nested `git`/`sys.executable` runs need from Actions). This silences ONLY the no-PR context checks: gating is
     static suite config and the structural operate/upgrade checks red off the file tree, not the environment, so
