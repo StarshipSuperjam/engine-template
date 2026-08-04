@@ -2165,6 +2165,63 @@ class TestUpgradeReconcile(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(live, *ptr.split("/"))),
                                 "the release placeholder was not delivered to a fresh tree (create-if-absent)")
 
+    def test_overlay_replace_paths_excludes_a_present_preserved_file(self):
+        # Guards the `- _preserved_present()` subtraction in overlay_replace_paths (the disclosure's overwrite
+        # set): a present PRESERVE_DATA file must drop out, or the merge-time notice would cry wolf on bound
+        # data the update actually keeps. The mocked disclosure-register tests can't see this subtraction.
+        ptr = ".engine/memory-backup/pointer.json"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_provides(live, "backup", ptr)
+                self._write_file(live, ptr, '{"configured": true, "namespace": "bound"}\n')
+                paths = module_manager.overlay_replace_paths()
+                self.assertNotIn(ptr, paths)                          # present preserved -> not overwritten
+                self.assertIn(".engine/tools/base_tool.py", paths)    # a normal provides file still IS in the set
+
+    def test_plan_upgrade_preview_omits_a_preserved_file_from_replaced(self):
+        # Guards the plan_upgrade preserved-subtraction: apply preserves a present pointer, so the PREVIEW must
+        # not list it as 'replaced' (that would be plan/apply drift — the preview lying about what apply does).
+        ptr = ".engine/memory-backup/pointer.json"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_provides(live, "backup", ptr)
+                self._add_provides(release, "backup", ptr)
+                self._write_file(live, ptr, '{"configured": true}\n')
+                self._write_file(release, ptr, '{"configured": false}\n')
+                preview = module_manager.plan_upgrade(ref="v0.2.0", release_tree=release)
+        self.assertIn("files", preview, f"the preview refused: {preview.get('reason')}")
+        self.assertNotIn(ptr, preview["files"]["replaced"])           # apply keeps it -> preview must not say replaced
+        self.assertNotIn(ptr, preview["files"]["added"])
+
+    def test_regen_indexes_refreshes_the_product_spec_matrix_from_docs_spec(self):
+        # #814: product-spec-matrix.json is REGENERATED post-overlay (not preserved). Drive _regen_indexes with
+        # a settled docs/spec and a STALE committed matrix; assert it is rebuilt from the deployment's own
+        # docs/spec — the guarded, optional-module regenerate path the upgrade fixtures otherwise never carry.
+        cap = ("---\nstatus: locked\n---\n\n# A capability\n\n## Summary\nWhat.\n\n## Behavior\nHow.\n\n"
+               "## Acceptance criteria\n\n| Criterion | How verified | Who checks it |\n"
+               "| --- | --- | --- |\n| It works end to end | a behavioral demo | operator |\n")
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._write_file(d, "docs/spec/index.md",
+                                 "# Product spec\n\n| Capability | Status | Doc |\n| --- | --- | --- |\n"
+                                 "| A | settled | [A](a.md) |\n")
+                self._write_file(d, "docs/spec/a.md", cap)
+                # a STALE committed matrix (empty rows) the update must refresh
+                self._write_file(d, ".engine/product-spec-matrix.json",
+                                 '{"schema_version": 1, "source": "docs/spec", "rows": []}\n')
+                module_manager._regen_indexes()
+                with open(os.path.join(d, ".engine", "product-spec-matrix.json"), encoding="utf-8") as fh:
+                    regenerated = json.load(fh)
+        self.assertTrue(regenerated["rows"], "the product-spec-matrix was not regenerated from docs/spec")
+        self.assertEqual(regenerated["rows"][0]["who"], "operator")
+
     def test_refuses_cleanly_on_a_hard_consistency_finding_without_opening(self):
         # An .engine file no module claims makes check_coherence hard-flag; the gate must refuse in plain
         # language (no raw check id), leave the working copy staged (half-state), and open nothing.

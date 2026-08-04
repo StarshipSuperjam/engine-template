@@ -7687,7 +7687,7 @@
       },
       "slug": "demo_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:bbd6af7dc4ee70800fd361ba9b3e96a5de5c15ee9a1bfaa87a05e5d38c11e191",
+        "fingerprint": "sha256:089bddaf7ce0080ae73b3983a2ea55085226dde01cade3eb8689555dfb6918c5",
         "path": ".engine/tools/demo_overlay_disclosure.py"
       },
       "status": "active",
@@ -9330,7 +9330,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:ee8c069ce955dbd824c982369acfaf1b82c4ed2575772cbacaff410542124362",
+        "fingerprint": "sha256:ea1d21dc2ed666631953bece4c5fa5a373d0129e8745ca4eeb3ddf35ff17699d",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9498,7 +9498,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:1523f96e0b7fcd97b236aa98ad4b00c1bb66951338b2cb867cbb61d33dc3404c",
+        "fingerprint": "sha256:d5606b82e03a37b23b468dab4e94644b988f81bd7288940d2c0ccd56e799b38e",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -12536,7 +12536,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:fc997ed201c8c447ff16bc6a63a13a55ff43e9d3535db8e3931bf805044d42f6",
+        "fingerprint": "sha256:a7a46c19c2f2c9b8bf4ae1bc68724b413c92cee7d3653686fb5a899a8cdd172f",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12784,7 +12784,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:f291e793086f1c11f80fe366c4b2353d9ed31fd7c995c5ea72863bf4cae24949",
+        "fingerprint": "sha256:e3718a6eee4bf0fbcfdf50055ff11fb6fd756c276f10e96d401b45ee1eb81659",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",

@@ -1926,8 +1926,12 @@ def _regen_indexes() -> None:
     its format without freezing the deployment's settled-criteria rows (#814). Each is regenerated ONLY where
     the tree already carries it (never fabricated on a minimal fixture, nor on a deployment that never settled
     a spec), and the product-design generator is imported LAZILY and guarded (the module, hence its tool, is
-    absent on a deployment without it). Best-effort: a regen failure surfaces as a drift finding at the gate (a
-    clean refusal), never a crash mid-upgrade."""
+    absent on a deployment without it). Best-effort: a regen failure surfaces as a drift finding, never a crash
+    mid-upgrade — but WHERE it surfaces differs: the self-map and graph drift is caught PRE-OPEN by the
+    structural gate (`self-map-drift` / `knowledge-coverage`, a clean refusal that opens nothing), whereas the
+    product-spec-matrix's drift check is NOT in that offline subset, so a swallowed matrix-regen failure is
+    caught instead by the full `engine-ci` run on the OPENED pull request (a red required check) — still never
+    silent, but post-open rather than a pre-open refusal."""
     import self_map            # lazy: only the reconcile tail needs the generators
     import knowledge_gen
 
@@ -1941,19 +1945,26 @@ def _regen_indexes() -> None:
         if rel == ".engine/knowledge/graph.json":
             return knowledge_gen.generate
         if rel == ".engine/product-spec-matrix.json":
-            from product_design import obligation_matrix   # optional module — absent → ImportError, caught below
+            try:
+                from product_design import obligation_matrix   # OPTIONAL module: absent is EXPECTED → skip
+            except ImportError:
+                return None
             return obligation_matrix.generate
-        return None
+        # A REGENERATED_DERIVED member with no generator here is a MAINTENANCE BUG — the tuple and this resolver
+        # must stay in lockstep, or the disclosure would promise 'regenerated' for a file the update never
+        # rebuilds. Fail LOUD (this runs outside the regen swallow below), never a silent skip.
+        raise KeyError(f"REGENERATED_DERIVED member {rel!r} has no generator in _regen_indexes — add one")
 
     for rel in REGENERATED_DERIVED:
         target = os.path.join(validate.ENGINE_DIR, *rel.split("/")[1:])
         if not os.path.isfile(target):
             continue   # the tree does not carry this index (a minimal fixture / no settled spec) — never fabricate
+        gen = _generator(rel)          # OUTSIDE the swallow: an unmapped member is a loud maintenance bug
+        if gen is None:
+            continue                   # optional module absent — nothing to regenerate here
         try:
-            gen = _generator(rel)
-            if gen is not None:
-                gen(path=target)
-        except Exception:  # noqa: BLE001 — optional module absent, or a regen failure: a drift finding at the gate, not a crash
+            gen(path=target)           # a genuine regen failure IS swallowed (drift-gate backstop), never a crash
+        except Exception:  # noqa: BLE001 — a regen failure surfaces as a drift finding, not a traceback
             pass
 
 
