@@ -6521,7 +6521,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:a70483dbe843056da1c62a126b2b03896b031ff736622304a251e9218e8ce72a",
+        "fingerprint": "sha256:0b5c2e7e072e40c4206fa6021d78d1c6a38a9025ec98bbb14714d32cb15cd125",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -10512,6 +10512,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:capture",
           "tool:github_client",
           "tool:issue_author",
           "tool:moment",
@@ -10525,7 +10526,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:a564acdf60ba3f3a3c6b5d26acba1561e4691f0e4001d97595c5a7e18e13de1c",
+        "fingerprint": "sha256:d98dc926e86e65b421616a1a6ffc013dc8fb41ef5b24268e16d0e9760764c1f2",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -11036,7 +11037,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:b7dda3697f706ee1df2b28b55f6a29a1403080fe0d7f3d928b6eea34f529c3d4",
+        "fingerprint": "sha256:e0a48d04b7fd6a4b35ef10bfd00d1453744d74c3f5e64ef6c092ae5f8679b16d",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -13947,6 +13948,7 @@
         ],
         "tests": [
           "tool:boot",
+          "tool:capture",
           "tool:knowledge_gen",
           "tool:standing_situation",
           "tool:telemetry",
@@ -13955,7 +13957,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:b7b8913183b26c0c6f23cecbaecb960bdf46e0b7fa993f0a3111c5cc045f437d",
+        "fingerprint": "sha256:4a4fbb24ece749b47cef30503646c9d5137ec07a51392cb87d49d39ba9245486",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
