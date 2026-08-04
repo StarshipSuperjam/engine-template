@@ -1131,8 +1131,11 @@ def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: st
     live=FALSE: a spooled batch is a set of one-shot emissions, NOT a complete current-state snapshot, so it
     carries NO clearance events. Persistence accrues across drains in the cache (like ambient), and
     `authoritative` is scoped to the drained source-ids ONLY — so a drain never auto-closes another source's
-    Issue, AND a spooled finding never auto-resolves (there is no positive-clearance emission; a safe
-    asymmetry #412 must not "fix" by widening authority).
+    Issue, AND a spooled finding never auto-resolves THROUGH THIS DRAIN (a safe asymmetry #412 must not
+    "fix" by widening authority here). The ONE positive-clearance path lives outside this function by
+    design: resolve_capture_marker (#774), a dedicated live-derived pass for exactly the
+    memory/capture-degraded sid, which reads the durable marker state — never this batch — and closes
+    without touching this drain's authority.
 
     SPOOL-BOUNDARY VALIDATION: the in-memory source_id_is_marker_safe guarantee does not survive the spool, so
     each drained record is re-validated here and an unsafe one is DROPPED — and `authoritative` is built from
@@ -1225,6 +1228,155 @@ def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
     except (OSError, ValueError):
         return False
     except Exception:  # noqa: BLE001 — fail-open: the feed must never break the driver
+        return False
+
+
+# ---- the capture-recovery resolve pass (#774) -------------------------------------------------
+# The positive-clearance half the drain deliberately lacks. spool_capture_marker (above) feeds a
+# FAILING marker into the inbox; nothing ever fed the RECOVERY, so a capture-degraded Issue latched
+# open forever — the drain's own docstring records the asymmetry ("a spooled finding never
+# auto-resolves") and the reason widening its authority was refused (#412). This pass is the fix #774
+# prescribes instead: source-scoped and LIVE-DERIVED, authoritative for ONLY memory/capture-degraded,
+# run from the SessionStart drain driver, mirroring how CI / soft-budget findings clear on a positive
+# observation. It touches neither drain_inbox's authority nor the persistence-gated promotion path.
+#
+# The clearance condition is REPO-WIDE, deliberately stronger than a single marker read: the marker is
+# per-TREE (each clone/worktree owns one) while the tracked Issue is per-REPO, so a single healthy
+# tree must never close an Issue while capture still fails in a sibling tree — that would close
+# wrongly and then churn fresh Issue numbers as the failing tree re-promotes. Clearance therefore
+# sweeps the parent clone and every platform worktree under its `.claude/worktrees/` and holds only
+# when NO swept marker records a non-captured outcome. Stated honestly, that sweep is NOT every
+# possible checkout: a second independent clone of the same repo, or an off-convention
+# `git worktree add` outside `.claude/worktrees/`, is beyond any filesystem walk from here — if such
+# a tree is still failing, its next session re-promotes and the Issue reopens, so the harm is bounded
+# to close/reopen churn, and the operator-facing wording below claims only what the sweep covers.
+# Captured and absent both clear (#774's live-derived semantics: the durable state shows "not
+# failing"); ANY marker that records an outcome other than `captured` — including a state this module
+# has never heard of — blocks, so a future new failing state fails toward keeping the Issue open,
+# never toward closing it. A marker that is absent or unreadable is NO EVIDENCE — and no evidence
+# PERMITS a close (it cannot block), exactly like the absent case. Trust boundary, stated: the
+# markers live in each tree's gitignored `.engine/telemetry/.cache/`, writable by anything local —
+# forging health there needs the same local write access that could already tamper with the repo
+# itself, so this adds no new boundary; a forged FAILURE can at worst hold an Issue open.
+#
+# Cost, stated plainly: when clearance holds, this is ONE open-issue listing per session start — the
+# same category and order as the sibling ambient driver's unconditional per-session GitHub pass; when
+# any swept tree's marker is failing, GitHub is never touched.
+
+# The state vocabulary has ONE owner — capture.py, which writes the markers. Deriving (never
+# restating) it here is what keeps the three marker readers (capture.read_capture_status, the spool
+# feed above, the clearance sweep below) from drifting; a lockstep test pins the derivation.
+from memory.capture import CAPTURE_STATUS_STATES as _CAPTURE_MARKER_VOCABULARY  # noqa: E402
+CAPTURE_FAILING_STATES = frozenset(_CAPTURE_MARKER_VOCABULARY) - {"captured"}
+
+
+def _capture_tree_roots(root: str) -> list:
+    """Every tree of THIS repo that owns a capture marker: the given root, the parent clone when the
+    root is a platform worktree (`<repo>/.claude/worktrees/<wt>`), and every sibling worktree under
+    the parent's `.claude/worktrees/`. Best-effort: an unlistable worktrees dir contributes nothing."""
+    base = os.path.abspath(root)
+    idx = base.replace("\\", "/").find("/.claude/worktrees/")
+    parent = base[:idx] if idx > 0 else base
+    roots = {base, parent}
+    try:
+        wt_dir = os.path.join(parent, ".claude", "worktrees")
+        for name in os.listdir(wt_dir):
+            tree = os.path.join(wt_dir, name)
+            if os.path.isdir(tree):
+                roots.add(tree)
+    except OSError:
+        pass
+    return sorted(roots)
+
+
+def _read_capture_marker(path: str):
+    """One tree's capture-status record, or None (absent / unreadable / no string state — all
+    no-evidence). Unlike capture.read_capture_status this does NOT filter to the known vocabulary:
+    the clearance rule below must see an UNKNOWN recorded outcome so it can block on it."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+        return record if isinstance(record, dict) and isinstance(record.get("state"), str) \
+            else None
+    except (OSError, ValueError):
+        return None
+
+
+def capture_clearance(root: "str | None" = None) -> bool:
+    """True iff no swept tree's marker records a non-`captured` outcome (section comment above — the
+    sweep covers the parent clone and its platform worktrees, and no evidence PERMITS a close). Any
+    doubt — an exception anywhere — is False: an undecidable sweep must keep the Issue open, never
+    clear it."""
+    try:
+        base = validate.ROOT if root is None else root
+        for tree in _capture_tree_roots(base):
+            record = _read_capture_marker(
+                os.path.join(tree, ".engine", "telemetry", ".cache", "memory-capture.status"))
+            # ANY recorded outcome other than `captured` blocks — known failing states and states
+            # this module has never heard of alike (drift fails toward the Issue staying open).
+            if record is not None and record.get("state") != "captured":
+                return False
+        return True
+    except Exception:  # noqa: BLE001 — fail toward keeping the Issue open
+        return False
+
+
+def _capture_resolution_note() -> str:
+    """The plain-language note prepended to the Issue body at the close (the same body-note pattern
+    the duplicate-consolidation close uses — the engine's GitHub helper has no comment verb, so a
+    body edit is the available channel; it fires no notification, which the PR discloses), so the
+    operator who watched this alarm sit open sees WHY it went away instead of a silent vanish.
+    Wording holds two hedges deliberately: it claims only what the sweep covers (this folder and the
+    working copies the engine manages beside it — never "every checkout"), and it credits the
+    RECORDING with diagnosability, never the future alarm (whose text stays the fixed generic one)."""
+    return ("**Resolved — saving session conversations to this project's memory has recovered.** The "
+            "engine checked this project's folder and the working copies it manages beside it, found "
+            "nothing failing, and closed this alarm itself. If the problem ever comes back, a fresh "
+            "alarm will open — and the engine now keeps a record of what failed, so a recurrence can "
+            "be diagnosed.\n\n---\n\n")
+
+
+def _drop_capture_cache_entry(cache_path: "str | None" = None) -> None:
+    """Forget the closed signal's accrual counts so a LATER genuine failure re-opens through the
+    normal persistence gate with fresh counts, instead of promoting instantly off stale ones.
+    Best-effort: an unreadable cache is left alone."""
+    try:
+        cache = Cache(cache_path if cache_path else DEFAULT_INBOX_STREAMS_PATH)
+        counts = cache.load()
+        if CAPTURE_DEGRADED_SOURCE_ID in counts:
+            del counts[CAPTURE_DEGRADED_SOURCE_ID]
+            cache.store(counts)
+    except Exception:  # noqa: BLE001 — cache tidying must never break the driver
+        pass
+
+
+def resolve_capture_marker(github: GitHubIssues, *, root: "str | None" = None,
+                           cache_path: "str | None" = None) -> bool:
+    """Close the tracked memory/capture-degraded Issue when capture has verifiably recovered
+    (section comment above — repo-wide clearance, live-derived, this ONE sid only). Close-only: it
+    never opens, never touches another source's Issue, and never runs when any tree still fails.
+    The close prepends a plain-language resolution note (the operator sees why, not a silent vanish)
+    and drops the signal's cache entry so a recurrence re-opens cleanly. Returns True when an Issue
+    was closed. Fail-open: no GitHub context or any error is a no-op retried next session."""
+    try:
+        if not capture_clearance(root):
+            return False
+        stuck = [i for i in github.list_open_engine_issues()
+                 if i.get("source_id") == CAPTURE_DEGRADED_SOURCE_ID]
+        if not stuck:
+            return False
+        note = _capture_resolution_note()
+        for issue in stuck:
+            body = issue.get("body") or ""
+            # Idempotent prepend: a pass that noted the body but crashed before the close must not
+            # stack a second banner on the retry. (A failure that re-fires before the retry refreshes
+            # the whole body through the ordinary present-signal loop, wiping a stale banner.)
+            if not body.startswith(note):
+                github.update_issue(issue["number"], note + body)
+            github.close_issue(issue["number"])
+        _drop_capture_cache_entry(cache_path)
+        return True
+    except Exception:  # noqa: BLE001 — fail-open: resolution must never break the session-start driver
         return False
 
 
@@ -2111,6 +2263,7 @@ def _run_drain_cli(argv: list) -> int:
     gh = GitHubIssues(repo, token)
     runtime_alert = promote_runtime_marker(gh)
     spool_capture_marker()   # a failing memory-capture marker joins the drain (persistence-gated)
+    capture_resolved = resolve_capture_marker(gh)   # a RECOVERED marker closes its Issue (#774, live-derived)
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=moment.utc_now())
@@ -2124,6 +2277,13 @@ def _run_drain_cli(argv: list) -> int:
     alert = "a broken-tool-runtime alert was raised" if runtime_alert else "no new alerts"
     print(f"Checked the engine's own health inbox ({alert}): "
           f"opened={opened}, updated={updated}, closed={closed}.")
+    if capture_resolved:
+        # Plain-voice, operator-relayable: the one alarm a person may have watched sit open for weeks
+        # should not vanish silently (its Issue also carries the same note). Claims only what the
+        # sweep proved: NOTHING FAILING where it looked — never "verified healthy" (absence of a
+        # marker also clears, and that is not a positive health check).
+        print("Saving session conversations has recovered — the engine found nothing failing in "
+              "this project's folder or the working copies it manages, and closed that alarm.")
     return 0
 
 
