@@ -1553,6 +1553,27 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
                   "them):"]
         scope += [f"- {r}" for r in left]
 
+    # Tool-runtime dependency-group change (#757) — surfaced ONLY when the operator's committed selection
+    # genuinely changed across this update (`groups_changed` = the final selection differs, AS A SET, from the
+    # deployment's TRUE pre-overlay committed value — the operator's real prior, not the transient value the
+    # overlay wrote moments earlier). It decides which modules' Python dependencies the engine installs, a
+    # supply-chain-relevant change the operator must see at the merge. A genuine add/remove is always backed by a
+    # real diff line; a pure reorder of an already non-canonical committed line installs the identical set and is
+    # deliberately not announced (and is unreachable in normal operation, where every write path emits sorted).
+    # Shown as a delta against what the deployment had BEFORE the update, plus the full resulting selection.
+    if result.get("groups_changed"):
+        before = result.get("groups_before") or []
+        after = result.get("groups_after") or []
+        added = [g for g in after if g not in before]
+        removed_groups = [g for g in before if g not in after]
+        scope += ["", "This update changes which modules' Python dependencies the engine installs (the "
+                  "tool-runtime dependency-group selection):"]
+        if added:
+            scope.append(f"- now installed: {', '.join(added)}")
+        if removed_groups:
+            scope.append(f"- no longer installed: {', '.join(removed_groups)}")
+        scope.append(f"- the full selection is now: {', '.join(after) if after else '(none)'}")
+
     out = ["# Updating the engine", "", release_cut.template_preamble(), ""]
     out += release_cut.pr_section(
         "Purpose",
@@ -1561,16 +1582,19 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "place.",
          "- An update only ever moves the engine version forward."],
         "merging is your consent to run the updated engine; nothing changes until you merge.")
-    out += release_cut.pr_section(
-        "Scope",
-        ("The version this update records, the shared-file blocks it refreshed, and the capabilities it retires."
-         if caps_lost else
-         "The version this update records and the shared-file blocks it refreshed."),
-        scope,
-        ("the exact versions written into the engine's records, the marked-block refreshes noted, and — listed "
-         "above — the things you could ask for before and no longer can."
-         if caps_lost else
-         "these are the exact versions written into the engine's records, plus the marked-block refreshes noted."))
+    scope_summary = ("The version this update records, the shared-file blocks it refreshed, and the capabilities "
+                     "it retires." if caps_lost else
+                     "The version this update records and the shared-file blocks it refreshed.")
+    scope_impact = ("the exact versions written into the engine's records, the marked-block refreshes noted, and "
+                    "— listed above — the things you could ask for before and no longer can." if caps_lost else
+                    "these are the exact versions written into the engine's records, plus the marked-block "
+                    "refreshes noted.")
+    if result.get("groups_changed"):
+        # Fold the group change into the SKIMMABLE summary + impact too — an operator who reads only headers and
+        # Impact lines must still meet a supply-chain-relevant change, not only find it in the Scope body.
+        scope_summary += " It also changes which modules' Python dependencies the engine installs."
+        scope_impact += " It also changes the tool-runtime dependency-group selection (see Scope above)."
+    out += release_cut.pr_section("Scope", scope_summary, scope, scope_impact)
     out += release_cut.pr_section(
         "Out of scope",
         "What merging does not do.",
@@ -1619,13 +1643,22 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "- Close it to decline — nothing changes and you stay on your current version.",
          "- To undo the update after merging, ask me to undo it or revert this pull request."],
         "merging applies the update, and it stays reversible afterward.")
+    files_bullets = [
+        "- The engine's version record (.engine/engine.json) and the module manifests.",
+        "- The engine's own files this version added or removed, and its marked blocks in shared files "
+        "(CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where this version updated them — each is noted "
+        "under Scope."]
+    if result.get("groups_changed"):
+        # Gated on the GENUINE net change (not the write signal): only then does `.engine/pyproject.toml`'s
+        # default-groups line actually differ in the opened pull request, so this enumeration matches the diff
+        # rather than naming a file the reconcile restored to its prior value (#757).
+        files_bullets.append(
+            "- The tool-runtime dependency-group selection (.engine/pyproject.toml), changed to match your "
+            "installed modules — noted under Scope.")
     out += release_cut.pr_section(
         "Files of interest",
         "What this changes.",
-        ["- The engine's version record (.engine/engine.json) and the module manifests.",
-         "- The engine's own files this version added or removed, and its marked blocks in shared files "
-         "(CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where this version updated them — each is noted "
-         "under Scope."],
+        files_bullets,
         "the changed files are the engine's own records and files plus its marked blocks in shared files.")
     out += release_cut.pr_section(
         "AI involvement",
@@ -2063,6 +2096,7 @@ _STRUCTURAL_GATE_CHECK_IDS = frozenset({
     "engine/check/knowledge-coverage",      # the regenerated knowledge graph matching the reconciled surfaces
     "engine/check/codex-provider-parity",   # an orphaned .claude/agents/* with no .codex twin (the #599 class)
     "engine/check/codex-agent-coherence",   # the Codex agent renders matching their .claude sources
+    "engine/check/uv-group-drift",          # the committed default-groups matching the deployed module set (#757)
 })
 # NOT in the gate: `hard-check-bite` — it is a release-cut META-check that every hard check bites its
 # negative fixture, a property of the CHECK CORPUS (verified where releases are cut), not of the reconciled
@@ -2101,9 +2135,21 @@ def _coherence_only_gate(body: str) -> list:
     return list(module_coherence.check_coherence())
 
 
-def _reconcile_refuse_reason() -> str:
+def _reconcile_refuse_reason(findings: list | None = None) -> str:
     """The plain-language refusal when the structural gate finds a problem in the rebuilt engine — names the
-    class of problem in words, never a check id (product-S3), and points at the re-run / undo recourse."""
+    class of problem in words, never a check id (product-S3), and points at the recourse. When the blocking
+    problem is a dependency-group mismatch the reconcile could not fix (a malformed `default-groups` array the
+    single-line rewriter can't touch — reachable only from a malformed RELEASE, since the overlay replaces the
+    operator's pyproject wholesale), a re-run repeats the same failure, so it names that specific cause and
+    points at undo + reporting rather than a dead-end "retry". Matches on `source_rule` (the id `collect`
+    stamps on each finding under `with_source`), never the operator-facing message."""
+    for f in (findings or []):
+        if f.get("source_rule") == "engine/check/uv-group-drift" and f.get("severity") == "hard":
+            return ("The update was applied to your working copy, but the engine's tool-runtime dependency "
+                    "groups — which decide which modules' Python dependencies get installed — could not be "
+                    "reconciled to your installed modules, so it was NOT opened for review and nothing was "
+                    "merged. This points to a problem in the release itself, so running the update again will "
+                    "not fix it: ask me to undo the update's changes, and report it to your engine's update home.")
     return ("The update was applied to your working copy, but a consistency check on the rebuilt engine found "
             "a problem, so it was NOT opened for review and nothing was merged. Run the update again to retry, "
             "or ask me to undo the update's changes.")
@@ -2175,7 +2221,8 @@ def _regen_indexes() -> None:
 
 
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
-                  candidates, handle, selected, seam, practice, opener, gate=None, dropped_ids=()) -> dict:
+                  candidates, handle, selected, seam, practice, opener, groups_before=None, gate=None,
+                  dropped_ids=()) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the #594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
     seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
@@ -2192,7 +2239,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             "orphans_removed": {"engine": [], "suspect": [], "left_in_place": []},
             "migrations": {"ran": [], "refused": []}, "retired_capabilities": [],
             "removed_capabilities": [],
-            "findings": [], "pr": None, "notes": [], "applied": False, "reason": None}
+            "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
+            "groups_before": groups_before, "groups_after": None, "groups_changed": False}
     # (a0) RETIRED-CAPABILITY ANNOUNCEMENTS — derived from the FULL present-manifest set (`candidates`), NEVER
     # from `selected`: a version that retires a capability but ships no migration must still announce it, so this
     # is independent of migration selection (design-review). Announcement-only, so it is computed once up front
@@ -2255,6 +2303,29 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # it; a plain re-run would complete with the module already pruned and never disclose it. See the reconcile
     # KNOWN BOUND on undo-as-recovery in upgrade().)
     _bump_engine_manifest(target_versions, target_ref, dropped_ids=dropped_ids)
+    # (d1) RECONCILE the tool-runtime dependency-group SELECTION to the upgraded module set. The overlay
+    # replaced `.engine/pyproject.toml` WHOLESALE with the release's `default-groups` (its CONSTRUCTION set —
+    # every default-on module), but THIS deployment's installed set may be smaller (a declined optional module)
+    # or differ, so `derive_uv_groups()` now yields a different selection. Without this, the committed selection
+    # drifts and the update's OWN pull request is born failing `uv-group-drift` (#757) — the operator would have
+    # to hand-run `sync-groups`. Mirrors add()/remove(): re-derive from the present set, rewrite the single-line
+    # array, and let `_stage_worktree()` below fold the edit into the SAME update commit. Runs AFTER the dropped-
+    # module teardown above, so `derive_uv_groups()` reads the post-teardown present set and a whole-dropped
+    # module's own dependency group falls out of the selection too (#688 composes with #757). Fail-open (a
+    # malformed release array, an unreadable file) — surfaced as a note, never a crash; the structural gate below
+    # now carries `uv-group-drift`, so a fail-open that leaves real drift is REFUSED cleanly rather than opening a
+    # red pull request. `groups_before` is the deployment's TRUE pre-overlay committed selection (captured in
+    # phase 1 before the overlay and threaded in here — the overlay's transient value is NOT a valid baseline;
+    # like `old_owned`, a prior interrupted run that already overlaid the tree is the one bounded exception, and
+    # it fails safe — see the capture site). So `groups_changed` is the operator-facing NET change the opened
+    # pull request's diff shows for a genuine change: it is the disclosure signal, never the mere fact that a byte
+    # was rewritten this run (which fires even when the reconcile just restores the operator's prior selection).
+    try:
+        tail["groups_after"] = derive_uv_groups()
+        _maybe_rewrite_default_groups(tail["groups_after"])   # write the reconciled selection (close the drift)
+        tail["groups_changed"] = set(groups_before or []) != set(tail["groups_after"])
+    except Exception as exc:   # noqa: BLE001 — fail open: a malformed/absent array or an unreadable pyproject
+        tail["notes"].append(f"(Could not reconcile the tool-runtime dependency groups: {exc})")
     # Regenerate the deployed-state-dependent indexes (self-map + knowledge graph) from the reconciled tree,
     # so they describe the DEPLOYED shape rather than the construction shape the release shipped (#599).
     _regen_indexes()
@@ -2276,7 +2347,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     _stage_worktree()
     tail["findings"] = (gate or _reconcile_gate)(body)
     if any(f.get("severity") == "hard" for f in tail["findings"]):
-        tail["reason"] = _reconcile_refuse_reason()
+        tail["reason"] = _reconcile_refuse_reason(tail["findings"])
         return tail
     # (f) LAND as a reviewed pull request (skipped on a practice run — no git/PR boundary).
     if practice or opener is None:
@@ -2323,7 +2394,7 @@ def _run_upgrade_tail(state: dict) -> None:
         target_versions=target_versions, old_by_id=state["old_by_id"],
         old_owned=state.get("old_owned") or [], candidates=candidates,
         handle=state.get("handle"), selected=selected, seam=seam, practice=practice, opener=opener,
-        dropped_ids=dropped_ids)
+        groups_before=state.get("groups_before") or [], dropped_ids=dropped_ids)
     _upgrade_state_dump(tail, state["result_path"])
 
 
@@ -2801,6 +2872,14 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # longer sees that orphan — the gate then keeps refusing. It fails SAFE (nothing merges); the recourse
         # is the undo, then update again. A self-healing recovery (persisting the pre-overlay set) is not attempted.
         old_owned = sorted(set(module_coherence.engine_owned_paths(module_coherence.discover_manifests())))
+        # Capture the deployment's TRUE committed dependency-group selection NOW — pre-overlay — so the tail can
+        # tell a genuine operator-facing group change from the transient value the overlay is about to write
+        # (#757). Threaded into the tail next to `old_owned`; fail-soft to [] so a missing/unreadable pyproject
+        # never blocks the update (the reconcile itself fails open too).
+        try:
+            pre_overlay_groups = committed_default_groups()
+        except Exception:   # noqa: BLE001 — a missing/unreadable pyproject: no baseline, never a crash
+            pre_overlay_groups = []
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.
         selected = select_migrations(
@@ -2855,13 +2934,14 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 release_tree=release_tree, target_ref=target_ref, from_versions=from_versions,
                 target_versions=target_versions, old_by_id=old_by_id, old_owned=old_owned,
                 candidates=candidates, handle=engine.get("handle"), selected=selected, seam=seam,
-                practice=practice, opener=opener, gate=_coherence_only_gate, dropped_ids=dropped_ids)
+                practice=practice, opener=opener, groups_before=pre_overlay_groups,
+                gate=_coherence_only_gate, dropped_ids=dropped_ids)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,
                 "target_versions": target_versions, "present_ids": present_ids, "old_by_id": old_by_id,
-                "old_owned": old_owned, "handle": engine.get("handle"), "practice": practice,
-                "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER})
+                "old_owned": old_owned, "groups_before": pre_overlay_groups, "handle": engine.get("handle"),
+                "practice": practice, "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER})
         _merge_tail(result, tail)
         return result
     finally:
