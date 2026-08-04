@@ -2069,6 +2069,102 @@ class TestUpgradeReconcile(unittest.TestCase):
         self.assertTrue(res.get("pr"), f"the reconcile did not open a pull request: {res.get('reason')}")
         self.assertEqual(len(opened), 1)
 
+    @staticmethod
+    def _write_file(root, rel, txt):
+        p = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(txt)
+
+    @staticmethod
+    def _add_provides(root, group, rel):
+        """Declare `rel` under a `provides` group of the fixture's base manifest, so the overlay/reconcile
+        treat it as engine-owned surface (the precondition that gives a PRESERVE_DATA test real bite — a file
+        in no `provides` would never be touched, a vacuous green)."""
+        man_p = os.path.join(root, ".engine", "modules", "base", "manifest.json")
+        with open(man_p, encoding="utf-8") as fh:
+            man = json.load(fh)
+        man.setdefault("provides", {}).setdefault(group, [])
+        if rel not in man["provides"][group]:
+            man["provides"][group].append(rel)
+        with open(man_p, "w", encoding="utf-8") as fh:
+            json.dump(man, fh)
+
+    def test_a_fixture_the_release_dropped_is_retired_while_live_and_untracked_survive(self):
+        # #699 residual: the delete leg must retire a COMMITTED fixture the release NO LONGER ships (a
+        # superseded not-applicable.json that lingered and reddened engine-ci), while sparing a fixture the
+        # release still ships and NEVER deleting an untracked operator file (not git-restorable — recoverability).
+        stale = ".engine/_fixtures/superseded/not-applicable.json"    # release does not ship this
+        kept = ".engine/_fixtures/probe/bad_input.md"                 # the release DOES ship this
+        untracked = ".engine/_fixtures/superseded/operator_scratch.json"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._write_file(live, stale, "{}\n")
+                self._write_file(live, kept, "old fixture body\n")
+                # Make the live tree a git repo so the reconcile can tell a TRACKED engine fixture from an
+                # untracked operator file — the whole basis of the recoverability guard.
+                _git(live, "init", "-q")
+                _git(live, "config", "user.email", "t@t")
+                _git(live, "config", "user.name", "t")
+                _git(live, "add", "-A")
+                _git(live, "commit", "-qm", "seed")
+                self._write_file(live, untracked, "{}\n")             # added AFTER the commit -> untracked
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 7},
+                                             backup=lambda *a, **k: {"ok": 1})
+
+                def _exists(rel):
+                    return os.path.exists(os.path.join(live, *rel.split("/")))
+                self.assertFalse(_exists(stale), "a superseded fixture the release dropped survived the upgrade")
+                self.assertTrue(_exists(kept), "a fixture the release still ships was wrongly removed")
+                self.assertTrue(_exists(untracked),
+                                "an untracked operator fixture was deleted — it is not git-restorable")
+        self.assertIn(stale, res["orphans_removed"]["engine"])
+
+    def test_a_bound_operator_data_file_is_preserved_across_an_upgrade(self):
+        # #814: a committed per-deployment DATA file declared in `provides` (the backup pointer's bound
+        # namespace) must NOT be overwritten by the release placeholder — the confirmed silent-loss case.
+        ptr = ".engine/memory-backup/pointer.json"                   # the exact PRESERVE_DATA member
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_provides(live, "backup", ptr)
+                self._add_provides(release, "backup", ptr)
+                self._write_file(live, ptr, '{"configured": true, "namespace": "deadbeef-bound"}\n')
+                self._write_file(release, ptr, '{"configured": false}\n')   # release ships only the placeholder
+                module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                       opener=lambda **k: {"number": 7}, backup=lambda *a, **k: {"ok": 1})
+                with open(os.path.join(live, *ptr.split("/")), encoding="utf-8") as fh:
+                    kept = fh.read()
+        self.assertIn("deadbeef-bound", kept)          # the operator's bound namespace survived
+        self.assertIn('"configured": true', kept)      # not reverted to the release placeholder
+
+    def test_a_preserved_data_file_is_delivered_when_absent(self):
+        # create-if-absent: a fresh tree LACKING the preserved file still receives the release placeholder,
+        # so a first delivery is never suppressed by the preserve carve-out.
+        ptr = ".engine/memory-backup/pointer.json"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_provides(live, "backup", ptr)
+                self._add_provides(release, "backup", ptr)
+                self._write_file(release, ptr, '{"configured": false}\n')
+                self.assertFalse(os.path.exists(os.path.join(live, *ptr.split("/"))))   # absent to start
+                module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                       opener=lambda **k: {"number": 7}, backup=lambda *a, **k: {"ok": 1})
+                self.assertTrue(os.path.exists(os.path.join(live, *ptr.split("/"))),
+                                "the release placeholder was not delivered to a fresh tree (create-if-absent)")
+
     def test_refuses_cleanly_on_a_hard_consistency_finding_without_opening(self):
         # An .engine file no module claims makes check_coherence hard-flag; the gate must refuse in plain
         # language (no raw check id), leave the working copy staged (half-state), and open nothing.

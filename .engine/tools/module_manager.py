@@ -923,6 +923,34 @@ def _overlay_copy_map(tree_root: str, manifests_by_id: dict) -> dict:
     return to_copy
 
 
+# The deployed-state-dependent index files the reconcile tail REGENERATES post-overlay (never preserves): the
+# overlay delivers the release's CONSTRUCTION copy, but each derives from / fingerprints the DEPLOYED shape, so
+# the shipped copy drifts and must be rebuilt from the reconciled tree. `_regen_indexes` regenerates exactly
+# this set, and the overwrite disclosure reads the SAME set to render them as one calm "refreshed" line rather
+# than a per-file alarm — single-sourced here so behaviour and notice cannot disagree. `product-spec-matrix.json`
+# is regenerated only where the OPTIONAL product-design module (and a settled `docs/spec/`) is present; skipped,
+# never fabricated, otherwise.
+REGENERATED_DERIVED = (
+    ".engine/self-map.md",
+    ".engine/knowledge/graph.json",
+    ".engine/product-spec-matrix.json",
+)
+
+
+def _preserved_present(dest_root: "str | None" = None) -> set:
+    """The `module_coherence.PRESERVE_DATA` paths that ALREADY EXIST under `dest_root` (default: the live
+    `validate.ROOT`). These are the per-deployment operator-DATA files the overlay must NOT overwrite —
+    create-if-absent: a fresh arrival lacking the file still receives the release placeholder, while an
+    upgrade over an existing bound value leaves it untouched. THE SINGLE refinement of `_overlay_copy_map`
+    every overlay consumer applies: the copy legs (`_overlay_engine_code`, `_copy_synced`) skip these, and the
+    overwrite views (`overlay_replace_paths`, `plan_upgrade`) subtract them — so the operator-facing
+    disclosure/preview stay in lockstep with what the update actually does (eADR-0037: the overwrite set is
+    `_overlay_copy_map` MINUS this). Exact repo-relative membership (never a basename), matching the map keys."""
+    root = validate.ROOT if dest_root is None else dest_root
+    return {rel for rel in module_coherence.PRESERVE_DATA
+            if os.path.lexists(os.path.join(root, *rel.split("/")))}
+
+
 def overlay_replace_paths() -> set:
     """The repo-relative engine files the NEXT engine update would OVERWRITE, expanded against the LIVE
     tree — exactly the membership `_overlay_engine_code` copies (present modules' `provides` files + their
@@ -935,9 +963,13 @@ def overlay_replace_paths() -> set:
 
     DISTINCT from `module_coherence.engine_owned_paths()` — do NOT dedupe into it: that set unions the
     FULL `FOUNDATION_INFRA` (including the keyed-merge/CODEOWNERS carve-outs the overlay PRESERVES) and
-    omits module manifests, so reusing it would both cry wolf on preserved files and miss the manifests."""
+    omits module manifests, so reusing it would both cry wolf on preserved files and miss the manifests.
+
+    MINUS the create-if-absent preserve set (`_preserved_present`): a per-deployment DATA file the update now
+    leaves untouched is not overwritten, so it must not be disclosed as such — the overwrite set is
+    `_overlay_copy_map` minus the present preserved files, keeping the notice in lockstep with the copy leg."""
     manifests = {m.get("id"): m for _rel, m in module_coherence.discover_manifests()}
-    return set(_overlay_copy_map(validate.ROOT, manifests).keys())
+    return set(_overlay_copy_map(validate.ROOT, manifests).keys()) - _preserved_present()
 
 
 def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
@@ -967,9 +999,12 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
         shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
         raise _UpgradeRefused(f"the update was stopped because it tried to place files outside the engine "
                               f"({shown}); nothing was changed.")
+    preserved = _preserved_present()         # PRESERVE_DATA already on disk — leave the bound value (#814)
     copied = []
     for rel, src in sorted(to_copy.items()):
         if rel in skip:                      # an operator file the arrival is keeping (class-1 leave-as-is)
+            continue
+        if rel in preserved:                 # create-if-absent: never overwrite a bound per-deployment value
             continue
         dst = os.path.join(validate.ROOT, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -1079,11 +1114,14 @@ def engine_synced_paths(tree_root: str, manifests_by_id: dict, *, project_retire
 
 def _reconcile_carveouts() -> tuple:
     """The never-delete carve-outs for the reconcile delete leg, as (exact:set, prefixes:tuple): operator
-    config, the pruned runtime roots, the deployment's per-instance eADR stream, the committed fixture
-    namespace, and the five keyed/rendered foundation files. Mirrors module_coherence's carve-out sets so an
-    operator's tuning, saved data, instance decision records, and product files are never delete candidates
-    (they are outside `old_owned` by construction — this is the belt, not the sole protection)."""
-    exact = set(module_coherence.OPERATOR_CONFIG) | set(_FOUNDATION_KEYED)
+    config, the preserved per-deployment DATA files, the pruned runtime roots, the deployment's per-instance
+    eADR stream, the committed fixture namespace, and the five keyed/rendered foundation files. Mirrors
+    module_coherence's carve-out sets so an operator's tuning, saved data, instance decision records, and
+    product files are never delete candidates (they are outside `old_owned` by construction — this is the belt,
+    not the sole protection). NOTE the FIXTURE_PATHS prefix is spared here for the DIRECTORY-retire leg (whose
+    `rmtree` has no untracked guard); the FILE-delete leg deliberately drops it (see `_reconcile_surface`) so a
+    stale, tracked fixture the release no longer ships is reconciled away like any other owned file."""
+    exact = set(module_coherence.OPERATOR_CONFIG) | set(_FOUNDATION_KEYED) | set(module_coherence.PRESERVE_DATA)
     prefixes = tuple(sorted(d + "/" for d in (set(module_coherence.PRUNE_PATHS)
                                               | set(module_coherence.DEPLOYMENT_CONTRACTS)
                                               | set(module_coherence.FIXTURE_PATHS))))
@@ -1102,9 +1140,12 @@ def _copy_synced(to_deliver: dict, *, exclude=None) -> list:
         raise _UpgradeRefused(f"the update was stopped because it tried to place files outside the engine "
                               f"({shown}); nothing was changed.")
     skip = set(exclude or ())
+    preserved = _preserved_present()             # PRESERVE_DATA already on disk — deliver create-if-absent only
     delivered = []
     for rel, src in sorted(to_deliver.items()):
         if rel in skip:                          # an operator file arrival is keeping (class-1 leave-as-is)
+            continue
+        if rel in preserved:                     # a bound per-deployment value is present — never overwrite (#814)
             continue
         dst = os.path.join(validate.ROOT, rel)
         if os.path.isfile(dst) and filecmp.cmp(src, dst, shallow=False):
@@ -1739,15 +1780,28 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     # DELETE — compute the WHOLE candidate set first (the live globs need the files still on disk).
     keep = set(synced.keys()) | set(_FOUNDATION_KEYED)
     exact_cv, prefix_cv = _reconcile_carveouts()
+    tracked = module_coherence._tracked_paths()   # git-tracked relpaths, or None when git is unavailable
+    # The FILE-delete leg reconciles the committed fixture namespace like any other owned surface (#699): a
+    # fixture the release NO LONGER SHIPS must retire, not survive (a superseded `not-applicable.json` that
+    # lingered was #599's residual — it reddens `engine-ci`). Fixtures are in NO module's `provides` (so never
+    # in `old_owned`) and are blanket-spared by `prefix_cv`, so here (a) add the deployed tree's TRACKED
+    # fixture files as candidates — TRACKED-ONLY, because an UNTRACKED fixture is the operator's own and is not
+    # git-restorable, so it must never be a delete candidate (the recoverability invariant) — and (b) drop the
+    # fixture prefix from the FILE-leg carve-out only. A LIVE release fixture stays spared: it is in `keep`
+    # (the release delivered its own fixtures into the synced map), which `_spared` checks first. The
+    # DIRECTORY-retire leg below keeps the full `prefix_cv` (its `rmtree` has no untracked guard).
+    fixture_pref = tuple(ns + "/" for ns in module_coherence.FIXTURE_PATHS)
+    file_prefix_cv = tuple(p for p in prefix_cv if p not in fixture_pref)
+    fixture_candidates = ({rel for rel in tracked if rel.startswith(fixture_pref)}
+                          if tracked is not None else set())
 
     def _spared(rel: str) -> bool:
-        return rel in keep or rel in exact_cv or rel.startswith(prefix_cv)
+        return rel in keep or rel in exact_cv or rel.startswith(file_prefix_cv)
 
-    to_delete = sorted(rel for rel in (set(old_owned) | set(r_files))
+    to_delete = sorted(rel for rel in (set(old_owned) | set(r_files) | fixture_candidates)
                        if not _spared(rel) and _within_root(rel)
                        and os.path.isfile(os.path.join(validate.ROOT, rel)))
     glob_prefixes = _glob_namespace_prefixes(old_by_id)
-    tracked = module_coherence._tracked_paths()   # git-tracked relpaths, or None when git is unavailable
     removed = {"engine": [], "suspect": [], "left_in_place": []}
     for rel in to_delete:
         # A known first-run (retire-set) file is engine; otherwise a file under a GLOB provides namespace could
@@ -1862,26 +1916,44 @@ def _stage_worktree() -> None:
 
 
 def _regen_indexes() -> None:
-    """Regenerate the deployed-state-dependent index files — the self-map and the knowledge graph — from the
-    reconciled tree, so they describe the DEPLOYED shape (post first-run projection), NOT the construction
-    shape the release ships. Both are in `core`'s `provides`, so the overlay delivers the release's
-    construction versions; but they fingerprint the surface the reconcile just changed (the retire set is
-    absent on a deployed repo), so the shipped copies would drift (self-map-drift / knowledge-coverage). These
-    are exactly the §B 'render locally iff a function of deployed state' artifacts. Best-effort: a regen
-    failure surfaces as a drift finding at the gate (a clean refusal), never a crash mid-upgrade."""
+    """Regenerate the deployed-state-dependent index files listed in REGENERATED_DERIVED — the self-map, the
+    knowledge graph, and the product-spec-matrix — from the reconciled tree, so they describe the DEPLOYED
+    shape (post first-run projection), NOT the construction shape the release ships. The overlay delivers the
+    release's construction versions, but each derives from / fingerprints the surface the reconcile just
+    changed, so the shipped copy would drift (self-map-drift / knowledge-coverage; the matrix's own drift
+    gate). The self-map and graph are `core`'s; the product-spec-matrix is the same shape but supplied by the
+    OPTIONAL product-design module — it derives from the deployment's OWN `docs/spec/`, so an update refreshes
+    its format without freezing the deployment's settled-criteria rows (#814). Each is regenerated ONLY where
+    the tree already carries it (never fabricated on a minimal fixture, nor on a deployment that never settled
+    a spec), and the product-design generator is imported LAZILY and guarded (the module, hence its tool, is
+    absent on a deployment without it). Best-effort: a regen failure surfaces as a drift finding at the gate (a
+    clean refusal), never a crash mid-upgrade."""
     import self_map            # lazy: only the reconcile tail needs the generators
     import knowledge_gen
-    # Pass an EXPLICIT target under the CURRENT validate.ENGINE_DIR: the generators' own default-path constants
-    # are bound at import to the real repo, so a bare generate() would write there even under a redirected tree
-    # (a test/demo fixture). validate.ENGINE_DIR IS redirected, so building the path from it writes to the tree
-    # actually being reconciled — the deployed repo on the real child path, the fixture under a redirect.
-    for gen, target in ((self_map.generate, os.path.join(validate.ENGINE_DIR, "self-map.md")),
-                        (knowledge_gen.generate, os.path.join(validate.ENGINE_DIR, "knowledge", "graph.json"))):
+
+    # Resolve each REGENERATED_DERIVED path to its generator. Pass an EXPLICIT target under the CURRENT
+    # validate.ENGINE_DIR: the generators' own default-path constants are bound at import to the real repo, so
+    # a bare generate() would write there even under a redirected tree (a test/demo fixture). ENGINE_DIR IS
+    # redirected, so the path built from it writes the tree actually being reconciled.
+    def _generator(rel: str):
+        if rel == ".engine/self-map.md":
+            return self_map.generate
+        if rel == ".engine/knowledge/graph.json":
+            return knowledge_gen.generate
+        if rel == ".engine/product-spec-matrix.json":
+            from product_design import obligation_matrix   # optional module — absent → ImportError, caught below
+            return obligation_matrix.generate
+        return None
+
+    for rel in REGENERATED_DERIVED:
+        target = os.path.join(validate.ENGINE_DIR, *rel.split("/")[1:])
         if not os.path.isfile(target):
-            continue   # the tree does not carry this index (a minimal fixture) — never fabricate one
+            continue   # the tree does not carry this index (a minimal fixture / no settled spec) — never fabricate
         try:
-            gen(path=target)
-        except Exception:  # noqa: BLE001 — a regen failure becomes a drift finding at the gate, not a traceback
+            gen = _generator(rel)
+            if gen is not None:
+                gen(path=target)
+        except Exception:  # noqa: BLE001 — optional module absent, or a regen failure: a drift finding at the gate, not a crash
             pass
 
 
@@ -2207,7 +2279,11 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
                               f"the engine ({shown}), so nothing further was read. This can mean the release "
                               f"is not one to trust — check your engine's update home."}
         replaced, added_files = [], []
+        preserved = _preserved_present()   # a bound per-deployment value the apply KEEPS — neither replaced nor added
         for rel in sorted(to_copy):
+            if rel in preserved:
+                continue                    # create-if-absent: the update preserves it, so the preview must not
+                                            # list it as replaced (that would contradict the apply — plan/apply drift)
             (replaced if os.path.exists(os.path.join(validate.ROOT, rel)) else added_files).append(rel)
         out["files"] = {"replaced": replaced, "added": added_files}
         # SETTINGS (wiring) — the shared identity delta, so the preview reports the apply's own reversals.

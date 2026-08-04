@@ -7687,7 +7687,7 @@
       },
       "slug": "demo_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:4ffb46c8bf2ab9064e7fa61465bba2145f84729c24b8389578a2e5da09fec0b3",
+        "fingerprint": "sha256:bbd6af7dc4ee70800fd361ba9b3e96a5de5c15ee9a1bfaa87a05e5d38c11e191",
         "path": ".engine/tools/demo_overlay_disclosure.py"
       },
       "status": "active",
@@ -9290,7 +9290,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:b1465c2f26915f83c3db8795cafdee19480e25ca10eaff054263bccbaa4bd8b2",
+        "fingerprint": "sha256:c9d409cfea13cb37b34fcaf35e21659f43d9fef06591ce9ee6cfc8ac15936e8a",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -9315,6 +9315,7 @@
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
+          "tool:obligation_matrix",
           "tool:release_cut",
           "tool:repo_identity",
           "tool:restore_vault",
@@ -9329,7 +9330,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:aa3319fa3d673877b3355f81acafa132409d0b60345157aab3f8861a146b525b",
+        "fingerprint": "sha256:ee8c069ce955dbd824c982369acfaf1b82c4ed2575772cbacaff410542124362",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9485,6 +9486,7 @@
         "imports": [
           "tool:boot",
           "tool:github_client",
+          "tool:module_coherence",
           "tool:module_manager",
           "tool:repo_identity",
           "tool:validate",
@@ -9496,7 +9498,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:55ac7a5e8ee9f2d9aa52dd5d8509ced091899f46fe9ad7a3bf5beeb2b1215f24",
+        "fingerprint": "sha256:1523f96e0b7fcd97b236aa98ad4b00c1bb66951338b2cb867cbb61d33dc3404c",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -12534,7 +12536,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:dc463ed43124004fc00dcb3e18b2b3f484e251489e181e5005eca1dc6098ad7b",
+        "fingerprint": "sha256:fc997ed201c8c447ff16bc6a63a13a55ff43e9d3535db8e3931bf805044d42f6",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12782,7 +12784,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:c02f74d2e040e4397c1d121dfc35d9a36fca8f1311597e30937dbac2d48545cd",
+        "fingerprint": "sha256:f291e793086f1c11f80fe366c4b2353d9ed31fd7c995c5ea72863bf4cae24949",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
