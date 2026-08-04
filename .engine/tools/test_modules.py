@@ -140,6 +140,29 @@ class TestEngineSchema(unittest.TestCase):
     def test_field_outside_the_grammar_is_flagged(self):
         self.assertTrue(_errors(ENGINE_SCHEMA, {**VALID_ENGINE, "extra": 1}))
 
+    def test_removed_capabilities_stamped_entry_validates(self):
+        # #688: a fully-stamped removal record is valid.
+        rc = {"legacy": {"description": "you could ask X; now ask Y", "removed_in": "0.4.0"}}
+        self.assertEqual(_errors(ENGINE_SCHEMA, {**VALID_ENGINE, "removed_capabilities": rc}), [])
+
+    def test_removed_capabilities_description_only_entry_validates(self):
+        # removed_in is OPTIONAL: an entry authored at removal time (before the cut stamps removed_in) must
+        # validate, or CI would redden the tree during the merge-to-cut window.
+        rc = {"legacy": {"description": "you could ask X; now ask Y"}}
+        self.assertEqual(_errors(ENGINE_SCHEMA, {**VALID_ENGINE, "removed_capabilities": rc}), [])
+
+    def test_removed_capabilities_requires_a_nonempty_description(self):
+        self.assertTrue(_errors(ENGINE_SCHEMA, {**VALID_ENGINE, "removed_capabilities": {"x": {}}}))
+        self.assertTrue(_errors(ENGINE_SCHEMA, {**VALID_ENGINE,
+                                                "removed_capabilities": {"x": {"description": ""}}}))
+
+    def test_removed_capabilities_rejects_an_extra_field(self):
+        rc = {"x": {"description": "d", "surprise": 1}}
+        self.assertTrue(_errors(ENGINE_SCHEMA, {**VALID_ENGINE, "removed_capabilities": rc}))
+
+    def test_removed_capabilities_block_is_optional(self):
+        self.assertEqual(_errors(ENGINE_SCHEMA, VALID_ENGINE), [])   # absent stays valid
+
 
 class TestSchemaRulesIntegration(unittest.TestCase):
     """The two committed schema rules resolve their repo-root-relative params.schema override

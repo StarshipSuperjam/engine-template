@@ -23,8 +23,9 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    looks unfinished, and — when an update is available — **what that update would change**: the engine files
    it replaces or adds, the settings it turns on or off or updates, any stored-data change (and whether a
    backup is set up for it), and **any capability the update retires** — something you could ask the engine for
-   before and no longer can, named in plain language. To see this it fetches the new version's files read-only;
-   nothing is applied.
+   before and no longer can, named in plain language, whether the update retired it *inside* a module it keeps
+   or by dropping a *whole* module (a whole-module drop is retired cleanly on update, its files removed, not a
+   refusal). To see this it fetches the new version's files read-only; nothing is applied.
    (`module_manager.py status` also lists the installed modules and the current version.)
 2. **Apply the update — deliberately.** `module_manager.py upgrade --confirm` (optionally name a specific
    version) fetches the newer released version, replaces the engine's own files with it while **keeping your
@@ -37,7 +38,9 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    engine tells you plainly and asks you to record it, rather than guess one), if the home has no such release
    — it may have been renamed or removed (the engine names the home so you can check it), if the network can't
    be reached (the engine stays on its current version), if a needed change to saved data can't be backed up
-   first (see Notes), or if a required module is missing from the release.
+   first (see Notes), or if a module you have is missing from the release *without* being recorded as an
+   intentional removal — a broken or incomplete release (a module the release intentionally drops, recorded in
+   its own removal record, is retired cleanly and announced, not refused).
 3. **Review and merge.** The update lands as a pull request with the engine's checks. Merging it is your
    approval; reverting it undoes the update. Until you merge, nothing about the running engine has changed.
 
@@ -46,7 +49,8 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
 The engine is on the new version, your settings and saved data are preserved, and the update's pull request is
 merged — or, if the update was refused, you have been told plainly why (no update home is recorded, the home
 has no such release or was renamed or removed, the network couldn't be reached, a needed saved-data change had
-no backup set up, or a module was missing), with nothing changed.
+no backup set up, or a module you have vanished from the release without being recorded as an intentional
+removal), with nothing changed.
 
 ## Notes
 

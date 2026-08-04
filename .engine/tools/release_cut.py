@@ -508,6 +508,82 @@ def _retired_capabilities_accumulation_violations(was: dict, present: dict) -> l
                           f"— restore the key (a retirement notice has no no-op form, so it must never be dropped)"))
 
 
+def _engine_in_tree(tree_root: str | None) -> dict:
+    """The engine manifest (.engine/engine.json) under a fetched/injected BASELINE tree, or {} when absent or
+    unreadable. FAIL-OPEN by design: a baseline cut before `removed_capabilities` shipped carries none, and the
+    test baseline helper writes only module manifests (no engine.json) — a strict read would spuriously fail the
+    retention leg on every such baseline. The missing-baseline-TREE case is still fail-CLOSED upstream (classify
+    raises when a prior release exists but no tree was provided); this only tolerates a tree that carries no
+    engine.json."""
+    if not tree_root:
+        return {}
+    path = os.path.join(tree_root, ".engine", "engine.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        return validate.load_json(path) or {}
+    except Exception:   # noqa: BLE001 — a malformed baseline engine.json degrades to "no prior notices", never a crash
+        return {}
+
+
+def _removed_capability_violations(baseline_tree: str | None, removed_modules: list, live_engine: dict,
+                                   present: dict) -> list:
+    """The whole-module removal-notice guard — the third sibling of the migration / retired-capability
+    accumulation guards, but keyed FLAT by module-id (engine.json `removed_capabilities`), NOT version-keyed, so
+    it is NOT built on `_accumulation_violations` (which iterates a per-module version-keyed sub-block). Two legs:
+
+      - MISSING-NOTICE: a module this cut removes (`removed_modules` = baseline − present) with no
+        `removed_capabilities[mid]` line in the live engine.json. A validly-cut release must carry the plain-
+        language line so the deployer's update can both announce the loss AND treat the module's absence as
+        intentional (the upgrade reconciles it away rather than refusing) — so its absence is a refusal.
+      - RETENTION: a `removed_capabilities` key the BASELINE release recorded that the candidate dropped — the
+        notice would silently vanish for a lagging upgrader who still holds the module. Refuse UNLESS (a) the
+        module is present again (a re-add legitimately clears the entry) or (b) its `removed_in` is at or below
+        the release's clean-upgrade floor (`min_upgradeable_from`), because then no supported upgrader can still
+        hold the module and the notice can never fire — so pruning it is safe (this is the schema's documented
+        obsolescence escape; the live floor is used as a conservative stand-in, since the release floor only ever
+        advances from it)."""
+    live_rc = live_engine.get("removed_capabilities") or {}
+    out = []
+    for mid in sorted(set(removed_modules)):
+        if mid not in live_rc:
+            out.append(f"the '{mid}' capability was removed but no plain-language removal notice was recorded "
+                       f"for it — add it to engine.json removed_capabilities: {{ \"{mid}\": {{ \"description\": "
+                       f"\"…what an operator could ask for before and no longer can…\" }} }} so the update can "
+                       f"tell the operator what they lost instead of refusing")
+    floor = live_engine.get("min_upgradeable_from")
+    base_rc = _engine_in_tree(baseline_tree).get("removed_capabilities") or {}
+    for mid in sorted(base_rc):
+        if mid in live_rc or mid in present:
+            continue
+        removed_in = (base_rc.get(mid) or {}).get("removed_in")
+        if floor and removed_in and _norm_ver(removed_in) <= _norm_ver(floor):
+            continue   # obsolete: no supported upgrader can still hold the module → safe to prune
+        out.append(f"the '{mid}' removal notice recorded by the last release was dropped; an engine still "
+                   f"holding '{mid}' would update across the removal and never learn what it lost — restore the "
+                   f"key (it may only be pruned once the version it was removed in, removed_in, is at or below "
+                   f"this release's oldest-still-upgradeable version, min_upgradeable_from — after which no "
+                   f"engine can still hold '{mid}')")
+    return out
+
+
+def _dependency_integrity_violations(present: dict, removed_modules: list) -> list:
+    """A surviving module that still `depends` on a module THIS cut removes. Removing a depended-on capability
+    leaves the survivor's dependency dangling on every deployer's upgrade (and, once the update reconciles the
+    removed module away, dead-ends that upgrade at the coherence gate with no operator recourse). Belt-and-
+    suspenders with the branch coherence gate and plan_remove's reverse-dependency refusal — consistent with how
+    the cut also refuses a dropped migration CI would already have caught. Flags ONLY a dep this cut removes; a
+    dep absent for any other reason is a pre-existing coherence concern the branch gate owns."""
+    removed_set = set(removed_modules)
+    out = []
+    for mid, man in sorted(present.items()):
+        for dep in sorted((man or {}).get("depends") or {}):
+            if dep in removed_set:
+                out.append(f"the '{mid}' capability still needs the '{dep}' capability this release removes; "
+                           f"keep '{dep}', or remove '{mid}' too")
+    return out
+
+
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     """The proposal: the floor per package + engine, the change inventory, and the impact statements.
     In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
@@ -612,6 +688,17 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # transform, is what silently vanishes for a lagging upgrader. Its own field + its own refusal message,
         # because the recovery differs: a retirement has no no-op form, so the only recourse is to never drop it.
         "retired_capability_violations": _retired_capabilities_accumulation_violations(was, present),
+        # The modules this cut removes (baseline − present), STRUCTURED so `apply` can stamp `removed_in` onto
+        # exactly their engine.json removed_capabilities entries — the change inventory carries the same fact as
+        # prose, which is not machine-consumable.
+        "removed_modules": removed,
+        # A whole-module removal with no plain-language notice, or a prior release's notice dropped (the FLAT
+        # module-keyed sibling of the two accumulation guards). Refused at the cut: a validly-cut release must
+        # carry the notice so the deployer's update can announce the loss AND treat the drop as intentional.
+        "removed_capability_violations": _removed_capability_violations(baseline_tree, removed, engine, present),
+        # A surviving module that still depends on a module this cut removes — a dangling dependency that would
+        # dead-end every holder's upgrade at the coherence gate; refused at the cut (belt-and-suspenders).
+        "dependency_violations": _dependency_integrity_violations(present, removed),
     }
 
 
@@ -831,6 +918,20 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         new_engine["packages"] = pkgs
         if min_upgradeable_from is not None:               # record/refresh the clean-upgrade floor when given;
             new_engine["min_upgradeable_from"] = min_upgradeable_from   # else the dict copy carries any prior one
+        # Stamp `removed_in` onto the modules THIS cut removes (from the proposal) — the maintainer authored only
+        # `description` at removal time; the cut is where the release version is known. Rebuild each entry FRESH
+        # (new_engine is a SHALLOW copy of `engine`, so the nested removed_capabilities dict and its entries are
+        # shared with the loaded manifest — mutating in place would write through). Only stamp entries that this
+        # cut removed and that are not already stamped, so a prior release's removed_in is never overwritten.
+        removed_now = set((proposal or {}).get("removed_modules") or [])
+        rc = new_engine.get("removed_capabilities")
+        if rc and removed_now:
+            new_rc = dict(rc)
+            for mid in removed_now:
+                entry = new_rc.get(mid)
+                if isinstance(entry, dict) and not entry.get("removed_in"):
+                    new_rc[mid] = {**entry, "removed_in": engine_ver}
+            new_engine["removed_capabilities"] = new_rc
         errors += [f"engine.json: {m}" for m in _schema_ok(new_engine, ENGINE_SCHEMA)]
 
         # each CHANGED module manifest — mutate version only; unchanged capabilities are left untouched
@@ -1352,15 +1453,18 @@ def _cmd_propose(args) -> int:
     proposal["merged_prs"] = ([] if args.baseline_tree
                               else merged_pr_titles(baseline.ref, _current_sha()))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
-    # A dropped migration key OR a dropped retired-capability notice would be silently skipped on a multi-version
-    # upgrade (the #599 class) — REFUSE the cut here, before `apply` writes anything. Both are reported together in
-    # ONE refusal so a maintainer fixing one isn't ambushed by the other on a re-run (design-review). `propose`
-    # runs under `set -euo pipefail` in release.yml, so this non-zero exit fails the release job at this step;
-    # apply and pr-body never run, so there is no PR body to carry the fact — the refusal message is the whole
-    # surface. The recovery differs by kind: a migration has a no-op escape hatch, a retirement notice does not.
+    # A dropped migration key, a dropped retired-capability notice, a whole-module removal with no plain-language
+    # notice, or a survivor that still depends on a removed module — each would break a deployer's upgrade (the
+    # first three silently, the last as a dead-end). REFUSE the cut here, before `apply` writes anything. All are
+    # reported together in ONE refusal so a maintainer fixing one isn't ambushed by another on a re-run (design-
+    # review). `propose` runs under `set -euo pipefail` in release.yml, so this non-zero exit fails the release
+    # job at this step; apply and pr-body never run, so there is no PR body to carry the fact — the refusal
+    # message is the whole surface. The recovery differs by kind.
     mig_viol = proposal.get("migration_violations") or []
     ret_viol = proposal.get("retired_capability_violations") or []
-    if mig_viol or ret_viol:
+    rem_viol = proposal.get("removed_capability_violations") or []
+    dep_viol = proposal.get("dependency_violations") or []
+    if mig_viol or ret_viol or rem_viol or dep_viol:
         recovery = ["nothing was written and no release was opened."]
         if mig_viol:
             recovery.append("Restore each dropped upgrade step to the capability's settings file; to retire a "
@@ -1368,8 +1472,15 @@ def _cmd_propose(args) -> int:
         if ret_viol:
             recovery.append("Restore each dropped retired-capability notice by keeping its version key — a "
                             "retirement notice has no no-op form, so it must never be dropped.")
-        _print_refusal({"reason": "a version-keyed upgrade record was dropped",
-                        "violations": mig_viol + ret_viol, "recovery": " ".join(recovery)})
+        if rem_viol:
+            recovery.append("For each removed module, add its plain-language removal notice to engine.json "
+                            "removed_capabilities by hand (the module is already gone, so this is an edit, not "
+                            "another `remove`) — a whole-module removal has no no-op form, so the notice is "
+                            "required.")
+        if dep_viol:
+            recovery.append("Keep each still-depended-on capability, or remove its dependents too.")
+        _print_refusal({"reason": "a required release record is missing, dropped, or inconsistent",
+                        "violations": mig_viol + ret_viol + rem_viol + dep_viol, "recovery": " ".join(recovery)})
         return 2
     return 0
 

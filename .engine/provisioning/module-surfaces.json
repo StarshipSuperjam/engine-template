@@ -516,6 +516,9 @@
   ".engine/contracts/eADR-0038-memory-transcript-first-recall.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md": [
+   "core"
+  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],

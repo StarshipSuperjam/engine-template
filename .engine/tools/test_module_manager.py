@@ -3237,5 +3237,260 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
         self.assertEqual(module_manager._github_error_detail(exc), "")
 
 
+class TestSelectRemovedCapabilities(unittest.TestCase):
+    """#688: the pure selector for whole-module removal announcements — driven off the dropped set, text from
+    the release's own removed_capabilities record."""
+
+    def test_announces_each_dropped_id_from_the_release_record(self):
+        rel = {"packages": {"base": "0.2.0"},
+               "removed_capabilities": {"legacy": {"description": "ask X; now Y", "removed_in": "0.2.0"}}}
+        self.assertEqual(module_manager.select_removed_capabilities(["legacy"], rel),
+                         [{"module_id": "legacy", "description": "ask X; now Y", "removed_in": "0.2.0"}])
+
+    def test_empty_when_nothing_dropped(self):
+        rel = {"removed_capabilities": {"legacy": {"description": "d"}}}
+        self.assertEqual(module_manager.select_removed_capabilities([], rel), [])
+
+    def test_is_single_homed_off_dropped_ids_not_the_record(self):
+        # a record entry whose module is NOT in the dropped set is never announced — the disclosure is driven off
+        # the reconcile set, so a module can never be reconciled-away-and-not-announced (or vice versa).
+        rel = {"removed_capabilities": {"legacy": {"description": "d"}, "other": {"description": "e"}}}
+        out = module_manager.select_removed_capabilities(["legacy"], rel)
+        self.assertEqual([o["module_id"] for o in out], ["legacy"])
+
+    def test_sorted_and_tolerant_of_a_pre_feature_release(self):
+        out = module_manager.select_removed_capabilities(["b", "a"], {})   # no removed_capabilities key at all
+        self.assertEqual([o["module_id"] for o in out], ["a", "b"])        # sorted; no KeyError
+        self.assertIsNone(out[0]["description"])
+
+
+class TestUpgradeReconcileDrop(unittest.TestCase):
+    """#688: a release that drops a WHOLE module is a reconcilable, disclosed upgrade outcome — the module is
+    retired (its files + manifest folder removed, wiring reversed, package pruned) and the loss is announced in
+    plain language — rather than the update hard-refusing. An UNRECORDED drop still refuses; an untracked file a
+    dropped module owns is left in place (recoverability)."""
+
+    _DESC = "You could ask the engine to run the extra helper before; now use the base tool instead."
+
+    @staticmethod
+    def _add_extra_module(live, with_data=False):
+        eng = os.path.join(live, ".engine")
+        os.makedirs(os.path.join(eng, "modules", "extra"))
+        provides = {"tool": [".engine/tools/extra_tool.py"]}
+        if with_data:
+            provides["data"] = [".engine/extra/data.json"]
+        module_manager._write_json(os.path.join(eng, "modules", "extra", "manifest.json"),
+                                    {"id": "extra", "version": "0.0.0", "status": "optional",
+                                     "provides": provides, "depends": {}, "migrations": {},
+                                     "wires": [{"type": "gitignore", "key": "extracache",
+                                                "lines": [".engine/extra/.cache/"]}]})
+        with open(os.path.join(eng, "tools", "extra_tool.py"), "w", encoding="utf-8") as fh:
+            fh.write("# extra v0\n")
+        ep = os.path.join(eng, "engine.json")
+        e = validate.load_json(ep)
+        e["packages"]["extra"] = "0.0.0"
+        module_manager._write_json(ep, e)
+        module_manager.wiring.apply_all([{"type": "gitignore", "key": "extracache",
+                                          "lines": [".engine/extra/.cache/"]}])
+
+    @staticmethod
+    def _release_drops_extra(release, record=True):
+        eng = {"engine_release": "0.2.0", "packages": {"base": "0.2.0"}, "identity": "solo",
+               "home_repository": "acme/engine-home"}
+        if record:
+            eng["removed_capabilities"] = {"extra": {"description": TestUpgradeReconcileDrop._DESC}}
+        module_manager._write_json(os.path.join(release, ".engine", "engine.json"), eng)
+
+    def _run(self, record=True, with_data=False, untracked_data=False, untracked_in_dir=False):
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            self._release_drops_extra(release, record=record)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live, with_data=with_data)
+                _git(live, "init", "-q")
+                _git(live, "config", "user.email", "t@t")
+                _git(live, "config", "user.name", "t")
+                _git(live, "add", "-A")
+                _git(live, "commit", "-qm", "seed")
+                if untracked_data:   # a file extra owns, added AFTER the commit -> untracked -> not deletable
+                    self._write_file(live, ".engine/extra/data.json", "operator data\n")
+                if untracked_in_dir:   # an untracked stray INSIDE the module's own manifest folder
+                    self._write_file(live, ".engine/modules/extra/scratch.txt", "operator scratch\n")
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: opened.append(k) or {"number": 7},
+                                             backup=lambda *a, **k: {"ok": 1})
+                snap = {
+                    "extra_dir": os.path.isdir(os.path.join(live, ".engine", "modules", "extra")),
+                    "extra_manifest": os.path.exists(
+                        os.path.join(live, ".engine", "modules", "extra", "manifest.json")),
+                    "extra_scratch": os.path.exists(
+                        os.path.join(live, ".engine", "modules", "extra", "scratch.txt")),
+                    "extra_tool": os.path.exists(os.path.join(live, ".engine", "tools", "extra_tool.py")),
+                    "extra_data": os.path.exists(os.path.join(live, ".engine", "extra", "data.json")),
+                    "packages": validate.load_json(os.path.join(live, ".engine", "engine.json")).get("packages"),
+                    "gitignore": open(os.path.join(live, ".gitignore"), encoding="utf-8").read(),
+                }
+                body = (module_manager.render_upgrade_pr_body(res.get("from"), res.get("to"), res)
+                        if res.get("applied") else "")
+        return res, snap, body, opened
+
+    @staticmethod
+    def _write_file(root, rel, txt):
+        p = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(txt)
+
+    def test_a_recorded_drop_reconciles_and_announces(self):
+        res, snap, body, opened = self._run(record=True)
+        self.assertTrue(res.get("applied"), f"the drop-upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(res.get("pr") and opened, "no review pull request was opened")
+        # RECONCILED: files gone, manifest folder gone, package pruned, wiring reversed
+        self.assertFalse(snap["extra_dir"], "the dropped module's manifest folder was not removed (zombie)")
+        self.assertFalse(snap["extra_tool"], "the dropped module's owned file was not removed")
+        self.assertNotIn("extra", snap["packages"], "the dropped module was not pruned from engine.json packages")
+        self.assertNotIn(".engine/extra/.cache/", snap["gitignore"], "the dropped module's wire was not reversed")
+        self.assertIn(".engine/modules/extra/", res["orphans_removed"]["engine"])
+        # ANNOUNCED: the plain-language line rides the result and renders in the PR body, beside the file list
+        self.assertTrue(any(r["module_id"] == "extra" and r["description"] == self._DESC
+                            for r in res["removed_capabilities"]))
+        self.assertIn(self._DESC, body)
+        self.assertIn("things you could ask for before and no longer can", body)
+
+    def test_an_unrecorded_drop_still_refuses(self):
+        res, snap, _body, opened = self._run(record=False)
+        self.assertTrue(res.get("refused"), "a drop with no removal notice must refuse, not silently reconcile")
+        self.assertIn("does not contain the installed module 'extra'", res.get("reason", ""))
+        self.assertTrue(snap["extra_tool"], "nothing must be applied on a refused drop")
+        self.assertFalse(opened, "no pull request on a refused drop")
+
+    def test_an_untracked_file_a_dropped_module_owns_is_left_in_place(self):
+        res, snap, _body, _opened = self._run(record=True, with_data=True, untracked_data=True)
+        self.assertTrue(res.get("applied"), f"the drop-upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(snap["extra_data"], "an untracked file a dropped module owns must NOT be deleted")
+        self.assertTrue(any(".engine/extra/data.json" in x for x in res["orphans_removed"]["left_in_place"]))
+
+    def test_an_untracked_file_inside_the_manifest_folder_is_left_in_place(self):
+        # a whole-`rmtree` of .engine/modules/extra/ would silently take an untracked co-located file the undo
+        # can't restore — the manifest-folder retire must leave it, like the file leg does, while still
+        # de-registering the module (its tracked manifest.json IS removed).
+        res, snap, _body, _opened = self._run(record=True, untracked_in_dir=True)
+        self.assertTrue(res.get("applied"), f"the drop-upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(snap["extra_scratch"], "an untracked file inside the manifest folder must NOT be deleted")
+        self.assertFalse(snap["extra_manifest"], "the tracked manifest must be removed (the module de-registers)")
+        self.assertTrue(any("scratch.txt" in x for x in res["orphans_removed"]["left_in_place"]))
+
+    def test_the_preview_discloses_the_drop_without_applying(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            self._release_drops_extra(release, record=True)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live)
+                out = module_manager.plan_upgrade(release_tree=release, target_ref="v0.2.0")
+                still_there = os.path.exists(os.path.join(live, ".engine", "tools", "extra_tool.py"))
+        self.assertFalse(out.get("refused"), f"preview refused a recorded drop: {out.get('reason')}")
+        self.assertTrue(any(r["module_id"] == "extra" for r in out["removed_capabilities"]))
+        self.assertTrue(still_there, "the preview must not delete anything")
+
+    def test_the_preview_refuses_an_unrecorded_drop(self):
+        # the preview must refuse an UNRECORDED drop exactly as the apply does (a broken/incomplete release) —
+        # the third refusal site the design requires (upgrade, overlay, AND preview).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            self._release_drops_extra(release, record=False)   # drops extra WITHOUT a removal record
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live)
+                out = module_manager.plan_upgrade(release_tree=release, target_ref="v0.2.0")
+        self.assertTrue(out.get("refused"), "the preview must refuse an unrecorded drop")
+        self.assertEqual(out.get("status"), "missing-module")
+        self.assertIn("does not contain the installed module 'extra'", out.get("reason", ""))
+
+    def test_two_dropped_modules_are_both_reconciled_and_announced(self):
+        # the accumulated 'lagging upgrader' case: a release drops TWO whole modules at once — both must
+        # reconcile and both must be announced (the loops are keyed off the multi-id dropped set).
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            # release engine.json: survivors = base only; drops extra AND extra2, each with its own notice
+            module_manager._write_json(
+                os.path.join(release, ".engine", "engine.json"),
+                {"engine_release": "0.2.0", "packages": {"base": "0.2.0"}, "identity": "solo",
+                 "home_repository": "acme/engine-home",
+                 "removed_capabilities": {"extra": {"description": self._DESC},
+                                          "extra2": {"description": "The second helper is gone; use base."}}})
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._add_extra_module(live)
+                # a second dropped module
+                eng = os.path.join(live, ".engine")
+                os.makedirs(os.path.join(eng, "modules", "extra2"))
+                module_manager._write_json(
+                    os.path.join(eng, "modules", "extra2", "manifest.json"),
+                    {"id": "extra2", "version": "0.0.0", "status": "optional",
+                     "provides": {"tool": [".engine/tools/extra2_tool.py"]}, "depends": {}, "migrations": {},
+                     "wires": []})
+                with open(os.path.join(eng, "tools", "extra2_tool.py"), "w", encoding="utf-8") as fh:
+                    fh.write("# extra2 v0\n")
+                ep = os.path.join(eng, "engine.json")
+                e = validate.load_json(ep)
+                e["packages"]["extra2"] = "0.0.0"
+                module_manager._write_json(ep, e)
+                _git(live, "init", "-q")
+                _git(live, "config", "user.email", "t@t")
+                _git(live, "config", "user.name", "t")
+                _git(live, "add", "-A")
+                _git(live, "commit", "-qm", "seed")
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: opened.append(k) or {"number": 7},
+                                             backup=lambda *a, **k: {"ok": 1})
+                dirs_gone = (not os.path.isdir(os.path.join(eng, "modules", "extra"))
+                             and not os.path.isdir(os.path.join(eng, "modules", "extra2")))
+                pkgs = validate.load_json(ep).get("packages")
+        self.assertTrue(res.get("applied"), f"the two-drop upgrade did not apply: {res.get('reason')}")
+        self.assertTrue(dirs_gone, "both dropped modules' folders must be removed")
+        self.assertNotIn("extra", pkgs)
+        self.assertNotIn("extra2", pkgs)
+        announced = {r["module_id"] for r in res["removed_capabilities"]}
+        self.assertEqual(announced, {"extra", "extra2"}, "both removals must be announced")
+
+
+class TestRemoveRemovalNotice(unittest.TestCase):
+    """#688: `remove --removal-notice` records the plain-language line into engine.json removed_capabilities at
+    removal time; a bare remove leaves a reminder."""
+
+    def test_records_the_notice_into_engine_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)
+                res = module_manager.remove("optx", removal_notice="You could ask for optx; now do X.")
+                engine = validate.load_json(os.path.join(d, ".engine", "engine.json"))
+        self.assertFalse(res["refused"])
+        self.assertNotIn("optx", engine.get("packages", {}))
+        self.assertEqual(engine["removed_capabilities"]["optx"]["description"], "You could ask for optx; now do X.")
+        self.assertNotIn("removed_in", engine["removed_capabilities"]["optx"])   # the cut stamps it later
+
+    def test_a_bare_remove_records_no_notice_but_reminds(self):
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)
+                res = module_manager.remove("optx")
+                engine = validate.load_json(os.path.join(d, ".engine", "engine.json"))
+        self.assertFalse(res["refused"])
+        self.assertNotIn("removed_capabilities", engine)
+        self.assertTrue(any("removal-notice" in n for n in res.get("notes", [])))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,12 +41,17 @@ class _Tree:
     `home`, or by dropping a `product-version.json` in the tree (file-presence dominates the mode). Setting the
     env here keeps `release_cut.release_mode()` resolving a stable, offline mode instead of reading the real
     checkout's git origin."""
-    def __init__(self, modules, home="acme/engine-home", engine_release="0.0.0-dev", origin=None):
+    def __init__(self, modules, home="acme/engine-home", engine_release="0.0.0-dev", origin=None,
+                 removed_capabilities=None, min_upgradeable_from=None):
         self.origin = origin if origin is not None else home
         self.root = tempfile.mkdtemp()
         engine = {"engine_release": engine_release,
                   "packages": {mid: m["version"] for mid, m in modules.items()},
                   "identity": "solo", "home_repository": home}
+        if removed_capabilities is not None:
+            engine["removed_capabilities"] = removed_capabilities
+        if min_upgradeable_from is not None:
+            engine["min_upgradeable_from"] = min_upgradeable_from
         _write(os.path.join(self.root, ".engine", "engine.json"), engine)
         for mid, m in modules.items():
             _write(os.path.join(self.root, ".engine", "modules", mid, "manifest.json"), m)
@@ -87,11 +92,18 @@ class _Tree:
         return validate.load_json(p)["version"]
 
 
-def _baseline_tree(modules):
-    """A throwaway release-tree root carrying the given baseline module manifests."""
+def _baseline_tree(modules, removed_capabilities=None):
+    """A throwaway release-tree root carrying the given baseline module manifests. When
+    `removed_capabilities` is given, also writes a baseline `.engine/engine.json` carrying it — so the
+    removed-capability RETENTION leg (which reads the baseline engine.json) can be exercised."""
     root = tempfile.mkdtemp()
     for mid, m in modules.items():
         _write(os.path.join(root, ".engine", "modules", mid, "manifest.json"), m)
+    if removed_capabilities is not None:
+        _write(os.path.join(root, ".engine", "engine.json"),
+               {"engine_release": "0.0.9", "identity": "solo", "home_repository": "acme/engine-home",
+                "packages": {mid: m["version"] for mid, m in modules.items()},
+                "removed_capabilities": removed_capabilities})
     return root
 
 
@@ -356,6 +368,98 @@ class RetiredCapabilityAccumulation(unittest.TestCase):
         # engine-mode only, same as the migration guard — a product cut never computes it.
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
         self.assertNotIn("retired_capability_violations", p)
+
+
+class RemovedCapabilityAccumulation(unittest.TestCase):
+    # #688: a WHOLE-module removal must carry a plain-language removal notice in engine.json removed_capabilities,
+    # both so the deployer's update can announce the loss AND so it can treat the drop as intentional (reconcile,
+    # not refuse). The cut refuses a drop with no notice (missing-notice leg) and a prior release's notice being
+    # dropped (retention leg), and refuses a survivor still depending on a removed module.
+    def _classify(self, live, baseline, removed_capabilities=None, min_upgradeable_from=None,
+                  baseline_removed=None):
+        base = _baseline_tree(baseline, removed_capabilities=baseline_removed)
+        try:
+            with _Tree(live, removed_capabilities=removed_capabilities,
+                       min_upgradeable_from=min_upgradeable_from):
+                return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_a_drop_with_no_notice_is_refused(self):
+        # legacy is in the baseline, gone from the live tree, and NO removed_capabilities line records it.
+        p = self._classify({"core": _module("core")},
+                           {"core": _module("core"), "legacy": _module("legacy")})
+        self.assertEqual(len(p["removed_capability_violations"]), 1)
+        self.assertIn("legacy", p["removed_capability_violations"][0])
+        self.assertIn("removal notice", p["removed_capability_violations"][0])
+        self.assertEqual(p["removed_modules"], ["legacy"])
+
+    def test_a_drop_with_its_notice_is_clean(self):
+        p = self._classify({"core": _module("core")},
+                           {"core": _module("core"), "legacy": _module("legacy")},
+                           removed_capabilities={"legacy": {"description": "you could ask X; now ask Y"}})
+        self.assertEqual(p["removed_capability_violations"], [])
+        self.assertIn("legacy", p["removed_modules"])
+
+    def test_a_dropped_notice_key_is_flagged_by_retention(self):
+        # the baseline release recorded a notice for 'gone'; the candidate dropped the key and 'gone' is still
+        # absent and not obsolete -> a lagging holder would never learn the loss -> refuse.
+        p = self._classify({"core": _module("core")}, {"core": _module("core")},
+                           removed_capabilities={},
+                           baseline_removed={"gone": {"description": "d", "removed_in": "0.9.0"}},
+                           min_upgradeable_from="0.5.0")
+        self.assertTrue(any("gone" in v for v in p["removed_capability_violations"]))
+
+    def test_an_obsolete_notice_may_be_pruned(self):
+        # removed_in (0.4.0) is at or below the floor (0.4.0): no supported upgrader can still hold it, so
+        # dropping the notice is allowed — no retention violation.
+        p = self._classify({"core": _module("core")}, {"core": _module("core")},
+                           removed_capabilities={},
+                           baseline_removed={"gone": {"description": "d", "removed_in": "0.4.0"}},
+                           min_upgradeable_from="0.4.0")
+        self.assertEqual(p["removed_capability_violations"], [])
+
+    def test_a_readded_module_clears_its_notice_without_a_retention_refusal(self):
+        # 'gone' was recorded removed, but is present again in the live tree (re-added) — dropping its notice is
+        # legitimate, so no retention refusal.
+        p = self._classify({"core": _module("core"), "gone": _module("gone")}, {"core": _module("core")},
+                           removed_capabilities={},
+                           baseline_removed={"gone": {"description": "d", "removed_in": "0.9.0"}},
+                           min_upgradeable_from="0.5.0")
+        self.assertEqual(p["removed_capability_violations"], [])
+
+    def test_a_survivor_depending_on_a_removed_module_is_refused(self):
+        # core in the LIVE tree still depends on legacy, which this cut removes.
+        base = {"core": {**_module("core"), "depends": {"legacy": ">=0.1.0"}}, "legacy": _module("legacy")}
+        live = {"core": {**_module("core"), "depends": {"legacy": ">=0.1.0"}}}
+        p = self._classify(live, base,
+                           removed_capabilities={"legacy": {"description": "gone"}})
+        self.assertTrue(any("legacy" in v and "core" in v for v in p["dependency_violations"]))
+
+    def test_apply_stamps_removed_in_onto_the_dropped_module(self):
+        # the live engine.json carries an UNSTAMPED removal notice; apply stamps removed_in to the cut version.
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0",
+                   removed_capabilities={"legacy": {"description": "gone"}}) as t:
+            proposal = {"engine_floor_version": None, "package_floor": {}, "removed_modules": ["legacy"]}
+            r = rc.apply("0.2.0", None, {}, proposal, dry_run=False)
+            self.assertTrue(r["applied"])
+            self.assertEqual(t.engine()["removed_capabilities"]["legacy"]["removed_in"], "0.2.0")
+            self.assertEqual(t.engine()["removed_capabilities"]["legacy"]["description"], "gone")
+
+    def test_apply_does_not_overwrite_a_prior_removed_in(self):
+        # 'old' is ALREADY stamped AND named in removed_modules, so the stamping loop DOES iterate it — the
+        # not-already-stamped guard is what keeps its prior removed_in (0.1.0). Drop that guard and this becomes
+        # 0.2.0 and the test fails, so it is not vacuous.
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0",
+                   removed_capabilities={"old": {"description": "d", "removed_in": "0.1.0"}}) as t:
+            proposal = {"engine_floor_version": None, "package_floor": {}, "removed_modules": ["old"]}
+            r = rc.apply("0.2.0", None, {}, proposal, dry_run=False)
+            self.assertTrue(r["applied"])
+            self.assertEqual(t.engine()["removed_capabilities"]["old"]["removed_in"], "0.1.0")
+
+    def test_product_cut_has_no_removal_guard(self):
+        p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
+        self.assertNotIn("removed_capability_violations", p)
 
 
 class Apply(unittest.TestCase):
