@@ -1149,6 +1149,9 @@
   ".engine/tools/hooks.py": [
    "core"
   ],
+  ".engine/tools/hooks_path_health.py": [
+   "core"
+  ],
   ".engine/tools/in_tool_demo_failure_path_check.py": [
    "core"
   ],
@@ -1642,6 +1645,9 @@
    "core"
   ],
   ".engine/tools/test_hooks.py": [
+   "core"
+  ],
+  ".engine/tools/test_hooks_path_health.py": [
    "core"
   ],
   ".engine/tools/test_in_tool_demo_failure_path.py": [
