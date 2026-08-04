@@ -3138,20 +3138,26 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
         # The far more likely git failure (auth/network/branch-protection at `git push`): checkout/add/commit
         # already succeeded, so the branch holds the arrival's committed work. The recovery must NOT say
         # `git branch -D` (that would discard the work) — it must say the branch was created, keep it, and finish
-        # by hand.
+        # by hand. #704: the push is now bounded-retried, so a PERSISTENT failure exhausts the bound and then
+        # raises the SAME phase-aware #672 message, byte-for-byte (checked below); time.sleep is faked so the
+        # suite never actually waits.
         import subprocess
         from unittest import mock
+        pushes = {"n": 0}
 
         def fail_on_push(args, **kw):
             if "push" in args:
+                pushes["n"] += 1
                 raise subprocess.CalledProcessError(1, args, stderr=b"fatal: Authentication failed\n")
             return None                                        # checkout/add/commit succeed
         with mock.patch("subprocess.run", side_effect=fail_on_push), \
+             mock.patch("time.sleep"), \
              mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
             with self.assertRaises(RuntimeError) as ctx:
                 module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
                                                 repo="acme/widget", token="secret-token-xyz")
         msg = str(ctx.exception)
+        self.assertEqual(pushes["n"], module_manager._ORIGIN_RETRY_ATTEMPTS)  # the push was bounded-retried
         self.assertIn("git push", msg)                        # names the failed step
         self.assertIn("Authentication failed", msg)           # surfaces git's real stderr
         self.assertIn("was created", msg)                     # tells the operator the branch exists
@@ -3159,6 +3165,36 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
         self.assertNotIn("git branch -D", msg)                # the destructive advice is absent for a push failure
         self.assertIn("gh pr create", msg)                    # the finish-by-hand recovery
         self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_transient_push_failure_is_retried_and_the_pull_request_opens(self):
+        # #704: a transient missing-origin on the push (a shared-config blip) self-heals on retry — the branch
+        # opens its pull request instead of hard-stopping the operator mid-upgrade. checkout/add/commit run
+        # once each and are NOT retried.
+        import subprocess
+        from unittest import mock
+        seen = {"push": 0, "checkout": 0}
+
+        def flaky(args, **kw):
+            if "push" in args:
+                seen["push"] += 1
+                if seen["push"] < 2:                          # fail once (the blip), then self-heal
+                    raise subprocess.CalledProcessError(1, args, stderr=b"fatal: could not read from remote\n")
+            if "checkout" in args:
+                seen["checkout"] += 1
+            return None
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps({"number": 11}).encode()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        with mock.patch("subprocess.run", side_effect=flaky), \
+             mock.patch("time.sleep") as slept, \
+             mock.patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: resp):
+            out = module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                  repo="acme/widget", token="secret-token-xyz")
+        self.assertEqual(out["number"], 11)                   # recovered -> the pull request opened
+        self.assertEqual(seen["push"], 2)                     # one retry
+        self.assertEqual(seen["checkout"], 1)                 # checkout is NOT retried
+        slept.assert_called_once()
 
     def test_github_error_detail_ignores_a_non_list_errors_field(self):
         # The helper must NEVER raise (it explains an HTTP failure); a malformed `errors` that is not a list must

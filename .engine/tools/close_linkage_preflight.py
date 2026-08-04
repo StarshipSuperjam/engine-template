@@ -57,6 +57,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402 — for section_blocks (the PR-body section parser)
@@ -97,6 +98,17 @@ _PART_OF_RE = re.compile(r"\bpart of\b[:\s]+((?:#\d+)(?:\s*,\s*#\d+)*)", re.IGNO
 _DECLARE_SECTIONS = ("Scope", "Out of scope")
 
 USER_AGENT = "engine-close-linkage-preflight"
+
+# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
+# self-heal. A few fast retries ride out that window; the blip fails FAST, so the common path pays nothing and
+# a genuine failure still degrades honestly. This inline retry is copied — not shared — across the five tools
+# that carry it (scope_profile, close_linkage_preflight, pr_reconcile, module_manager, tune), matching the
+# codebase's per-module retry convention (e.g. memory/capture.py's lock retry); keep the copies identical.
+# Applied only to the git-log leg (the one origin-adjacent read); the gh legs do not touch origin, so their
+# own gh-version fallback path is left to run once, never spun by this retry.
+_ORIGIN_RETRY_ATTEMPTS = 3
+_ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 
 
 class PreflightUnavailable(Exception):
@@ -387,12 +399,18 @@ def read_body(pr, runner=_default_runner) -> str:
 
 
 def read_commit_messages(base: str, head: str = "HEAD", runner=_default_runner) -> list:
-    """The integrated commit messages on `<base>..<head>` via `git log`. RAISES PreflightUnavailable on a git
-    failure (never read as no commits). An empty range is a successful read returning []."""
-    code, out, _ = runner(["git", "log", "--format=%B%x00", f"{base}..{head}"])
-    if code != 0:
-        raise PreflightUnavailable(f"could not read commit messages for {base}..{head}")
-    return [m for m in (out or "").split("\x00") if m.strip()]
+    """The integrated commit messages on `<base>..<head>` via `git log` (the one origin-adjacent read: `base`
+    is the origin-tracking default branch). RAISES PreflightUnavailable on a git failure (never read as no
+    commits). An empty range is a successful read returning []. A transient missing-origin / shared-config
+    blip (#704) is ridden out by a few bounded fast retries — the common (first-try) path makes exactly one
+    call and never sleeps; a persistent failure still RAISES (fail-closed to the could-not-read line)."""
+    for attempt in range(_ORIGIN_RETRY_ATTEMPTS):
+        code, out, _ = runner(["git", "log", "--format=%B%x00", f"{base}..{head}"])
+        if code == 0:
+            return [m for m in (out or "").split("\x00") if m.strip()]
+        if attempt < _ORIGIN_RETRY_ATTEMPTS - 1:
+            time.sleep(_ORIGIN_RETRY_DELAY)
+    raise PreflightUnavailable(f"could not read commit messages for {base}..{head}")
 
 
 def preflight(pr, base: str, *, runner=_default_runner) -> dict:
