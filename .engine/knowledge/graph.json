@@ -5521,7 +5521,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:f6b4224b23e38f1cb495ba7336c305b4a116c96ba7d76acae3bdd598c5f23af9",
+        "fingerprint": "sha256:3f43949315a4297833fd43276e3b37b91f5c8bd6791f7df6d20b80364ad82c64",
         "path": ".engine/schemas/module.v1.json"
       },
       "status": "active",
@@ -9356,7 +9356,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:596337bcda20a915d1bede621afc3f903aeea590419998ea0bff59f28421d3bc",
+        "fingerprint": "sha256:18bba7bd4bf39ab093cff76387bc5e528043772ce3857ba5b2f1263a32f696e1",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -9396,7 +9396,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:041e72cbbbd91fe2b2e3d4e690786ad3ae56bc4e8eed64321904f7c075cf2e4a",
+        "fingerprint": "sha256:aea2c7a3779e30ceef8ffd2657c9da4d73e54cc5ea01a6c98a101319a6854640",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12657,7 +12657,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:51e29e243ed18ef015f0a91c9ae4d41836621cc73b5f96c593b2eaf98adc5420",
+        "fingerprint": "sha256:88207535ea311c5226b7c34e05ef794f43a25dfa63c61db0dbe45207f9577bc7",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -14292,7 +14292,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:d16b4698d8e72ddca7938fd4d07492e0a64e0787d4346f0e6a38fd1fa81572ac",
+        "fingerprint": "sha256:fda6657b4c10e085ba4fbf61f997edbae7caec47ab02e6bd873f55ee45396a9c",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

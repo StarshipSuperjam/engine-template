@@ -886,6 +886,94 @@ def _ver_tuple(v: str) -> tuple:
     return tuple(int(x) for x in re.findall(r"\d+", v or "0")) or (0,)
 
 
+def _ver_key(v):
+    """A LENGTH-NORMALIZED version tuple for RANGE-boundary comparison, so a two-part key ('0.4') and its
+    three-part form ('0.4.0') compare EQUAL rather than '0.4' sorting BELOW '0.4.0' as a tuple prefix.
+
+    THE SINGLE NORMALIZER for version-key range comparison: called (via a re-export) by module_manager's
+    select_migrations and select_retired_capabilities, and reached by release_cut._norm_ver for BOTH release-cut
+    accumulation guards. It lives HERE (moved from module_manager) so version_key_duplicate_findings — a
+    coherence leg in the lowest layer — can share the one normalizer.
+
+    The MAJOR.MINOR.PATCH key FORMAT is now enforced at authoring, going forward, by module.v1.json's
+    `propertyNames` pattern on the migrations / retired_capabilities blocks. The padding here is KEPT regardless:
+    the release-cut accumulation guards compare a candidate against PREVIOUSLY-SHIPPED baseline manifests, which
+    may legitimately still hold a pre-rule two-part key (the test_rekeyed_migration_is_not_a_false_drop
+    scenario), and it is defense in depth at the module-manager / instantiator gate, which does NOT run the
+    schema. Padding is a no-op for a conventional three-part (or any 4+-part) tuple, so behaviour is unchanged
+    for every real key in the tree."""
+    t = _ver_tuple(v)
+    return (t + (0,) * (3 - len(t))) if len(t) < 3 else t
+
+
+# The manifest blocks whose KEYS are module versions (selected by RANGE at upgrade). The schema constrains each
+# key's FORMAT (propertyNames); this list drives the coherence leg that forbids two keys meaning one version. A
+# future third version-keyed block inherits the collision check by being added here.
+VERSION_KEYED_BLOCKS = ("migrations", "retired_capabilities")
+
+
+class _KeyPairDict(dict):
+    """A dict that also records, on `.duplicated`, the keys that appeared MORE THAN ONCE in the source JSON
+    object. `json.load` silently collapses a duplicate key (last value wins) before any check can see it, so a
+    leg that reads the parsed dict alone cannot catch a literally-duplicated version key — this carries the
+    fact forward on the parsed object."""
+
+
+def _load_manifest_keypairs(path: str) -> dict:
+    """Load a manifest as `_KeyPairDict`s, so every object remembers its literally-duplicated keys. Used only by
+    version_key_duplicate_findings; a `_KeyPairDict` IS a dict, so nothing else is affected."""
+    def _hook(pairs):
+        d = _KeyPairDict(pairs)
+        seen, dup = set(), []
+        for k, _v in pairs:
+            if k in seen:
+                dup.append(k)
+            else:
+                seen.add(k)
+        d.duplicated = dup
+        return d
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh, object_pairs_hook=_hook)
+
+
+def version_key_duplicate_findings(manifest_ids: list, tier: str, message: str) -> list:
+    """Coherence leg (#694): a manifest's migrations / retired_capabilities block may not declare two keys that
+    mean the SAME version. Two keys collide when they normalise equal under `_ver_key`: distinct spellings
+    ('0.4' & '0.4.0', or the leading-zero '0.04.0' & '0.4.0'), OR a LITERAL duplicate ('0.4.0' twice, which
+    `json.load` collapses — caught by re-reading the raw file). Either way an upgrade would act on that version
+    twice, or silently drop one entry (a migration that never runs, a retirement notice that never shows).
+
+    This is NOT shadowed by the schema `propertyNames` format rule. That rule runs at engine-ci (the
+    module-manifest schema check) and the release cut, but NOT at the module-manager / instantiator gate
+    (install / uninstall / upgrade / arrival) — where this leg, via `check_coherence`, is the sole
+    version-key-collision guard for a locally-authored manifest — and a leading-zero or literal-duplicate
+    collision passes the format rule regardless. `manifest_ids` is a list of (manifest_path, module_id) pairs;
+    the leg reads raw JSON to see collapsed duplicates. Returns one finding per colliding group."""
+    findings = []
+    for path, mid in manifest_ids:
+        try:
+            man = _load_manifest_keypairs(path)
+        except Exception:  # noqa: BLE001 — malformed / unreadable JSON is the schema+loader's job, not this leg's
+            continue
+        if not isinstance(man, dict):
+            continue
+        for block in VERSION_KEYED_BLOCKS:
+            obj = man.get(block)
+            if not isinstance(obj, dict):
+                continue
+            authored = list(obj.keys()) + list(getattr(obj, "duplicated", ()))
+            groups: dict = {}
+            for k in authored:
+                groups.setdefault(_ver_key(k), []).append(k)
+            for _norm, keys in sorted(groups.items()):
+                if len(keys) > 1:
+                    findings.append(finding(
+                        tier, f"Module '{mid}' declares version keys {sorted(keys)} in its '{block}' block that "
+                        f"mean the same version — an upgrade would act on that version twice, or silently drop "
+                        f"one. Keep exactly one key per version. {message}"))
+    return findings
+
+
 def _version_in_range(version: str, spec: str) -> bool:
     """A pragmatic version-range check on dotted-integer versions: a space/comma list of
     comparators (>=, >, <=, <, ==/=, ^). The exact manifest range grammar is pinned by the
