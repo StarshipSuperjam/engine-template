@@ -103,3 +103,9 @@ consent act (it now blocks only at the killswitch floor).
 ## Status
 
 Accepted — operator decision, 2026-08-08, following a four-lens plan review of the audit and the design.
+Backtest, recorded honestly: replaying this floor over the audited corpus (the 92 acknowledged pull requests
+merged after #370), **40 would still block** — 22% of that window's merges, down from 51%, catching 5 of the
+8 genuine weakenings mechanically. The residue concentrates in the guard's own file and check-rule structural
+edits — the two killswitch classes this record refuses to demote — and is specific to this workshop, where
+the enforcement machinery is the product; a deployed repository, whose operators rarely touch `.engine`,
+sees the ack genuinely rarely. The operator accepted the measured rate with the bootstrap token narrowing.

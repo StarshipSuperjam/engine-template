@@ -861,8 +861,12 @@ def settings_gate_unwire(files: list) -> list | None:
 # so a weakened APPLY is invisible to every other check. Label/provisioning churn in the same file stays
 # soft. team_switch.py (the other ruleset proxy) is whole-file hard in _HARD_EXACT (near-zero churn).
 _BOOTSTRAP_PATH = ".engine/tools/bootstrap.py"
-_BOOTSTRAP_GATE_TOKENS = ("required_status_checks", "required_approving_review", "ruleset",
-                          "enforcement", "bypass", "REQUIRED_CHECKS", "protection")
+# Narrowed to the ruleset-CONFIG vocabulary (the GitHub ruleset API's own field names + the frozen
+# required-check roster constant): bare "ruleset"/"protection" fired on provisioning copy in a file that is
+# entirely about branch protection (backtest, eADR-0040). Escalation-only heuristic — narrowing it trades
+# recall on exotic shapes for the measured noise, and removal of the file stays hard via classify().
+_BOOTSTRAP_GATE_TOKENS = ("required_status_checks", "required_approving_review", "bypass_actors",
+                          "enforcement", "REQUIRED_CHECKS")
 
 
 def bootstrap_ruleset_edit(files: list) -> list | None:

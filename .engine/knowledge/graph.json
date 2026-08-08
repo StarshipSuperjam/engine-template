@@ -4027,7 +4027,7 @@
       },
       "slug": "eADR-0040-guardrail-ack-two-tier",
       "source": {
-        "fingerprint": "sha256:66a5aa4ccd596e75f94c3838bcda326ada7e668b0f4d5fa29b1d88ff47687744",
+        "fingerprint": "sha256:c057798d9b111f4a5f2b503623c130f23b156b49f01dd2886cee647acf5ad1c3",
         "path": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md"
       },
       "status": "accepted",
@@ -14333,7 +14333,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:657559670e43db4f695a1c97669d075d1e2ba844e514b640371c3eb56358a67a",
+        "fingerprint": "sha256:722b59cbbd90fefdeb3b54c17dbe3b369e7af7511641464fbf81d2b00b91d83f",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
