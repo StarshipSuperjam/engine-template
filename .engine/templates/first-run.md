@@ -169,11 +169,13 @@ Your branch review gate is on: every change to your main branch now goes through
 Your branch review gate isn't on yet — but nothing else is held up by it. I'll remind you each time I start,
 and you can turn it on any time by asking me to finish setup.
 
-## Setup is complete
+## Setup applied
 
-Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup helper
-itself — now that they've done their job. Everything your project needs to keep running stays in place, and all
-your choices are saved. You're ready to start.
+Setup applied. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup helper
+itself — and saved all your choices. One step is left to finish: these setup changes still need to be saved into
+your project's shared history. I'll put them on a branch and open a pull request into your main branch for you to
+approve and merge — the same reviewed path every later change takes. Once that merge lands and you're back on
+your main branch, your setup is complete and I'll confirm it on your next start.
 
 ## Your project looks like it already has a team
 

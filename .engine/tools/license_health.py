@@ -86,6 +86,28 @@ def _committed(main: str, rel: str) -> str | None:
     return _run(["git", "-C", main, "show", f"HEAD:{rel}"])
 
 
+def _blob_present_at(main: str, oid: str, rel: str) -> bool | None:
+    """OFFLINE. Is `rel` a tracked path at commit `oid`? True present, False PROVABLY absent, None INCONCLUSIVE
+    (the commit itself does not resolve). Splitting "absent" from "could-not-read" is what lets the caller fail
+    toward the safe direction: `cat-file -e <oid>:<rel>` alone cannot tell a missing file from a bad oid, so we
+    first confirm the commit resolves, and only then read the path's presence at it."""
+    if _run(["git", "-C", main, "rev-parse", "--verify", "--quiet", f"{oid}^{{commit}}"]) is None:
+        return None                                   # the target commit is unreadable -> inconclusive
+    return _run(["git", "-C", main, "cat-file", "-e", f"{oid}:{rel}"]) is not None
+
+
+def license_absent_upstream(main: str, target_oid: str | None) -> bool:
+    """OFFLINE, READ-ONLY. True ONLY when the root LICENSE is PROVABLY absent at the verified remote target
+    commit `target_oid` (#810) — the signal boot uses to suppress a redundant removal offer for an artifact the
+    reviewed upstream has already dropped. FAILS TOWARD RE-OFFER: any unreadable/inconclusive read (no target,
+    unresolvable commit, git error) returns False, so a real leftover is NEVER silently suppressed — the same
+    fail-safe posture `detect_foreign_license` takes toward home. The caller supplies the target OID from the
+    freshly-verified checkout snapshot; this never fetches."""
+    if not main or not target_oid:
+        return False
+    return _blob_present_at(main, target_oid, "LICENSE") is False
+
+
 def detect_foreign_license(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY. Returns {"present": True, "main": <path>, "fingerprint": <seed id>} when the main
     checkout's committed root LICENSE positively matches one of the engine's OWN historically-shipped template

@@ -41,6 +41,7 @@ import module_manager     # noqa: E402  (remove() — the delete-unselected reus
 import wiring             # noqa: E402  (render_codeowners + apply_all — the apply-phase appliers)
 import knowledge_gen      # noqa: E402  (generate() — substrate re-derive)
 import self_map           # noqa: E402  (generate() — the wiring map re-derives at retire, #513)
+import first_run_health   # noqa: E402  (the awaiting-landing marker + post-landing completion signal, #810)
 import license_seeds      # noqa: E402  (the permanent seed set + recognizer, shared with license_health)
 import bootstrap          # noqa: E402  (ControlPlane + render — the control-plane bootstrap; _parse_sections)
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
@@ -202,7 +203,7 @@ COPY_HEADINGS = {
     "verify-ok": "Setup checks out",
     "verify-gate-on": "Your review gate is on",
     "verify-gate-pending": "Your review gate isn't on yet",
-    "retire-success": "Setup is complete",
+    "retire-applied": "Setup applied",
     # The brownfield arrival surface — the live overlap check (see the collision-check + arrive sections) and
     # the team-tier recommendation surfaced during gather when an existing team is detected.
     "team-recommended": "Your project looks like it already has a team",
@@ -316,10 +317,13 @@ FALLBACK_COPY = {
         "Your branch review gate isn't on yet — but nothing else is held up by it. I'll remind you each time I "
         "start, and you can turn it on any time by asking me to finish setup."
     ),
-    "retire-success": (
-        "Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup "
-        "helper itself — now that they've done their job. Everything your project needs to keep running stays in "
-        "place, and all your choices are saved. You're ready to start."
+    "retire-applied": (
+        "Setup applied. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup "
+        "helper itself — and saved all your choices. One step is left to finish: these setup changes still need "
+        "to be saved into your project's shared history. I'll put them on a branch and open a pull request into "
+        "your main branch for you to approve and merge — the same reviewed path every later change takes. Once "
+        "that merge lands and you're back on your main branch, your setup is complete and I'll confirm it on your "
+        "next start."
     ),
     "team-recommended": (
         "Your project looks like it already has a team — others review changes here. Team mode fits: the engine "
@@ -1822,8 +1826,13 @@ def retire(*, root=None, announce=None) -> dict:
     (delete-if-present, so a resumed retire is safe), drop their stale bytecode, and re-derive the engine's
     saved information so the repo stays consistent after the tools are gone. PRESERVES the shared catalog
     reader, the catalog + schema, and every permanent primitive. Self-deletes its own source last; the
-    running process keeps executing from memory (POSIX). Returns {refused, deleted, already_absent,
-    preserved, graph, self_map, steps}."""
+    running process keeps executing from memory (POSIX). DURABILITY (#810): retire runs mid-transformation — the
+    working tree is dirty with the just-applied setup (and these very deletions) — so it NEVER claims "complete"
+    here; that would over-report the exact uncommitted-and-stranded state the incident was about. It reports
+    setup APPLIED and names the last step (land the changes through review), and drops a local awaiting-landing
+    marker so the post-landing "Setup is now complete" confirmation (`first_run_health.detect_setup_landed`, which
+    boot surfaces once the checkout is durable) can fire exactly once. Returns {refused, durable, next, deleted,
+    already_absent, preserved, graph, self_map, steps}."""
     say = announce if announce is not None else (lambda text: print(text))
     copy = load_copy()
     base = root or validate.ROOT
@@ -1892,8 +1901,13 @@ def retire(*, root=None, announce=None) -> dict:
         map_status = f"skipped ({type(exc).__name__})"
     preserved = [".engine/tools/module_catalog.py", ".engine/tools/test_module_catalog.py",
                  ".engine/schemas/provisioning-catalog.v1.json", ".engine/provisioning/module-catalog.json"]
-    say(copy["retire-success"])
-    return {"refused": False, "deleted": deleted, "already_absent": already, "preserved": preserved,
+    # #810: setup is APPLIED but not yet DURABLE (the tree is dirty with the transformation + these deletions).
+    # Drop a local awaiting-landing marker (fail-soft) so boot can confirm completion ONCE after the changes land
+    # through review, and report honestly — never a bare "Setup is complete" over an uncommitted transformation.
+    first_run_health.mark_first_run_applied(base)
+    say(copy["retire-applied"])
+    return {"refused": False, "durable": False, "next": "land-through-review",
+            "deleted": deleted, "already_absent": already, "preserved": preserved,
             "graph": graph_status, "self_map": map_status,
             "steps": [{"step": "retire", "status": "done", "deleted": deleted}]}
 

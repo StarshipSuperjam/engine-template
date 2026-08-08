@@ -64,10 +64,22 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    whether the review gate is on. On a clean check, go on to the last step.
 7. **Tidy up the one-time setup files.** Run `python3 .engine/tools/instantiator.py retire --first-run`. Once the check is
    clean, this removes the files that exist only for first-time setup — the walkthrough, its notes, and the
-   setup tool itself — now that they've done their job, and confirms setup is complete. Everything the project
-   needs to keep running stays in place, and the operator's choices are saved. (If the check still finds a
-   problem, this step refuses and changes nothing — the tidy-up never runs on a setup that isn't consistent.)
-8. **Offer to back up the project's memory.** The engine can keep a private, off-computer copy of the notes it
+   setup tool itself — while everything the project needs to keep running stays in place and the operator's
+   choices are saved. (If the check still finds a problem, it refuses and changes nothing.) Retire reports setup
+   **applied**, not complete: the whole transformation is still uncommitted in the working tree, so it names the
+   one step left — landing it through review — and drops a private local marker so the engine can confirm
+   completion once the change lands (step 8).
+8. **Land the setup through review.** The transformation lives only in the working tree; make it durable the way
+   every later change is — through the reviewed path, never a direct commit to the protected default. Put the
+   whole transformation on a branch, commit it, and open a pull request into the default branch, titled with a
+   release-notes kind (e.g. `Feature: stand up this project on the Engine`). **Fill the pull-request body from
+   `.github/pull_request_template.md`** — every section, in plain language — because the project ships with the
+   engine's own checks and an incomplete body fails a hard merge check a re-run can't clear. This first pull
+   request *is* their setup; nothing is durable until they review and merge it. After the merge, bring the local
+   default branch clean and current on the merged commit (fast-forward, or the engine's catch-up on consent). At
+   the **next** session start the engine confirms **Setup is now complete** on its own — once. (The operator may
+   land it themselves if they prefer.)
+9. **Offer to back up the project's memory.** The engine can keep a private, off-computer copy of the notes it
    saves about this project — the decisions, lessons, and plans it remembers (never the operator's code or work) —
    so a copy is always safe if this machine is ever lost. Present the choice and get plain-language consent
    **before anything is created**: run `uv run --directory .engine -- python tools/memory/backup_vault.py
@@ -80,7 +92,7 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    create it. If they decline, or there is no GitHub access yet, nothing is created — say so plainly, and note they
    can set a backup up later by asking the engine to. This choice is offered at every new project's setup; the
    operator's memory is never backed up to a destination they weren't shown and didn't agree to.
-9. **Turn on the engine's live helpers.** The engine ships two live helpers — its saved-memory recall and its
+10. **Turn on the engine's live helpers.** The engine ships two live helpers — its saved-memory recall and its
    wiring-map (the `engine-memory` and `engine-knowledge-graph` servers, defined in the project's `.mcp.json`).
    Until they are switched on, the engine runs on its **committed-file fallback**: fully functional, but recall
    and the wiring map read from saved files rather than the live version. Walk the operator through switching
@@ -92,13 +104,16 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 
 ## Done when
 
-The operator's choices are saved, the engine has installed them and turned on the review gate, the consistency
-check passed, the operator was offered a memory backup and their choice was honored (a backup created only if
-they said yes, nothing created if they declined or deferred), and the one-time setup files have been tidied away
-— or setup has clearly told the operator, in plain words, what one step is left (for example, a one-time approval
-to turn on the review gate, setting up a memory backup later, turning on the engine's live helpers by approving
-its servers and restarting Claude, or a problem to fix before it can finish). On a project that was already set
-up, the command reported so and nothing changed.
+The operator's choices are saved, the engine installed them and turned on the review gate, the consistency check
+passed, **the transformation was landed durably through review — committed on a branch, merged into the default
+via a pull request, and the local checkout brought clean and current on that merged commit** (so the folder is
+never left dirty-and-stranded, the state that stranded an early adopter), the operator was offered a memory
+backup and their choice was honored, and the one-time setup files were tidied away. Completion is **two-staged**:
+retire reports setup *applied* and names the landing step, and the engine confirms *Setup is now complete* on its
+own — once — at the first start after the change has landed and the checkout is durable. Short of that, setup has
+told the operator plainly what one step is left (landing the setup pull request, a one-time approval to turn on
+the review gate, setting up a backup later, turning on the live helpers, or a problem to fix). On a project that
+was already set up, the command reported so and nothing changed.
 
 ## Notes
 
