@@ -787,21 +787,32 @@ class TestWeakeningTiers(unittest.TestCase):
                               "patch": '@@ -1 +1 @@\n+ACK_LABEL_DESCRIPTION = "words"'}]))
 
     def test_engine_guard_workflow_preserves_the_validator_exit_code(self):
-        # DRIFT DETECTOR: the engine-guard workflow step may append output to the run summary, but the
-        # step's exit code must remain the validator's — a bare pipe/tee (or an echo after the run) would
-        # turn required check #2 permanently green. The step must either be the bare validator invocation
-        # or follow the rc-capture pattern (rc=$? ... exit consuming that rc).
+        # DRIFT DETECTOR: the engine-guard workflow step appends output to the run summary, and three
+        # regressions would each silently break required check #2 or its reporting: (a) a bare invocation
+        # under GitHub's implicit `bash -e` aborts before the summary/annotation on a hard finding, so the
+        # invocation must be the CONDITION of an `if` (errexit-exempt); (b) an rc captured after an
+        # intervening command (cat, echo) records the wrong command's status, so rc must be set ONLY
+        # inside that if/else; (c) the step must END by exiting the captured rc. Also pins the two
+        # annotation sentinels the workflow greps for — each carries a character the guard's whitelist
+        # sanitizer strips, so PR-controlled content cannot forge them.
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         wf_path = os.path.join(root, ".github", "workflows", "engine-guard.yml")
         with open(wf_path, encoding="utf-8") as fh:
             wf = fh.read()
-        self.assertIn("validate.py --check engine/check/guardrail-weakening", wf)
-        run_idx = wf.index("validate.py --check engine/check/guardrail-weakening")
-        tail = wf[run_idx:]
-        if "GITHUB_STEP_SUMMARY" in wf or "|" in wf[run_idx - 200:run_idx]:
-            self.assertIn("rc=$?", wf, "summary append without rc capture would swallow the gate's exit code")
-            self.assertRegex(tail, r'exit\s+"?\$\{?rc\}?"?',
-                             "the step must end by exiting with the captured validator rc")
+        self.assertRegex(
+            wf, r'if uv run [^\n]*validate\.py --check engine/check/guardrail-weakening[^\n]*; then',
+            "the validator invocation must be the condition of an `if` (errexit-exempt), or a hard "
+            "finding aborts the step before its own report is surfaced")
+        run_block = wf[wf.index("if uv run"):]
+        step_lines = [ln.strip() for ln in run_block.splitlines() if ln.strip()]
+        self.assertRegex(step_lines[1], r"^rc=0$", "the then-arm must record rc=0 and nothing else")
+        self.assertRegex(step_lines[3], r"^rc=\$\?$",
+                         "the else-arm must capture rc directly from the invocation — an intervening "
+                         "command would record the wrong exit status")
+        self.assertEqual(step_lines[-1], 'exit "${rc}"',
+                         "the step must END by exiting the captured validator rc")
+        self.assertIn('grep -q "GUARDRAIL DISCLOSURE —"', wf)
+        self.assertIn('grep -q "ACKNOWLEDGED (guardrail-ack"', wf)
 
 
 class TestWeakeningDerivedSet(unittest.TestCase):
@@ -2616,6 +2627,83 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard.fetch_all_changed_files("o/r", 1, "x")
         finally:
             github_client._urlopen = orig
+
+    def test_directional_escalation_promotes_to_hard_through_main(self):
+        # end-to-end: a check-rule tier flip (a disclosure-tier FILE, a killswitch-shaped EDIT) must land
+        # in the hard finding with the escalation note — and downgrade to ACKNOWLEDGED under the ack.
+        files = [{"filename": ".engine/check/foo.json", "status": "modified",
+                  "patch": '@@ -5 +5 @@\n-  "tier": "hard",\n+  "tier": "soft",'}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("foo.json", out[0]["message"])
+        self.assertIn("configures the gate itself", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}}, files)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
+
+    def test_mixed_hard_and_soft_emit_two_findings(self):
+        files = [{"filename": ".engine/suites.json", "status": "modified"},
+                 {"filename": ".engine/tools/modes.py", "status": "modified"}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+        self.assertEqual(len(out), 2)
+        self.assertEqual({f["severity"] for f in out}, {"hard", "soft"})
+        hard = next(f for f in out if f["severity"] == "hard")
+        soft = next(f for f in out if f["severity"] == "soft")
+        self.assertIn("suites.json", hard["message"])
+        self.assertIn("modes.py", soft["message"])
+
+    def test_oversized_pr_with_ack_downgrades_to_record(self):
+        # the fail-closed completeness path honors the ack as a DOWNGRADE (it used to promise this and
+        # never check the label at all).
+        files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+                                  files, expected=5000)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("acknowledged", out[0]["message"].lower())
+
+    def test_pr_controlled_values_are_sanitized_in_findings(self):
+        # a crafted filename and a crafted repoint value must not carry markdown/workflow-command
+        # metacharacters into any rendered finding (the eADR-0040 sanitization guarantee).
+        evil_file = {"filename": ".engine/tools/modes.py`[x](https://e)::stop-commands::",
+                     "status": "modified"}
+        patch = ('@@ -1,4 +1,4 @@\n'
+                 '   "identity": "solo",\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "evil/[CLICK](https://phish)::notice::x"\n'
+                 ' }\n')
+        files = [evil_file,
+                 {"filename": ".engine/engine.json", "status": "modified", "patch": patch}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files,
+                                  base_home="acme/engine-home")
+        joined = "\n".join(f["message"] for f in out)
+        # the guard's own static prose legitimately uses backticks (`guardrail-ack`), so assert the
+        # INJECTED sequences are gone — including the backtick-bearing filename fragment.
+        for bad in ("[CLICK]", "::notice::", "::stop-commands::", "modes.py`", "(https"):
+            self.assertNotIn(bad, joined)
+
+    def test_settings_matcher_rewrite_escalates_to_hard(self):
+        # neutering the write-gate by rewriting a PreToolUse block's matcher (never touching a hook line)
+        # must escalate — the adversarial shape the divergence review proved against the token list.
+        files = [{"filename": ".claude/settings.json", "status": "modified",
+                  "patch": '@@ -10 +10 @@\n-        "matcher": "",\n+        "matcher": "never-match-anything",'}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+
+    def test_bootstrap_real_ruleset_vocabulary_escalates(self):
+        # the fields bootstrap.py actually writes (beyond the required_status_checks family) must escalate.
+        for line in ('-            "require_code_owner_review": True,',
+                     '-            {"type": "non_fast_forward"},',
+                     '-            "dismiss_stale_reviews_on_push": True,'):
+            files = [{"filename": ".engine/tools/bootstrap.py", "status": "modified",
+                      "patch": "@@ -1 +1 @@\n" + line}]
+            rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+            self.assertEqual(out[0]["severity"], "hard", line)
 
     def test_weakening_on_a_late_page_is_caught(self):
         """The classifier sees the WHOLE paginated list, so a guardrail edit that lands

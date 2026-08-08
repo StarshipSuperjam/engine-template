@@ -366,23 +366,33 @@ def is_guardrail(path: str, derived_scripts=_DERIVE, instance_guards=_READ_INSTA
     return path in derived_scripts
 
 
-def flagged_changes(files: list, derived_scripts=_DERIVE, instance_guards=_READ_INSTANCE) -> list:
-    """Classifier: the guardrail files this diff removes, renames, modifies, or copies. Returns a list of
-    (status, shown_path). Derives the check-script set AND the instance pair ONCE and threads them through
-    is_guardrail (one disk scan per run, not per file)."""
-    if derived_scripts is _DERIVE:
-        derived_scripts = _derive_check_scripts()
-    if instance_guards is _READ_INSTANCE:
-        instance_guards = _read_instance_guards()
-    flagged = []
+def _flagged_with_prev(files: list, derived_scripts, instance_guards) -> list:
+    """THE single matching condition for a guardrail change — the one place the filter lives, so main()'s
+    enforcement path and flagged_changes()'s public seam can never drift apart. Returns
+    (status, name, prev) triples."""
+    out = []
     for f in files:
         name = f.get("filename", "")
         status = f.get("status", "")
         prev = f.get("previous_filename", "")
         if status in WEAKENING_STATUS and (is_guardrail(name, derived_scripts, instance_guards)
                                            or (prev and is_guardrail(prev, derived_scripts, instance_guards))):
-            flagged.append((status, name if not prev else f"{prev} -> {name}"))
-    return flagged
+            out.append((status, name, prev))
+    return out
+
+
+def flagged_changes(files: list, derived_scripts=_DERIVE, instance_guards=_READ_INSTANCE) -> list:
+    """Classifier: the guardrail files this diff removes, renames, modifies, or copies. Returns a list of
+    (status, shown_path). Derives the check-script set AND the instance pair ONCE and threads them through
+    is_guardrail (one disk scan per run, not per file). This is the public set-membership seam —
+    knowledge_gen.py's `guarded` field and the shipped demos consume it; main() consumes the same filter
+    through _flagged_with_prev and layers classify() on top (eADR-0040)."""
+    if derived_scripts is _DERIVE:
+        derived_scripts = _derive_check_scripts()
+    if instance_guards is _READ_INSTANCE:
+        instance_guards = _read_instance_guards()
+    return [(status, name if not prev else f"{prev} -> {name}")
+            for status, name, prev in _flagged_with_prev(files, derived_scripts, instance_guards)]
 
 
 # The engine's update HOME lives in the manifest as a single key. A change to its VALUE (a repoint)
@@ -779,7 +789,7 @@ _WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 # a conditional skip, and the validator invocation. A `uses:` line is judged separately by ACTION PATH so a
 # same-action version pin (the routine dependabot bump) stays soft while an action swap escalates.
 _WF_GATE_TOKENS = ("pull_request", "permissions", "secrets.", "GITHUB_TOKEN", "if:", "ref:",
-                   "head.sha", "validate.py", "--check")
+                   "repository:", "head.sha", "validate.py", "--check")
 _WF_USES_RE = re.compile(r"^[+-]\s*(?:-\s*)?uses\s*:\s*([^@\s]+)")
 
 
@@ -826,7 +836,9 @@ def workflow_gate_edit(files: list) -> list | None:
 # all measured churn there is "wire a new hook". `.codex/hooks.json` needs no twin detector: it is whole-file
 # hard in _HARD_EXACT (near-zero churn).
 _SETTINGS_PATH = ".claude/settings.json"
-_SETTINGS_GATE_TOKENS = ("modes.py", "close.py", "hook-runner.sh", "PreToolUse", '"Stop"')
+# '"matcher"' is here because a PreToolUse/Stop block's matcher REWRITE (not just a hook-line removal)
+# silently un-scopes every gate hook in the block — the write-gate stays wired but never fires.
+_SETTINGS_GATE_TOKENS = ("modes.py", "close.py", "hook-runner.sh", "PreToolUse", '"Stop"', '"matcher"')
 
 
 def settings_gate_unwire(files: list) -> list | None:
@@ -865,8 +877,12 @@ _BOOTSTRAP_PATH = ".engine/tools/bootstrap.py"
 # required-check roster constant): bare "ruleset"/"protection" fired on provisioning copy in a file that is
 # entirely about branch protection (backtest, eADR-0040). Escalation-only heuristic — narrowing it trades
 # recall on exotic shapes for the measured noise, and removal of the file stays hard via classify().
-_BOOTSTRAP_GATE_TOKENS = ("required_status_checks", "required_approving_review", "bypass_actors",
-                          "enforcement", "REQUIRED_CHECKS")
+# The prefixes required_/require_ cover the review/status-check requirement family
+# (required_status_checks, required_approving_review*, require_code_owner_review,
+# required_review_thread_resolution, require_last_push_approval); the rule-type strings cover dropping
+# force-push/deletion/pull-request protection rules themselves.
+_BOOTSTRAP_GATE_TOKENS = ("required_", "require_", "bypass", "enforcement", "REQUIRED_CHECKS",
+                          "non_fast_forward", "dismiss_stale", '"deletion"', '"pull_request"')
 
 
 def bootstrap_ruleset_edit(files: list) -> list | None:
@@ -1035,15 +1051,10 @@ def main() -> int:
     derived = _derive_check_scripts()
     inst = _read_instance_guards()
     hard_files, soft_files = [], []
-    for f in files:
-        name = f.get("filename", "")
-        status = f.get("status", "")
-        prev = f.get("previous_filename", "")
-        if status in WEAKENING_STATUS and (is_guardrail(name, derived, inst)
-                                           or (prev and is_guardrail(prev, derived, inst))):
-            shown = name if not prev else f"{prev} -> {name}"
-            bucket = hard_files if classify(name, status, prev, inst) == "hard" else soft_files
-            bucket.append((status, shown))
+    for status, name, prev in _flagged_with_prev(files, derived, inst):
+        shown = name if not prev else f"{prev} -> {name}"
+        bucket = hard_files if classify(name, status, prev, inst) == "hard" else soft_files
+        bucket.append((status, shown))
     esc_reason = {}
     for det in _DIRECTIONAL_DETECTORS:
         for path, reason in (det(files) or []):
@@ -1074,14 +1085,16 @@ def main() -> int:
                    for _, shown in hard_files}
         esc_note = ""
         if any(reasons.values()):
-            esc_note = ("  (an entry marked by the directional check changed a line that configures the "
-                        "gate itself — a trigger, a tier, a suite, an exemption, or a ruleset line)\n")
+            esc_note = ("  (at least one of these changed a line that configures the gate itself — a "
+                        "trigger, a tier, a suite, an exemption, or a ruleset line — the kind of one-line "
+                        "change a diff read can miss)\n")
         parts.append("Files that enforce your safety gates, where this change could turn the protection "
                      "off in a way a diff read can miss:\n" + listing + "\n" + esc_note + "\n"
                      "If merged unwatched, a safety check could be turned off, renamed, or loosened — "
                      "letting future changes reach the protected branch without being checked.\n")
     if repoint:
         old, new, reason = repoint
+        old, new = _safe_shown(old or ""), (_safe_shown(new) if new else new)
         if reason == "changed":
             lead = f"Your engine's update home is being changed from {old} to {new}."
         elif reason == "deletion":
@@ -1127,7 +1140,7 @@ def main() -> int:
                     f"character — a backslash escape or a hidden line break — where the list is normally plain "
                     f"text. That can hide a removed path from this check, so it stops and asks you.")
         else:  # "shrink"
-            listing = ", ".join(dropped)
+            listing = ", ".join(_safe_shown(d) for d in dropped)
             lead = (f"Your list of extra protected files (`{INSTANCE_DECL_REL}`) is having entries REMOVED: "
                     f"{listing}. That list is where your project adds its OWN files to the ones this safety check "
                     f"watches — removing an entry stops the check from flagging future edits to it.")
@@ -1135,6 +1148,7 @@ def main() -> int:
                      "because a protection you added is being taken away. Only you can confirm you mean to.\n")
     if arm:
         old, new, reason = arm
+        old, new = (_safe_shown(old) if old else old), (_safe_shown(new) if new else new)
         if reason == "set":
             lead = (f"Your engine is being pointed at a build target it can ACT ON: `{new}`. Until now this engine "
                     f"opened pull requests only against its own repository; recording this target authorizes it to "
