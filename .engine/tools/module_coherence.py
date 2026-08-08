@@ -631,7 +631,10 @@ def check_coherence(tier: str = "hard") -> list:
         tier,
         "A module-provided check kind is discovered by the name of its file; two kinds cannot share a "
         "name and none may reuse a core kind's.")
-    return dep + own + wiring_leg + orphan_leg + block + kinds
+    vk = validate.version_key_duplicate_findings(
+        [(os.path.join(validate.ROOT, relpath), (m.get("id") or relpath)) for relpath, m in manifests], tier,
+        "Keep exactly one key per version in a module's migrations / retired_capabilities block.")
+    return dep + own + wiring_leg + orphan_leg + block + kinds + vk
 
 
 # The artifact warrant for a coherence result: what a green check shows, what it does NOT, and

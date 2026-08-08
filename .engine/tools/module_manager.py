@@ -773,21 +773,13 @@ def _load_migration(module_dir: str, run_rel: str):
     return fn
 
 
-def _ver_key(v):
-    """A LENGTH-NORMALIZED version tuple for RANGE-boundary comparison, so a two-part key ('0.4') and its
-    three-part form ('0.4.0') compare EQUAL rather than '0.4' sorting BELOW '0.4.0' as a tuple prefix. Migration
-    and retired-capability keys are conventionally MAJOR.MINOR.PATCH but that is NOT schema-enforced (the schemas
-    constrain the entry VALUE, not the key), so a hand-authored two-part key at a range boundary is possible and
-    must not fall on the wrong side. Padding is a no-op for conventional three-part (and any 4+-part, e.g. a
-    digit-bearing pre-release suffix) tuples, so behaviour is unchanged for every real version in the tree.
-
-    THE SINGLE NORMALIZER for version-key range comparison: called directly by select_migrations and
-    select_retired_capabilities, and reached by release_cut._norm_ver (which delegates here) for BOTH
-    release-cut accumulation guards. So editing this moves a release-refusal safety guard's normalization too —
-    the mirrored regression tests (test_module_manager selector-boundary tests + test_release_cut
-    test_rekeyed_migration_is_not_a_false_drop) are the backstop."""
-    t = validate._ver_tuple(v)
-    return (t + (0,) * (3 - len(t))) if len(t) < 3 else t
+# THE single version-key normalizer now lives in `validate` (beside `_ver_tuple`), so the lowest-layer
+# coherence leg `validate.version_key_duplicate_findings` (#694) can share the one normalizer. Re-exported here
+# under its long-standing name so select_migrations / select_retired_capabilities (below) and
+# release_cut._norm_ver (which reaches it as `module_manager._ver_key`) are unchanged. See validate._ver_key for
+# the contract, including why the length-padding is kept now that the MAJOR.MINOR.PATCH key format is
+# schema-enforced at authoring.
+_ver_key = validate._ver_key
 
 
 def select_migrations(from_versions: dict, target_versions: dict, manifests: list) -> list:
