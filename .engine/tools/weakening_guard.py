@@ -1036,9 +1036,10 @@ def main() -> int:
             # disclosure. (Before the tier split this path never honored the label at all, despite its
             # own message promising it would — fixed here.)
             return emit([{"severity": "soft", "location": None,
-                          "message": "GUARDRAIL CHECK (acknowledged) — this pull request " + detail + ". "
+                          "message": "ACKNOWLEDGED (guardrail-ack applied) — kept as a record, no longer "
+                          "blocking: this pull request " + detail + ". "
                           "The safety check could not read every changed file, and you approved "
-                          f"proceeding by applying the `{ACK_LABEL}` label. Kept as a record."}])
+                          "proceeding by applying the label."}])
         return emit([{"severity": tier, "location": None,
                       "message": "GUARDRAIL CHECK — this pull request " + detail + ".\n\n"
                       "Rather than judge your safety gates from a partial view, this check "

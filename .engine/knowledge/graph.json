@@ -13658,7 +13658,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:72d39eb25f8941ec524442a1fc5a3cbc8b285871b8498f93a5fc89cdd266085a",
+        "fingerprint": "sha256:9ffe893428ad97fdba0106ac791123f357f6719939107f4c3a425528cf09849f",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -14333,7 +14333,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:e8ec6f81c8df3a91180c66ec9b178e4edf3894457a85a18b9880537ceee1f2c5",
+        "fingerprint": "sha256:d7a0390ac51fafc8e893757c263e7586255bb62921da1ae9822973cb8858ee35",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

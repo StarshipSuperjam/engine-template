@@ -813,6 +813,8 @@ class TestWeakeningTiers(unittest.TestCase):
                          "the step must END by exiting the captured validator rc")
         self.assertIn('grep -q "GUARDRAIL DISCLOSURE —"', wf)
         self.assertIn('grep -q "ACKNOWLEDGED (guardrail-ack"', wf)
+        self.assertIn("GITHUB_STEP_SUMMARY:-/dev/null", wf,
+                      "the summary append must survive an unset GITHUB_STEP_SUMMARY under set -u")
 
 
 class TestWeakeningDerivedSet(unittest.TestCase):
@@ -2669,8 +2671,11 @@ class TestWeakeningReHome(unittest.TestCase):
     def test_pr_controlled_values_are_sanitized_in_findings(self):
         # a crafted filename and a crafted repoint value must not carry markdown/workflow-command
         # metacharacters into any rendered finding (the eADR-0040 sanitization guarantee).
-        evil_file = {"filename": ".engine/tools/modes.py`[x](https://e)::stop-commands::",
-                     "status": "modified"}
+        # under the guarded .engine/check/ prefix, so the crafted name genuinely enters the rendered
+        # listing (a non-guarded evil name never reaches _listing at all — re-audit).
+        evil_file = {"filename": ".engine/check/foo.json`[x](https://e)::stop-commands::",
+                     "status": "modified",
+                     "patch": '@@ -5 +5 @@\n-  "tier": "hard",\n+  "tier": "soft",'}
         patch = ('@@ -1,4 +1,4 @@\n'
                  '   "identity": "solo",\n'
                  '-  "home_repository": "acme/engine-home"\n'
@@ -2683,8 +2688,9 @@ class TestWeakeningReHome(unittest.TestCase):
         joined = "\n".join(f["message"] for f in out)
         # the guard's own static prose legitimately uses backticks (`guardrail-ack`), so assert the
         # INJECTED sequences are gone — including the backtick-bearing filename fragment.
-        for bad in ("[CLICK]", "::notice::", "::stop-commands::", "modes.py`", "(https"):
+        for bad in ("[CLICK]", "::notice::", "::stop-commands::", "foo.json`", "(https"):
             self.assertNotIn(bad, joined)
+        self.assertIn("foo.json", joined)  # the sanitized name itself IS rendered
 
     def test_settings_matcher_rewrite_escalates_to_hard(self):
         # neutering the write-gate by rewriting a PreToolUse block's matcher (never touching a hook line)
