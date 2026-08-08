@@ -4,9 +4,9 @@ the next engine update will OVERWRITE, so a deployed operator learns, at the cha
 survive the next update. It posts one plain-language comment on the pull request (the surface a
 non-engineer actually reads — a soft check would land only in the Actions log). It NEVER blocks a merge.
 
-This is DISTINCT from the guardrail-weakening acknowledgment (`guardrail-ack` / `engine-guard`): that guards
-*weakening a protection* (a deliberate, blocking consent act); this discloses *a change that won't survive
-an update* (a routine heads-up). The two carry different consent weight and stay separate — see eADR-0037.
+This is DISTINCT from the guardrail-weakening guard (`guardrail-ack` / `engine-guard`): that guards
+*weakening a protection* (blocking at its killswitch tier, a plain disclosure otherwise — eADR-0040); this
+discloses *a change that won't survive an update* (a routine heads-up). The two stay separate — see eADR-0037.
 
 Deployed-only. It discloses only when this repo has an update HOME that is a DIFFERENT repo than its own
 origin (an upstream that will overlay it). In the self-hosting engine repo — which IS its own home — there is

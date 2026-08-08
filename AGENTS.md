@@ -99,6 +99,7 @@ v0.114 or later — check with `codex --version`); its hooks need your one-time 
 after the Engine updates them — I'll tell you when that happens); if Codex ever changes how it stores
 session records, the Engine stops saving session memory **loudly** — it tells you rather than guessing at a
 changed format; and this project treats `.codex/config.toml` as a protected file, so adding your own server
-there is fine but the change will ask for your deliberate confirmation at the merge — the same confirmation
-any protection-file edit gets, not a sign you broke something.
+there is fine but the change will ask for your deliberate confirmation at the merge — the confirmation the
+rare killswitch-level protection edits get (most protection-file edits just leave a plain notice on the pull
+request), not a sign you broke something.
 <!-- END engine-managed block: floor -->

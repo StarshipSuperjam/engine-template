@@ -60,8 +60,9 @@ a black box. Every Engine ships with all of these:
 **Controls & gates**
 
 - **Guardrails & the review gate** — a suite of automatic checks, a protected `main` the AI cannot merge to
-  on its own, and a detector that forces a deliberate, logged sign-off before any change can weaken a safety
-  check.
+  on its own, and a detector that names every change to a safety-enforcement file in plain language on the
+  pull request — and, for the rare killswitch class (repointing where the engine fetches or writes code,
+  demoting a merge-blocking check, deleting a gate), forces a deliberate, logged sign-off.
 - **Explore / Build modes** — sessions are read-only by default; the AI can change files only after a
   deliberate switch into build, and every change still lands as a reviewable pull request.
 
