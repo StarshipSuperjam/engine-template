@@ -25,13 +25,20 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    backup is set up for it), and **any capability the update retires** — something you could ask the engine for
    before and no longer can, named in plain language, whether the update retired it *inside* a module it keeps
    or by dropping a *whole* module (a whole-module drop is retired cleanly on update, its files removed, not a
-   refusal). To see this it fetches the new version's files read-only; nothing is applied.
+   refusal); and — the mirror of a removal — **any new capability the release brings in that you don't have
+   yet**: a *required* one this version needs (installed automatically), a *default* add-on (turned on unless
+   you decline it before merging), and any *optional* add-on it makes available for you to enable. To see this
+   it fetches the new version's files read-only; nothing is applied.
    (`module_manager.py status` also lists the installed modules and the current version.)
 2. **Apply the update — deliberately.** `module_manager.py upgrade --confirm` (optionally name a specific
    version) fetches the newer released version, replaces the engine's own files with it while **keeping your
    settings and saved data untouched**, turns shared-file settings on or off to match the new version,
+   **installs the new modules the release adds that you need** — a required capability automatically, a net-new
+   default add-on turned on unless you decline it — while **offering** the optional ones for you to add later,
    rebuilds the engine's tools, reshapes any saved data the new version needs in a new form, re-checks that
-   everything fits together, and opens the change as a pull request. Applying **takes the `--confirm`** — bare
+   everything fits together, and opens the change as a pull request. (If the release adds a *required* module the
+   update cannot install, it **refuses cleanly and opens nothing** — an engine is never shipped missing a
+   capability it requires.) Applying **takes the `--confirm`** — bare
    `upgrade` (and `upgrade --help`) never starts a real update. The release is fetched from the engine's
    **update home** — the repository the engine updates from (see Notes) — never from this repository's own
    remote. It is refused, in plain language, and **nothing is changed**, if no update home is recorded (the
@@ -123,6 +130,17 @@ line. Instead its pull request is reverted (a normal reviewed change you merge �
 undoes the update"). Once the code is back, the saved memory from before the update is put back (`rollback
 --confirm`, or the engine's offer at the next start). That last step needs your backup reachable; if it isn't,
 your memory is left unchanged and the engine offers again later — your code is safely back either way.
+
+**New capabilities a release adds — installed or offered, never silently left off, never resurrected against
+your wishes.** A new version can make modules available your deployment doesn't have (the mirror of a
+whole-module removal), handled by what the release marks each: a **required** capability is installed
+automatically — the version needs it, and if it *can't* be installed the whole update refuses rather than open a
+broken pull request; a **default** add-on new to your deployment is turned on **unless you decline it** (tell me
+before you merge and I'll remove just that one, or `module_manager.py remove <id>` later); an **optional** add-on
+is only **offered** — nothing installs until you ask, with `module_manager.py add <id>`. What an update never
+does is turn back on a module you deliberately declined or removed: a default add-on that was offered before and
+isn't installed is treated as declined and only offered again. Each is disclosed in the preview and the pull
+request, so you weigh it at the merge; a half-applied install takes the same finish-or-undo choice above.
 
 **The required safety checks keep their names across versions**, so an update can never break the review gate
 that protects the project.

@@ -198,6 +198,9 @@
   ".engine/check/block-coherence.json": [
    "validators-core"
   ],
+  ".engine/check/catalog-completeness.json": [
+   "validators-core"
+  ],
   ".engine/check/catalog-coverage.json": [
    "validators-core"
   ],
@@ -900,6 +903,9 @@
   ".engine/tools/build_readiness.py": [
    "core"
   ],
+  ".engine/tools/catalog_completeness_check.py": [
+   "core"
+  ],
   ".engine/tools/census_completeness_check.py": [
    "core"
   ],
@@ -961,6 +967,9 @@
    "core"
   ],
   ".engine/tools/demo_757_upgrade_reconciles_default_groups.py": [
+   "core"
+  ],
+  ".engine/tools/demo_759_upgrade_installs_new_modules.py": [
    "core"
   ],
   ".engine/tools/demo_760_add_release_tag.py": [
