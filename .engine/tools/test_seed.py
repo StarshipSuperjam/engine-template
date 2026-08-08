@@ -2695,6 +2695,16 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
 
+    def test_bootstrap_comment_churn_stays_soft(self):
+        # the ordinary self.required_checks attribute (and prose around it) must NOT escalate — the
+        # tokens are full ruleset-field literals, never bare required_/require_ prefixes (re-audit).
+        files = [{"filename": ".engine/tools/bootstrap.py", "status": "modified",
+                  "patch": "@@ -1 +1 @@\n-        # self.required_checks is the effective set\n"
+                           "+        # self.required_checks is the effective SET"}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+
     def test_bootstrap_real_ruleset_vocabulary_escalates(self):
         # the fields bootstrap.py actually writes (beyond the required_status_checks family) must escalate.
         for line in ('-            "require_code_owner_review": True,',

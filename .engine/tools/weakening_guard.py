@@ -877,12 +877,14 @@ _BOOTSTRAP_PATH = ".engine/tools/bootstrap.py"
 # required-check roster constant): bare "ruleset"/"protection" fired on provisioning copy in a file that is
 # entirely about branch protection (backtest, eADR-0040). Escalation-only heuristic — narrowing it trades
 # recall on exotic shapes for the measured noise, and removal of the file stays hard via classify().
-# The prefixes required_/require_ cover the review/status-check requirement family
-# (required_status_checks, required_approving_review*, require_code_owner_review,
-# required_review_thread_resolution, require_last_push_approval); the rule-type strings cover dropping
-# force-push/deletion/pull-request protection rules themselves.
-_BOOTSTRAP_GATE_TOKENS = ("required_", "require_", "bypass", "enforcement", "REQUIRED_CHECKS",
-                          "non_fast_forward", "dismiss_stale", '"deletion"', '"pull_request"')
+# The FULL field literals of the ruleset vocabulary bootstrap.py actually writes — deliberately not the
+# bare required_/require_ prefixes, which match the ordinary `self.required_checks` attribute threaded
+# through the whole class and would escalate comment-only churn (re-audit, eADR-0040). The rule-type
+# strings cover dropping force-push/deletion/pull-request protection rules themselves.
+_BOOTSTRAP_GATE_TOKENS = ("required_status_checks", "required_approving_review",
+                          "require_code_owner_review", "required_review_thread_resolution",
+                          "require_last_push_approval", "dismiss_stale", "bypass", "enforcement",
+                          "REQUIRED_CHECKS", "non_fast_forward", '"deletion"', '"pull_request"')
 
 
 def bootstrap_ruleset_edit(files: list) -> list | None:
