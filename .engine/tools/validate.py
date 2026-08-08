@@ -953,7 +953,12 @@ def version_key_duplicate_findings(manifest_ids: list, tier: str, message: str) 
     for path, mid in manifest_ids:
         try:
             man = _load_manifest_keypairs(path)
-        except Exception:  # noqa: BLE001 — malformed / unreadable JSON is the schema+loader's job, not this leg's
+        except Exception as exc:  # noqa: BLE001 — a re-read failure (a race after discovery already loud-parsed
+            #   the file) is SURFACED, never silently passed: reporting clean when a manifest could not be
+            #   re-checked would break the codebase's halt-on-malformed posture (cf. validate.load_json).
+            findings.append(finding(
+                tier, f"Could not re-read module '{mid}' manifest to verify its version keys "
+                f"({type(exc).__name__}); a duplicate-version key cannot be ruled out for it. {message}"))
             continue
         if not isinstance(man, dict):
             continue

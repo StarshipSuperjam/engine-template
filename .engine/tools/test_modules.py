@@ -172,6 +172,14 @@ class TestVersionKeyDuplicateFindings(unittest.TestCase):
         self.assertEqual(self._find('{"id":"m"}'), [])
         self.assertEqual(self._find('{"id":"m","migrations":{}}'), [])
 
+    def test_an_unreadable_manifest_is_surfaced_not_silently_skipped(self):
+        # Fail-closed: if the raw re-read fails (a race after discovery already parsed the file), the leg
+        # SURFACES it rather than reporting clean — matching the codebase's halt-on-malformed posture.
+        fs = validate.version_key_duplicate_findings([("/no/such/manifest.json", "ghost")], "hard", "fix it")
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "hard")
+        self.assertIn("Could not re-read", fs[0]["message"])
+
     def test_check_coherence_surfaces_a_collision(self):
         # Wiring proof: a colliding manifest in the discovered set makes check_coherence report a HARD finding.
         with tempfile.TemporaryDirectory() as d:
