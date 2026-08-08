@@ -39,4 +39,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/guardrail-weakening
+        # rc-capture pattern (release-gate.yml's): the run summary append must NEVER swallow the
+        # validator's exit code — a bare pipe/tee here would turn required check #2 permanently green.
+        # A drift test (test_seed.py::TestWeakeningTiers) pins the rc=$? ... exit "${rc}" shape.
+        # The ::warning:: annotation is STATIC text only — no PR-controlled content reaches an annotation
+        # (filenames in the report itself are whitelist-sanitized by the guard before rendering).
+        run: |
+          set -uo pipefail
+          out="$(mktemp)"
+          uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/guardrail-weakening >"${out}" 2>&1
+          rc=$?
+          cat "${out}"
+          {
+            echo '## engine-guard'
+            echo '```text'
+            cat "${out}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${rc}" -eq 0 ] && grep -q "GUARDRAIL DISCLOSURE" "${out}"; then
+            echo "::warning::Guardrail disclosure — this pull request modifies enforcement files. See the engine-guard run summary for the plain-language listing. No action needed; this does not block the merge."
+          fi
+          exit "${rc}"

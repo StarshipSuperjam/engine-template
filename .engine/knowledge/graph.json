@@ -1267,7 +1267,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:b9c78b3ed79917a5436d13103e8974c1c58a22207c08ec255d70b388675a83ad",
+        "fingerprint": "sha256:717cf2162005f324a3bde6d349a1d1eb3dac54a2959cde6caea4e6b89dd26826",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -13635,7 +13635,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:0a8c580eadb0b54ea7f895dbfba2fc1c53c7863c0a710ddf1955a53ea6f32836",
+        "fingerprint": "sha256:826d26342a7a50081e6170149c87c03ff3a4230635385feac0a50748ae0c4e5e",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -14310,7 +14310,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:309e9bf2bbff6485e859dc041204739b501a3cc0b4884552ba594f09802d8d55",
+        "fingerprint": "sha256:657559670e43db4f695a1c97669d075d1e2ba844e514b640371c3eb56358a67a",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

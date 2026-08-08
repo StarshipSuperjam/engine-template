@@ -684,6 +684,126 @@ def _write_check_json(path, obj):
         json.dump(obj, fh)
 
 
+class TestWeakeningTiers(unittest.TestCase):
+    """The eADR-0040 tier machinery: classify() and the four directional detectors. The hard criterion is
+    a property (a weakening with no mechanical correlate and no readable diff, plus the guard's own
+    machinery); everything else guarded discloses. Fail-safe direction: unclassifiable input resolves HARD."""
+
+    _IG = (set(), ())  # no instance declaration
+
+    def test_classify_tiers(self):
+        c = weakening_guard.classify
+        # disclosure tier: the measured noise — the validator, the hook substrate, readable configs
+        for path in (".engine/tools/validate.py", ".engine/tools/modes.py", ".engine/tools/close.py",
+                     ".engine/tools/hooks.py", ".engine/pyproject.toml", ".claude/settings.json",
+                     ".github/workflows/engine-ci.yml", ".engine/check/pr-body-completeness.json",
+                     ".engine/schemas/engine.v1.json", ".github/dependabot.yml"):
+            self.assertEqual(c(path, "modified", instance_guards=self._IG), "soft", path)
+        # killswitch tier: the hard floor, on any weakening status
+        for path in weakening_guard._HARD_EXACT:
+            self.assertEqual(c(path, "modified", instance_guards=self._IG), "hard", path)
+        # removal/rename of ANY guarded file is hard — even where modification discloses
+        self.assertEqual(c(".engine/tools/validate.py", "removed", instance_guards=self._IG), "hard")
+        self.assertEqual(c(".github/workflows/engine-ci.yml", "renamed",
+                           prev=".github/workflows/engine-ci.yml", instance_guards=self._IG), "hard")
+        # a previous_filename on the hard floor is hard (a rename judged against where it came FROM)
+        self.assertEqual(c("elsewhere.py", "modified", prev=".engine/tools/repo_identity.py",
+                           instance_guards=self._IG), "hard")
+        # an instance-declared path keeps the friction its operator opted into (#532)
+        self.assertEqual(c("scanner/gate.py", "modified",
+                           instance_guards=({"scanner/gate.py"}, ())), "hard")
+        self.assertEqual(c("scanner/deep/x.py", "modified",
+                           instance_guards=(set(), ("scanner/",))), "hard")
+
+    def test_hard_floor_members_are_all_guarded(self):
+        # every hard-floor member must be IN the guarded set, or classify() would never see it — a floor
+        # entry outside is_guardrail() is dead weight that reads as protection.
+        derived = weakening_guard._derive_check_scripts()
+        for path in weakening_guard._HARD_EXACT:
+            self.assertTrue(weakening_guard.is_guardrail(path, derived, self._IG), path)
+
+    def test_check_rule_demotion_detector(self):
+        d = weakening_guard.check_rule_demotion
+        rule = ".engine/check/foo.json"
+        # a tier flip is structural -> escalates
+        self.assertEqual(d([{"filename": rule, "status": "modified",
+                             "patch": '@@ -5 +5 @@\n-  "tier": "hard",\n+  "tier": "soft",'}]),
+                         [(rule, "structural")])
+        # deleting the suites key entirely (the silent roster drop) -> escalates
+        self.assertEqual(d([{"filename": rule, "status": "modified",
+                             "patch": '@@ -5 +5 @@\n-  "suites": ["CI"],'}]),
+                         [(rule, "structural")])
+        # a params/script repoint -> escalates (the one-PR gate-gut)
+        self.assertEqual(d([{"filename": rule, "status": "modified",
+                             "patch": '@@ -5 +5 @@\n-  "params": { "script": "a.py" },\n+  "params": { "script": "b.py" },'}]),
+                         [(rule, "structural")])
+        # a message-only reword — the one provably-benign shape — passes
+        self.assertIsNone(d([{"filename": rule, "status": "modified",
+                              "patch": '@@ -5 +5 @@\n-  "message": "old words",\n+  "message": "new words, \\"quoted\\" fine",'}]))
+        # a second key smuggled onto the message line -> escalates
+        self.assertEqual(d([{"filename": rule, "status": "modified",
+                             "patch": '@@ -5 +5 @@\n+  "message": "x", "tier": "soft",'}]),
+                         [(rule, "unclear")])
+        # unreadable patch -> fail closed
+        self.assertEqual(d([{"filename": rule, "status": "modified"}]), [(rule, "unreadable-patch")])
+        # an added rule is a pure addition — never judged here
+        self.assertIsNone(d([{"filename": rule, "status": "added",
+                              "patch": '@@ -0 +1 @@\n+  "tier": "hard",'}]))
+
+    def test_workflow_gate_edit_detector(self):
+        d = weakening_guard.workflow_gate_edit
+        wf = ".github/workflows/engine-guard.yml"
+        # the trigger flip that would run the PR's own copy of the guard -> escalates
+        self.assertEqual(d([{"filename": wf, "status": "modified",
+                             "patch": "@@ -18 +18 @@\n-  pull_request_target:\n+  pull_request:"}]),
+                         [(wf, "gate-line")])
+        # a same-action version pin (the routine dependabot bump) stays soft
+        self.assertIsNone(d([{"filename": wf, "status": "modified",
+                              "patch": "@@ -1 +1 @@\n-      - uses: astral-sh/setup-uv@aaa # v8\n+      - uses: astral-sh/setup-uv@bbb # v9"}]))
+        # an action SWAP -> escalates
+        self.assertEqual(d([{"filename": wf, "status": "modified",
+                             "patch": "@@ -1 +1 @@\n-      - uses: astral-sh/setup-uv@aaa\n+      - uses: evil/setup-uv@aaa"}]),
+                         [(wf, "action-swap")])
+        # comment churn stays soft
+        self.assertIsNone(d([{"filename": wf, "status": "modified",
+                              "patch": "@@ -1 +1 @@\n-# old comment\n+# new comment"}]))
+        # unreadable patch -> fail closed
+        self.assertEqual(d([{"filename": wf, "status": "modified"}]), [(wf, "unreadable-patch")])
+
+    def test_settings_and_bootstrap_detectors(self):
+        s = weakening_guard.settings_gate_unwire
+        # removing a gate-hook wire -> escalates; adding one stays soft
+        self.assertEqual(s([{"filename": ".claude/settings.json", "status": "modified",
+                             "patch": '@@ -1 +1 @@\n-    "command": "hook-runner.sh modes.py",'}]),
+                         [(".claude/settings.json", "gate-unwire")])
+        self.assertIsNone(s([{"filename": ".claude/settings.json", "status": "modified",
+                              "patch": '@@ -1 +1 @@\n+    "command": "hook-runner.sh boot.py",'}]))
+        b = weakening_guard.bootstrap_ruleset_edit
+        # a ruleset-vocabulary line -> escalates; label churn stays soft
+        self.assertEqual(b([{"filename": ".engine/tools/bootstrap.py", "status": "modified",
+                             "patch": "@@ -1 +1 @@\n-    required_status_checks=[...]"}]),
+                         [(".engine/tools/bootstrap.py", "ruleset-line")])
+        self.assertIsNone(b([{"filename": ".engine/tools/bootstrap.py", "status": "modified",
+                              "patch": '@@ -1 +1 @@\n+ACK_LABEL_DESCRIPTION = "words"'}]))
+
+    def test_engine_guard_workflow_preserves_the_validator_exit_code(self):
+        # DRIFT DETECTOR: the engine-guard workflow step may append output to the run summary, but the
+        # step's exit code must remain the validator's — a bare pipe/tee (or an echo after the run) would
+        # turn required check #2 permanently green. The step must either be the bare validator invocation
+        # or follow the rc-capture pattern (rc=$? ... exit consuming that rc).
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        wf_path = os.path.join(root, ".github", "workflows", "engine-guard.yml")
+        with open(wf_path, encoding="utf-8") as fh:
+            wf = fh.read()
+        self.assertIn("validate.py --check engine/check/guardrail-weakening", wf)
+        run_idx = wf.index("validate.py --check engine/check/guardrail-weakening")
+        tail = wf[run_idx:]
+        if "GITHUB_STEP_SUMMARY" in wf or "|" in wf[run_idx - 200:run_idx]:
+            self.assertIn("rc=$?", wf, "summary append without rc capture would swallow the gate's exit code")
+            self.assertRegex(tail, r'exit\s+"?\$\{?rc\}?"?',
+                             "the step must end by exiting with the captured validator rc")
+
+
 class TestWeakeningDerivedSet(unittest.TestCase):
     """The derived-by-presence clause + its ALL-OR-NOTHING fail-safe. The derivation reads the base
     check dir on disk; these tests inject a temp dir the way TestWeakeningReHome monkeypatches _read_base_home."""
@@ -1868,14 +1988,17 @@ class TestProtectionReHome(unittest.TestCase):
 # ---- re-home the weakening guard as a custom/script rule ----
 
 class TestWeakeningReHome(unittest.TestCase):
-    """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract:
-    [] when nothing weakens or the ack label is present, one hard finding (carrying the
-    plain-language ack guidance) on an unacknowledged guardrail change, and a hard
-    fail-closed finding when the pull-request context cannot be read OR the guard could not
-    read every changed file (a partial view — a too-large PR past GitHub's file-listing
-    cap). The latter is the non-falsifiability property: a weakening edit
-    must not hide past file 100 of a big PR, so the guard paginates the diff to completion
-    and cross-checks what it read against the pull request's authoritative changed_files."""
+    """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract
+    (two tiers, eADR-0040): [] when nothing weakens; one HARD finding (carrying the
+    plain-language ack guidance) on an unacknowledged killswitch-tier change, DOWNGRADED
+    to a soft ACKNOWLEDGED record when the ack label is present (never erased); one SOFT
+    disclosure finding whenever disclosure-tier enforcement files are modified (the ack
+    does not touch it); and a hard fail-closed finding when the pull-request context
+    cannot be read OR the guard could not read every changed file (a partial view — a
+    too-large PR past GitHub's file-listing cap). The latter is the non-falsifiability
+    property: a weakening edit must not hide past file 100 of a big PR, so the guard
+    paginates the diff to completion and cross-checks what it read against the pull
+    request's authoritative changed_files."""
 
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
@@ -1932,21 +2055,57 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(out, [])
 
-    def test_unacked_weakening_is_one_hard_with_ack_guidance(self):
+    def test_soft_tier_modification_is_one_soft_disclosure(self):
+        # validate.py is DISCLOSURE tier (eADR-0040): the check passes, the notice still names the file
+        # and says plainly it needs no action.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
             [{"filename": ".engine/tools/validate.py", "status": "modified"}])
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
+        self.assertIn("validate.py", out[0]["message"])
+        self.assertIn("does not block", out[0]["message"])
+
+    def test_unacked_hard_floor_edit_is_one_hard_with_ack_guidance(self):
+        # a hard-floor member (the suite declarations — a global killswitch) still blocks pending the ack.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/suites.json", "status": "modified"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
         self.assertIn("guardrail-ack", out[0]["message"])  # the informed-consent surface
 
-    def test_ack_label_clears_to_empty(self):
+    def test_removal_of_any_guarded_file_is_hard(self):
+        # removal/rename of ANY guarded file is killswitch tier, even where modification discloses.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/tools/validate.py", "status": "removed"}])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_ack_label_downgrades_hard_to_disclosure_never_erases(self):
+        # eADR-0040: the ack DOWNGRADES the killswitch finding to a soft ACKNOWLEDGED record.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/suites.json", "status": "modified"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
+        self.assertIn("suites.json", out[0]["message"])
+
+    def test_ack_label_leaves_the_disclosure_untouched(self):
+        # the ack is about the killswitch tier; a disclosure still emits with the label present.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             [{"filename": ".engine/tools/validate.py", "status": "modified"}])
-        self.assertEqual(rc, 0)
-        self.assertEqual(out, [])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
 
     # ---- the engine's update-home repoint is a guardrail weakening (content-aware; #367) ----
     _REPOINT_PATCH = ('@@ -1,4 +1,4 @@\n'
@@ -1969,12 +2128,15 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("evil/look-alike", out[0]["message"])
         self.assertIn("guardrail-ack", out[0]["message"])
 
-    def test_home_repoint_is_cleared_by_the_ack(self):
+    def test_home_repoint_is_downgraded_by_the_ack_never_erased(self):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}],
             base_home="acme/engine-home")
-        self.assertEqual(out, [])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
+        self.assertIn("update home", out[0]["message"])  # the record survives the operator's act
 
     def test_home_first_recording_is_not_a_repoint(self):
         # No home in the base (base_home=None) -> the seed/back-fill add is a first recording, not a redirect,
@@ -2251,8 +2413,8 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertFalse(d(self._f('@@ -15,1 +15,1 @@\r\n-  "identity": "team"\r\n'
                                    '+  "identity": "team",\r\n'), "team"))
 
-    def test_identity_downgrade_is_flagged_and_cleared_by_the_ack(self):
-        # end-to-end through main(): a team->solo edit on a team-base repo blocks until the ack, then clears.
+    def test_identity_downgrade_is_flagged_and_downgraded_by_the_ack(self):
+        # end-to-end through main(): a team->solo edit on a team-base repo blocks until the ack, which downgrades it to a record.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
             self._f(self._DOWNGRADE_PATCH), base_tier="team")
@@ -2263,7 +2425,9 @@ class TestWeakeningReHome(unittest.TestCase):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             self._f(self._DOWNGRADE_PATCH), base_tier="team")
-        self.assertEqual(out, [])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
 
     # ---- arming the executable build target is a guardrail weakening; INVERTED from home (first-set FIRES) ----
     _ARM_PATCH = ('@@ -1,3 +1,4 @@\n'
@@ -2314,8 +2478,8 @@ class TestWeakeningReHome(unittest.TestCase):
                      '+  "product_build_target": "acme/ok",\r  "product_build_target": "evil/x"\n')
         self.assertEqual(a(cr, None), (None, None, "escaped"))
 
-    def test_product_build_target_first_set_is_flagged_and_cleared_by_the_ack(self):
-        # end-to-end through main(): arming the target on a repo with none recorded blocks until the ack, then clears.
+    def test_product_build_target_first_set_is_flagged_and_downgraded_by_the_ack(self):
+        # end-to-end through main(): arming the target on a repo with none recorded blocks until the ack, which downgrades it to a record.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
             self._f(self._ARM_PATCH))  # base_product_build_target None -> first-set
@@ -2329,7 +2493,9 @@ class TestWeakeningReHome(unittest.TestCase):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             self._f(self._ARM_PATCH))
-        self.assertEqual(out, [])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
 
     def test_product_build_target_repoint_names_old_and_new(self):
         rc, out = self._main_json(
@@ -2455,13 +2621,13 @@ class TestWeakeningReHome(unittest.TestCase):
         """The classifier sees the WHOLE paginated list, so a guardrail edit that lands
         after file 100 is flagged — the behavior the single-page fetch missed."""
         files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
-        files.append({"filename": ".engine/tools/validate.py", "status": "modified"})
+        files.append({"filename": ".engine/uv.lock", "status": "modified"})
         rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
         self.assertIn("guardrail-ack", out[0]["message"])
-        self.assertIn("validate.py", out[0]["message"])
+        self.assertIn("uv.lock", out[0]["message"])
         self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
 
     def test_oversized_pr_fails_closed_not_clean(self):
