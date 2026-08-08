@@ -51,7 +51,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `validators-core` → `core`
 - `audit-library` → `validators-core`
 
-### `core` — version `0.3.0` (required)
+### `core` — version `0.4.0` (required)
 
 - depends on: nothing
 - provides:
