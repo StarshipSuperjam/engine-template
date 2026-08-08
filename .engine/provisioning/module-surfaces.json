@@ -516,6 +516,9 @@
   ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md": [
+   "core"
+  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],

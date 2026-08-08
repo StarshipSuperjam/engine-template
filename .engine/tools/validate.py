@@ -1889,7 +1889,7 @@ def _exemption_note(rule: dict, ctx: dict) -> "str | None":
                 f"authored by {author} in the merge gate, so it was not evaluated "
                 f"here (a disclosed not-applicable pass — not a verification). This narrative "
                 f"check is waived for this author only; any guardrail-touching change in the pull "
-                f"request is still gated by the guardrail-ack label the maintainer applies.")
+                f"request is still judged by the weakening guard (blocking at its killswitch tier).")
     matched = sorted(set(ctx.get("pr_labels") or []) & set(rule.get("ci_label_exempt") or []))
     if matched:
         return (f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "

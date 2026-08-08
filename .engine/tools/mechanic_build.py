@@ -14,8 +14,8 @@ WHY THIS FILE IS GUARDED (it is in weakening_guard._FLOOR_ENFORCEMENT_HOOKS). Th
 mechanic to run the checkout's own committed `.engine` tools and open a pull request against it. A weakening of
 this belt — fail-open on doubt, or an unanchored host parse that accepts a look-alike origin — would let the
 mechanic execute an attacker-controlled checkout's code locally and write against the wrong repository, with NO
-on-disk floored correlate any check could catch. So a change here routes through the guardrail-ack, exactly like
-the other runtime enforcement gates (modes.py, close.py). A unit test alone is the wrong instrument: the same
+on-disk floored correlate any check could catch. So a change here routes through the guardrail-ack — killswitch
+tier (eADR-0040), unlike the disclosure-tier hook substrate (modes.py, close.py). A unit test alone is the wrong instrument: the same
 pull request that flips the belt fail-open can edit the test that would have caught it.
 
 DISPOSITION — FAIL-CLOSED throughout. Unlike checkout_health.py (fail-soft-QUIET read-only probes, which return

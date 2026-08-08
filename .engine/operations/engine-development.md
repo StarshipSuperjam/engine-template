@@ -54,8 +54,9 @@ deployed project never carries it. The codes of conduct load every session throu
 ## Done when
 
 The change reached `main` **only through the maintainer's reviewed merge** — the one unbypassable gate — after
-passing the plan gate and the deliverable gate, validator-green, with any guardrail-weakening surfaced at the
-merge and cleared solely by the deliberate `guardrail-ack`. It leaves a merged pull request and its logged
+passing the plan gate and the deliverable gate, validator-green, with any enforcement-file change disclosed in
+plain language at the merge — and a killswitch-tier weakening (eADR-0040) cleared solely by the deliberate
+`guardrail-ack`. It leaves a merged pull request and its logged
 decisions behind; nothing is left dangling.
 
 ## Notes
@@ -78,7 +79,9 @@ decisions behind; nothing is left dangling.
   `.engine/tools/moment.py`; its docstring carries the two binding laws — wall-clock reads (`utc_now`,
   `today_utc`) are IO-edge only per `eADR-0032`, and emit is strict while ingest is tolerant. No tool
   hand-rolls the trailing-Z shape, a `.replace("Z", …)` parse, or a local-clock calendar day.
-- **Guardrail-weakening is always surfaced at the merge** and clears only via the deliberate `guardrail-ack`.
+- **Guardrail-weakening is always surfaced at the merge** — as a plain disclosure for ordinary
+  enforcement-file edits, and a hard block clearing only via the deliberate `guardrail-ack` at the
+  killswitch tier (eADR-0040).
 - **Consequential PRs carry a visibly weightier consent surface** so they are not rubber-stamped across many
   small green PRs.
 - The merge-gate **reviewer is a non-engineer at every layer** — what grows is the machinery that fills the
@@ -98,5 +101,6 @@ decisions behind; nothing is left dangling.
 - `engine-guard` — the guardrail-weakening classifier (runs on `pull_request_target`, reads the diff only,
   never checks out head code).
 - `guardrail-ack` — the label the maintainer applies to deliberately acknowledge a change the engine flags and
-  holds the merge on: a guardrail-weakening change (`engine-guard`), or — once the optional product-design
-  module is installed — a change to a settled product description.
+  holds the merge on: a killswitch-tier guardrail weakening (`engine-guard`, eADR-0040), or — once the
+  optional product-design module is installed — a change to a settled product description. Applying it
+  downgrades the finding to a record; it never erases it.

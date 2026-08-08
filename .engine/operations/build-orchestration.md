@@ -45,9 +45,11 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    cost figure, which the engine cannot know; a made-up number is the false confidence the trust model
    refuses), the how-careful depth choice, and — only when the change weakens an engine guardrail — the
    plain-language warning naming which protection weakens and what the AI could then do unwatched.
-   Applying the `guardrail-ack` is the operator's act, never the engine's: when a change weakens a guardrail,
-   surface it and leave the gate red for the operator to clear — the engine never labels its own change to
-   clear its own gate. The
+   Applying the `guardrail-ack` is the operator's act, never the engine's: when a change trips the
+   killswitch tier (eADR-0040 — a supply-chain repoint, a check demotion, a gate removal), surface it and
+   leave the gate red for the operator to clear — the engine never labels its own change to clear its own
+   gate. An ordinary enforcement-file touch instead leaves a non-blocking plain-language disclosure on the
+   pull request; it needs no label and must never be a reason to reshape the design. The
    operator iterates the plan to solid and approves the plan and the depth **before any work starts**. This
    plan gate (steps 1–2) *always runs as a shape*, even with zero review packs — its depth collapses to a
    single plain-language headline on the fast path (Notes), but the gate itself is never skipped.

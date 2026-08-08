@@ -853,7 +853,8 @@
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile"
+          "contract:eADR-0039-whole-module-removal-reconcile",
+          "contract:eADR-0040-guardrail-ack-two-tier"
         ]
       },
       "slug": "contract-frontmatter",
@@ -918,7 +919,8 @@
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile"
+          "contract:eADR-0039-whole-module-removal-reconcile",
+          "contract:eADR-0040-guardrail-ack-two-tier"
         ]
       },
       "slug": "contract-shape",
@@ -984,7 +986,8 @@
           "contract:eADR-0035-deferred-work-marker",
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile"
+          "contract:eADR-0039-whole-module-removal-reconcile",
+          "contract:eADR-0040-guardrail-ack-two-tier"
         ]
       },
       "slug": "contract-threshold",
@@ -1267,7 +1270,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:b9c78b3ed79917a5436d13103e8974c1c58a22207c08ec255d70b388675a83ad",
+        "fingerprint": "sha256:717cf2162005f324a3bde6d349a1d1eb3dac54a2959cde6caea4e6b89dd26826",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -3464,7 +3467,7 @@
       },
       "slug": "eADR-0011-guardrail-integrity",
       "source": {
-        "fingerprint": "sha256:992473935a8aea09629154ed600ab2b93cbc9aa45f7e47aea80ca8509f98c201",
+        "fingerprint": "sha256:763734be8858ea7bf3cd55e026d1b1fbdc5bf1dca4b9ccdfad2d9de25c73d9ea",
         "path": ".engine/contracts/eADR-0011-guardrail-integrity.md"
       },
       "status": "accepted",
@@ -3924,7 +3927,7 @@
       },
       "slug": "eADR-0034-dual-provider-adapter-core",
       "source": {
-        "fingerprint": "sha256:22dfa6eb20d62f07f682a436ff334ea6cd21bf7b00c9386514050966842ee639",
+        "fingerprint": "sha256:fd79a107dae05670a88946ecc1b5dcc1097a6bcb5983b22bba8e5f49d86cf4d1",
         "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
       },
       "status": "accepted",
@@ -3964,7 +3967,7 @@
       },
       "slug": "eADR-0037-upgrade-overwrite-disclosure",
       "source": {
-        "fingerprint": "sha256:10b9b1f8f8a21aac173660f50656036dd2bf0d99b6590a0bf7a82c339a969612",
+        "fingerprint": "sha256:0eee5bf576c8c7df846132c140b2119c5b70b1cd4a063d43975565a678d6babe",
         "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
       },
       "status": "accepted",
@@ -4011,6 +4014,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0040-guardrail-ack-two-tier",
+      "name": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0040-guardrail-ack-two-tier",
+      "source": {
+        "fingerprint": "sha256:c057798d9b111f4a5f2b503623c130f23b156b49f01dd2886cee647acf5ad1c3",
+        "path": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -4024,7 +4047,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:49b1a50beefbd2244325950bcbc576ad8b31302016ecd30b3d8c8cd1197040a1",
+        "fingerprint": "sha256:38378a244c86ffcbe3f6c860efdd3311adead363054f31d5e28f5a5315d97a6c",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -4183,12 +4206,12 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:6cb8f0399fb542ca926827c41b51875214de98470323fa499e48159469ecb254",
+        "fingerprint": "sha256:fd6b733896e35f10b64021c64ec02bd95db4fea4d13ba011fb9e9ee6bb764d39",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.3.0"
+      "version": "0.4.0"
     },
     {
       "id": "module:dependency-discipline",
@@ -4434,7 +4457,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:383c0c980ffe50e03cf2b124c990dd31de00e44ac0a6e2986bae09deaae621d5",
+        "fingerprint": "sha256:c18c7c3c2f148f824ea14727fe45dea641920b990891e1d2ce5a060329ca3f27",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4554,7 +4577,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:db831c6846cf4fd2ede806194c2a571a055a5dec9a2ef1d98277822543dcb7f5",
+        "fingerprint": "sha256:e47338f7af33182b03e8dba5c3882fa4ad05c726cda6c403197a5208396a9bf1",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -5464,7 +5487,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:7db5db337a794a1b45dbfae8e21bc87e78442b9f04897e32a880b93258551e4a",
+        "fingerprint": "sha256:2ed8aeaecb22ef9e3ed0c76da9e1ad8bf2c35d027d00f1e02282e210620bb75c",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -5617,7 +5640,7 @@
       },
       "slug": "provider-exceptions.v1",
       "source": {
-        "fingerprint": "sha256:636bec53406003d27ac86c252adaef105e9368b5869fb9ba24dfbd7d36a39745",
+        "fingerprint": "sha256:10d5727f90e01ee4e311d1f8cb093f22539f913623697a84f908d2493fe15baf",
         "path": ".engine/schemas/provider-exceptions.v1.json"
       },
       "status": "active",
@@ -8476,7 +8499,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:12bcd18e515338a02ee798a89a011cc914dd00449e815a9dbea7d3ef43dc772e",
+        "fingerprint": "sha256:e91a777f8c6bb055d93744c7a74edfe4ea0176a101201fc4f02a1445c1a50627",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -9164,7 +9187,7 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:dc483727b00487cf6c862c7245a0ee070bb4e03509883473b4cc6b44c790c3a6",
+        "fingerprint": "sha256:f8f10a6d6797a84fe52bd733ebac03f2cc2db264a7bf91434a209229c9b05483",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
@@ -9541,7 +9564,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:d5606b82e03a37b23b468dab4e94644b988f81bd7288940d2c0ccd56e799b38e",
+        "fingerprint": "sha256:eca42e19273526d7e2f35b20996b78f926fa3b013514724b703da0c47939382c",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -13635,7 +13658,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:0a8c580eadb0b54ea7f895dbfba2fc1c53c7863c0a710ddf1955a53ea6f32836",
+        "fingerprint": "sha256:9ffe893428ad97fdba0106ac791123f357f6719939107f4c3a425528cf09849f",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -14269,7 +14292,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:9f06b00ffd9eff809b396be4b7dde7dcbb540f2a2f8daf01821b34fb339fea9c",
+        "fingerprint": "sha256:d16b4698d8e72ddca7938fd4d07492e0a64e0787d4346f0e6a38fd1fa81572ac",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -14310,7 +14333,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:309e9bf2bbff6485e859dc041204739b501a3cc0b4884552ba594f09802d8d55",
+        "fingerprint": "sha256:d7a0390ac51fafc8e893757c263e7586255bb62921da1ae9822973cb8858ee35",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
