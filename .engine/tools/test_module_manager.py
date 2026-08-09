@@ -1960,10 +1960,11 @@ class TestRemoveEngine(unittest.TestCase):
         note = next(n for n in r["notes"]
                     if "removal is staged but the pull request could not be opened" in n)
         self.assertIn("already removed the engine files", note)   # names the removal-specific on-disk fact
-        self.assertIn("git checkout", note)                       # a working, scoped restore...
-        self.assertIn("-- .engine", note)                         # ...of the engine files only (no collateral)
-        self.assertNotIn("git restore", note)                     # NOT the no-op/unscoped blanket command
+        self.assertIn("preserved in git", note)                   # reassures: nothing is lost
+        self.assertIn("pre-removal state", note)                  # points at the recovery target
         self.assertIn("branch guidance above", note)              # defers finishing to the opener — no contradiction
+        self.assertNotIn("git restore .", note)                   # no single command prescribed (it is case-dependent)
+        self.assertNotIn("git checkout", note)                    # ...so none can be wrong for the sub-case that hit
 
     def test_github_member_is_in_the_delete_set_unlike_per_module_remove(self):
         # whole-engine removal deletes the .github/ foundation files + root CLAUDE.md too — these are

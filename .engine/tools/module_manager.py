@@ -3667,19 +3667,17 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
         except Exception as exc:  # noqa: BLE001 — staged but not opened; surfaced, never a traceback
             # The removal already deleted the engine files from the working tree (step 3 above), so a failure
             # here leaves the engine gone from disk — a removal-specific fact the shared opener cannot know.
-            # Name it and add ONLY the on-disk recovery: the opener's own message (in {exc}) already tells the
-            # operator how to FINISH; this adds how to UNDO, worded to be true whether or not the removal was
-            # already committed to its branch — restoring `.engine` from the default branch works in both cases
-            # and is scoped to the engine's own files, so it never discards the operator's unrelated work
-            # (a blanket `git restore .` would both no-op once the deletion is committed and revert unrelated
-            # edits) (#877, finding folded in).
-            import repo_identity  # local: only this recovery path needs the default-branch name
-            _base = repo_identity.resolve_default_branch()
+            # Name it and reassure: the opener's own message (in {exc}) already tells the operator how to
+            # FINISH; this adds the on-disk fact and that nothing is lost. The exact UNDO command is NOT
+            # prescribed on purpose — how far the failed attempt got decides it (an unstaged deletion, a staged
+            # one, or one already committed to the branch each need a DIFFERENT git command), so any single
+            # command would be wrong — or a silent no-op — for the other cases. Point at the pre-removal state
+            # instead; nothing is ever lost, since git holds every removed file (#877, finding folded in).
             result["notes"].append(
                 f"(removal is staged but the pull request could not be opened: {exc} — note that this removal "
-                f"has already removed the engine files from your working tree. They are preserved in git and "
-                f"are not lost: the branch guidance above tells you how to finish the removal; to undo it "
-                f"instead, restore the engine from your '{_base}' branch with `git checkout {_base} -- .engine`.)")
+                f"has already removed the engine files from your working tree. Nothing is lost: every removed "
+                f"file is preserved in git. To finish the removal, follow the branch guidance above; to undo it "
+                f"instead, restore your working tree to its pre-removal state from git.)")
 
     # The sharpened reversal disclosure (names the unprotected window + the drop case explicitly).
     db = result["de_bootstrap"] or {}
