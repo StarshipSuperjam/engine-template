@@ -1068,6 +1068,11 @@ class TestCodexMcpSeam(_Redirected):
         f = wiring.apply(CODEX_MCP)
         self.assertEqual(f["severity"], "hard")
         self.assertIn("Python 3.11+", f["message"])
+        # #875: the skip message must tell the truth — a REQUIRED step whose omission stops setup — never
+        # over-reassure. Guard the removed false phrase AND positively pin the load-bearing honest claim.
+        self.assertNotIn("only this one step", f["message"])
+        self.assertIn("required", f["message"])
+        self.assertIn("not an optional step", f["message"])
         self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), product, "no blind write of an unreadable config")
 
     def test_reverse_skips_loud_on_config_with_operator_bytes_without_tomllib(self):

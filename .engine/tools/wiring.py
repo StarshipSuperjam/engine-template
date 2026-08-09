@@ -772,13 +772,22 @@ def codex_hook_reverse(directive: dict) -> dict:
 # own `tomllib is None and text != ""` skip (see codex_mcp_apply/reverse), never in this guard. The
 # common empty/absent-config case is safe without validation: the engine's own rendered block is
 # valid TOML by construction, so writing it onto empty content cannot produce an unparseable file.
+# The copy below states this server is REQUIRED without qualification. That holds only while module.v1
+# carries no per-wire optional flag: validate.wiring_findings emits a HARD finding for EVERY unapplied
+# declared wire (so a skipped codex-mcp wire is never "safely left" — it stops first-run's verify from
+# finishing and leaves a module-add incompletely wired). If an optional-wire flag is ever added, this
+# categorical wording must be revisited (#875). The message is context-neutral on purpose: codex_mcp_apply
+# runs on BOTH first-run arrival and module-add, so it names the consistency-check outcome, not one path.
 _CODEX_NO_TOMLLIB_APPLY = (
     "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
     "validation needs Python 3.11+), so the engine left your existing config untouched and did NOT "
-    "register the codex helper server — rather than risk corrupting it. To finish this, re-run the "
-    "setup with Python 3.11 or newer (for example, invoke it as `python3.11 ...` instead of `python3`); "
-    "everything else the setup does works on 3.9, so only this one step was left. Alternatively, add the "
-    "engine's own `# BEGIN engine-managed block` fenced section to .codex/config.toml by hand.")
+    "register the codex helper server — rather than risk corrupting it. This server is required: until "
+    "its block is present, the engine's own consistency check reports it as not applied — which stops "
+    "first-run setup from finishing, or leaves a module you are adding incompletely wired. This is not an "
+    "optional step that was safely skipped. To finish it, re-run that same command with Python 3.11 or "
+    "newer (for example, `python3.11 ...` instead of `python3`). Alternatively — for advanced "
+    "users — add the engine's own `# BEGIN engine-managed block` fenced section to .codex/config.toml by "
+    "hand.")
 _CODEX_NO_TOMLLIB_REVERSE = (
     "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
     "validation needs Python 3.11+), so the engine left it untouched and did NOT remove the codex "
