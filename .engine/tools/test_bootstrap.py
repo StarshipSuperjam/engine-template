@@ -245,6 +245,34 @@ class TestVerifyAndDegrade(unittest.TestCase):
         self.assertEqual(result.cause, "not-admin")
         self.assertIn("administer", bootstrap.render(result))
 
+    def test_plan_limitation_403_routes_to_unsupported_platform_banner(self):
+        # A repo whose PLAN can't host rulesets: the evaluated-rules READ itself returns GitHub's plan-limitation
+        # 403 (not just the write). apply() degrades with the 'unsupported-platform' cause and a banner that
+        # points at accept-unprotected — never the misleading 'you don't administer this repository'.
+        upgrade = {"message": "Upgrade to GitHub Team to enable this feature."}
+
+        def transport(method, path, body=None):
+            headers = {"X-OAuth-Scopes": "repo"}
+            if method == "GET" and path == f"/repos/{REPO}":
+                return 200, {"full_name": REPO}, headers
+            if path == f"/repos/{REPO}/rules/branches/main":
+                return 403, upgrade, headers            # the READ 403s -> the plan can't host rulesets at all
+            if path == f"/repos/{REPO}/rulesets":
+                return 403, upgrade, headers
+            if method in ("POST", "PUT"):
+                return 403, upgrade, headers
+            return 404, None, headers
+
+        result = bootstrap.ControlPlane(
+            REPO, "tok", transport=transport, refresh_fn=lambda s: True,
+            issues=FakeIssues()).apply(branch="main", announce=quiet)
+        self.assertEqual(result.status, "degraded")
+        self.assertEqual(result.cause, "unsupported-platform")
+        self.assertIsNone(result.marker)                # a degraded arrival persists no control_plane marker
+        rendered = bootstrap.render(result)
+        self.assertIn("plan", rendered.lower())
+        self.assertIn("accept-unprotected", rendered)   # points at the verb, not "you don't administer this"
+
     def test_fine_grained_403_then_refresh_retries_and_applies(self):
         # A fine-grained token (no scope header): the first write 403s, the refresh "grants" admin, the
         # retry succeeds -> applied, with exactly one engine ruleset created (no duplicate).
