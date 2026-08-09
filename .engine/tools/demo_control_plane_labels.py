@@ -29,7 +29,7 @@ REPO = "you/your-new-repo"
 # What a working engine needs present, named at their canonical homes (never re-typed here) so this demo also
 # cross-checks that provisioning agrees with each owning subsystem.
 EXPECTED = {
-    telemetry.ENGINE_DOMAIN_LABEL: "marks issues the engine opens about its own health",
+    telemetry.ENGINE_DOMAIN_LABEL: "marks issues about the engine's own health",
     weakening_guard.ACK_LABEL: "you add this to approve a change the engine flags as weakening a safety gate",
     issue_conformance_ci.NEEDS_REAUTHORING_LABEL: "flags an engine issue not yet in the engine's standard format",
     erasure_observer.ERASURE_LABEL: "marks a pull request whose merge forgets remembered notes",

@@ -1422,6 +1422,17 @@ class TestSeverityMarker(unittest.TestCase):
                                                  "rule:x", telemetry.PERSISTENT_BENIGN, T[0], T[0])
         self.assertEqual(telemetry.parse_severity(body), telemetry.PERSISTENT_BENIGN)
 
+    def test_severity_trailer_is_the_single_source_and_round_trips(self):
+        # severity_trailer is the ONE composer of the marker (used by _with_tracking_trailers AND, via
+        # issue_author, by a session grading an Issue). Each known class round-trips through parse_severity.
+        for sev in (telemetry.TRUST_CRITICAL, telemetry.PERSISTENT_BENIGN):
+            self.assertEqual(telemetry.parse_severity(telemetry.severity_trailer(sev)), sev)
+
+    def test_severity_trailer_refuses_a_class_outside_the_two(self):
+        for bad in ("HIJACK", "high", "", "trust_critical"):
+            with self.assertRaises(ValueError):
+                telemetry.severity_trailer(bad)
+
     def test_list_open_engine_issues_exposes_each_issues_severity(self):
         f = FakeGH(labels={"engine"})
         telemetry.promote_finding(gh(f), rec("ci/x", telemetry.PERSISTENT_BENIGN), T[0])
