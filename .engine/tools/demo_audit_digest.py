@@ -321,7 +321,9 @@ def main() -> int:
 
         print("\n" + BANNER)
         print("In plain words: the seal rule passes on a freshly-written file and goes RED the moment the")
-        print("file is hand-edited; the freshness rule stays quiet while the self-review is recent and")
+        print("file is hand-edited; the freshness clock counts from when the audit RAN, so a later wording")
+        print("fix (`correct`) repairs the prose without ever making an old review look freshly run (#665);")
+        print("the freshness rule stays quiet while the self-review is recent and")
         print("speaks up when it hasn't run in a while (or at all); the self-review reads its own recent")
         print("reviews as corroboration, degrading honestly when there is nothing to compare against; and it")
         print("reads your saved memory from its backup to review your saved decisions — disclosing the gap")

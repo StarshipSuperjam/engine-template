@@ -35,9 +35,11 @@ absent optionals dropped) and serialized as single-line sorted JSON, plus the RA
 after the closing `---` fence, read with newline='' so a CRLF/LF change is caught, not masked). Normalizing
 the parsed values means the seal is independent of how the header was serialized (re-quoting or re-ordering
 cannot affect validity) AND deterministic across the write side (which builds fields from argv/env strings)
-and the check side (which reads them back through validate.frontmatter, which coerces a YAML date to a
-date-object and a bare number to an int). Because the covered set is the whole header minus `fingerprint`,
-no header field is left unsealed — a stray added key breaks the seal. The legacy v1 seal (`compute_seal`)
+and the check side (which reads them back through validate.frontmatter, which normalizes a YAML date to an
+ISO string and a bare number to an int). Because the covered set is the whole header minus `fingerprint`,
+no header field is left unsealed — a stray added key breaks the seal. The string-valued header fields
+(`audited_sha`, `run_id`) are emitted double-quoted so YAML never re-resolves them (a leading-zero id as
+octal, a `#` as a comment) into a value that would fail its own seal. The legacy v1 seal (`compute_seal`)
 hashes only the `generated` scalar + body and is retained for reading existing v1 digests.
 
 Library + CLI (mirrors self_map.py — plain language first):
@@ -144,13 +146,24 @@ def _schema_version(fm: dict):
         return None
 
 
+def _require_valid_date(iso: str, label: str) -> None:
+    """Raise a clear error if `iso` is not a real YYYY-MM-DD date. seal/correct/migrate validate every date
+    INPUT before writing, so a mistyped date fails loudly at the write rather than silently committing a
+    seal-valid record with a nonsense run-date that only a later check() would flag."""
+    try:
+        datetime.date.fromisoformat(iso)
+    except ValueError:
+        raise ValueError(f"{label} must be a real date in YYYY-MM-DD form, not {iso!r}") from None
+
+
 def _canonical_v2_fields(fields: dict) -> dict:
     """Normalize the sealed field set to fixed types so the seal is (a) independent of how the header was
     serialized and (b) DETERMINISTIC across write and check. The write side builds these from argv/env
-    strings; the check side reads them back through validate.frontmatter, which coerces a YAML date to a
-    date-then-string and a bare number to an int. Pin every field to one form — dates to ISO strings,
+    strings; the check side reads them back through validate.frontmatter, which normalizes a YAML date to an
+    ISO string and a bare number to an int. Pin every field to one form — dates to ISO strings,
     schema_version to int, everything else to str — and DROP an absent optional (never emit it empty) so
-    present-vs-absent is unambiguous."""
+    present-vs-absent is unambiguous. (The string fields are emitted double-quoted by _render_v2, so YAML
+    reads them back as strings — never re-resolving e.g. a leading-zero run_id as octal.)"""
     out = {}
     for key, value in fields.items():
         if value is None:
@@ -354,10 +367,14 @@ def _render_v2(fields: dict, fingerprint: str, body: str) -> str:
         f"reviewed_at: {fields['reviewed_at']}",
         f"content_modified_at: {fields['content_modified_at']}",
     ]
+    # The free-form string fields are emitted as YAML double-quoted scalars (json.dumps is a valid
+    # double-quoted emitter for their character set), so the reader gives them back as strings — a
+    # leading-zero id is never re-resolved as octal, a `#` never truncated as a comment. Dates and the
+    # int version have no such ambiguity, so they stay plain.
     if fields.get("audited_sha"):
-        lines.append(f"audited_sha: {fields['audited_sha']}")
+        lines.append(f"audited_sha: {json.dumps(str(fields['audited_sha']))}")
     if fields.get("run_id"):
-        lines.append(f"run_id: {fields['run_id']}")
+        lines.append(f"run_id: {json.dumps(str(fields['run_id']))}")
     lines.append(f"fingerprint: {fingerprint}")
     lines.append("---")
     return "\n".join(lines) + body
@@ -394,7 +411,10 @@ def seal(path: str, reviewed_at=None, body: str | None = None, audited_sha=None,
     if body is None:
         raise ValueError(
             "seal needs a fresh review body (--body-file); to repair prose without a new audit run, use `correct`")
+    if not body.strip():
+        raise ValueError("the captured self-review is empty — nothing to seal")
     reviewed = _iso(reviewed_at if reviewed_at is not None else moment.today_utc())
+    _require_valid_date(reviewed, "the run-date")
     body = _ensure_recall_completeness("\n\n" + body.lstrip("\n"))
     audited_sha = audited_sha if audited_sha is not None else (os.environ.get("GITHUB_SHA") or None)
     run_id = run_id if run_id is not None else _env_run_id()
@@ -413,13 +433,17 @@ def correct(path: str, body: str | None = None, content_modified_at=None) -> dic
     recorded `audited_sha`/`run_id`) and advance only `content_modified_at`, so a wording fix can never
     postpone the staleness warning (#665). `body=None` keeps the existing prose verbatim; a new body
     replaces it. Operates on a v2 digest only — migrate a legacy v1 file first."""
+    if body is not None and not body.strip():
+        raise ValueError(
+            "the replacement review is empty — nothing to correct (omit --body-file to keep the existing prose)")
     fm, existing_body = split(path)
     if _schema_version(fm) != SCHEMA_VERSION_V2:
         raise ValueError("correct operates on a v2 self-review; migrate a legacy file first with `migrate`")
     reviewed = _iso(fm.get("reviewed_at"))
     modified = _iso(content_modified_at if content_modified_at is not None else moment.today_utc())
+    _require_valid_date(modified, "the prose-modified date")
     if datetime.date.fromisoformat(modified) < datetime.date.fromisoformat(reviewed):
-        raise ValueError(f"content_modified_at ({modified}) cannot precede reviewed_at ({reviewed})")
+        raise ValueError(f"the prose-modified date ({modified}) cannot be earlier than the run-date ({reviewed})")
     body = existing_body if body is None else "\n\n" + body.lstrip("\n")
     body = _ensure_recall_completeness(body)
     fields = {"schema_version": SCHEMA_VERSION_V2, "reviewed_at": reviewed, "content_modified_at": modified}
@@ -446,10 +470,21 @@ def migrate(path: str, reviewed_at, content_modified_at=None) -> dict:
     fm, existing_body = split(path)
     if _schema_version(fm) == SCHEMA_VERSION_V2:
         raise ValueError("this self-review is already v2; use `correct` for a prose repair")
+    # Verify the source's OWN seal before re-sealing it as v2 — otherwise a tampered v1 digest (its body
+    # altered since it was sealed) could be laundered into a valid v2 record with an operator-supplied
+    # run-date, reopening #665 through a different door. A tampered or malformed source is refused; re-run
+    # the audit instead of migrating it.
+    verdict = check(path)
+    if verdict["severity"] == "hard":
+        raise ValueError(
+            "refusing to migrate a self-review whose seal does not verify — its contents were altered since "
+            f"it was sealed, so migrating would launder them into a valid v2 record. Re-run the audit. ({verdict['message']})")
     reviewed = _iso(reviewed_at)
     modified = _iso(content_modified_at) if content_modified_at is not None else reviewed
+    _require_valid_date(reviewed, "the run-date")
+    _require_valid_date(modified, "the prose-modified date")
     if datetime.date.fromisoformat(modified) < datetime.date.fromisoformat(reviewed):
-        raise ValueError(f"content_modified_at ({modified}) cannot precede reviewed_at ({reviewed})")
+        raise ValueError(f"the prose-modified date ({modified}) cannot be earlier than the run-date ({reviewed})")
     body = _ensure_recall_completeness(existing_body)
     fields = {"schema_version": SCHEMA_VERSION_V2, "reviewed_at": reviewed, "content_modified_at": modified}
     _write_sealed(path, fields, body)

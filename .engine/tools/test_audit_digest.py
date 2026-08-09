@@ -150,23 +150,61 @@ class TestSealRequiresBodyAndRecordsRun(unittest.TestCase):
             self.assertNotIn("run_id", fm)
             self.assertEqual(audit_digest.check(p)["severity"], "note")
 
+    def test_a_genuine_second_run_advances_reviewed_at_and_records_fresh_identity(self):
+        # The positive counterpart to the #665 negative case: a real new run (fresh prose) MUST advance the
+        # run-date and record the new run's snapshot/identity — the seal is the honest writer of freshness.
+        with tempfile.TemporaryDirectory() as d:
+            p = _scratch(d)
+            with mock.patch.dict(os.environ, {"GITHUB_SHA": "sha_one", "GITHUB_RUN_ID": "1"}, clear=True):
+                audit_digest.seal(p, reviewed_at=datetime.date(2026, 6, 1), body="First review.")
+            with mock.patch.dict(os.environ, {"GITHUB_SHA": "sha_two", "GITHUB_RUN_ID": "2"}, clear=True):
+                audit_digest.seal(p, reviewed_at=datetime.date(2026, 7, 1), body="A genuinely new review.")
+            fm, _ = audit_digest.split(p)
+            self.assertEqual(audit_digest._iso(fm["reviewed_at"]), "2026-07-01", "a real run advances the run-date")
+            self.assertEqual(str(fm.get("audited_sha")), "sha_two")
+            self.assertEqual(str(fm.get("run_id")), "2")
+            self.assertEqual(audit_digest.check(p)["severity"], "note")
+
+    def test_seal_refuses_an_unparseable_run_date(self):
+        # A mistyped run-date must fail loudly at the write — never silently commit a seal-valid record with
+        # a nonsense date that only a later check() would flag. (Matches correct/migrate's date validation.)
+        with tempfile.TemporaryDirectory() as d:
+            p = _scratch(d)
+            with self.assertRaises(ValueError):
+                audit_digest.seal(p, reviewed_at="not-a-date", body=BODY)
+            self.assertFalse(os.path.exists(p), "a bad run-date must not write a file")
+            bf = os.path.join(d, "prose.md")
+            with open(bf, "w", encoding="utf-8", newline="") as fh:
+                fh.write(BODY)
+            self.assertEqual(audit_digest.main(["seal", p, "not-a-date", "--body-file", bf]), 2)
+            self.assertFalse(os.path.exists(p))
+
+    def test_seal_refuses_an_empty_body(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _scratch(d)
+            with self.assertRaises(ValueError):
+                audit_digest.seal(p, reviewed_at=JUNE, body="   \n\n  ")
+            self.assertFalse(os.path.exists(p))
+
 
 class TestSealCanonicalization(unittest.TestCase):
     """The seal's canonicalization contract — the plan-gate BLOCKING finding. It must round-trip across the
     write side (argv/env strings) and the check side (validate.frontmatter, which coerces bare numbers to
     ints and dates to date-objects), and it must leave no header field unsealed."""
 
-    def test_round_trips_with_integer_typed_run_id_and_sha(self):
-        # A numeric-only run_id (no attempt) and an all-digit sha are read back as INTs by the YAML reader;
-        # the seal must still verify. This is the exact type-coercion case the naive JSON-of-parsed-header
-        # would fail (int 42 vs str "42" hash to different bytes).
-        with tempfile.TemporaryDirectory() as d, mock.patch.dict(
-                os.environ, {"GITHUB_SHA": "123456789", "GITHUB_RUN_ID": "7777"}, clear=True):
-            p = _scratch(d)
-            audit_digest.seal(p, reviewed_at=JUNE, body=BODY)
-            fm, _ = audit_digest.split(p)
-            self.assertIsInstance(fm.get("run_id"), int)      # proves the reader coerced it
-            self.assertEqual(audit_digest.check(p)["severity"], "note")
+    def test_round_trips_hazardous_string_ids(self):
+        # audited_sha/run_id are emitted double-quoted, so YAML gives them back as STRINGS — a leading-zero
+        # id is never re-resolved as octal (0755 -> 493), a `#` never truncated as a comment. Emitting them
+        # unquoted was a false-hard bug: a legitimately-sealed digest failing its own seal. Each must
+        # round-trip verbatim AND verify. The plain-decimal case also covers the YAML int-coercion path.
+        for sha, rid in [("0755", "0042"), ("00ff # not-a-comment", "7/1"), ("123456789", "7777")]:
+            with tempfile.TemporaryDirectory() as d:
+                p = _scratch(d)
+                audit_digest.seal(p, reviewed_at=JUNE, body=BODY, audited_sha=sha, run_id=rid)
+                fm, _ = audit_digest.split(p)
+                self.assertEqual(str(fm.get("audited_sha")), sha, f"sha {sha!r} must round-trip verbatim")
+                self.assertEqual(str(fm.get("run_id")), rid, f"run_id {rid!r} must round-trip verbatim")
+                self.assertEqual(audit_digest.check(p)["severity"], "note", f"seal must verify for {sha!r}/{rid!r}")
 
     def test_a_stray_unsealed_header_key_breaks_the_seal(self):
         with tempfile.TemporaryDirectory() as d:
@@ -265,6 +303,18 @@ class TestCorrectVerb(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit_digest.correct(p, body="x")   # must migrate first
 
+    def test_correct_refuses_an_empty_replacement_body(self):
+        # An empty --body-file (a broken capture) must NOT silently wipe the real review down to boilerplate;
+        # `correct` refuses it, leaving the committed prose intact. (body=None is the keep-verbatim path.)
+        with tempfile.TemporaryDirectory() as d:
+            p = _scratch(d)
+            audit_digest.seal(p, reviewed_at=JUNE, body=BODY)
+            _fm, body_before = audit_digest.split(p)
+            with self.assertRaises(ValueError):
+                audit_digest.correct(p, body="   \n\n  ")
+            _fm2, body_after = audit_digest.split(p)
+            self.assertEqual(body_before, body_after, "a refused correction leaves the prose untouched")
+
 
 class TestMigrateVerb(unittest.TestCase):
     """`migrate` is the one-time v1 -> v2 upgrade: the operator supplies the true run-date, the body is kept
@@ -308,6 +358,20 @@ class TestMigrateVerb(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit_digest.migrate(p, reviewed_at="2026-06-01")
 
+    def test_migrate_refuses_a_tampered_v1_source(self):
+        # A v1 digest whose body was altered since it was sealed must NOT be laundered into a valid v2 record
+        # with an operator-supplied run-date — that would reopen #665 through migrate. Verify the source seal
+        # first and refuse a tampered source; the file is left untouched.
+        with tempfile.TemporaryDirectory() as d:
+            p = _write_v1(_scratch(d), "2026-06-01", body="The real, sealed review.")
+            with open(p, "a", encoding="utf-8", newline="") as fh:
+                fh.write("FABRICATED: nothing to see here.\n")   # breaks the v1 seal
+            self.assertEqual(audit_digest.check(p)["severity"], "hard", "precondition: the tamper is detectable")
+            before = validate.read(p)
+            with self.assertRaises(ValueError):
+                audit_digest.migrate(p, reviewed_at="2026-08-08")
+            self.assertEqual(validate.read(p), before, "a refused migration leaves the tampered file untouched")
+
 
 class TestV1BackCompat(unittest.TestCase):
     """A legacy v1 digest (a single `generated:` date) must still be READ, verified, and aged — so an
@@ -332,6 +396,15 @@ class TestV1BackCompat(unittest.TestCase):
             self.assertEqual(audit_digest.staleness(fresh, now=now)["severity"], "note")
             aged = _write_v1(os.path.join(d, "aged.md"), now - datetime.timedelta(days=audit_digest.STALENESS_DAYS + 1))
             self.assertEqual(audit_digest.staleness(aged, now=now)["severity"], "soft")
+
+    def test_generated_of_reads_v2_reviewed_at_then_v1_generated(self):
+        # The prior-digest history feed spans both formats: a v2 prior digest is labeled by its reviewed_at,
+        # a legacy v1 by its generated. (Every seal() writes v2 now, so the v2 branch is the common case.)
+        self.assertEqual(
+            audit_digest._generated_of("schema_version: 2\nreviewed_at: 2026-07-12\ncontent_modified_at: 2026-07-25\n"),
+            "2026-07-12")
+        self.assertEqual(audit_digest._generated_of("schema_version: 1\ngenerated: 2026-06-01\n"), "2026-06-01")
+        self.assertIsNone(audit_digest._generated_of("fingerprint: sha256:x\n"))
 
 
 class TestCheckEdgeCases(unittest.TestCase):
@@ -378,6 +451,15 @@ class TestCheckEdgeCases(unittest.TestCase):
             f = audit_digest.check(p)
             self.assertEqual(f["severity"], "hard")
             self.assertIn("unrecognized schema version", f["message"])
+
+    def test_non_int_schema_version_is_hard(self):
+        # A schema_version that is present but not an integer (e.g. a bare string) cannot pick a verifier —
+        # it must fail closed exactly like the absent case, never fall through to a pass.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "audit-digest.md")
+            with open(p, "w", encoding="utf-8", newline="") as fh:
+                fh.write("---\nschema_version: twenty\nreviewed_at: 2026-06-01\ncontent_modified_at: 2026-06-01\nfingerprint: sha256:x\n---\nbody\n")
+            self.assertEqual(audit_digest.check(p)["severity"], "hard")
 
     def test_content_modified_before_the_run_is_hard(self):
         # A validly-SEALED v2 file whose prose-modified date precedes its run-date is an impossible order —
