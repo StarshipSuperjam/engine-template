@@ -1195,6 +1195,27 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertEqual((engine or {}).get("home_repository"), "acme/engine-home")   # preserved
         self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")     # but versions bumped
 
+    def test_upgrade_preserves_a_recorded_protection_posture(self):
+        # #809: an unsupported-platform posture is operator config (a top-level manifest key), so a version bump
+        # must carry it across unchanged — otherwise a retired plan-limited deployment (e.g. a private repo on a
+        # ruleset-less plan) would lose its accepted exception on upgrade and go permanently red again.
+        posture = {"status": "unsupported-platform", "reason": "plan can't host rulesets",
+                   "operator_login": "owner", "recorded_on": "2026-08-08"}
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                data = module_manager.module_coherence.load_engine_manifest()
+                data["protection_posture"] = posture                       # operator-recorded exception
+                module_manager._write_json(module_manager._engine_manifest_path(), data)
+                module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                       opener=lambda **k: {"number": 1}, backup=lambda *a, **k: {"ok": 1})
+                engine = module_manager.module_coherence.load_engine_manifest()
+        self.assertEqual((engine or {}).get("protection_posture"), posture)          # preserved verbatim
+        self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")    # versions still bumped
+
     def test_upgrade_reasserts_the_foundation_gitignore_fence_and_keeps_operator_lines(self):
         # #409: the foundation fence is release-evolvable — an upgrade re-applies it (like the CODEOWNERS
         # re-render / CLAUDE.md floor merge), so a repo provisioned before/without it converges, and an

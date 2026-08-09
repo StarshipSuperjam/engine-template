@@ -116,6 +116,14 @@ class BootstrapError(Exception):
     """A GitHub read/transport failure during bootstrap — surfaced and degraded, never swallowed."""
 
 
+class ControlPlaneMisuse(Exception):
+    """A programmer-misuse invariant in the control plane — e.g. finalize called on a checkless instance,
+    whose whole job is to BIND the required checks a checkless instance would silently no-op. This is a
+    CONSTRUCTION bug, not a GitHub transport failure, so it is deliberately NOT a BootstrapError subclass:
+    the transport-error handlers that degrade a genuine network failure ("couldn't reach GitHub … back
+    online") must never swallow it and mislabel a bug as connectivity (#696)."""
+
+
 # ---- the protection-floor payload --------------------------------------------------------------
 
 SOLO, TEAM = protection_guard.SOLO, protection_guard.TEAM  # re-export the tier vocabulary (single home: protection_guard)
@@ -427,6 +435,17 @@ FALLBACK_COPY = {
         "this). Protection is still off, so work can merge unreviewed. Let's try once more, or sign in "
         "again first. I'll keep reminding you until it's on."
     ),
+    "degraded-unsupported-platform": (
+        "I couldn't turn on branch protection — this repository's GitHub plan doesn't offer the "
+        "branch-protection rules the safety gate needs (private repositories need GitHub Pro, Team, or "
+        "Enterprise; public repositories have them for free). This isn't a permission problem — your "
+        "account administers the repository fine. Protection is not active, so work can merge unreviewed. "
+        "Two ways forward: upgrade this repository's plan (or make it public), then say **turn my safety gate "
+        "back on** — or, if you're deliberately running without the gate, say **accept that my plan can't "
+        "protect this branch** and I'll record that, so the engine stops failing every pull request over a "
+        "limitation it can't fix and instead reports the gate as off by your informed choice. Either way I do "
+        "it for you — you never type a command yourself. Until then, I'll keep reminding you the gate is off."
+    ),
     "applied": (
         "Your safety gate is on. The main branch now requires a pull request, passing checks, and resolved "
         "review comments before anything merges — and it can't be force-pushed or deleted."
@@ -497,6 +516,7 @@ COPY_HEADINGS = {
     "degraded-not-admin": "If it couldn't turn on — you don't administer this repository",
     "degraded-org-policy": "If it couldn't turn on — your organization blocks the permission",
     "degraded-didnt-save": "If it couldn't turn on — the approval didn't save",
+    "degraded-unsupported-platform": "If it couldn't turn on — this plan can't host branch protection",
     "applied": "When it's on",
     "already": "When it was already on",
     "unverified": "When it couldn't be confirmed",
@@ -669,6 +689,28 @@ class ControlPlane:
         # branch reads as fully in force and re-runs are idempotent), the frozen set in steady state.
         return protection_guard.missing_floor(data, self.required_checks, tier=self.tier)
 
+    def _plan_forbids_rulesets(self, branch: str) -> bool:
+        """True when a live read of the evaluated branch rules returns GitHub's genuine plan-limitation 403 —
+        the platform, not the operator, forbids rulesets on this repo. The recognition itself lives once in
+        protection_guard.platform_forbids_rulesets (shared with the standing check and boot); this only
+        performs the read and hands it the result, so arrival and the accept-unprotected verb classify the 403
+        identically. A transport failure propagates as BootstrapError; any readable non-plan-limit response
+        (including a 200 — the plan can host rulesets — and an ordinary not-admin 403) is False."""
+        status, body, headers = self._transport(
+            "GET", f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
+        return protection_guard.platform_forbids_rulesets(status, body, headers)
+
+    def user_login(self) -> str | None:
+        """The login of the token's owner (GET /user) — the advisory 'recorded by' actor for an accepted
+        unsupported-platform posture. None when unreadable; the caller falls back to the recorded handle."""
+        try:
+            status, body, _ = self._transport("GET", "/user", None)
+        except BootstrapError:
+            return None
+        if status == 200 and isinstance(body, dict) and body.get("login"):
+            return body["login"]
+        return None
+
     def engine_ruleset(self) -> dict | None:
         """The engine's own ruleset, if it already exists (matched by ENGINE_RULESET_NAME). Returns None
         when absent. Raises BootstrapError if the admin rulesets endpoint cannot be listed."""
@@ -828,7 +870,17 @@ class ControlPlane:
             status, body = self._write_floor(own)
         if status >= 400:
             labels_ok = self.ensure_labels()
-            cause = self._forbidden_cause(body) if status in (401, 403) else "verify-failed"
+            if status in (401, 403):
+                # Distinguish "this plan can't host rulesets at all" (a platform limitation, not the
+                # operator's fault) from an ordinary not-admin/org-policy block, by re-reading the evaluated
+                # rules: on a plan that forbids rulesets the READ itself returns GitHub's plan-limitation 403.
+                try:
+                    plan_limited = self._plan_forbids_rulesets(branch)
+                except BootstrapError:
+                    plan_limited = False
+                cause = "unsupported-platform" if plan_limited else self._forbidden_cause(body)
+            else:
+                cause = "verify-failed"
             return Result("degraded", branch, missing or [], cause, labels_ok, mode=mode)
 
         # 4. Verify the floor is now actually in force (never assume the write took). An UNREADABLE
@@ -873,8 +925,8 @@ class ControlPlane:
         already-bound branch reads 'already'. On success it re-emits the Actions-enablement reminder, because
         finalize is the moment the checks become load-bearing and they only run if Actions is enabled."""
         if self.checkless:   # finalize's whole job is to BIND the checks; a checkless instance would no-op them
-            raise BootstrapError("finalize must run on a non-checkless ControlPlane — it binds the checks a "
-                                 "checkless arrival deferred.")
+            raise ControlPlaneMisuse("finalize must run on a non-checkless ControlPlane — it binds the checks a "
+                                     "checkless arrival deferred.")
         branch = branch or boot.PROTECTED_BRANCH
         say = announce if announce is not None else (lambda text: print(text))
         if not self.workflows_present_on(branch):
@@ -1093,6 +1145,7 @@ def render(result: Result, copy: dict | None = None) -> str:
             "not-admin": "degraded-not-admin",
             "org-policy": "degraded-org-policy",
             "didnt-save": "degraded-didnt-save",
+            "unsupported-platform": "degraded-unsupported-platform",
         }.get(result.cause or "", "degraded-not-admin")
         msg = copy[key]
     if not result.labels_ok:
@@ -1119,6 +1172,21 @@ def cmd_status(args) -> int:
     try:
         missing = cp.floor_missing(args.branch)
     except BootstrapError as e:
+        # The read failed. If this repository's PLAN can't host rulesets AND the operator recorded a
+        # deliberate acceptance of that, say so calmly — matching every other surface — rather than as an
+        # unexplained technical failure.
+        posture = protection_guard.recorded_posture()
+        try:
+            plan_limited = cp._plan_forbids_rulesets(args.branch)
+        except BootstrapError:
+            plan_limited = False
+        if posture and plan_limited:
+            when = posture.get("recorded_on") or "an earlier date"
+            print(f"Branch protection isn't available on this repository's GitHub plan, and you accepted "
+                  f"running without it on {when}. The safety gate is OFF for '{args.branch}' — a known, "
+                  "accepted limitation, not a failure. If your plan later supports branch rulesets (upgrade it, "
+                  "or make the repository public), say **turn my safety gate back on** and I'll enable it.")
+            return 0
         print(f"Couldn't read branch protection for '{args.branch}' ({e}); treating it as not on.")
         return 0
     if not missing:
@@ -1144,6 +1212,11 @@ def cmd_apply(args) -> int:
               "when you're back online.")
         return 1
     print(render(result))
+    if result.is_protected():
+        # Protection is now in force, which proves this plan CAN host rulesets — so any recorded
+        # unsupported-platform posture is obsolete. Clear it (best-effort) rather than leave a stale record
+        # that a later transient could ride toward a softened gate.
+        _clear_protection_posture()
     return 0 if result.is_protected() else 1
 
 
@@ -1195,6 +1268,128 @@ def _persist_finalize_marker(marker) -> None:
         return
 
 
+def _manifest_handle() -> str | None:
+    """The operator's own account handle recorded at first-run setup (engine.json `handle`), or None."""
+    try:
+        with open(_engine_json_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data.get("handle") if isinstance(data, dict) else None
+
+
+def _write_manifest(mutate) -> bool:
+    """Read engine.json, apply `mutate(data)` (which returns the new dict or None to abort), and write it back
+    atomically (temp-file + os.replace, so a crashed write never truncates the manifest). Returns True on a
+    completed write. Best-effort: any read/write failure returns False without raising."""
+    path = _engine_json_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    new_data = mutate(data)
+    if new_data is None:
+        return False
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(new_data, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        return False
+    return True
+
+
+def _persist_protection_posture(posture: dict) -> bool:
+    """Record the operator-consented unsupported-platform posture into engine.json. Returns True on success."""
+    def _set(data):
+        data["protection_posture"] = posture
+        return data
+    return _write_manifest(_set)
+
+
+def _clear_protection_posture() -> None:
+    """Remove a now-stale unsupported-platform posture from engine.json (best-effort, no-op when absent)."""
+    def _drop(data):
+        if "protection_posture" not in data:
+            return None  # nothing to do — abort the write
+        del data["protection_posture"]
+        return data
+    _write_manifest(_drop)
+
+
+def cmd_accept_unprotected(args) -> int:
+    """Record the operator's DELIBERATE acceptance that this repository's GitHub plan cannot host branch
+    protection, so the standing check reports the gate as off by the operator's informed choice (an honest
+    warning) instead of hard-failing every pull request over a limitation the engine cannot fix. This is the
+    operator's explicit consent act — the engine offers it (arrival/boot banners), the operator asks for it in
+    plain words, the assistant runs it — and it REFUSES to record unless it first re-verifies, live, that the
+    branch-rules read genuinely returns GitHub's plan-limitation 403. So it can never mint an exception on a
+    repo whose plan can host protection. Doubles as the repair path for an already-retired deployment
+    (bootstrap.py survives retirement)."""
+    repo = _resolve_repo(args.repo)
+    token = boot.gh_token()
+    branch = args.branch
+    if not repo or not token:
+        print("Can't record this from here — no repository access is available. Run this where you're "
+              "logged in to GitHub (`gh auth login`).")
+        return 1
+    cp = ControlPlane(repo, token)
+    # The load-bearing belt: re-read the evaluated branch rules and confirm the platform genuinely forbids
+    # rulesets before recording anything.
+    try:
+        status, body, headers = cp._transport(
+            "GET", f"/repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}", None)
+    except BootstrapError as e:
+        print(f"Couldn't reach GitHub to check this repository's branch protection ({e}). Nothing was "
+              "recorded — try again when you're back online.")
+        return 1
+    if status == 200:
+        print("Good news — this repository's plan CAN host branch protection, so I won't record an exception. "
+              "If the safety gate isn't on yet, say **turn my safety gate back on** and I'll turn it on for "
+              "you.")
+        return 1
+    if not protection_guard.platform_forbids_rulesets(status, body, headers):
+        print("I couldn't confirm that this repository's PLAN is why branch protection is unavailable — the "
+              "branch-rules check didn't return GitHub's plan-limitation response (it may be a permission "
+              "problem, a rate limit, or a temporary error). I won't record an exception on a guess; nothing "
+              "was recorded. If branch protection should work here, say **turn my safety gate back on** and "
+              "I'll try to turn it on, or check your repository's branch settings for what's blocking it.")
+        return 1
+    # Genuine plan limitation confirmed. Record the operator-consented posture.
+    import moment  # lazily — the arrival-critical module import stays minimal and 3.9-safe
+    login = cp.user_login() or _manifest_handle() or "unknown"
+    posture = {
+        "status": "unsupported-platform",
+        "reason": ("This repository's GitHub plan does not expose branch rulesets, so the protected-branch "
+                   "safety gate cannot be enforced; the owner accepted running without it."),
+        "operator_login": login,
+        "recorded_on": moment.today_utc().isoformat(),
+    }
+    if not _persist_protection_posture(posture):
+        print("I confirmed the plan limitation but couldn't write the record to .engine/engine.json — nothing "
+              "was changed. Check the file is present and writable, then try again.")
+        return 1
+    is_team = protection_guard.resolve_tier() == protection_guard.TEAM
+    print("Recorded: branch protection isn't available on this repository's GitHub plan, and you've accepted "
+          f"running without it (recorded {posture['recorded_on']}, by {login}). What this means: the "
+          "protected-branch safety gate is OFF — work can reach '" + branch + "' without a pull request, "
+          "passing checks, or your review, and nothing here technically prevents that. The standing check will "
+          "now report this as an accepted limitation (an honest warning) rather than failing every pull "
+          "request. If your plan later supports branch rulesets (upgrade it, or make the repository public), "
+          "run `python .engine/tools/bootstrap.py apply` to turn the gate on — that clears this record.")
+    if is_team:
+        print("Because this engine runs in TEAM mode, this is worth weighing carefully: the team floor exists "
+              "so a teammate's change can't merge without a distinct code-owner's review. Without branch "
+              "protection, that review is not technically enforced — teammates' unreviewed commits can reach "
+              "the protected branch.")
+    return 0
+
+
 def cmd_finalize(args) -> int:
     """Post-merge: bind the engine's required checks that a brownfield arrival deliberately left off (#673) —
     now that the arrival pull request has merged and the engine's workflows are on the branch. Idempotent;
@@ -1208,6 +1403,13 @@ def cmd_finalize(args) -> int:
     cp = ControlPlane(repo, token)
     try:
         result = cp.finalize(branch=args.branch)
+    except ControlPlaneMisuse as e:
+        # A construction bug, not a network failure — say so honestly rather than mislabeling it as
+        # connectivity (the transport handler below). Unreachable from this call site today (cmd_finalize
+        # always constructs a non-checkless ControlPlane); this keeps a future checkless finalize path honest.
+        print(f"Couldn't finalize branch protection — an internal error, not a connectivity problem: {e} "
+              "Please report this; nothing was changed.")
+        return 1
     except BootstrapError as e:
         print(f"Couldn't reach GitHub to finalize branch protection ({e}). Nothing changed — try again "
               "when you're back online.")
@@ -1215,6 +1417,10 @@ def cmd_finalize(args) -> int:
     print(render(result))
     if result.is_protected():
         _persist_finalize_marker(result.marker)
+        # Protection is now in force, which proves this plan CAN host rulesets — so any recorded
+        # unsupported-platform posture is obsolete. Clear it too (like cmd_apply), because the standing check's
+        # stale-record nudge names `finalize` as a way to turn protection on; both commands must honour it.
+        _clear_protection_posture()
     return 0 if result.is_protected() else 1
 
 
@@ -1229,6 +1435,8 @@ def main(argv: list | None = None) -> int:
     sub.add_parser("status", help="report whether the safety gate is on (read-only)")
     sub.add_parser("apply", help="turn the safety gate on (idempotent)")
     sub.add_parser("finalize", help="after a brownfield arrival merges, turn on the engine's required checks")
+    sub.add_parser("accept-unprotected",
+                   help="record that this plan can't host branch protection and you accept running without it")
     args = parser.parse_args(argv)
     # Resolve the default once for whichever verb runs (env -> recorded -> origin/HEAD -> "main"), so a repo
     # whose default is not `main` is reported and repaired on its real branch.
@@ -1239,6 +1447,8 @@ def main(argv: list | None = None) -> int:
         return cmd_apply(args)
     if args.cmd == "finalize":
         return cmd_finalize(args)
+    if args.cmd == "accept-unprotected":
+        return cmd_accept_unprotected(args)
     parser.print_help()
     return 0
 

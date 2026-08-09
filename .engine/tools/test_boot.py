@@ -1580,6 +1580,29 @@ class TestGovernanceAlarms(unittest.TestCase):
         pack = self._pack_with(("on", None), (0, "u"))
         self.assertNotIn("safety gate", pack.lower())
 
+    def test_gate_unsupported_is_calm_never_an_alarm_or_the_no_access_line(self):
+        # The accepted plan-limitation is a CALM steady state: never the "safety gate is off" alarm, and never
+        # the misleading "no GitHub access / don't assume" degraded line the old code showed every session.
+        dash = boot.render_dashboard(_signals(gate="unsupported", reason="2026-08-08")).lower()
+        self.assertNotIn("safety gate is off", dash)
+        self.assertNotIn("don't assume", dash)         # the misleading unknown-line must NOT appear
+        self.assertNotIn("⚠", dash)                     # not a degraded/alarm framing
+
+    def test_gate_unsupported_present_marker_is_calm(self):
+        # The first-line status marker stays the calm ▸, never a ⚠ — an accepted limitation is not an alarm.
+        self.assertNotIn("⚠", boot.present_marker_line(_signals(gate="unsupported", reason="2026-08-08")))
+
+    def test_gate_unsupported_setup_complete_line_is_honest(self):
+        # The one-time completion confirmation for an unsupported deployment must NOT claim the gate is
+        # protecting the branch; it states the plan can't host protection and the operator accepted running
+        # without it — and it fires (so the deployment isn't stuck showing setup-incomplete forever).
+        dash = boot.render_dashboard(_signals(
+            gate="unsupported", reason="2026-08-08",
+            setup_landed={"present": True, "main": "/tmp/marker"}))
+        self.assertIn("Setup is now complete", dash)
+        self.assertIn("isn't available on this repository's GitHub plan", dash)
+        self.assertNotIn("your safety gate is protecting it", dash)
+
     def test_routine_findings_do_not_pin_or_relay_only_a_quiet_fact(self):
         # A routine (unmarked) finding count is the engine's own housekeeping: no ⚠ pin, no must-push relay —
         # it appears only as the quiet "Engine findings" facts line, folded into the whole-backlog total.
@@ -1662,6 +1685,41 @@ class TestGovernanceAlarms(unittest.TestCase):
             with mock.patch.object(boot.protection_guard, "get_json", return_value=body):
                 self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None),
                                  f"a non-list body ({body!r}) must read unknown, never on")
+
+    def test_protected_branch_signal_unsupported_state(self):
+        # The fourth state: a recorded acceptance PLUS a live plan-limitation 403 is the calm "unsupported"
+        # steady state, carrying the accepted-on date — never a false all-clear, never the misleading "unknown"
+        # (no-GitHub-access) line, and never softened by the posture ALONE.
+        import email.message
+        import io
+        import json
+        import urllib.error
+
+        def _http_error(code, message):
+            hdrs = email.message.Message()
+            return urllib.error.HTTPError("https://api.github.com/x", code, message, hdrs,
+                                          io.BytesIO(json.dumps({"message": message}).encode()))
+
+        posture = {"status": "unsupported-platform", "recorded_on": "2026-08-08", "operator_login": "me"}
+        plan_msg = "Upgrade to GitHub Team to enable this feature."
+        # posture + genuine plan-limitation 403 -> ("unsupported", accepted-on date)
+        with mock.patch.object(boot.protection_guard, "recorded_posture", return_value=posture), \
+             mock.patch.object(boot.protection_guard, "get_json", side_effect=_http_error(403, plan_msg)):
+            self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unsupported", "2026-08-08"))
+        # a transient rate-limit 403, even WITH a posture, stays "unknown" — never a false calm all-clear
+        with mock.patch.object(boot.protection_guard, "recorded_posture", return_value=posture), \
+             mock.patch.object(boot.protection_guard, "get_json",
+                               side_effect=_http_error(403, "You have exceeded a secondary rate limit.")):
+            self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None))
+        # a genuine plan-limitation 403 with NO posture recorded stays "unknown" (never silently calm)
+        with mock.patch.object(boot.protection_guard, "recorded_posture", return_value=None), \
+             mock.patch.object(boot.protection_guard, "get_json", side_effect=_http_error(403, plan_msg)):
+            self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None))
+        # read succeeds but the floor is missing, even with a posture -> "off" (the plan clearly hosts rulesets)
+        with mock.patch.object(boot.protection_guard, "recorded_posture", return_value=posture), \
+             mock.patch.object(boot.protection_guard, "get_json", return_value=[]), \
+             mock.patch.object(boot.protection_guard, "missing_floor", return_value=["no pull request"]):
+            self.assertEqual(boot.protected_branch_signal("o/r", "t")[0], "off")
 
 
 class TestTriagePressureRender(unittest.TestCase):

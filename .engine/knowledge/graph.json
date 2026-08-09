@@ -5413,7 +5413,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:de28e10e8b3bf43c5ed4b48fb1503f94aceb6a27405a513491b3d911475e8371",
+        "fingerprint": "sha256:dd84e6ea48f2945f68fe88bbf014c9313412831c7b5e2fe4c83e74f9747ecd3f",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -6442,7 +6442,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c4c3adcb7aac76e7fc31eb429b93af71f597a2e741bda3b4ad30243f86060c08",
+        "fingerprint": "sha256:6a754ca0e3c0cd1fe487ea38af1398127c09b5b3af2ea603d4fe181dcd2976f4",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6507,6 +6507,7 @@
         "imports": [
           "tool:boot",
           "tool:github_client",
+          "tool:moment",
           "tool:protection_guard",
           "tool:repo_identity",
           "tool:telemetry",
@@ -6519,7 +6520,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:ff8d1d43e9a1b8b3cb9311f27c731c9ba45e655d31d5aa9d64f5d12a36fb0018",
+        "fingerprint": "sha256:a84ed2e2ba23c6031ffab48169ee778f9a11efcf43fe2060de9144622b9dce4e",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -9876,7 +9877,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:6a295eeb90182549d278f571c819beab648884d851a0da544a6c38f2e703e046",
+        "fingerprint": "sha256:af0bb70842fa9761110d2dc49a58b7213c6db700fd1200cfe53eeb73d994f2da",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -11048,7 +11049,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:bce831aab02cb0e08ff2c99ea1292bf883543fef902b153f7ce13fddd7e7d447",
+        "fingerprint": "sha256:75f7a44224bbe899146dff7c7d7bd4ca82336608c052234254015486fff98b78",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11129,7 +11130,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:0a66d453ecbb331ad47bb2977ca5748b8944746e768ee78d193bb474bb529dcc",
+        "fingerprint": "sha256:bcd26ffc51c7690174c75972de868a6a278490724383b8aabfe688557dbea7c0",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -12709,7 +12710,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:61b29b5b0ffb5554a4365523140a20c2a47ccc314468801d864dac6c2b2f11d5",
+        "fingerprint": "sha256:f525e7902646db4a3f924a77ebeed91ad172488c8cf8a3104762814e30b2ad8e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -13128,7 +13129,7 @@
       },
       "slug": "test_protection_guard",
       "source": {
-        "fingerprint": "sha256:78a61b46043bb12c98da57fa104f77ba209e8367f909d7fc1ca6f0f790a6577b",
+        "fingerprint": "sha256:215ef9949af2f0a0036e1384af2bb94c5599f261330342355244f47a41feecdc",
         "path": ".engine/tools/test_protection_guard.py"
       },
       "status": "active",
