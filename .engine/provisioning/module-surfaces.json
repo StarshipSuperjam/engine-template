@@ -1188,6 +1188,12 @@
   ".engine/tools/issue_gate.py": [
    "core"
   ],
+  ".engine/tools/issue_kind_label.py": [
+   "core"
+  ],
+  ".engine/tools/issue_label_client.py": [
+   "core"
+  ],
   ".engine/tools/knowledge_gen.py": [
    "core"
   ],
@@ -1684,6 +1690,9 @@
    "core"
   ],
   ".engine/tools/test_issue_gate.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_kind_label.py": [
    "core"
   ],
   ".engine/tools/test_knowledge.py": [

@@ -7542,7 +7542,7 @@
       },
       "slug": "demo_control_plane_labels",
       "source": {
-        "fingerprint": "sha256:f9d0b0eea40045c8aba5040244b9e3d50e3bedd1d56479615cf12c1082c39499",
+        "fingerprint": "sha256:840152631d8cbaba2293283aca503c11b781e32ec4cc91a8d43bf77a845d0a9f",
         "path": ".engine/tools/demo_control_plane_labels.py"
       },
       "status": "active",
@@ -8834,13 +8834,16 @@
       "name": ".engine/tools/issue_author.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:telemetry"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:eb731e527470868b40fd7d2fd48b64c10f18339669ecc612d6d4281a00b66579",
+        "fingerprint": "sha256:635ec8dc3d421a8af79af73f8032efff522a22e50acea222b98af3e06d7447ab",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -8855,9 +8858,9 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:github_client",
           "tool:issue_author",
-          "tool:issue_gate"
+          "tool:issue_gate",
+          "tool:issue_label_client"
         ],
         "provided_by": [
           "module:core"
@@ -8865,7 +8868,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:8608072d07b2ca30d47da8cefd78b7c2464d2fd2afa618b9501856b5c788d56d",
+        "fingerprint": "sha256:0f4465ab9289a089cfd9fa4021200f41806a0a3de58c2264650f3ef3524e7c4c",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -8890,6 +8893,52 @@
       },
       "status": "active",
       "summary": "The engine-Issue conformance reroute gate — the matcher (modes registers it; this holds the logic).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:issue_kind_label",
+      "name": ".engine/tools/issue_kind_label.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:issue_label_client"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_kind_label",
+      "source": {
+        "fingerprint": "sha256:1f7e7e4ad55f54b9f914d714c038718c8906f4754d76f920ff9472515f089231",
+        "path": ".engine/tools/issue_kind_label.py"
+      },
+      "status": "active",
+      "summary": "The kind-label applicator — the on:issues CI net that keeps the GitHub-native kind labels consistent.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:issue_label_client",
+      "name": ".engine/tools/issue_label_client.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:github_client"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_label_client",
+      "source": {
+        "fingerprint": "sha256:8bddbed9e6b26c8bb6643e4d7f9ebbe093231399852d0af0f0341039317dc8b0",
+        "path": ".engine/tools/issue_label_client.py"
+      },
+      "status": "active",
+      "summary": "The shared per-Issue label client — the ONE injectable-transport client for GitHub label reads/writes.",
       "type": "tool"
     },
     {
@@ -9406,7 +9455,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:bd5dbb88c6b9fce3e34d33fed66f8aa10b9f0232895111f5518462a935bc3688",
+        "fingerprint": "sha256:5beffb1760cc8389a6ced633bf0eaf6d41d255b40271599de6ac918b38049024",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -9457,7 +9506,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:18bba7bd4bf39ab093cff76387bc5e528043772ce3857ba5b2f1263a32f696e1",
+        "fingerprint": "sha256:31b5be521a84909bf802a7da038464a93bc2fff70841cd634075f78e548846cf",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -10670,7 +10719,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d98dc926e86e65b421616a1a6ffc013dc8fb41ef5b24268e16d0e9760764c1f2",
+        "fingerprint": "sha256:9a1392a9be38ce9de79c06a693806bb48b7d0acd71dc63414eeba243dd75d03b",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -12194,7 +12243,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:c008ac35e47bd6c07edda87aedadffa7165bb3eb302513e4710e192bc2c4e82b",
+        "fingerprint": "sha256:7817719890fff75cbebcb81123858d387b019b65378c408ad329bda906b5a4a3",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -12253,6 +12302,34 @@
       },
       "status": "active",
       "summary": "Tests for issue_gate — the engine-Issue conformance reroute matcher.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_issue_kind_label",
+      "name": ".engine/tools/test_issue_kind_label.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_kind_label",
+          "tool:issue_label_client",
+          "tool:module_coherence",
+          "tool:module_manager",
+          "tool:quiet_call",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_issue_kind_label",
+      "source": {
+        "fingerprint": "sha256:f99f58d31e227041618b71809456f1d2c421c61b62e6c05192bacc4b54a15010",
+        "path": ".engine/tools/test_issue_kind_label.py"
+      },
+      "status": "active",
+      "summary": "Tests for issue_kind_label — the on:issues applicator that keeps the GitHub-native kind labels consistent.",
       "type": "tool"
     },
     {
@@ -14110,7 +14187,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:4a4fbb24ece749b47cef30503646c9d5137ec07a51392cb87d49d39ba9245486",
+        "fingerprint": "sha256:94149b26ff16f30f216ae462f62de20ae87316c172b23176b4e59efc42ee4f43",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

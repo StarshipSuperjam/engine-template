@@ -63,7 +63,7 @@ ENGINE_DOMAIN_LABEL = "engine"
 # lists the whole label set in one place) and the minimal ensure below both read the same values rather
 # than re-typing them. Grey, calm and neutral; the description frames it for the operator.
 ENGINE_DOMAIN_LABEL_COLOR = "ededed"          # a calm neutral grey
-ENGINE_DOMAIN_LABEL_DESCRIPTION = "Opened by the engine about its own health (not your product)."
+ENGINE_DOMAIN_LABEL_DESCRIPTION = "About the engine's own health (not your product)."
 
 # The two self-monitoring severity classes (distinct from the agent and check enums).
 TRUST_CRITICAL = "trust-critical"          # could-not-run; promotes immediately
@@ -323,6 +323,19 @@ def parse_severity(body: str) -> str | None:
     return matches[-1] if matches else None
 
 
+def severity_trailer(severity: str) -> str:
+    """Compose the invisible severity marker line for an issue body — the ONE place the
+    `<!-- engine-severity: … -->` trailer is built, so every producer that records a severity writes the
+    identical marker parse_severity recovers: telemetry's own tracking trailers here, AND a session that files
+    an engine Issue through issue_author and wants to grade its urgency at creation. `severity` must be one of
+    the two known classes (marker-safe by construction, never free text); anything else raises ValueError.
+    Callers append it LAST so parse_severity's last-match rule ignores any forged body prose."""
+    if severity not in (TRUST_CRITICAL, PERSISTENT_BENIGN):
+        raise ValueError(
+            f"severity must be {TRUST_CRITICAL!r} or {PERSISTENT_BENIGN!r}, not {severity!r}")
+    return _SEVERITY_TEMPLATE.format(sev=severity)
+
+
 def parse_first_noticed(body: str) -> str | None:
     """Recover a tracked Issue's original first-noticed timestamp from the visible trailer in its body,
     so a cache-free promote or a consolidation can PRESERVE it rather than reset it to `now`. Returns
@@ -403,7 +416,7 @@ def _with_tracking_trailers(body_core: str, source_id: str, severity: str, first
     return (
         f"{body_core}\n"
         f"*First noticed {first_seen}; last reconfirmed {last_seen}.*\n\n"
-        f"{_SEVERITY_TEMPLATE.format(sev=severity)}\n"
+        f"{severity_trailer(severity)}\n"
         f"{_SENTINEL_TEMPLATE.format(sid=source_id)}\n"
     )
 

@@ -106,6 +106,7 @@ FOUNDATION_INFRA = (
     ".github/workflows/actionlint.yml",
     ".github/workflows/audit-prep.yml",
     ".github/workflows/engine-issue-conformance.yml",
+    ".github/workflows/engine-issue-kind-label.yml",
     ".github/workflows/engine-overlay-disclosure.yml",
     # the release lifecycle (#516): engine-owned workflows that cut + publish a release — the engine's version
     # in the construction repo, the deployed repo's own product version once deployed. Foundation like every
