@@ -1239,7 +1239,7 @@ def _seed_readme(say, copy=None) -> str:
 # FIRST-RUN-RETIRED file, so the seed set cannot live here (#471). These aliases keep the
 # first-run clear's call sites — and the retiring parity test that binds the seed to the committed root
 # LICENSE — unchanged. The recognizer is a whitespace-normalized FULL-TEXT match: an adopter who chose
-# another license, or who kept this text but renamed the Licensor/copyright to themselves, is PRESERVED.
+# another license, or who kept this text but renamed the copyright holder to themselves, is PRESERVED.
 _TEMPLATE_LICENSE_SEED = license_seeds.CURRENT_SEED
 _is_template_license = license_seeds.recognize
 
@@ -1248,12 +1248,12 @@ def _seed_license(say, copy=None) -> str:
     """Clear the engine's OWN traveled template LICENSE at greenfield first-run — the reconcile-the-root pattern, the
     same SHAPE and DISCLOSURE as the README/SECURITY seeds, but CLEAR-IFF-TEMPLATE-SEED and seeding NO replacement (a
     license is the adopter's legal choice, never the engine's to make). At rest the
-    template ships a stock Apache-2.0 + Commons Clause LICENSE (its author's copyright) so the public template repo is legally usable; "Use
+    template ships a stock Apache-2.0 LICENSE (its author's copyright) so the public template repo is legally usable; "Use
     this template" copies it to a generated repo's root, where it would govern the ADOPTER's product. Apply DELETES
     it, but ONLY where the current root LICENSE still positively matches the engine's own shipped template-license
     seed (_is_template_license: a whitespace-normalized full-text match against the shipped seed). Conservative
     clear-or-preserve: greenfield (the traveled template license) -> removed; brownfield (the product's own license —
-    even one that keeps this text but names a different Licensor), a re-run (the slot is now empty), or an absent/unreadable
+    even one that keeps this text but names a different copyright holder), a re-run (the slot is now empty), or an absent/unreadable
     file -> left exactly as it is, returns "present". No replacement is written. The root LICENSE is product-owned
     config (in no `provides`, at the repo root, outside .engine/ so the ownership leg never reaches it); the engine
     never re-touches it after instantiation. Discloses, in plain language, WHAT WAS REMOVED AND WHY — only when it
@@ -1393,7 +1393,7 @@ def _apply_substrates(say, copy=None) -> dict:
     and on a tool-runtime halt the phase never reaches here, so each lands on the resume (every one is idempotent —
     copy-if-absent for conduct/security, replace-iff-marketing-seed for the README, clear-iff-template-seed for the
     LICENSE — so a re-run is a no-op). The LICENSE clear is a full-text match to the shipped
-    template seed (whose Commons Clause header names the template author as Licensor), so it must run before any
+    template seed (whose leading copyright line names the template author as the holder), so it must run before any
     step that could rewrite that text with operator identity; none does today (the only identity renderer,
     _apply_codeowners, touches CODEOWNERS only), so STEP 5 is safe — a forward-defensive invariant. The
     graph path is bound at import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected
@@ -2008,7 +2008,7 @@ def _build_fixture(root: str) -> None:
     # replaced) is exercised; the apply-demo also proves the construction repo's own README stays untouched.
     with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
         fh.write(_MARKETING_SEED_MARKER + "\n\n# engine-template\n")
-    # The template's own Apache-2.0 + Commons Clause LICENSE travels the same way (its author's copyright). Plant
+    # The template's own Apache-2.0 LICENSE travels the same way (its author's copyright). Plant
     # a byte-true copy (the recognizer's own seed verbatim) so STEP 5's greenfield clear path (recognizer matches ->
     # removed) is exercised; the apply-demo also proves the construction repo's own LICENSE stays untouched.
     with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
@@ -2475,7 +2475,7 @@ def _apply_demo() -> int:
     # engine's own traveled license, never a license that is yours.
     print("\n— YOUR PROJECT'S LICENSE: the engine removes its OWN traveled license — but only its own, never yours.")
     with tempfile.TemporaryDirectory() as tmp:
-        _build_fixture(tmp)                              # plants the template's own traveled Apache-2.0 + Commons Clause LICENSE
+        _build_fixture(tmp)                              # plants the template's own traveled Apache-2.0 LICENSE
         lic = os.path.join(tmp, "LICENSE")
         had_template_license = _is_template_license(_read_text_or(lic, ""))
         with _redirect_root(tmp):

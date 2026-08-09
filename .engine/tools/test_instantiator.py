@@ -1578,8 +1578,8 @@ class TestSeedReadme(unittest.TestCase):
 
 def _template_license_text(holder="StarshipSuperjam"):
     """Reconstruct a full LICENSE from the recognizer's OWN seed, for fixtures — so the fixtures can never silently
-    drift from what the recognizer accepts. With the template author (StarshipSuperjam) named as Licensor this is the
-    engine's traveled license (cleared); with any other holder it is an adopter's own license (preserved)."""
+    drift from what the recognizer accepts. With the template author (StarshipSuperjam) named as the copyright holder
+    this is the engine's traveled license (cleared); with any other holder it is an adopter's own license (preserved)."""
     return inst._TEMPLATE_LICENSE_SEED.replace("StarshipSuperjam", holder)
 
 
@@ -1594,16 +1594,18 @@ class TestLicenseRecognizer(unittest.TestCase):
         self.assertTrue(inst._is_template_license("\ufeff" + base), "a leading byte-order mark")
         self.assertTrue(inst._is_template_license(base.replace("\n\n", "\n\n\n")), "extra blank lines")
 
-    def test_a_renamed_licensor_is_preserved_never_deleted(self):
-        # The catastrophic false-positive guard: our EXACT text, but THEIR name on the Licensor/copyright →
+    def test_a_renamed_holder_is_preserved_never_deleted(self):
+        # The catastrophic false-positive guard: our EXACT text, but THEIR name on the copyright holder line →
         # normalizes differently → preserved, never deleted. Includes near-miss names that merely embed the author.
         for holder in ("Acme Corp", "StarshipSuperjamson", "The StarshipSuperjam Foundation", "starshipsuperjam"):
             self.assertFalse(inst._is_template_license(_template_license_text(holder=holder)),
                              f"licensor {holder!r} is not the template author — must be preserved, never cleared")
 
-    def test_the_apache_text_without_the_commons_clause_is_not_matched(self):
-        # Plain Apache-2.0 (no Commons Clause preamble) is a different license — an adopter's own choice → preserve.
-        # Proves the recognizer keys on the WHOLE license (the no-Sell condition included), not merely "Apache-ness".
+    def test_the_apache_body_without_the_holder_line_is_not_matched(self):
+        # The current seed is plain Apache-2.0; its ONLY discriminator is the leading holder line. The universal
+        # Apache body alone — which every Apache adopter shares byte-for-byte — is an adopter's own choice and must
+        # be preserved. Proves the recognizer keys on the holder anchor, not merely "Apache-ness"; if a future edit
+        # dropped the holder line to look standard, first-run would start deleting adopters' own Apache licenses.
         seed = inst._TEMPLATE_LICENSE_SEED
         apache_only = seed[seed.index("Version 2.0, January 2004"):]
         self.assertFalse(inst._is_template_license(apache_only))
@@ -1811,9 +1813,9 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
         self.assertTrue(
             inst._is_template_license(license_text),
             "the template's root LICENSE must stay recognizable as the engine's shipped template-license seed "
-            "(Apache-2.0 + Commons Clause); if it was re-worded (including a copyright-year bump), update "
-            "inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop clearing the traveled license and "
-            "the template author's copyright would govern a generated repo's product.")
+            "(plain Apache-2.0 with the engine's holder line); if it was re-worded (including a copyright-year bump "
+            "or dropping the holder line), update inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop "
+            "clearing the traveled license and the template author's copyright would govern a generated repo's product.")
         # Byte-parity (stricter than recognize()'s cosmetic-tolerant match): CURRENT_SEED must equal the committed
         # root LICENSE exactly. A future relicense MUST append the new text to license_seeds.HISTORICAL_SEEDS (the
         # tail becomes CURRENT_SEED) — forget it and BOTH the first-run clear and the standing detector go silently
