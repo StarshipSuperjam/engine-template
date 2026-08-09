@@ -1387,6 +1387,15 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         f"your merge is the binding consent to publish {engine} — the engine never merges this for you.")
 
     out += pr_section(
+        "Demonstration",
+        "Nothing to run — this is release plumbing, not a behaviour change.",
+        ["- This pull request only records the new version and refreshes the generated maps; there is no "
+         "product behaviour to watch work here. What you review is the version summary above.",
+         "- There is no operator-runnable demonstration, and saying so is honest: a release cut has no "
+         "behavioural correlate of its own — not a missing one to apologise for."],
+        "there is no behaviour to demonstrate; the version summary above is what you review.")
+
+    out += pr_section(
         "Files of interest",
         ("Where to look — the recorded product version." if product
          else "Where to look — the recorded versions and the maps that mirror them."),

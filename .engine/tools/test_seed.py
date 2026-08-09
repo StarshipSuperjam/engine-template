@@ -47,7 +47,7 @@ def _check_quiet(rule_id, ctx):
 
 
 SECTIONS = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
-            "Files of interest", "AI involvement"]
+            "Demonstration", "Files of interest", "AI involvement"]
 COMPLETENESS_RULE = {"id": "engine/check/pr-body-completeness",
                      "target": {"context": "pull-request-body"},
                      "kind": "presence", "tier": "hard",
@@ -91,17 +91,17 @@ class TestCompletenessTeeth(unittest.TestCase):
         self.assertTrue(passed)
         self.assertTrue(all(f["severity"] != "hard" for f in found))
 
-    def test_empty_body_flags_all_eight_hard(self):
+    def test_empty_body_flags_all_sections_hard(self):
         passed, found = validate.kind_presence(COMPLETENESS_RULE, {"pr_body": ""})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
         self.assertTrue(all(f["severity"] == "hard" for f in found))
 
     def test_placeholder_only_body_fails(self):
         body = "\n".join(f"## {s}\n<prompt>" for s in SECTIONS)
         passed, found = validate.kind_presence(COMPLETENESS_RULE, {"pr_body": body})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
 
     def test_filled_body_passes(self):
         body = "\n".join(f"## {s}\nreal content for {s}" for s in SECTIONS)
@@ -190,7 +190,7 @@ class TestCiAuthorExempt(unittest.TestCase):
         passed, found = validate.kind_presence(
             COMPLETENESS_RULE, {"pr_body": "", "pr_author": "dependabot[bot]"})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
 
     def test_exempt_in_any_blocking_gate_suite_not_just_ci(self):
         # The positive of test_exempt_only_in_blocking_gate_suite: the gate keys on the
@@ -298,7 +298,7 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
     def test_committed_pr_body_rule_declares_and_validates(self):
         # Two exempt bot AUTHORS: dependabot[bot] (its dependency PRs) and github-actions[bot] (the scheduled
         # self-review digest pull request, opened via the workflow token) — both carry their own plain-language
-        # body, never the eight-section template. Plus one exempt LABEL, engine-erasure: the single-purpose
+        # body, never the nine-section template. Plus one exempt LABEL, engine-erasure: the single-purpose
         # memory-erasure proposal is opened by a local hook under the operator's own identity (NOT a bot), so the
         # author exemption cannot reach it — its deliberate plain consent body is cleared by the label instead.
         # A drop of any of these silently re-breaks those PRs' engine-ci, so pin the exact lists.
@@ -1123,11 +1123,11 @@ class TestDecoratedScaffold(unittest.TestCase):
 
 
 class TestPRContractNoDrift(unittest.TestCase):
-    """The control-plane 8-section PR-body contract must not silently drift.
+    """The control-plane 9-section PR-body contract must not silently drift.
 
-    The locked contract names eight required sections, in order — Purpose, Scope,
-    Out of scope, Risk, Validation, Review, Files of interest, AI involvement —
-    transcribed once above as SECTIONS (a human transcription of the control-plane
+    The locked contract names nine required sections, in order — Purpose, Scope,
+    Out of scope, Risk, Validation, Review, Demonstration, Files of interest, AI
+    involvement — transcribed once above as SECTIONS (a human transcription of the control-plane
     spec; there is no in-repo machine source to derive it from, so the transcription
     itself has no mechanical correlate and is read by a human against the spec). The
     two legs below pin BOTH committed artifacts to that canonical anchor: the PR
@@ -1155,7 +1155,7 @@ class TestPRContractNoDrift(unittest.TestCase):
 
     def test_committed_template_headings_match_canonical(self):
         # Leg (b): the committed PR template's level-2 (##) headings equal the
-        # canonical eight, in order, with no extras or omissions. Catches a
+        # canonical nine, in order, with no extras or omissions. Catches a
         # dropped/renamed/reordered section the count-only completeness test misses.
         path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
         with open(path, encoding="utf-8") as fh:
@@ -1164,7 +1164,7 @@ class TestPRContractNoDrift(unittest.TestCase):
 
     def test_committed_completeness_check_sections_match_canonical(self):
         # Leg (a): the committed pr-body-completeness check (validators-core) enforces
-        # exactly the canonical eight, in order. Pins the real gating enforcement to
+        # exactly the canonical nine, in order. Pins the real gating enforcement to
         # the contract; the other completeness tests only exercise the in-file fixture.
         path = os.path.join(self._repo_root(), ".engine", "check",
                             "pr-body-completeness.json")
@@ -1201,6 +1201,70 @@ class TestPRContractNoDrift(unittest.TestCase):
         for phrase in phrases:
             self.assertIn(phrase, template,
                           f"preamble anchor {phrase!r} required by the check is absent from the template")
+
+
+class TestDemonstrationSectionRequired(unittest.TestCase):
+    """#881: the behavioral Demonstration section is its own required slot, separate from the
+    spec-derived acceptance steps in Review. A behaviour-changing change cannot discharge it with
+    the 'no settled description' no-op line — that line clears only the spec-derived lane. The
+    floor is presence (the reviewer judges whether the demonstration is real); these pin that the
+    slot is REQUIRED and that its absence is caught by the SHIPPED hard check, with or without any
+    spec-derived content in Review (the SDD-removed shape)."""
+
+    _PREAMBLE = (
+        "> *A green mechanical check below shows this change conforms to the engine's rules. "
+        "Your merge is the binding gate.*\n>\n"
+        "> *A check that could not run leaves its area unverified.*")
+
+    def _shipped(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, ".engine", "check", "pr-body-completeness.json"),
+                  encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _section(self, name, demo_filled, review_line):
+        if name == "Demonstration" and not demo_filled:
+            # a fully unfilled Demonstration: placeholder summary, bullet, and Impact line
+            return [f"## {name}", "", "**<the operator-runnable step or walkthrough>**", "",
+                    "- <give the operator something they can run>", "",
+                    "*Impact: <what the operator can watch work>*", ""]
+        summary = f"**Real summary for {name}.**"
+        if name == "Review":
+            bullet = review_line
+        elif name == "Demonstration":
+            bullet = "- run `foo` and watch the widget flip when the behaviour is correct"
+        else:
+            bullet = f"- a real bullet for {name}"
+        return [f"## {name}", "", summary, "", bullet, "", f"*Impact: real impact for {name}.*", ""]
+
+    def _body(self, demo_filled=True, review_line="- things you can confirm yourself: run X"):
+        parts = [self._PREAMBLE, ""]
+        for s in SECTIONS:
+            parts += self._section(s, demo_filled, review_line)
+        return "\n".join(parts)
+
+    def test_filled_demonstration_passes_the_shipped_gate(self):
+        passed, findings = validate.kind_presence(self._shipped(), {"pr_body": self._body(demo_filled=True)})
+        self.assertTrue(passed, f"a filled Demonstration should pass the shipped gate: {findings}")
+
+    def test_empty_demonstration_is_caught_by_the_shipped_gate(self):
+        passed, findings = validate.kind_presence(self._shipped(), {"pr_body": self._body(demo_filled=False)})
+        self.assertFalse(passed, "an empty Demonstration must fail the hard completeness gate")
+        self.assertTrue(any("Demonstration" in str(f) for f in findings),
+                        f"the finding must name the Demonstration section: {findings}")
+
+    def test_no_spec_line_in_review_does_not_excuse_an_empty_demonstration(self):
+        # the SDD-removed shape: Review carries only the honest 'no settled description' no-op line,
+        # yet an empty Demonstration is STILL caught — missing spec state never fills the behavioral slot.
+        body = self._body(demo_filled=False,
+                          review_line="- Nothing here is something you can run yourself — there's no "
+                                      "settled description for this project yet.")
+        passed, findings = validate.kind_presence(self._shipped(), {"pr_body": body})
+        self.assertFalse(passed, "a no-spec Review line must not excuse an empty Demonstration")
+        self.assertTrue(any("Demonstration" in str(f) for f in findings), findings)
+
+    def test_committed_check_requires_the_demonstration_section(self):
+        self.assertIn("Demonstration", self._shipped()["params"]["sections"])
 
 
 class TestEmptinessLabelScope(unittest.TestCase):
@@ -1263,7 +1327,7 @@ class TestSubsectionLineStatus(unittest.TestCase):
 class TestImpactFillEnforcement(unittest.TestCase):
     """The filled-Impact-line leg, gated behind params.filled_subsection_label."""
 
-    def _body(self, impact):  # 8 filled sections, each with `impact` as its Impact line
+    def _body(self, impact):  # all filled sections, each with `impact` as its Impact line
         return "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n{impact}" for s in SECTIONS)
 
     def test_filled_impact_passes(self):
@@ -1271,10 +1335,10 @@ class TestImpactFillEnforcement(unittest.TestCase):
         self.assertTrue(passed)
         self.assertEqual(found, [])
 
-    def test_unfilled_impact_flags_all_eight(self):
+    def test_unfilled_impact_flags_all_sections(self):
         passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": self._body("*Impact: <slot>*")})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
         self.assertTrue(all("no filled Impact line" in f["message"] and f["severity"] == "hard" for f in found))
 
     def test_deleted_impact_line_flags(self):
@@ -1282,13 +1346,13 @@ class TestImpactFillEnforcement(unittest.TestCase):
         body = "\n".join(f"## {s}\n**Real summary**\n- a real bullet" for s in SECTIONS)
         passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": body})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
         self.assertTrue(all("no filled Impact line" in f["message"] for f in found))
 
     def test_missing_section_not_double_counted(self):
         # a wholly-missing body yields ONE finding per section (presence leg), never two
         passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": ""})
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
 
     def test_present_but_empty_section_not_double_counted(self):
         # a section PRESENT but only placeholders (incl. its Impact slot) is reported once,
@@ -1296,7 +1360,7 @@ class TestImpactFillEnforcement(unittest.TestCase):
         body = "\n".join(f"## {s}\n**<summary>**\n- <detail>\n*Impact: <slot>*" for s in SECTIONS)
         passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": body})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        self.assertEqual(len(found), len(SECTIONS))
         self.assertTrue(all("empty or only contains the template placeholder" in f["message"] for f in found))
 
     def test_param_absent_skips_the_leg(self):
@@ -1318,7 +1382,7 @@ class TestImpactFillEnforcement(unittest.TestCase):
         # this _body carries no preamble, so the shipped rule also fires its required_phrases leg; assert on
         # the Impact-leg findings specifically (the behaviour this test pins), not the total count.
         impact_findings = [f for f in found if "no filled Impact line" in f["message"]]
-        self.assertEqual(len(impact_findings), 8)
+        self.assertEqual(len(impact_findings), len(SECTIONS))
 
 
 class TestRequiredPhrasesLeg(unittest.TestCase):
@@ -1326,11 +1390,11 @@ class TestRequiredPhrasesLeg(unittest.TestCase):
     anchor a heading scan cannot see — the consent preamble that drops when a body is
     reconstructed instead of filled verbatim. Absent param => the leg is skipped."""
 
-    def _sections(self):  # 8 filled sections + Impact lines, no preamble
+    def _sections(self):  # all filled sections + Impact lines, no preamble
         return "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n*Impact: real consequence*"
                          for s in SECTIONS)
 
-    def _body(self, anchors):  # the anchors (a preamble stand-in) above the eight filled sections
+    def _body(self, anchors):  # the anchors (a preamble stand-in) above the filled sections
         return ("\n".join(anchors) + "\n" + self._sections()) if anchors else self._sections()
 
     def test_all_missing_anchors_flag_in_one_finding(self):

@@ -14,7 +14,7 @@ RED *before* its fix:
      fails `engine-ci` the instant a cut moves the version off the sentinel (PR #384 hit exactly this).
      Step 3 asserts the bumped, regenerated tree passes the version-derivation self-tests — the layer a
      tree-only check (Part A's original demo) could not see.
-  3. THE PULL-REQUEST BODY. The generated body must carry all eight sections `pr-body-completeness`
+  3. THE PULL-REQUEST BODY. The generated body must carry all nine sections `pr-body-completeness`
      requires AND the consent preamble (a RELEASE_PAT-opened PR is not author-exempt). Step 4 shows the
      rendered body passes that hard check; Step 5 is a negative control — an incomplete body still trips
      it — and Step 6 a second negative control — a fully-sectioned body that dropped the preamble still
@@ -146,7 +146,7 @@ def main() -> int:
         body_result = _validate(engine, pr_body_file="body.md")
         body_complete = BODY_SIG not in body_result and PREAMBLE_SIG not in body_result
         print("\n4. THE BODY FIX — the rendered release body clears pr-body-completeness:")
-        print(f"   eight required sections filled AND the consent preamble carried = {body_complete}")
+        print(f"   nine required sections filled AND the consent preamble carried = {body_complete}")
         ok &= body_complete
 
         # 5. NEGATIVE CONTROL — an incomplete body STILL trips the gate, so Step 4's green isn't vacuous.
@@ -158,10 +158,10 @@ def main() -> int:
         print(f"   incomplete body flagged by pr-body-completeness = {body_check_bites}")
         ok &= body_check_bites
 
-        # 6. PREAMBLE NEGATIVE CONTROL — a body with all eight sections filled but the preamble DROPPED
+        # 6. PREAMBLE NEGATIVE CONTROL — a body with all nine sections filled but the preamble DROPPED
         #    still trips the gate, so Step 4's preamble check is not vacuous (the #491 preamble-drop class).
         _sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
-                     "Files of interest", "AI involvement"]
+                     "Demonstration", "Files of interest", "AI involvement"]
         preambleless = "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n*Impact: real consequence*"
                                  for s in _sections)
         with open(os.path.join(engine, "no_preamble_body.md"), "w") as fh:
@@ -173,7 +173,7 @@ def main() -> int:
         ok &= preamble_check_bites
 
         print("\n" + (f"DEMO PASSED: a {version} cut goes red on stale maps; regenerating the maps clears them, the "
-                      "bumped tree passes the version-derivation self-tests, and the rendered eight-section body — "
+                      "bumped tree passes the version-derivation self-tests, and the rendered nine-section body — "
                       "consent preamble included — clears pr-body-completeness; the release PR is mergeable, and the "
                       "body gate still bites both an incomplete body and a fully-sectioned body that dropped the preamble."
                       if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see the per-step results above."))

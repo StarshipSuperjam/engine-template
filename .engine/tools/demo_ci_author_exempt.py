@@ -2,7 +2,7 @@
 """Operator-runnable demo: how the engine's own single-purpose pull requests pass the PR-body
 completeness check as a DISCLOSED not-applicable pass — Dependabot by its AUTHOR (ci_author_exempt),
 and a single-purpose memory-erasure proposal by its LABEL (ci_label_exempt, engine-erasure) — while
-everyone else is still held to the eight-section body, and the `guardrail-ack` gate still bites the
+everyone else is still held to the nine-section body, and the `guardrail-ack` gate still bites the
 locked-dependency change.
 
 Run: uv run --directory .engine -- python tools/demo_ci_author_exempt.py
@@ -61,24 +61,24 @@ def _pr(author: str, *, labels: list | None = None) -> dict:
 
 def main() -> int:
     print("=" * 78)
-    print("The engine's own single-purpose pull requests and the eight-section PR-body check")
+    print("The engine's own single-purpose pull requests and the nine-section PR-body check")
     print("The rule file declares:  ci_author_exempt =", RULE.get("ci_author_exempt"))
     print("                         ci_label_exempt  =", RULE.get("ci_label_exempt"))
     print("=" * 78)
 
     print("\n[1] A Dependabot pull request with an EMPTY body (its native changelog body is not")
-    print("    the eight-section template). Expect: PASS by AUTHOR, with the reason stated plainly.")
+    print("    the nine-section template). Expect: PASS by AUTHOR, with the reason stated plainly.")
     print("-" * 78)
     rc_bot = _run_ci_body_check(_pr("dependabot[bot]"))
     print(f"\n   -> validator exit code: {rc_bot}   (0 = the merge gate is NOT blocked)")
 
     print("\n[2] The SAME empty body, authored by a person ('a-human-maintainer'), NO exempt label.")
-    print("    Expect: FAIL — a plain human pull request must fill the eight sections.")
+    print("    Expect: FAIL — a plain human pull request must fill the nine sections.")
     print("-" * 78)
     rc_human = _run_ci_body_check(_pr("a-human-maintainer"))
     print(f"\n   -> validator exit code: {rc_human}   (1 = the merge gate IS blocked)")
 
-    print("\n[3] A single-purpose memory-erasure proposal: EMPTY eight-section body, authored by a")
+    print("\n[3] A single-purpose memory-erasure proposal: EMPTY nine-section body, authored by a")
     print("    NON-exempt human, but carrying the 'engine-erasure' label. It carries its own plain")
     print("    consent body instead. Expect: PASS by LABEL (proving the label waived it, not the author).")
     print("-" * 78)
@@ -97,9 +97,9 @@ def main() -> int:
     ok = (rc_bot == 0 and rc_human == 1 and rc_label == 0 and bool(flagged))
     print("\n" + "=" * 78)
     print("In plain words: the body check is GREEN for Dependabot (by its author) and for a")
-    print("single-purpose erasure proposal (by its label) because the eight-section template does NOT")
+    print("single-purpose erasure proposal (by its label) because the nine-section template does NOT")
     print("apply to those — each carries its own account, and it was not verified, just not-applicable.")
-    print("Every other pull request still fills the eight sections, and the lockfile change is still")
+    print("Every other pull request still fills the nine sections, and the lockfile change is still")
     print("gated by the label you apply.")
     print("DEMO OK" if ok else "DEMO FAILED — unexpected outcome")
     print("=" * 78)

@@ -676,7 +676,7 @@ class RenderPRBody(unittest.TestCase):
         for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
             self.assertNotIn(banned, body)
 
-    def test_body_carries_all_eight_required_sections_filled(self):
+    def test_body_carries_all_nine_required_sections_filled(self):
         # The release pull request must clear the same `pr-body-completeness` gate every engine pull request
         # meets (a RELEASE_PAT-opened PR is not author-exempt) — otherwise the release PR is un-mergeable.
         # Assert against the REAL check logic (validate.section_presence_findings), never a reimplementation,
@@ -686,13 +686,13 @@ class RenderPRBody(unittest.TestCase):
             applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
         body = rc.render_pr_body(proposal, applied)
         required = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
-                    "Review", "Files of interest", "AI involvement"]
+                    "Review", "Demonstration", "Files of interest", "AI involvement"]
         findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
         self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
     def test_body_carries_the_consent_preamble_and_clears_the_full_gate(self):
         # A RELEASE_PAT-opened release PR is not author-exempt, so its body must also carry the consent
-        # preamble the completeness gate now requires (required_phrases), not just the eight sections.
+        # preamble the completeness gate now requires (required_phrases), not just the nine sections.
         # Assert against the SHIPPED check via the real kind_presence, so this tracks the exact gate and
         # FAILS if render_pr_body ever stops emitting the preamble (the #491 preamble-drop class).
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -708,14 +708,14 @@ class RenderPRBody(unittest.TestCase):
             self.assertIn(phrase, body, f"release body dropped preamble anchor {phrase!r}")
 
     def test_body_follows_the_pr_template_form_not_just_headers(self):
-        # The completeness gate only checks the eight HEADERS are present; a header-only body passes it but is
+        # The completeness gate only checks the nine HEADERS are present; a header-only body passes it but is
         # not a template-conforming body. Every section must carry the repo template's shape — a bold one-line
         # summary AND an *Impact:* line — so the release body reads like every other engine pull request's.
         proposal = {"change_inventory": ["First release."], "impacts": []}
         applied = {"applied": True, "engine": "0.1.0", "from_engine": "0.0.0-dev", "targets": {"core": "0.1.0"}}
         body = rc.render_pr_body(proposal, applied)
         sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
-                    "Review", "Files of interest", "AI involvement"]
+                    "Review", "Demonstration", "Files of interest", "AI involvement"]
         for i, name in enumerate(sections):
             seg = body.split(f"## {name}", 1)[1]
             if i + 1 < len(sections):
