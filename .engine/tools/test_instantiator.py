@@ -1601,9 +1601,11 @@ class TestLicenseRecognizer(unittest.TestCase):
             self.assertFalse(inst._is_template_license(_template_license_text(holder=holder)),
                              f"licensor {holder!r} is not the template author — must be preserved, never cleared")
 
-    def test_the_apache_text_without_the_commons_clause_is_not_matched(self):
-        # Plain Apache-2.0 (no Commons Clause preamble) is a different license — an adopter's own choice → preserve.
-        # Proves the recognizer keys on the WHOLE license (the no-Sell condition included), not merely "Apache-ness".
+    def test_the_apache_body_without_the_holder_line_is_not_matched(self):
+        # The current seed is plain Apache-2.0; its ONLY discriminator is the leading holder line. The universal
+        # Apache body alone — which every Apache adopter shares byte-for-byte — is an adopter's own choice and must
+        # be preserved. Proves the recognizer keys on the holder anchor, not merely "Apache-ness"; if a future edit
+        # dropped the holder line to look standard, first-run would start deleting adopters' own Apache licenses.
         seed = inst._TEMPLATE_LICENSE_SEED
         apache_only = seed[seed.index("Version 2.0, January 2004"):]
         self.assertFalse(inst._is_template_license(apache_only))
@@ -1811,9 +1813,9 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
         self.assertTrue(
             inst._is_template_license(license_text),
             "the template's root LICENSE must stay recognizable as the engine's shipped template-license seed "
-            "(Apache-2.0 + Commons Clause); if it was re-worded (including a copyright-year bump), update "
-            "inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop clearing the traveled license and "
-            "the template author's copyright would govern a generated repo's product.")
+            "(plain Apache-2.0 with the engine's holder line); if it was re-worded (including a copyright-year bump "
+            "or dropping the holder line), update inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop "
+            "clearing the traveled license and the template author's copyright would govern a generated repo's product.")
         # Byte-parity (stricter than recognize()'s cosmetic-tolerant match): CURRENT_SEED must equal the committed
         # root LICENSE exactly. A future relicense MUST append the new text to license_seeds.HISTORICAL_SEEDS (the
         # tail becomes CURRENT_SEED) — forget it and BOTH the first-run clear and the standing detector go silently

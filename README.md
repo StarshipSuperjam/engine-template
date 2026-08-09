@@ -6,7 +6,7 @@
   <p><strong>Direct real engineering work — and stay the person who decides — without reading a line of code.</strong></p>
 
   <p>
-    <a href="LICENSE"><img alt="License: Source-available (Apache-2.0 + Commons Clause)" src="https://img.shields.io/static/v1?label=license&message=Source-available%20%28Apache-2.0%20%2B%20Commons%20Clause%29&color=0b7285" /></a>
+    <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue" /></a>
     <a href="https://github.com/StarshipSuperjam/engine-template/releases"><img alt="Latest release version" src="https://img.shields.io/github/v/release/StarshipSuperjam/engine-template?label=version&color=0969da" /></a>
     <a href="#runtime-support"><img alt="Runtime: Claude Code and Codex" src="https://img.shields.io/badge/runtime-Claude%20Code-6f42c1" /></a><a href="#runtime-support"><img alt="Codex" src="https://img.shields.io/badge/Codex-10a37f" /></a>
   </p>
@@ -330,10 +330,7 @@ defined, we'll decide whether a fork-based adopter needs a distinct signal.
 
 ## License
 
-Source-available under the [Apache License 2.0 with the Commons Clause](LICENSE). You may use, modify, fork, and
-redistribute the Engine (subject to the license's attribution terms). What the license does not grant is the
-right to *Sell* the Engine: under the Commons Clause, "Sell" covers providing a product or service whose value
-derives substantially from the Engine — and expressly includes charging for hosting, consulting, or support
-around it, not only reselling the code. This is **not** an OSI-approved open-source license, so GitHub shows
-this template repository's license as "Other" rather than a named license. See [LICENSE](LICENSE) for the
-governing terms.
+Licensed under the [Apache License 2.0](LICENSE). You may use, modify, fork, and redistribute the Engine —
+including commercially — subject to the license's attribution and notice terms. Apache-2.0 is an OSI-approved
+permissive open-source license with an express patent grant, so GitHub shows this template repository's license
+as a named "Apache-2.0". See [LICENSE](LICENSE) for the governing terms.
