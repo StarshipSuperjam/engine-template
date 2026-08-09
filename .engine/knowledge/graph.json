@@ -9547,7 +9547,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:7481fd28b49bcbcb7bbeda9248f614b14c9762de83e1c49572cf3de912ffce0d",
+        "fingerprint": "sha256:ad20b59b23dd4aaf9ffd599a4a48529f9472cb18e4c37ff5b8052194e0398e0c",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12787,7 +12787,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:f525e7902646db4a3f924a77ebeed91ad172488c8cf8a3104762814e30b2ad8e",
+        "fingerprint": "sha256:4532e95c03cb9494c36b3a9831f7460812ecbff386b90fb8d1c1e3309a333cd0",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -14383,7 +14383,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:62b543878e0522cf3f8cef766975d116106e6ce776c579829397ed9e26e68cd3",
+        "fingerprint": "sha256:a5cf354261d9c61602f3c5bd52aa2de68b1ac20c6427d6073ffb64482db29374",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",
