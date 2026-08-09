@@ -957,6 +957,9 @@
   ".engine/tools/demo_664_release_gate.py": [
    "core"
   ],
+  ".engine/tools/demo_753_ledger_dir_hermeticity.py": [
+   "core"
+  ],
   ".engine/tools/demo_757_upgrade_reconciles_default_groups.py": [
    "core"
   ],
@@ -1804,6 +1807,9 @@
    "core"
   ],
   ".engine/tools/test_selftest.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_hermeticity.py": [
    "core"
   ],
   ".engine/tools/test_skill.py": [
