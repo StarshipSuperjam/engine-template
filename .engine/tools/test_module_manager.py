@@ -3492,5 +3492,232 @@ class TestRemoveRemovalNotice(unittest.TestCase):
         self.assertTrue(any("removal-notice" in n for n in res.get("notes", [])))
 
 
+class TestUpgradeInstallsNewModules(unittest.TestCase):
+    """#759 — an engine update installs the net-new modules a release adds that the deployment needs (required
+    mandatorily, net-new default-on opt-out), offers the optional ones, and never resurrects a declined module.
+    The end-to-end tail + gate behaviour is the shipped falsification demo; these pin the pieces it rests on —
+    the pure classifier, the discriminator's fail-closed posture, the required-completeness refusal, and the
+    operator-facing disclosure."""
+
+    # ---- the pure classifier (`_classify_available_modules`) — every branch, no I/O ----
+    def _avail(self, *specs):
+        return [{"id": i, "status": s, "depends": (dep or {})} for (i, s, dep) in specs]
+
+    def test_required_is_installed_regardless_of_known(self):
+        # A required module is never declinable — install it whether net-new or previously known.
+        for known in ({"core"}, {"core", "r"}):
+            out = module_manager._classify_available_modules(
+                self._avail(("r", "required", None)), ["core"], known, catalog_trusted=True)
+            self.assertEqual([e["id"] for e in out["install"]], ["r"])
+            self.assertEqual(out["install"][0]["status"], "required")
+        # a required module the operator had turned off is flagged prior_declined (for the "now requires it" line)
+        out = module_manager._classify_available_modules(
+            self._avail(("r", "required", None)), ["core"], {"core", "r"}, catalog_trusted=True)
+        self.assertTrue(out["install"][0]["prior_declined"])
+
+    def test_net_new_default_on_is_installed_but_declined_is_only_offered(self):
+        # THE safety property: a default-on module never known here is auto-installed; one known-but-absent is a
+        # prior decline and is offered, never resurrected.
+        net_new = module_manager._classify_available_modules(
+            self._avail(("d", "default-on", None)), ["core"], {"core"}, catalog_trusted=True)
+        self.assertEqual([e["id"] for e in net_new["install"]], ["d"])
+        declined = module_manager._classify_available_modules(
+            self._avail(("d", "default-on", None)), ["core"], {"core", "d"}, catalog_trusted=True)
+        self.assertEqual(declined["install"], [])
+        self.assertEqual([e["id"] for e in declined["offered"]], ["d"])
+
+    def test_untrusted_catalog_fails_default_on_closed(self):
+        # When the pre-overlay catalog could not be read the discriminator is unproven, so a net-new-LOOKING
+        # default-on must NOT be auto-installed (it could be a decline whose catalog trace we couldn't read).
+        out = module_manager._classify_available_modules(
+            self._avail(("d", "default-on", None)), ["core"], {"core"}, catalog_trusted=False)
+        self.assertEqual(out["install"], [])
+        self.assertEqual([e["id"] for e in out["offered"]], ["d"])
+
+    def test_optional_and_experimental_are_offered_never_installed(self):
+        out = module_manager._classify_available_modules(
+            self._avail(("o", "optional", None), ("x", "experimental", None)), ["core"], set(), catalog_trusted=True)
+        self.assertEqual(out["install"], [])
+        self.assertEqual(sorted(e["id"] for e in out["offered"]), ["o", "x"])
+
+    def test_retired_is_skipped(self):
+        out = module_manager._classify_available_modules(
+            self._avail(("gone", "retired", None)), ["core"], set(), catalog_trusted=True)
+        self.assertEqual(out["install"], [])
+        self.assertEqual(out["offered"], [])
+
+    def test_install_is_dependency_ordered(self):
+        # b (default-on) depends on a net-new required a -> a installs before b.
+        out = module_manager._classify_available_modules(
+            self._avail(("b", "default-on", {"a": ""}), ("a", "required", None)),
+            ["core"], set(), catalog_trusted=True)
+        self.assertEqual([e["id"] for e in out["install"]], ["a", "b"])
+
+    def test_default_on_with_an_unmet_dependency_is_demoted_to_offer(self):
+        # Never pull an unchosen module in as a side effect: a default-on whose dependency the deployment will
+        # still lack is offered, not installed.
+        out = module_manager._classify_available_modules(
+            self._avail(("d", "default-on", {"missing": ""})), ["core"], set(), catalog_trusted=True)
+        self.assertEqual(out["install"], [])
+        self.assertEqual([e["id"] for e in out["offered"]], ["d"])
+
+    def test_offer_text_falls_back_when_no_catalog_entry(self):
+        # An experimental module with no catalog entry still surfaces — description/verb fall back to empty, no crash.
+        out = module_manager._classify_available_modules(
+            self._avail(("x", "experimental", None)), ["core"], set(), catalog_trusted=True, catalog_text=None)
+        self.assertEqual(out["offered"][0], {"id": "x", "status": "experimental", "description": "", "verb": ""})
+
+    # ---- the discriminator capture (`_pre_overlay_known`) — catalog trust ----
+    def test_pre_overlay_known_trust_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                known, trusted = module_manager._pre_overlay_known(["core"])
+                self.assertIn("core", known)
+                self.assertFalse(trusted)                       # absent catalog -> unproven -> fail closed
+                prov = os.path.join(d, ".engine", "provisioning")
+                os.makedirs(prov, exist_ok=True)
+                cat = os.path.join(prov, "module-catalog.json")
+                with open(cat, "w") as fh:
+                    json.dump([{"id": "z", "status": "optional"}], fh)
+                known2, trusted2 = module_manager._pre_overlay_known(["core"])
+                self.assertTrue(trusted2)
+                self.assertIn("z", known2)                      # a readable list catalog contributes its ids
+                with open(cat, "w") as fh:
+                    json.dump({"not": "a list"}, fh)
+                _known3, trusted3 = module_manager._pre_overlay_known(["core"])
+                self.assertFalse(trusted3)                      # a wrong-shaped catalog is unproven -> fail closed
+
+    # ---- the required-completeness refusal ----
+    def test_required_install_refuse_reason_names_the_cause(self):
+        reason = module_manager._required_install_refuse_reason(["scanner"])
+        self.assertIn("REQUIRES", reason)
+        self.assertIn("scanner", reason)
+        self.assertIn("update home", reason)
+
+    # ---- the operator-facing disclosure (PR body + preview) ----
+    def test_pr_body_discloses_installed_and_offered_modules(self):
+        result = {"modules_installed": [{"id": "fx-req", "status": "required", "prior_declined": False},
+                                        {"id": "fx-def", "status": "default-on", "prior_declined": False}],
+                  "modules_offered": [{"id": "fx-opt", "status": "optional", "description": "a thing", "verb": ""}]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("New required capabilities", body)
+        self.assertIn("fx-req", body)
+        self.assertIn("turns on by default", body)
+        self.assertIn("fx-def", body)
+        self.assertIn("add with `add fx-opt`", body)                     # the deferred-offer hint names the follow-up
+        self.assertIn("Optional add-ons this version makes available", body)
+
+    def test_pr_body_flags_a_previously_known_module_now_required(self):
+        # A required module the deployment KNEW before but didn't have installed is flagged — worded as the FACT
+        # (available and not installed), never as an unproven claim that the operator deliberately declined it.
+        result = {"modules_installed": [{"id": "fx-req", "status": "required", "prior_declined": True}],
+                  "modules_offered": []}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("was available in your version and not installed", body)
+        self.assertNotIn("you had turned this off", body)              # never assert a decision we can't prove
+
+    def test_pr_body_omits_module_lines_when_none(self):
+        result = {"modules_installed": [], "modules_offered": []}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertNotIn("New required capabilities", body)
+        self.assertNotIn("Optional add-ons this version makes available", body)
+
+    def test_preview_renders_module_lines_and_suppresses_no_changes(self):
+        p = {"status": "update-available", "current": "0.4.0", "target_ref": "0.5.0",
+             "files": {"replaced": [], "added": []}, "wires": {}, "migrations": [],
+             "retired_capabilities": [], "removed_capabilities": [],
+             "modules_installed": [{"id": "fx-req", "status": "required", "prior_declined": False}],
+             "modules_offered": [{"id": "fx-opt", "status": "optional", "description": "", "verb": ""}]}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            module_manager._render_upgrade_preview(p)
+        out = buf.getvalue()
+        self.assertIn("Adds a required capability: fx-req", out)
+        self.assertIn("New add-on available (optional): fx-opt", out)
+        self.assertNotIn("No file or settings changes", out)   # an install/offer-only update is NOT "a version bump only"
+
+    def test_classify_surfaces_malformed_and_manifestless_release_modules(self):
+        # A malformed manifest AND a module directory with no manifest at all must both be SURFACED (so the tail
+        # fails closed), never silently skipped — a net-new required module could hide behind either and vanish
+        # before the required-completeness check (#759).
+        with tempfile.TemporaryDirectory() as d:
+            good = os.path.join(d, ".engine", "modules", "good")
+            bad = os.path.join(d, ".engine", "modules", "bad")
+            gone = os.path.join(d, ".engine", "modules", "gone")   # a dir with NO manifest.json
+            os.makedirs(good); os.makedirs(bad); os.makedirs(gone)
+            with open(os.path.join(good, "manifest.json"), "w") as fh:
+                json.dump({"id": "good", "version": "0.1.0", "status": "optional", "provides": {}}, fh)
+            with open(os.path.join(bad, "manifest.json"), "w") as fh:
+                fh.write("{ not valid json ")
+            out = module_manager.classify_available_modules(d, ["core"], {"core"}, catalog_trusted=True)
+        self.assertEqual(out["malformed"], [".engine/modules/bad/manifest.json",
+                                            ".engine/modules/gone/manifest.json"])
+        self.assertEqual([e["id"] for e in out["offered"]], ["good"])   # the readable one still classifies
+
+    def test_cleanup_failed_install_drops_the_package_and_surfaces_permission_residue(self):
+        # A failed install is undone (package entry dropped, module dir removed); a permission wire it had begun
+        # to grant CANNOT be auto-removed (the reversal firewall), so it is returned as residue for disclosure.
+        with tempfile.TemporaryDirectory() as d:
+            release = os.path.join(d, "release")
+            mod = os.path.join(release, ".engine", "modules", "fx")
+            os.makedirs(mod)
+            with open(os.path.join(mod, "manifest.json"), "w") as fh:
+                json.dump({"id": "fx", "version": "0.1.0", "status": "optional", "provides": {},
+                           "wires": [{"type": "permission", "value": "Bash(fx:*)"}]}, fh)
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine", "modules", "fx"))
+            with open(os.path.join(live, ".engine", "modules", "fx", "manifest.json"), "w") as fh:
+                fh.write("{}")
+            with open(os.path.join(live, ".engine", "engine.json"), "w") as fh:
+                json.dump({"packages": {"core": "0.4.0", "fx": "0.1.0"}}, fh)
+            with module_manager._redirect_root(live):
+                residue = module_manager._cleanup_failed_install("fx", release)
+                eng = json.load(open(os.path.join(live, ".engine", "engine.json")))
+        self.assertTrue(any("permission" in r for r in residue))          # the irreversible grant is surfaced
+        self.assertNotIn("fx", eng.get("packages", {}))                   # the package entry is undone
+        self.assertFalse(os.path.isdir(os.path.join(live, ".engine", "modules", "fx")))   # the module dir is gone
+
+    def test_new_hard_findings_is_a_multiset_diff_not_set_membership(self):
+        # Two orphan-wire findings of the same seam/file are byte-identical dicts; a module's own SECOND such
+        # orphan (beyond a pre-existing first) must be counted as NEW, not masked by set membership.
+        orphan = {"severity": "hard", "message": "an orphan wire in .claude/settings.json"}
+        other = {"severity": "hard", "message": "a different problem"}
+        self.assertEqual(module_manager._new_hard_findings([orphan], [orphan]), [])          # same count -> nothing new
+        self.assertEqual(module_manager._new_hard_findings([orphan], [orphan, orphan]), [orphan])  # one MORE -> new
+        self.assertEqual(module_manager._new_hard_findings([], [other]), [other])            # brand-new -> new
+        self.assertEqual(module_manager._new_hard_findings([orphan], []), [])                # resolved -> nothing new
+        # soft findings are ignored on both sides
+        soft = {"severity": "soft", "message": "note"}
+        self.assertEqual(module_manager._new_hard_findings([soft], [soft, orphan]), [orphan])
+
+    def test_offered_default_on_is_distinguished_from_optional_in_disclosure(self):
+        # The literal ask-1 surface: an offered default-on (a default the deployment doesn't have) must read
+        # differently from a genuinely-optional add-on, in BOTH the PR body and the terminal preview.
+        result = {"modules_installed": [], "modules_offered": [
+            {"id": "fx-def", "status": "default-on", "description": "", "verb": ""},
+            {"id": "fx-opt", "status": "optional", "description": "", "verb": ""}]}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("fx-def", body)
+        self.assertIn("a default add-on you don't have", body)          # the default-on distinction
+        p = {"status": "update-available", "current": "0.4.0", "target_ref": "0.5.0",
+             "files": {"replaced": [], "added": []}, "wires": {}, "migrations": [],
+             "retired_capabilities": [], "removed_capabilities": [],
+             "modules_installed": [], "modules_offered": result["modules_offered"]}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            module_manager._render_upgrade_preview(p)
+        out = buf.getvalue()
+        self.assertIn("New add-on available (a default add-on you don't have): fx-def", out)
+        self.assertIn("New add-on available (optional): fx-opt", out)
+
+    def test_the_759_falsification_demo_passes(self):
+        # The shipped end-to-end falsification (real upgrade tail + real structural gate + the in-process negative
+        # control). Running it here is what makes it travel under `unittest discover` and guard #759 in every
+        # generated repo — demo_757's permanent-regression pattern; it is deliberately NOT in first-run-assets.json.
+        import demo_759_upgrade_installs_new_modules as demo
+        import quiet_call
+        self.assertEqual(quiet_call.run(demo.main), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

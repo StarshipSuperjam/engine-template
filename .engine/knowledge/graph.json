@@ -442,6 +442,34 @@
       "type": "check"
     },
     {
+      "id": "check:catalog-completeness",
+      "kind": "custom/script",
+      "name": ".engine/check/catalog-completeness.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:catalog_completeness_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "catalog-completeness",
+      "source": {
+        "fingerprint": "sha256:25cb1519e7319d416467da125ffefec23c1a791310a8358bd00cc52dd2fee3d1",
+        "path": ".engine/check/catalog-completeness.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:catalog-coverage",
       "kind": "coverage",
       "name": ".engine/check/catalog-coverage.json",
@@ -4416,7 +4444,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:feb2cc6a0d5d9d606e2a1ca4a7a6b7902785273fcf22ec54e6923bf9af2df0e0",
+        "fingerprint": "sha256:99df9c3a3430c0bd74fbee1e1df00a9f97f46a18da1f7c13c78fe7e0578b395a",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4637,7 +4665,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:bf80ffb9898a6bbe3d7a33a6160fcb359e4c0556ce18008678860d196f8cf8cf",
+        "fingerprint": "sha256:6d84cfa292894e691bcc10a0e3e51b2dc48e979bb04c2bcf43b585148c4848bc",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -6549,6 +6577,29 @@
     {
       "entrypoint": "ci",
       "guarded": true,
+      "id": "tool:catalog_completeness_check",
+      "name": ".engine/tools/catalog_completeness_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "catalog_completeness_check",
+      "source": {
+        "fingerprint": "sha256:250fb9f2972288d8a339ae4144079a9f4017f12a147170d377c14189916910a8",
+        "path": ".engine/tools/catalog_completeness_check.py"
+      },
+      "status": "active",
+      "summary": "engine/check/catalog-completeness — every engine MODULE whose manifest `status` is `default-on` or",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
       "id": "tool:census_completeness_check",
       "name": ".engine/tools/census_completeness_check.py",
       "owner": "core",
@@ -7151,6 +7202,30 @@
       },
       "status": "active",
       "summary": "Behavioral FALSIFICATION for issue #757 — an engine update RECONCILES its own tool-runtime dependency-group",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_759_upgrade_installs_new_modules",
+      "name": ".engine/tools/demo_759_upgrade_installs_new_modules.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:engine_fixture",
+          "tool:module_manager"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_759_upgrade_installs_new_modules",
+      "source": {
+        "fingerprint": "sha256:fd18ad1fa5a2317779191f86016c1e5d6f25b6beac0c65d0c4a3a77e9cddc019",
+        "path": ".engine/tools/demo_759_upgrade_installs_new_modules.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for issue #759 — an engine update INSTALLS the new modules a release adds that the",
       "type": "tool"
     },
     {
@@ -9405,6 +9480,7 @@
           "tool:knowledge_gen",
           "tool:ledger",
           "tool:memory.__init__",
+          "tool:module_catalog",
           "tool:module_coherence",
           "tool:obligation_matrix",
           "tool:release_cut",
@@ -9421,7 +9497,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:aea2c7a3779e30ceef8ffd2657c9da4d73e54cc5ea01a6c98a101319a6854640",
+        "fingerprint": "sha256:5750d792b9e0da2aa2d8b874f969ea40984b9cc94be85af37015e399c80b1155",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12617,6 +12693,7 @@
           "tool:demo_594_upgrade_tail_reexec",
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
+          "tool:demo_759_upgrade_installs_new_modules",
           "tool:demo_760_add_release_tag",
           "tool:ledger",
           "tool:memory.__init__",
@@ -12632,7 +12709,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:46579492b371359d837a00f8b06f9a835d805fb288763940f93c9534294f1c67",
+        "fingerprint": "sha256:61b29b5b0ffb5554a4365523140a20c2a47ccc314468801d864dac6c2b2f11d5",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12685,7 +12762,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:5baaaae52a3c7d750e7dbe550e03d4480dd5550bf525982e8fe2a6057420cd8e",
+        "fingerprint": "sha256:b5ba7f7136a403e57c5331b692f07499de39c7bf327d652f465c28496ca3cc87",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

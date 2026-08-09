@@ -85,6 +85,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (finding.v1 + ROOT + read)
 import wiring            # noqa: E402  (the wiring library: reverse_all, apply, the shared-file constants)
 import module_coherence  # noqa: E402  (the present-set reader + the coherence legs)
+import module_catalog    # noqa: E402  (the degrade-safe optional-module catalog reader — offer text + the decline discriminator)
 import bootstrap         # noqa: E402  (ControlPlane.de_bootstrap — the clean-removal control-plane leg; one-way)
 
 
@@ -852,6 +853,245 @@ def select_removed_capabilities(dropped_ids, release_engine: dict) -> list:
     return out
 
 
+def _dep_order(ids, deps_by_id) -> list:
+    """Deterministic topological order (dependencies first) over `ids` — edges are a module's `depends` that
+    are ALSO in `ids` (a dependency already present in the deployment doesn't constrain the install order). Ties
+    break by id for stability. A cycle (a malformed release) emits the remainder sorted rather than hanging."""
+    idset, remaining, out = set(ids), set(ids), []
+    while remaining:
+        ready = sorted(m for m in remaining
+                       if all(d not in remaining for d in (deps_by_id.get(m) or {}) if d in idset))
+        if not ready:                       # cycle — never loop forever; emit the rest deterministically
+            out.extend(sorted(remaining))
+            break
+        out.extend(ready)
+        remaining.difference_update(ready)
+    return out
+
+
+def _classify_available_modules(available, present_ids, pre_overlay_known, *,
+                                catalog_trusted=True, catalog_text=None) -> dict:
+    """PURE (no I/O): split the release modules a deployment LACKS into auto-install vs offer (#759).
+
+    `available` is the list of ABSENT release modules as dicts `{"id","status","depends"}` (already filtered:
+    id neither installed nor a dropped module). `present_ids` is the deployment's SURVIVOR set. `pre_overlay_known`
+    is the set of module ids the deployment knew BEFORE the overlay (installed ∪ pre-overlay catalog ∪ pre-overlay
+    manifests) — the discriminator between a NET-NEW `default-on` module (never known here → auto-install opt-out)
+    and a previously-DECLINED one (known but absent → offer, NEVER resurrect). `catalog_trusted=False` (the
+    pre-overlay catalog could not be read) means the discriminator is UNPROVEN, so `default-on` FAILS CLOSED to
+    offer-only; `required` is unaffected (it can never be declined). `catalog_text` maps id → {"description","verb"}
+    for offer wording.
+
+    Classification by the RELEASE manifest's `status`: `required` → install (mandatory — the deployment needs it
+    for coherence; a required module with an unmet dependency STAYS in `install` so the tail's
+    required-completeness gate refuses cleanly rather than the release silently shipping incomplete). `default-on`
+    → install when net-new AND the catalog is trusted, else offer. `optional`/`experimental`/anything else →
+    offer (never auto-installed). A `default-on` whose dependency the deployment will still lack is demoted to an
+    offer (never pull an unchosen module in as a side effect). Returns
+    `{"install": [{"id","status","prior_declined"}], "offered": [{"id","status","description","verb"}]}`, install
+    dependency-ordered, offered id-sorted."""
+    present, known, text = set(present_ids or ()), set(pre_overlay_known or ()), (catalog_text or {})
+    install, offered = [], []
+
+    def _as_offer(mid, status):
+        info = text.get(mid) or {}
+        offered.append({"id": mid, "status": status or "optional",
+                        "description": info.get("description") or "", "verb": info.get("verb") or ""})
+
+    for m in sorted(available, key=lambda e: e.get("id") or ""):
+        mid, status = m.get("id"), (m.get("status") or "optional")
+        if not mid or status == "retired":
+            continue                             # a retired module is neither installed nor offered — it is gone
+        desc = (text.get(mid) or {}).get("description") or ""
+        if status == "required":
+            install.append({"id": mid, "status": "required", "prior_declined": mid in known,
+                            "depends": m.get("depends") or {}, "description": desc})
+        elif status == "default-on" and catalog_trusted and mid not in known:
+            install.append({"id": mid, "status": "default-on", "prior_declined": False,
+                            "depends": m.get("depends") or {}, "description": desc})
+        else:                                # declined default-on, catalog untrusted, optional/experimental/other
+            _as_offer(mid, status)
+
+    # Dependency satisfaction for the OPT-OUT (default-on) installs only — demote to an offer, to a fixpoint so a
+    # cascade resolves, any whose dependency the deployment will still lack. `required` stays regardless (the tail
+    # refuses on it). `required` ids are counted as satisfiers optimistically; if a required install fails, the
+    # whole update refuses anyway, so a default-on that depended on it is moot.
+    changed = True
+    while changed:
+        changed = False
+        scheduled = present | {e["id"] for e in install}
+        for e in [e for e in install if e["status"] == "default-on"]:
+            if any(dep not in scheduled for dep in (e.get("depends") or {})):
+                install.remove(e)
+                _as_offer(e["id"], "default-on")
+                changed = True
+
+    order = _dep_order([e["id"] for e in install], {e["id"]: (e.get("depends") or {}) for e in install})
+    by_id = {e["id"]: e for e in install}
+    install = [{"id": i, "status": by_id[i]["status"], "prior_declined": by_id[i]["prior_declined"],
+                "description": by_id[i].get("description") or ""} for i in order]
+    offered.sort(key=lambda e: e["id"])
+    return {"install": install, "offered": offered}
+
+
+def classify_available_modules(release_tree, present_ids, pre_overlay_known, *,
+                               catalog_trusted=True, dropped_ids=()) -> dict:
+    """The I/O wrapper around `_classify_available_modules` (#759): enumerate the release tree's module manifests
+    (`status`/`depends`), read the release catalog for offer text, and classify the ones this deployment lacks.
+    The release catalog is read at its explicit path (never `module_catalog`'s import-bound constant, which a
+    `_redirect_root` fixture does not repoint). A MALFORMED release manifest is NEVER silently skipped — a
+    net-new `required` module could hide behind it, so a module the classifier can't read would vanish before the
+    tail's required-completeness check and reproduce #759's silent omission. Malformed manifests are collected in
+    the returned `malformed` list so the caller fails closed (the engine's fail-loud house rule)."""
+    skip = set(present_ids or ()) | set(dropped_ids or ())
+    available, malformed = [], []
+    # Enumerate module DIRECTORIES (not `*/manifest.json`) so a module dir that carries NO manifest at all — a
+    # broken/incomplete release publish — is caught too: globbing `*/manifest.json` would silently skip it, and a
+    # net-new REQUIRED module could hide behind that missing file, reproducing #759's silent omission.
+    for mod_dir in sorted(glob.glob(os.path.join(release_tree, ".engine", "modules", "*"))):
+        if not os.path.isdir(mod_dir):
+            continue
+        man_path = os.path.join(mod_dir, "manifest.json")
+        rel = os.path.relpath(man_path, release_tree).replace(os.sep, "/")
+        # A module dir whose id (its basename) the deployment already has (present/dropped) is not net-new — its
+        # manifest is the parent phase's concern, not the classifier's. Only a module the deployment LACKS matters.
+        if os.path.basename(mod_dir) in skip:
+            continue
+        if not os.path.isfile(man_path):
+            malformed.append(rel)               # a module directory with no manifest — a broken release
+            continue
+        try:
+            m = validate.load_json(man_path)
+        except Exception:   # noqa: BLE001 — a malformed release manifest is a BROKEN release, surfaced not skipped
+            malformed.append(rel)
+            continue
+        if not isinstance(m, dict) or not m.get("id"):
+            malformed.append(rel)               # an id-less/wrong-shaped manifest could hide a required module
+            continue
+        if m["id"] not in skip:
+            available.append({"id": m["id"], "status": m.get("status"), "depends": m.get("depends") or {}})
+    catalog_text = {e["id"]: {"description": e.get("description"), "verb": e.get("verb")}
+                    for e in module_catalog.entries(
+                        path=os.path.join(release_tree, ".engine", "provisioning", "module-catalog.json"))
+                    if e.get("id")}
+    result = _classify_available_modules(available, present_ids, pre_overlay_known,
+                                         catalog_trusted=catalog_trusted, catalog_text=catalog_text)
+    result["malformed"] = sorted(malformed)
+    return result
+
+
+def _pre_overlay_known(present_ids) -> tuple:
+    """The set of module ids this deployment KNEW before the overlay — installed ∪ the pre-overlay catalog's ids
+    ∪ the pre-overlay module manifests' ids — the #759 discriminator that tells a NET-NEW `default-on` module
+    (never known here → safe to auto-install opt-out) from a previously-DECLINED one (known but absent → never
+    resurrect). Returns `(known_set, catalog_trusted)`: `catalog_trusted` is False when the catalog is absent or
+    unreadable, so the discriminator is UNPROVEN and the caller fails `default-on` CLOSED (offer-only). The
+    catalog is `core`-provided and the overlay OVERWRITES it, so this MUST run pre-overlay; its path is built
+    from the CURRENT `validate.ENGINE_DIR` (redirected under a fixture), not `module_catalog`'s import-bound
+    constant. A declined `default-on` module leaves no manifest and no package entry after first-run, so the
+    catalog is its only durable trace — the catalog-completeness check keeps every default-on module catalogued
+    so this discriminator cannot be fooled."""
+    known = set(present_ids or ())
+    catalog_trusted = True
+    cat_path = os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json")
+    if os.path.isfile(cat_path):
+        try:
+            with open(cat_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, list):
+                known |= {str(e.get("id")) for e in data if isinstance(e, dict) and e.get("id")}
+            else:                                   # a wrong-shaped catalog is unproven evidence → fail closed
+                catalog_trusted = False
+        except Exception:   # noqa: BLE001 — an unreadable catalog is unproven evidence → fail closed
+            catalog_trusted = False
+    else:
+        catalog_trusted = False                     # absent catalog → unproven → default-on fails closed
+    try:
+        known |= {m.get("id") for _p, m in module_coherence.discover_manifests() if m.get("id")}
+    except Exception:   # noqa: BLE001 — best-effort; the installed ids are always in `known`
+        pass
+    return known, catalog_trusted
+
+
+def _cleanup_failed_install(module_id: str, release_tree: str) -> list:
+    """Best-effort UNDO of a partially- or wrongly-applied `add()` — one that RAISED mid-way, or returned
+    `applied=True` with a hard coherence finding (a wire the dispatcher captured as a finding rather than an
+    exception). Reverses the module's wires FIRST (so a hook/mcp/gitignore/codex edit doesn't linger and trip the
+    structural gate — which would flip an intended default-on fail-OPEN into a whole-update refusal), then removes
+    the module's `provides` files, its manifest folder, and its package entry. Returns a list of plain-language
+    residue notes for anything that could NOT be reversed — chiefly a `permission` grant, which the engine's
+    reversal firewall deliberately never auto-removes (it may also be the operator's) — so the caller surfaces it
+    at the merge instead of leaving it silent. Never raises — the structural gate is the backstop."""
+    residue = []
+    try:
+        man_path = os.path.join(release_tree, ".engine", "modules", module_id, "manifest.json")
+        candidate = validate.load_json(man_path) if os.path.isfile(man_path) else {}
+    except Exception:   # noqa: BLE001 — an unreadable candidate: nothing to reverse from, still clean files below
+        candidate = {}
+    wires = (candidate.get("wires") or []) if isinstance(candidate, dict) else []
+    # (a) reverse the wires the add may have applied (idempotent — an un-applied wire reverses to a no-op). A
+    #     `permission` wire is intentionally NOT auto-removed, so name each as residue for the operator.
+    for w in wires:
+        if isinstance(w, dict) and w.get("type") == "permission":
+            residue.append(f"a permission setting the add-on '{module_id}' had started to grant "
+                           f"({w.get('value') or w.get('name') or 'an engine permission'})")
+    try:
+        wiring.reverse_all(wires)
+    except Exception:   # noqa: BLE001 — reversal is best-effort; the gate still backstops any residue
+        pass
+    # (b) remove the module's own files, its manifest folder, and its package entry
+    try:
+        provides = (candidate.get("provides") or {}) if isinstance(candidate, dict) else {}
+        for patterns in provides.values():
+            for pattern in patterns:
+                for src in glob.glob(os.path.join(release_tree, pattern), recursive=True):
+                    rel = os.path.relpath(src, release_tree).replace(os.sep, "/")
+                    if _within_root(rel):
+                        try:
+                            os.remove(os.path.join(validate.ROOT, rel))
+                        except OSError:
+                            pass
+        shutil.rmtree(_modules_dir(module_id), ignore_errors=True)
+        engine = module_coherence.load_engine_manifest()
+        if engine and module_id in (engine.get("packages") or {}):
+            del engine["packages"][module_id]
+            _write_json(_engine_manifest_path(), engine)
+    except Exception:   # noqa: BLE001 — cleanup is best-effort; the structural gate is the real backstop
+        pass
+    return residue
+
+
+def _new_hard_findings(before, after) -> list:
+    """The hard findings in `after` beyond those already in `before`, as a MULTISET (count) diff — not set
+    membership. An orphan-wire coherence finding does not encode WHICH wire is orphaned (only the seam type and
+    the shared file), so two distinct orphans of the same kind produce byte-identical finding dicts; a plain
+    `f not in before` would mask a module's genuinely-new second orphan behind a pre-existing first. Consuming one
+    baseline occurrence per match counts "one more than before" correctly. Used to attribute an install failure to
+    the module that actually caused it (the per-module delta), never to a pre-existing tree-wide problem."""
+    remaining = [f for f in (before or []) if f.get("severity") == "hard"]
+    new = []
+    for f in (after or []):
+        if f.get("severity") != "hard":
+            continue
+        if f in remaining:
+            remaining.remove(f)      # consume one matching baseline occurrence (multiset semantics)
+        else:
+            new.append(f)            # a hard finding beyond the baseline count — genuinely introduced here
+    return new
+
+
+def _required_install_refuse_reason(missing) -> str:
+    """The plain-language refusal when a REQUIRED module the release adds could not be installed (#759). No
+    structural check compares the deployed set to the release's required set, so the tail refuses HERE rather
+    than opening a review pull request that silently omits a required capability. Names the cause in words and
+    points at undo + reporting (a re-run cannot fix a release that can't install its own required module)."""
+    names = ", ".join(sorted(missing))
+    return (f"The update was applied to your working copy, but a capability this version REQUIRES could not be "
+            f"turned on ({names}), so it was NOT opened for review and nothing was merged. This points to a "
+            f"problem in the release itself, so running the update again will not fix it: ask me to undo the "
+            f"update's changes, and report it to your engine's update home.")
+
+
 def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False, sink=None):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
     by it (the retained-tag mechanism). The migration calls `context['backup'](store, engine_version)`
@@ -1566,6 +1806,42 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
             scope.append(f"- no longer installed: {', '.join(removed_groups)}")
         scope.append(f"- the full selection is now: {', '.join(after) if after else '(none)'}")
 
+    # New modules this update brings in (#759): a REQUIRED capability the release adds is installed automatically
+    # (the deployment needs it to be coherent); a NET-NEW default add-on is turned on opt-out; optional/
+    # experimental/previously-declined ones are OFFERED, not installed. This is how an update stops a capability
+    # the release ships from silently staying off — the operator weighs each here, at the merge. A required
+    # addition changes the deployment's spine, so it also rides the Risk framing (via `mods_added` below).
+    installed759 = result.get("modules_installed") or []
+    offered759 = result.get("modules_offered") or []
+    req_added = [m for m in installed759 if m.get("status") == "required"]
+    opt_added = [m for m in installed759 if m.get("status") != "required"]
+    mods_added = bool(installed759)
+    def _mod_desc(m):
+        return (": " + _retired_capability_text(m.get("description")).translate(_MD_LITERAL)
+                if m.get("description") else "")
+    if req_added:
+        scope += ["", f"New required capabilities this version adds — installed automatically because this "
+                  f"version needs them ({len(req_added)}):"]
+        for m in req_added:
+            # `prior_declined` = the id was in the deployment's pre-overlay known set; that does not PROVE the
+            # operator made a decline decision (a module can be catalogued without ever being offered), so state
+            # the fact — available before, not installed — rather than assert a choice they may not have made.
+            note = (" (this add-on was available in your version and not installed; this version now requires it)"
+                    if m.get("prior_declined") else "")
+            scope.append(f"- {m['id']}{_mod_desc(m)}{note}")
+    if opt_added:
+        scope += ["", f"New add-ons this version turns on by default ({len(opt_added)}) — included in this "
+                  f"update; if you'd rather not have one, tell me before merging and I'll remove just that one:"]
+        scope += [f"- {m['id']}{_mod_desc(m)}" for m in opt_added]
+    if offered759:
+        scope += ["", f"Optional add-ons this version makes available ({len(offered759)}) — NOT turned on; ask "
+                  f"me to add any you want, now or later:"]
+        for m in offered759:
+            # Distinguish a default-on the deployment doesn't have (something it ships on by default, offered here
+            # because it was declined or the catalog couldn't be read) from a genuinely-optional add-on.
+            kind = " (a default add-on you don't have)" if m.get("status") == "default-on" else ""
+            scope.append(f"- {m['id']}{_mod_desc(m)}{kind} (add with `add {m['id']}`)")
+
     out = ["# Updating the engine", "", release_cut.template_preamble(), ""]
     out += release_cut.pr_section(
         "Purpose",
@@ -1586,6 +1862,20 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         # Impact lines must still meet a supply-chain-relevant change, not only find it in the Scope body.
         scope_summary += " It also changes which modules' Python dependencies the engine installs."
         scope_impact += " It also changes the tool-runtime dependency-group selection (see Scope above)."
+    if mods_added:
+        # A header-skimming reader must meet EVERY new capability this update turned on — a required addition
+        # changes the deployment's spine, and a default add-on is the one they can still opt out of before merge —
+        # not only find them in the Scope body. Name both when both are present, so the opt-out-eligible one is
+        # never hidden behind the required one. This is how #759's install-on-update keeps a shipped capability
+        # from silently staying off; the operator weighs it here, at the merge.
+        _kinds = (["required capabilities"] if req_added else []) + (["default add-ons (opt-out)"] if opt_added else [])
+        scope_summary += f" It also turns on new {' and '.join(_kinds)} this version brings in."
+        scope_impact += (" It also brings in the new modules the release adds that this deployment lacked — "
+                         "required ones automatically (the version needs them), net-new default add-ons opt-out "
+                         "— so a shipped capability doesn't silently stay off; each is listed under Scope for you "
+                         "to weigh at the merge.")
+    if offered759:
+        scope_summary += " It lists optional add-ons you can enable."
     out += release_cut.pr_section("Scope", scope_summary, scope, scope_impact)
     out += release_cut.pr_section(
         "Out of scope",
@@ -1603,6 +1893,15 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
             "- A capability you could use before is gone — see the capabilities-removed notes under Scope. "
             "This is the one part of an update that changes what you can ask the engine to do, so read it before "
             "you merge.")
+    if req_added:
+        risk_bullets.append(
+            "- This version adds a required capability and turned it on automatically (it needs it to run) — see "
+            "\"New required capabilities\" under Scope. It's part of what this version is; review it before you "
+            "merge.")
+    if opt_added:
+        risk_bullets.append(
+            "- This version turned on a new default add-on — see \"New add-ons this version turns on\" under "
+            "Scope. If you'd rather not have one, tell me before merging and I'll remove just that one.")
     risk_bullets += [
         "- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
         "files this version renamed or dropped; your project content is not touched.",
@@ -1647,6 +1946,10 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         files_bullets.append(
             "- The tool-runtime dependency-group selection (.engine/pyproject.toml), changed to match your "
             "installed modules — noted under Scope.")
+    if installed759:
+        files_bullets.append(
+            "- The newly-installed modules' files — each module's manifest under .engine/modules/<id>/ and the "
+            "files it provides — listed under Scope.")
     out += release_cut.pr_section(
         "Files of interest",
         "What this changes.",
@@ -2243,7 +2546,7 @@ def _regen_indexes() -> None:
 
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
                   candidates, handle, selected, seam, practice, opener, groups_before=None, gate=None,
-                  dropped_ids=()) -> dict:
+                  dropped_ids=(), pre_overlay_known=(), catalog_trusted=True) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the #594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
     seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
@@ -2261,7 +2564,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             "migrations": {"ran": [], "refused": []}, "retired_capabilities": [],
             "removed_capabilities": [],
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
-            "groups_before": groups_before, "groups_after": None, "groups_changed": False}
+            "groups_before": groups_before, "groups_after": None, "groups_changed": False,
+            "modules_installed": [], "modules_offered": []}
     # (a0) RETIRED-CAPABILITY ANNOUNCEMENTS — derived from the FULL present-manifest set (`candidates`), NEVER
     # from `selected`: a version that retires a capability but ships no migration must still announce it, so this
     # is independent of migration selection (design-review). Announcement-only, so it is computed once up front
@@ -2324,6 +2628,84 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # it; a plain re-run would complete with the module already pruned and never disclose it. See the reconcile
     # KNOWN BOUND on undo-as-recovery in upgrade().)
     _bump_engine_manifest(target_versions, target_ref, dropped_ids=dropped_ids)
+    # (d0b) #759 INSTALL the net-new modules this release adds that the deployment needs, and record the rest as
+    # OFFERS. A `required` module the release adds is installed mandatorily (the deployment needs it to be
+    # coherent); a NET-NEW `default-on` module is turned on opt-out; `optional`/`experimental`/previously-declined
+    # modules are OFFERED, never installed (the operator opts in later with `add`). The discriminator between a
+    # net-new and a previously-declined `default-on` is the deployment's PRE-OVERLAY known set (threaded from
+    # phase 1); an unreadable pre-overlay catalog fails `default-on` CLOSED to offer-only. Runs AFTER the manifest
+    # bump/teardown (the survivor set is settled) and BEFORE the group reconcile + index regen + gate below, so
+    # `derive_uv_groups()` and the indexes and the gate all see the assembled tree with the new modules present.
+    # Installs via the same `add()` primitive an operator uses, reading files from the already-extracted release
+    # tree (no second fetch). Per-module fail posture: a `required` failure is NOT hidden — it leaves the tree
+    # incomplete and the required-completeness refusal below stops the update cleanly (no structural check compares
+    # the deployed set to the release's required set, so the tail must); a `default-on` failure fails OPEN (cleaned
+    # up, then demoted to an offer) so a single add hiccup can't block an otherwise-legitimate update.
+    plan759 = classify_available_modules(release_tree, list(candidates), pre_overlay_known,
+                                         catalog_trusted=catalog_trusted, dropped_ids=dropped_ids)
+    # A malformed module manifest in the release means a BROKEN release — and a net-new `required` module could
+    # hide behind one, so it must never be silently skipped (that would reproduce #759's silent omission). Fail
+    # closed BEFORE any install: staged, not opened.
+    if plan759.get("malformed"):
+        shown = ", ".join(plan759["malformed"][:3]) + ("…" if len(plan759["malformed"]) > 3 else "")
+        tail["reason"] = ("The update was applied to your working copy, but the release contains a malformed "
+                          f"module description ({shown}), so it was NOT opened for review and nothing was merged. "
+                          "This points to a problem in the release itself, so running the update again will not "
+                          "fix it: ask me to undo the update's changes, and report it to your engine's update home.")
+        return tail
+    if not catalog_trusted:
+        tail["notes"].append("(could not read the module catalog before the update, so any add-on this version "
+                             "includes by default was OFFERED rather than turned on automatically — check your "
+                             "engine's module catalog.)")
+    tail["modules_offered"] = list(plan759["offered"])
+    for entry in plan759["install"]:
+        mid, status = entry["id"], entry["status"]
+        residue = []
+        # `add()` returns applied=True with a WIRE failure captured as a hard finding (the wiring dispatcher
+        # turns a bad wire into a finding, not an exception) — so a broken install must be caught here, not
+        # silently recorded. But `add()`'s `findings` are `check_coherence()` over the WHOLE tree, so a
+        # PRE-EXISTING unrelated problem (e.g. an orphan from an earlier incomplete removal) would be wrongly
+        # blamed on this module. Attribute only the findings THIS install introduced: baseline the hard findings
+        # immediately before `add()` and count only NEW ones (the same delta idiom `plan_add` uses). A genuinely
+        # tree-wide pre-existing problem then surfaces at the final structural gate with its own accurate message,
+        # never as a false "the release is broken" that rolls back an innocent module.
+        baseline_hard = module_coherence.check_coherence()
+        try:
+            res = add(mid, release_tree=release_tree)
+            new_hard = _new_hard_findings(baseline_hard, res.get("findings"))   # MULTISET diff, not set membership
+            if res.get("applied") and not new_hard:
+                reason = None
+            else:
+                reason = (res.get("reason") if not res.get("applied")
+                          else "the add-on's setup did not complete cleanly (its own settings could not be applied)")
+                residue = _cleanup_failed_install(mid, release_tree)   # undo files + wires; surface irreversibles
+        except Exception as exc:   # noqa: BLE001 — never crash the tail; undo any partial write
+            residue = _cleanup_failed_install(mid, release_tree)
+            reason = str(exc)
+        if reason is None:
+            tail["modules_installed"].append({"id": mid, "status": status,
+                                              "prior_declined": entry.get("prior_declined", False),
+                                              "description": entry.get("description") or ""})
+        else:
+            note = f"(could not install the new module '{mid}' automatically: {reason})"
+            for r in residue:
+                note += f" — {r} was left in place and may need your review"
+            tail["notes"].append(note)
+            if status != "required":   # a required failure is handled by the completeness refusal, not an offer
+                tail["modules_offered"].append(
+                    {"id": mid, "status": status, "verb": "",
+                     "description": entry.get("description")
+                     or f"(the engine could not turn this on automatically: {reason})"})
+    # Required-completeness refusal: a REQUIRED module the release adds that could not be installed leaves an
+    # incomplete engine no structural check would catch (required modules aren't catalogued, and nothing already
+    # present references a net-new one). Refuse cleanly HERE — staged, not opened — rather than shipping a green
+    # pull request missing a required capability (#759's primary path).
+    _installed_ids = {e["id"] for e in tail["modules_installed"]}
+    _missing_required = [e["id"] for e in plan759["install"]
+                         if e["status"] == "required" and e["id"] not in _installed_ids]
+    if _missing_required:
+        tail["reason"] = _required_install_refuse_reason(_missing_required)
+        return tail
     # (d1) RECONCILE the tool-runtime dependency-group SELECTION to the upgraded module set. The overlay
     # replaced `.engine/pyproject.toml` WHOLESALE with the release's `default-groups` (its CONSTRUCTION set —
     # every default-on module), but THIS deployment's installed set may be smaller (a declined optional module)
@@ -2415,7 +2797,9 @@ def _run_upgrade_tail(state: dict) -> None:
         target_versions=target_versions, old_by_id=state["old_by_id"],
         old_owned=state.get("old_owned") or [], candidates=candidates,
         handle=state.get("handle"), selected=selected, seam=seam, practice=practice, opener=opener,
-        groups_before=state.get("groups_before") or [], dropped_ids=dropped_ids)
+        groups_before=state.get("groups_before") or [], dropped_ids=dropped_ids,
+        pre_overlay_known=set(state.get("pre_overlay_known") or []),
+        catalog_trusted=state.get("catalog_trusted", True))
     _upgrade_state_dump(tail, state["result_path"])
 
 
@@ -2559,7 +2943,8 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
            "from_versions": {}, "target_versions": {},
            "files": {"replaced": [], "added": []},
            "wires": {"added": [], "removed": [], "updated": []},
-           "migrations": [], "retired_capabilities": [], "removed_capabilities": [], "backed_up": None}
+           "migrations": [], "retired_capabilities": [], "removed_capabilities": [], "backed_up": None,
+           "modules_installed": [], "modules_offered": []}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -2665,6 +3050,23 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
         # Whole-module removals (#688) — the plain-language loss the apply would announce, previewed here so the
         # operator learns it before --confirm (single-homed off the same dropped_ids the apply reconciles).
         out["removed_capabilities"] = select_removed_capabilities(dropped_ids, release_engine)
+        # New modules this update would bring in (#759) — the SAME classification the apply performs, computed
+        # read-only so the preview lists what would be installed (required/default-on) vs offered (optional). The
+        # "known" discriminator + catalog-trust are read from the un-mutated live tree, which IS the pre-overlay
+        # state (this preview overlays nothing); the present set is the survivors, matching the apply (no drift).
+        known759, catalog_trusted759 = _pre_overlay_known(present_ids)
+        plan759 = classify_available_modules(release_tree, list(candidates), known759,
+                                             catalog_trusted=catalog_trusted759, dropped_ids=dropped_ids)
+        # Surface a malformed release manifest in the preview too, so the read-only check can't say "update
+        # available, nothing new" while `--confirm` would refuse — the "preview mirrors apply" invariant.
+        if plan759.get("malformed"):
+            shown = ", ".join(plan759["malformed"][:3]) + ("…" if len(plan759["malformed"]) > 3 else "")
+            return {**out, "refused": True, "status": "broken-release",
+                    "reason": f"The update at {target_ref} contains a malformed module description ({shown}), so "
+                              f"it can't be previewed safely and nothing was changed. This points to a problem in "
+                              f"the release itself — report it to your engine's update home."}
+        out["modules_installed"] = plan759["install"]
+        out["modules_offered"] = plan759["offered"]
         if any(s.get("kind") == "data" for s in selected):
             out["backed_up"] = _resolve_backup_seam(None) is not None   # engine-wide readiness probe; no write
         out["status"] = "update-available"
@@ -2765,6 +3167,20 @@ def _render_upgrade_preview(p: dict) -> None:
     # gone"), so they render through one loop (a dropped module can never also be in retired — no double-count).
     for r in retired + removed_caps:
         print(f"  Removes a capability: {_retired_capability_text(r.get('description'))}")
+    # New modules this update brings in (#759): required capabilities added automatically, net-new default
+    # add-ons turned on opt-out, optional ones offered for you to add.
+    mods_installed = p.get("modules_installed") or []
+    mods_offered = p.get("modules_offered") or []
+    for m in mods_installed:
+        if m.get("status") == "required":
+            extra = (" — it was available in your version and not installed, and now this version requires it"
+                     if m.get("prior_declined") else "")
+            print(f"  Adds a required capability: {m['id']} (this version needs it{extra})")
+        else:
+            print(f"  Turns on a new add-on: {m['id']} (included by default in this version)")
+    for m in mods_offered:
+        kind = "a default add-on you don't have" if m.get("status") == "default-on" else "optional"
+        print(f"  New add-on available ({kind}): {m['id']} — ask me to add it (or run `add {m['id']}`)")
     if any(m.get("kind") == "data" for m in migs):
         if p.get("backed_up") is True:
             print("  Your stored data is backed up before any data change.")
@@ -2772,7 +3188,7 @@ def _render_upgrade_preview(p: dict) -> None:
             print("  Note: a stored-data change needs a backup set up first — ask me to set one up before "
                   "applying, or the update refuses that step and changes nothing.")
     if not (nrep or nadd or any(w.get(k) for k in ("added", "updated", "removed"))
-            or migs or retired or removed_caps):
+            or migs or retired or removed_caps or mods_installed or mods_offered):
         print("  No file or settings changes — a version bump only.")
     tail = f" (or run `upgrade --confirm{(' ' + named) if named else ''}`)"
     print(f"\nThis only checked your engine — nothing changed. To apply, type `/engine-upgrade` and confirm"
@@ -2901,6 +3317,12 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             pre_overlay_groups = committed_default_groups()
         except Exception:   # noqa: BLE001 — a missing/unreadable pyproject: no baseline, never a crash
             pre_overlay_groups = []
+        # Capture the deployment's PRE-OVERLAY "known modules" set (#759) — installed ∪ pre-overlay catalog ∪
+        # pre-overlay manifests — the discriminator between a NET-NEW default-on module (auto-installed opt-out)
+        # and a previously-DECLINED one (offered, never resurrected). The catalog is core-provided and the overlay
+        # OVERWRITES it, so this MUST run pre-overlay; `catalog_trusted=False` (an absent/unreadable catalog) fails
+        # default-on CLOSED to offer-only. Threaded into the tail next to `groups_before`.
+        pre_overlay_known, catalog_trusted = _pre_overlay_known(present_ids)
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.
         selected = select_migrations(
@@ -2956,13 +3378,15 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 target_versions=target_versions, old_by_id=old_by_id, old_owned=old_owned,
                 candidates=candidates, handle=engine.get("handle"), selected=selected, seam=seam,
                 practice=practice, opener=opener, groups_before=pre_overlay_groups,
-                gate=_coherence_only_gate, dropped_ids=dropped_ids)
+                gate=_coherence_only_gate, dropped_ids=dropped_ids,
+                pre_overlay_known=pre_overlay_known, catalog_trusted=catalog_trusted)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,
                 "target_versions": target_versions, "present_ids": present_ids, "old_by_id": old_by_id,
                 "old_owned": old_owned, "groups_before": pre_overlay_groups, "handle": engine.get("handle"),
-                "practice": practice, "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER})
+                "practice": practice, "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER,
+                "pre_overlay_known": sorted(pre_overlay_known), "catalog_trusted": catalog_trusted})
         _merge_tail(result, tail)
         return result
     finally:
@@ -3272,6 +3696,13 @@ def _render_upgrade(result: dict) -> None:
         print(f"  - {r}")
     for r in (result.get("retired_capabilities", []) + result.get("removed_capabilities", [])):
         print(f"  - removed a capability: {_retired_capability_text(r.get('description'))}")
+    for m in result.get("modules_installed", []):
+        if m.get("status") == "required":
+            print(f"  - added a required capability: {m['id']} (this version needs it)")
+        else:
+            print(f"  - turned on a new add-on: {m['id']} (included by default)")
+    for m in result.get("modules_offered", []):
+        print(f"  - new add-on available: {m['id']} (add with `add {m['id']}`)")
     for line in result.get("notes", []):
         print("  - " + line)
     pr = result.get("pr")
