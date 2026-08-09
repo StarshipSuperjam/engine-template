@@ -921,13 +921,51 @@ class TestFinalize(unittest.TestCase):
 
     def test_finalize_refuses_on_a_checkless_instance(self):
         # finalize's whole job is to BIND checks; on a checkless instance it would silently no-op them, so it
-        # raises loudly against that documented invariant rather than falsely reading 'already'.
+        # raises loudly against that documented invariant rather than falsely reading 'already'. It raises the
+        # distinct ControlPlaneMisuse (a construction bug), NOT BootstrapError (a transport failure) — so
+        # cmd_finalize's connectivity handler never swallows it and mislabels it as a network problem (#696).
         gh = AugmentGitHub(products=[_engine_ruleset(checkless=True)])
         cp = bootstrap.ControlPlane(REPO, "tok", transport=_with_workflows(gh.transport, present=True),
                                     refresh_fn=lambda s: True, issues=FakeIssues(), tier=bootstrap.SOLO,
                                     checkless=True)
-        with self.assertRaises(bootstrap.BootstrapError):
+        with self.assertRaises(bootstrap.ControlPlaneMisuse):
             cp.finalize(branch="main")
+        # And it is NOT a BootstrapError, so a bare `except BootstrapError` cannot catch it.
+        self.assertNotIsInstance(bootstrap.ControlPlaneMisuse("x"), bootstrap.BootstrapError)
+
+    def test_cmd_finalize_labels_misuse_and_transport_failures_differently(self):
+        # The CLI wrapper must tell a construction bug (ControlPlaneMisuse) apart from a genuine network
+        # failure (BootstrapError): the first is an honest "internal error", never the "back online"
+        # connectivity message the second gets. This is the #696 fix at the surface the operator sees.
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+
+        def _run(exc):
+            args = argparse.Namespace(repo=REPO, branch="main")
+
+            class _CP:
+                def finalize(self, branch=None):
+                    raise exc
+
+            buf = io.StringIO()
+            with mock.patch.object(bootstrap, "boot") as mb, \
+                    mock.patch.object(bootstrap, "ControlPlane", lambda repo, token: _CP()), \
+                    contextlib.redirect_stdout(buf):
+                mb.gh_token.return_value = "tok"
+                rc = bootstrap.cmd_finalize(args)
+            return rc, buf.getvalue()
+
+        misuse_rc, misuse_msg = _run(bootstrap.ControlPlaneMisuse("checkless instance"))
+        transport_rc, transport_msg = _run(bootstrap.BootstrapError("GitHub is unreachable"))
+
+        self.assertEqual(misuse_rc, 1)
+        self.assertEqual(transport_rc, 1)
+        self.assertIn("internal error", misuse_msg.lower())
+        self.assertNotIn("back online", misuse_msg)           # never the connectivity framing
+        self.assertIn("back online", transport_msg)            # the genuine transport message is preserved
+        self.assertNotEqual(misuse_msg, transport_msg)
 
     def test_checkless_augment_then_finalize_then_debootstrap_restores_the_product(self):
         # The reversal-integrity round trip: without the union marker, de_bootstrap would leave the

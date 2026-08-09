@@ -116,6 +116,14 @@ class BootstrapError(Exception):
     """A GitHub read/transport failure during bootstrap — surfaced and degraded, never swallowed."""
 
 
+class ControlPlaneMisuse(Exception):
+    """A programmer-misuse invariant in the control plane — e.g. finalize called on a checkless instance,
+    whose whole job is to BIND the required checks a checkless instance would silently no-op. This is a
+    CONSTRUCTION bug, not a GitHub transport failure, so it is deliberately NOT a BootstrapError subclass:
+    the transport-error handlers that degrade a genuine network failure ("couldn't reach GitHub … back
+    online") must never swallow it and mislabel a bug as connectivity (#696)."""
+
+
 # ---- the protection-floor payload --------------------------------------------------------------
 
 SOLO, TEAM = protection_guard.SOLO, protection_guard.TEAM  # re-export the tier vocabulary (single home: protection_guard)
@@ -873,8 +881,8 @@ class ControlPlane:
         already-bound branch reads 'already'. On success it re-emits the Actions-enablement reminder, because
         finalize is the moment the checks become load-bearing and they only run if Actions is enabled."""
         if self.checkless:   # finalize's whole job is to BIND the checks; a checkless instance would no-op them
-            raise BootstrapError("finalize must run on a non-checkless ControlPlane — it binds the checks a "
-                                 "checkless arrival deferred.")
+            raise ControlPlaneMisuse("finalize must run on a non-checkless ControlPlane — it binds the checks a "
+                                     "checkless arrival deferred.")
         branch = branch or boot.PROTECTED_BRANCH
         say = announce if announce is not None else (lambda text: print(text))
         if not self.workflows_present_on(branch):
@@ -1208,6 +1216,13 @@ def cmd_finalize(args) -> int:
     cp = ControlPlane(repo, token)
     try:
         result = cp.finalize(branch=args.branch)
+    except ControlPlaneMisuse as e:
+        # A construction bug, not a network failure — say so honestly rather than mislabeling it as
+        # connectivity (the transport handler below). Unreachable from this call site today (cmd_finalize
+        # always constructs a non-checkless ControlPlane); this keeps a future checkless finalize path honest.
+        print(f"Couldn't finalize branch protection — an internal error, not a connectivity problem: {e} "
+              "Please report this; nothing was changed.")
+        return 1
     except BootstrapError as e:
         print(f"Couldn't reach GitHub to finalize branch protection ({e}). Nothing changed — try again "
               "when you're back online.")
