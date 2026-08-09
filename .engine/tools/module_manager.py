@@ -2018,6 +2018,16 @@ _ORIGIN_RETRY_ATTEMPTS = 3
 _ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 
 
+# Strip an embedded credential from surfaced git output before it is shown or logged: git writes the remote
+# URL into its push errors, and an HTTPS remote can carry a token in its userinfo (`https://<token>@host` or
+# `https://user:<token>@host`, e.g. an `x-access-token:` CI remote), which must never reach a message. Replaces
+# ONLY the userinfo, so the host and the rest of git's reason survive for diagnosis. Copied — not shared — into
+# the two PR openers (module_manager, tune) exactly like the retry constants above, because the natural shared
+# homes (github_client, repo_identity) are guardrail-floored; keep the two copies identical.
+def _redact_credentials(text: str) -> str:
+    return re.sub(r"(https?://)[^/\s@]+@", r"\1***@", text)
+
+
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
@@ -2088,7 +2098,7 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
         try:
             _run_step(args)
         except subprocess.CalledProcessError as exc:
-            err = _decode(exc.stderr) or _decode(exc.stdout)   # git writes "nothing to commit" to STDOUT, not stderr
+            err = _redact_credentials(_decode(exc.stderr) or _decode(exc.stdout))   # stdout: git writes "nothing to commit" there; redact any tokened remote URL
             # A `commit` that failed ONLY because nothing was staged is not really a failure — the working tree
             # already matches, so this change is already applied. Say that plainly WITHOUT the alarming "failed"
             # head, rather than steer the operator to push an empty branch. Caller-neutral (upgrade + removal).
