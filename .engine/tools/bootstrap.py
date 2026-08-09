@@ -1185,8 +1185,7 @@ def cmd_status(args) -> int:
             print(f"Branch protection isn't available on this repository's GitHub plan, and you accepted "
                   f"running without it on {when}. The safety gate is OFF for '{args.branch}' — a known, "
                   "accepted limitation, not a failure. If your plan later supports branch rulesets (upgrade it, "
-                  "or make the repository public), turn the gate on with `python .engine/tools/bootstrap.py "
-                  "apply`.")
+                  "or make the repository public), say **turn my safety gate back on** and I'll enable it.")
             return 0
         print(f"Couldn't read branch protection for '{args.branch}' ({e}); treating it as not on.")
         return 0

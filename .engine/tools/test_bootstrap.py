@@ -387,6 +387,13 @@ class TestCopySurface(unittest.TestCase):
         self.assertEqual(self._norm(bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"]),
                          self._norm(bootstrap.FALLBACK_COPY["before-you-approve"]))
 
+    def test_template_and_fallback_unsupported_platform_do_not_drift(self):
+        # The same word-for-word guard for the plan-limitation banner (#809), so a future copy fix can't land
+        # in the template and not the built-in fallback (or vice versa). Tolerates only the template's wrapping.
+        self.assertEqual(
+            self._norm(bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["degraded-unsupported-platform"]),
+            self._norm(bootstrap.FALLBACK_COPY["degraded-unsupported-platform"]))
+
     def test_missing_template_falls_back_not_crashes(self):
         copy = bootstrap.load_copy("/no/such/template.md")
         self.assertEqual(copy["before-you-approve"], bootstrap.FALLBACK_COPY["before-you-approve"])
