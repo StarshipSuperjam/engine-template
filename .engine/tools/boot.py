@@ -1773,12 +1773,26 @@ def render_dashboard(s: dict) -> str:
     # Gated on the safety gate being ON (#810 usability): "complete" must never appear beside a "your gate is off"
     # alarm — an un-gated repo has NOT finished setup. When the gate is off the confirmation is held back (and the
     # marker is NOT cleared, in _relay_lines), so it fires on a later start once the gate is on.
+    # "unsupported" (this plan can't host protection, accepted by the operator) is ALSO a completed-setup state:
+    # setup landed, the gate simply couldn't be turned on for a reason the operator accepted. It gets the
+    # one-time confirmation too — with HONEST wording (never "your gate is protecting it") — so an
+    # unsupported deployment isn't stuck showing setup-incomplete forever, and its marker clears below the same
+    # way (avoiding the every-session loop). After this one-time line it stays calm and silent — no alarm.
     setup_landed = s.get("setup_landed")
-    if setup_landed and setup_landed.get("present") and s.get("gate") == "on":
-        pinned.append(
-            "✅ **Setup is now complete.** Your setup changes have landed on your main branch, your safety gate "
-            "is protecting it, and your project is ready — that was the last onboarding step. From here it's "
-            "ordinary work.")
+    if setup_landed and setup_landed.get("present") and s.get("gate") in ("on", "unsupported"):
+        if s.get("gate") == "unsupported":
+            branch = s.get("protected_branch") or PROTECTED_BRANCH
+            pinned.append(
+                "✅ **Setup is now complete.** Your setup changes have landed on your main branch. Branch "
+                "protection isn't available on this repository's GitHub plan, and you accepted running without "
+                f"the safety gate on `{branch}` — so there was no gate to turn on, and that was the last "
+                "onboarding step. If you later upgrade the plan (or make the repository public), say **turn my "
+                "safety gate back on** and I'll enable it.")
+        else:
+            pinned.append(
+                "✅ **Setup is now complete.** Your setup changes have landed on your main branch, your safety "
+                "gate is protecting it, and your project is ready — that was the last onboarding step. From here "
+                "it's ordinary work.")
 
     # The engine-MECHANIC setup OFFER (eADR-0026, Slice 3): this engine builds a separate OWNED product checkout,
     # but this machine's path to that checkout is missing (the portable fork case — the committed slug travelled,
@@ -1846,6 +1860,13 @@ def render_dashboard(s: dict) -> str:
             f"I couldn't verify your safety gate from here (no GitHub access), so **don't assume "
             f"`{s.get('protected_branch') or PROTECTED_BRANCH}` is protected** — confirm it before merging "
             f"anything important.")
+    elif s["gate"] == "unsupported":
+        # An accepted plan-limitation: the operator recorded that this repo's GitHub plan can't host branch
+        # protection. Deliberately NEITHER an alarm (the "off" branch) NOR the misleading "no GitHub access"
+        # degraded line (the "unknown" branch above) — it is a calm, accepted steady state, acknowledged once
+        # by the setup-complete confirmation above and otherwise silent here. Explicit so the state is handled,
+        # not left to fall through by accident.
+        pass
 
     # Engine findings NO LONGER pin a ⚠ here. A routine finding count is the engine's own housekeeping (the
     # operator's lowest priority in a deployed repo), so it renders only as a quiet facts line below and is
@@ -2437,6 +2458,8 @@ def present_marker_line(s: dict) -> str:
         return "⚠ Your safety gate is off"   # same noun as the dashboard + the unknown-gate marker below
     if s["gate"] == "unknown":
         return f"⚠ {PRESENT_MARKER}: couldn't verify the safety gate"
+    # "unsupported" is intentionally NOT a ⚠ here: an accepted plan-limitation is a calm steady state, so it
+    # falls through to the calm `▸ Project status` marker below rather than reading as a governance alarm.
     if s["refused"]:
         return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
     if s["strand"]:   # ranked after the governance alarms; a governance alarm still wins the marker
@@ -2541,6 +2564,10 @@ def _pushed_alarms(s: dict) -> list:
             f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
             f"assume `{s.get('protected_branch') or PROTECTED_BRANCH}` is protected — confirm before merging "
             f"anything important.")})
+    elif s["gate"] == "unsupported":
+        # An accepted plan-limitation steady state — NOT a governance alarm, so nothing is pushed across
+        # sessions. Explicit (not a silent fall-through) so the intent is on the record.
+        pass
     if s["refused"]:
         alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
@@ -2722,7 +2749,10 @@ def _relay_lines(s: dict) -> list:
     # Clear only when the confirmation actually SHOWS (same gate-on condition render_dashboard uses), so a gate-off
     # session holds the marker rather than burning the one-time confirmation before the operator ever sees it.
     sl = s.get("setup_landed")
-    if sl and sl.get("present") and sl.get("main") and s.get("gate") == "on":
+    if sl and sl.get("present") and sl.get("main") and s.get("gate") in ("on", "unsupported"):
+        # "unsupported" clears the marker too: its one-time completion confirmation renders in the dashboard on
+        # this same condition (render_dashboard), so an accepted plan-limitation deployment finishes onboarding
+        # once and never loops the "setup landed, awaiting the gate" state.
         first_run_health.clear_first_run_marker(sl["main"])
     # The broken-hooksPath offer rides this SAME single decide() call (#707/#708), like off_main/foreign_license —
     # it is NOT a pushed governance alarm (it renders only in the dashboard, at the top of the offer tier). It is
