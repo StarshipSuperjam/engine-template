@@ -270,10 +270,11 @@ def main() -> int:
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' "
                       f"({e}); treating it as not in force until confirmed."}])
-    if not isinstance(rules, list):
+    if not isinstance(rules, list) or not all(isinstance(r, dict) for r in rules):
         # A 200 with an unexpected body is NOT a confirmation that protection is in force — fail CLOSED
-        # (mirrors boot's twin guard). Never let a garbage/partial 200 crash missing_floor into an unhandled
-        # exception and an ambiguous disposition.
+        # (mirrors boot's twin guard). This checks BOTH the outer container AND the elements: a list of
+        # non-dicts (e.g. [1, 2, 3]) would otherwise crash missing_floor's `r.get("type")` into an uncaught
+        # exception (missing_floor runs below, outside the read's try) and an ambiguous disposition.
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' (the rules "
                       "response was not in the expected form); treating it as not in force until confirmed."}])

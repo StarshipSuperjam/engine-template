@@ -440,11 +440,11 @@ FALLBACK_COPY = {
         "branch-protection rules the safety gate needs (private repositories need GitHub Pro, Team, or "
         "Enterprise; public repositories have them for free). This isn't a permission problem — your "
         "account administers the repository fine. Protection is not active, so work can merge unreviewed. "
-        "Two ways forward: upgrade this repository's plan (or make it public) and run this again — or, if "
-        "you're deliberately running without the gate, record that with `python "
-        ".engine/tools/bootstrap.py accept-unprotected`, which tells the engine to stop failing every pull "
-        "request over a limitation it can't fix and instead report the gate as off-by-acceptance. Until one "
-        "of those, I'll keep reminding you the gate is off."
+        "Two ways forward: upgrade this repository's plan (or make it public), then say **turn my safety gate "
+        "back on** — or, if you're deliberately running without the gate, say **accept that my plan can't "
+        "protect this branch** and I'll record that, so the engine stops failing every pull request over a "
+        "limitation it can't fix and instead reports the gate as off by your informed choice. Either way I do "
+        "it for you — you never type a command yourself. Until then, I'll keep reminding you the gate is off."
     ),
     "applied": (
         "Your safety gate is on. The main branch now requires a pull request, passing checks, and resolved "
@@ -1172,6 +1172,22 @@ def cmd_status(args) -> int:
     try:
         missing = cp.floor_missing(args.branch)
     except BootstrapError as e:
+        # The read failed. If this repository's PLAN can't host rulesets AND the operator recorded a
+        # deliberate acceptance of that, say so calmly — matching every other surface — rather than as an
+        # unexplained technical failure.
+        posture = protection_guard.recorded_posture()
+        try:
+            plan_limited = cp._plan_forbids_rulesets(args.branch)
+        except BootstrapError:
+            plan_limited = False
+        if posture and plan_limited:
+            when = posture.get("recorded_on") or "an earlier date"
+            print(f"Branch protection isn't available on this repository's GitHub plan, and you accepted "
+                  f"running without it on {when}. The safety gate is OFF for '{args.branch}' — a known, "
+                  "accepted limitation, not a failure. If your plan later supports branch rulesets (upgrade it, "
+                  "or make the repository public), turn the gate on with `python .engine/tools/bootstrap.py "
+                  "apply`.")
+            return 0
         print(f"Couldn't read branch protection for '{args.branch}' ({e}); treating it as not on.")
         return 0
     if not missing:
@@ -1309,12 +1325,13 @@ def _clear_protection_posture() -> None:
 
 def cmd_accept_unprotected(args) -> int:
     """Record the operator's DELIBERATE acceptance that this repository's GitHub plan cannot host branch
-    protection, so the standing check reports the gate as off-by-acceptance (an honest warning) instead of
-    hard-failing every pull request over a limitation the engine cannot fix. This is the operator's explicit
-    consent act — the engine offers it (arrival/boot banners), the operator asks for it, Claude runs it — and
-    it REFUSES to record unless it first re-verifies, live, that the branch-rules read genuinely returns
-    GitHub's plan-limitation 403. So it can never mint an exception on a repo whose plan can host protection.
-    Doubles as the repair path for an already-retired deployment (bootstrap.py survives retirement)."""
+    protection, so the standing check reports the gate as off by the operator's informed choice (an honest
+    warning) instead of hard-failing every pull request over a limitation the engine cannot fix. This is the
+    operator's explicit consent act — the engine offers it (arrival/boot banners), the operator asks for it in
+    plain words, the assistant runs it — and it REFUSES to record unless it first re-verifies, live, that the
+    branch-rules read genuinely returns GitHub's plan-limitation 403. So it can never mint an exception on a
+    repo whose plan can host protection. Doubles as the repair path for an already-retired deployment
+    (bootstrap.py survives retirement)."""
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
     branch = args.branch
@@ -1333,14 +1350,16 @@ def cmd_accept_unprotected(args) -> int:
               "recorded — try again when you're back online.")
         return 1
     if status == 200:
-        print("This repository's plan CAN host branch protection, so I won't record an exception. Turn the "
-              "safety gate on instead: `python .engine/tools/bootstrap.py apply`.")
+        print("Good news — this repository's plan CAN host branch protection, so I won't record an exception. "
+              "If the safety gate isn't on yet, say **turn my safety gate back on** and I'll turn it on for "
+              "you.")
         return 1
     if not protection_guard.platform_forbids_rulesets(status, body, headers):
         print("I couldn't confirm that this repository's PLAN is why branch protection is unavailable — the "
               "branch-rules check didn't return GitHub's plan-limitation response (it may be a permission "
               "problem, a rate limit, or a temporary error). I won't record an exception on a guess; nothing "
-              "was recorded. If protection should work here, complete the branch-protection setup instead.")
+              "was recorded. If branch protection should work here, say **turn my safety gate back on** and "
+              "I'll try to turn it on, or check your repository's branch settings for what's blocking it.")
         return 1
     # Genuine plan limitation confirmed. Record the operator-consented posture.
     import moment  # lazily — the arrival-critical module import stays minimal and 3.9-safe
@@ -1399,6 +1418,10 @@ def cmd_finalize(args) -> int:
     print(render(result))
     if result.is_protected():
         _persist_finalize_marker(result.marker)
+        # Protection is now in force, which proves this plan CAN host rulesets — so any recorded
+        # unsupported-platform posture is obsolete. Clear it too (like cmd_apply), because the standing check's
+        # stale-record nudge names `finalize` as a way to turn protection on; both commands must honour it.
+        _clear_protection_posture()
     return 0 if result.is_protected() else 1
 
 

@@ -60,10 +60,11 @@ I couldn't turn on branch protection — this repository's GitHub plan doesn't o
 rules the safety gate needs (private repositories need GitHub Pro, Team, or Enterprise; public repositories
 have them for free). This isn't a permission problem — your account administers the repository fine.
 Protection is not active, so work can merge unreviewed. Two ways forward: upgrade this repository's plan (or
-make it public) and run this again — or, if you're deliberately running without the gate, record that with
-`python .engine/tools/bootstrap.py accept-unprotected`, which tells the engine to stop failing every pull
-request over a limitation it can't fix and instead report the gate as off-by-acceptance. Until one of those,
-I'll keep reminding you the gate is off.
+make it public), then say **turn my safety gate back on** — or, if you're deliberately running without the
+gate, say **accept that my plan can't protect this branch** and I'll record that, so the engine stops failing
+every pull request over a limitation it can't fix and instead reports the gate as off by your informed choice.
+Either way I do it for you — you never type a command yourself. Until then, I'll keep reminding you the gate
+is off.
 
 ## Removing the engine — keep or remove your safety rule
 

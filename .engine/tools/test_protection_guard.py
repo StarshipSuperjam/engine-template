@@ -207,6 +207,21 @@ class TestMainPostureSoftening(unittest.TestCase):
             missing=[])
         self.assertEqual(findings, [])
 
+    def test_non_dict_list_200_fails_closed_without_crashing(self):
+        # A 200 whose body is a list of NON-dict elements must NOT crash missing_floor's r.get("type") into an
+        # uncaught exception (missing_floor runs outside the read's try) — the element guard fails it closed to
+        # a hard finding. missing_floor is deliberately NOT mocked here, so a regression would raise, not pass.
+        captured = []
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "t"}, clear=False), \
+             mock.patch.object(repo_identity, "resolve_default_branch", return_value="main"), \
+             mock.patch.object(protection_guard, "resolve_tier", return_value="solo"), \
+             mock.patch.object(protection_guard, "recorded_posture", return_value=None), \
+             mock.patch.object(protection_guard, "get_json", return_value=[1, 2, "x"]), \
+             mock.patch.object(protection_guard, "emit", side_effect=lambda f: captured.append(f) or 0):
+            protection_guard.main()   # must not raise
+        self.assertEqual(captured[0][0]["severity"], "hard")
+        self.assertIn("not in the expected form", captured[0][0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

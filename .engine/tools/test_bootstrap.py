@@ -271,7 +271,11 @@ class TestVerifyAndDegrade(unittest.TestCase):
         self.assertIsNone(result.marker)                # a degraded arrival persists no control_plane marker
         rendered = bootstrap.render(result)
         self.assertIn("plan", rendered.lower())
-        self.assertIn("accept-unprotected", rendered)   # points at the verb, not "you don't administer this"
+        # Offers a plain spoken phrase (the engine never asks the operator to type a command), not a raw CLI
+        # invocation, and does not misblame the operator ("you don't administer this repository").
+        self.assertIn("accept that my plan can't protect this branch", rendered)
+        self.assertNotIn("python .engine/tools/bootstrap.py accept-unprotected", rendered)
+        self.assertNotIn("you don't administer", rendered)
 
     def test_fine_grained_403_then_refresh_retries_and_applies(self):
         # A fine-grained token (no scope header): the first write 403s, the refresh "grants" admin, the
@@ -1106,6 +1110,108 @@ class TestAcceptUnprotected(unittest.TestCase):
                 bootstrap._clear_protection_posture()     # apply-on-success clears the now-stale record
                 with open(path, encoding="utf-8") as fh:
                     self.assertNotIn("protection_posture", json.load(fh))
+
+    def test_cmd_status_reports_an_accepted_posture_calmly(self):
+        # cmd_status must recognize a recorded plan-limitation acceptance and report it calmly, not as an
+        # unexplained "Couldn't read... treating it as not on" technical failure.
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        posture = {"status": "unsupported-platform", "recorded_on": "2026-08-08", "operator_login": "me"}
+
+        class _CP:
+            def floor_missing(self, branch):
+                raise bootstrap.BootstrapError("could not read evaluated branch rules (status 403)")
+
+            def _plan_forbids_rulesets(self, branch):
+                return True
+
+        buf = io.StringIO()
+        args = argparse.Namespace(repo="o/r", branch="main")
+        with mock.patch.object(bootstrap, "boot") as mb, \
+                mock.patch.object(bootstrap, "ControlPlane", lambda repo, token: _CP()), \
+                mock.patch.object(bootstrap.protection_guard, "recorded_posture", return_value=posture), \
+                contextlib.redirect_stdout(buf):
+            mb.gh_token.return_value = "tok"
+            rc = bootstrap.cmd_status(args)
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("isn't available on this repository's GitHub plan", out)
+        self.assertIn("2026-08-08", out)
+        self.assertNotIn("Couldn't read", out)       # never the unexplained-failure message
+
+    def test_cmd_finalize_clears_a_stale_posture_on_success(self):
+        # The standing check's stale-record nudge names `finalize` as a way to turn protection on, so finalize
+        # must clear the stale posture on success too (not only cmd_apply).
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        cleared = []
+        protected = bootstrap.Result("applied", "main", [], None,
+                                     marker={"ruleset_mode": "created", "augmented_ruleset_id": None,
+                                             "added": None})
+
+        class _CP:
+            def finalize(self, branch=None):
+                return protected
+
+        args = argparse.Namespace(repo="o/r", branch="main")
+        with mock.patch.object(bootstrap, "boot") as mb, \
+                mock.patch.object(bootstrap, "ControlPlane", lambda repo, token: _CP()), \
+                mock.patch.object(bootstrap, "_persist_finalize_marker", lambda m: None), \
+                mock.patch.object(bootstrap, "_clear_protection_posture",
+                                  side_effect=lambda: cleared.append(True)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            mb.gh_token.return_value = "tok"
+            rc = bootstrap.cmd_finalize(args)
+        self.assertEqual(rc, 0)
+        self.assertEqual(cleared, [True])            # stale posture cleared on a protected finalize
+
+    def test_end_to_end_verb_write_is_read_by_the_guard_and_matches_schema(self):
+        # The SEAM, proven with ONE real manifest carried through: the exact dict the verb persists is what
+        # protection_guard.recorded_posture() reads back AND what the committed schema accepts.
+        import argparse
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from unittest import mock
+
+        def transport(method, path, body=None):
+            if path == "/user":
+                return 200, {"login": "octocat"}, {}
+            return 403, {"message": "Upgrade to GitHub Team to enable this feature."}, {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "engine.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"engine_release": "1.0.0", "packages": {}, "identity": "solo"}, fh)
+            cp = bootstrap.ControlPlane("o/r", "tok", transport=transport, refresh_fn=lambda s: True,
+                                        issues=FakeIssues())
+            args = argparse.Namespace(repo="o/r", branch="main")
+            with mock.patch.object(bootstrap, "boot") as mb, \
+                    mock.patch.object(bootstrap, "ControlPlane", lambda repo, token: cp), \
+                    mock.patch.object(bootstrap, "_engine_json_path", return_value=path), \
+                    mock.patch.object(bootstrap.protection_guard, "resolve_tier", return_value="solo"), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                mb.gh_token.return_value = "tok"
+                self.assertEqual(bootstrap.cmd_accept_unprotected(args), 0)
+            # the guard reads back the SAME record the verb wrote
+            posture = protection_guard.recorded_posture(engine_dir=tmp)
+            self.assertIsNotNone(posture)
+            self.assertEqual(posture["status"], "unsupported-platform")
+            self.assertEqual(posture["operator_login"], "octocat")
+            # and the written manifest validates against the committed schema (drift between write and schema fails)
+            import jsonschema
+            with open(path, encoding="utf-8") as fh:
+                manifest = json.load(fh)
+            schema_path = os.path.join(os.path.dirname(os.path.abspath(bootstrap.__file__)),
+                                       "..", "schemas", "engine.v1.json")
+            with open(schema_path, encoding="utf-8") as fh:
+                schema = json.load(fh)
+            jsonschema.validate(manifest, schema)
 
 
 if __name__ == "__main__":
