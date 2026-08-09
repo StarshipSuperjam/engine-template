@@ -6438,7 +6438,7 @@
       },
       "slug": "boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:da469086bdf4b7df123476da16217da6b9330c85bdd14789b7abea7d29829a3b",
+        "fingerprint": "sha256:05f401d6ac8bbe04a92e0fda953a2e5731c958df9d259a2660da0850a03be355",
         "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
@@ -8949,7 +8949,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:224d431e226cfd41f0393e7d73b391b4445420b2269f9777ab777dbb5f2013b4",
+        "fingerprint": "sha256:c4b1693c0a5fb0a2a81a2f95d1bd12d4afb1bace59615ca83f2c1d25e294e07f",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -10995,7 +10995,7 @@
       },
       "slug": "test_boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:e209c0dbf097c6e4ac9cececeab6c252f97359b731de6d8234afa8ac29f7da7c",
+        "fingerprint": "sha256:d6993616f06da9d527c7ad9fef10b1e9c01b1e79e61747e456b947db04d11f09",
         "path": ".engine/tools/test_boot_alarm_ledger.py"
       },
       "status": "active",
@@ -12270,7 +12270,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:b1ddd8ff1541db021bb3c637f30a66923f7c0968ee828db72cc43a6ab31fdbd4",
+        "fingerprint": "sha256:25f00dc48a1d05b46f62f3a5dddae50ffc43f517834a744d7d233818009c5d04",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
@@ -13779,7 +13779,7 @@
       },
       "slug": "test_selftest_hermeticity",
       "source": {
-        "fingerprint": "sha256:92db332f62de05e02bf329f7cfae91812d24c56ce5ce38fa50dfdea34b82dfae",
+        "fingerprint": "sha256:3a1f9d83bc0b94774f96d386fb732d3e07f517f77d4e99472fff79addcf1eec0",
         "path": ".engine/tools/test_selftest_hermeticity.py"
       },
       "status": "active",
