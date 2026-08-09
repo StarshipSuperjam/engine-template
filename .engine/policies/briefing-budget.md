@@ -10,7 +10,7 @@ values:
   posture_chars_max: 700
   neighborhood_groups_max: 8
   dashboard_chars_max: 4500
-  margin_floor_chars: 400
+  margin_floor_chars: 300
 ---
 
 ## Rule

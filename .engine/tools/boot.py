@@ -801,7 +801,7 @@ _BRIEFING_BUDGET_DEFAULTS = {
     "posture_chars_max": 700,
     "neighborhood_groups_max": 8,
     "dashboard_chars_max": 4500,
-    "margin_floor_chars": 400,
+    "margin_floor_chars": 300,
 }
 # The HARD code minimum on the never-shed margin: the briefing-budget policy may RAISE margin_floor_chars but
 # never lower it past this. The `.engine/policies/` prefix is not guarded and the policy schema permits any

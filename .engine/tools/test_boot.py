@@ -3367,6 +3367,65 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertEqual(sum(1 for ln in lines if "depends on" in ln), 3)   # only 3 groups shown
         self.assertTrue(any("…and 7 more relationship groups" in ln for ln in lines))
 
+    def _clean_codex_core(self):
+        # The NEVER-SHED core under the Codex worst case (larger MCP check) with NO alarm relay firing — a
+        # clean session: governance Tier-0 + the dashboard at its FULL budget + the full trim notice. A heavy
+        # alarm load legitimately grows Tier-0 and sheds lower tiers (alarms never shed — the correct
+        # priority), so the canary guards STRUCTURAL Tier-0 growth, not a transient alarm load; and it budgets
+        # the dashboard at its ceiling so a dashboard grown to budget is still proven to fit with the margin.
+        patchers = _offline()
+        captured = {}
+        try:
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX), \
+                 mock.patch.object(boot, "must_push", return_value=[]), \
+                 mock.patch.object(boot, "_relay_lines", return_value=[]):
+                real = boot.hooks.cap_shed
+
+                def spy(blocks, cap=None, notice=None, compact_notice=None):
+                    captured["gov"] = next(t for p, n, t in blocks if p == 0)
+                    captured["notice"] = notice(["the work-neighbourhood map", "where we left off",
+                                                 boot._PINS_BLOCK_NAME, "the status dashboard"])
+                    return real(blocks, cap, notice, compact_notice)
+                with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
+                    boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        b = boot._briefing_values()
+        return len(captured["gov"]) + b["dashboard_chars_max"] + len(captured["notice"])
+
+    def test_margin_canary_never_shed_core_keeps_real_headroom(self):
+        # #899: the pack must keep a stated margin under the cap so Tier-0 growth is caught BEFORE the dashboard
+        # sheds — not merely that the shed result fits. Reads the floor from the policy (single source), and it
+        # is clamped at or above the hard code minimum, so this margin cannot be silently lowered.
+        core = self._clean_codex_core()
+        floor = boot._briefing_values()["margin_floor_chars"]
+        self.assertGreaterEqual(floor, boot._MIN_MARGIN_FLOOR)
+        self.assertLessEqual(
+            core, boot.hooks.HOOK_OUTPUT_CAP - floor,
+            f"the never-shed core is {core}; it must fit {boot.hooks.HOOK_OUTPUT_CAP} with {floor} to spare "
+            f"(over by {core - (boot.hooks.HOOK_OUTPUT_CAP - floor)}). Structural Tier-0 growth ate the "
+            f"margin — trim Tier-0 or lower a budget deliberately.")
+
+    def test_a_pins_set_aside_fails_loudly_in_the_never_shed_portion(self):
+        # operator decision 6: a pin set-aside must never be silent. With many long pins and cap pressure the
+        # pins index is set aside, and the loud disclosure must ride the never-shed governance block (before
+        # the dashboard divider), not the droppable trim notice.
+        many = [{"text": f"standing directive number {i} " + "x" * 90} for i in range(12)]
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "read_pins", return_value=many), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 8200):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("did not fit in this session's briefing and were set aside", pack)
+        self.assertIn("prune", pack)
+        divider = pack.find("--- the full status (your grounding")
+        if divider != -1:                          # if the dashboard survived, the loud line precedes it
+            self.assertLess(pack.find("did not fit in this session's briefing"), divider)
+
     def test_execution_posture_fails_toward_showing_more(self):
         # the real shipped posture renders UNCLIPPED (fail-toward-showing-more); only a runaway is trimmed.
         patchers = _offline()
