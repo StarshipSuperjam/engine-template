@@ -367,14 +367,16 @@ def _render_v2(fields: dict, fingerprint: str, body: str) -> str:
         f"reviewed_at: {fields['reviewed_at']}",
         f"content_modified_at: {fields['content_modified_at']}",
     ]
-    # The free-form string fields are emitted as YAML double-quoted scalars (json.dumps is a valid
-    # double-quoted emitter for their character set), so the reader gives them back as strings — a
-    # leading-zero id is never re-resolved as octal, a `#` never truncated as a comment. Dates and the
-    # int version have no such ambiguity, so they stay plain.
+    # The free-form string fields are emitted as YAML double-quoted scalars, so the reader gives them back
+    # as strings — a leading-zero id is never re-resolved as octal, a `#` never truncated as a comment.
+    # `ensure_ascii=False` keeps any non-ASCII character literal (matching compute_seal_v2's own
+    # canonicalization): with the default ascii escaping, a non-BMP character becomes a UTF-16 surrogate
+    # pair that YAML would not recombine, and the round-trip would fail its own seal. Dates and the int
+    # version have no such ambiguity, so they stay plain.
     if fields.get("audited_sha"):
-        lines.append(f"audited_sha: {json.dumps(str(fields['audited_sha']))}")
+        lines.append(f"audited_sha: {json.dumps(str(fields['audited_sha']), ensure_ascii=False)}")
     if fields.get("run_id"):
-        lines.append(f"run_id: {json.dumps(str(fields['run_id']))}")
+        lines.append(f"run_id: {json.dumps(str(fields['run_id']), ensure_ascii=False)}")
     lines.append(f"fingerprint: {fingerprint}")
     lines.append("---")
     return "\n".join(lines) + body
@@ -439,6 +441,15 @@ def correct(path: str, body: str | None = None, content_modified_at=None) -> dic
     fm, existing_body = split(path)
     if _schema_version(fm) != SCHEMA_VERSION_V2:
         raise ValueError("correct operates on a v2 self-review; migrate a legacy file first with `migrate`")
+    # Verify the source's OWN seal before re-sealing it — otherwise correcting a digest that was tampered
+    # between reviews would silently bake the tamper into a fresh valid seal, erasing the very evidence the
+    # seal exists to preserve (the sibling of the #665 laundering hole closed in migrate). A tampered or
+    # malformed digest is refused; re-run the audit instead of correcting it.
+    verdict = check(path)
+    if verdict["severity"] == "hard":
+        raise ValueError(
+            "refusing to correct a self-review whose seal does not verify — its contents were altered since "
+            f"it was sealed. Re-run the audit instead of correcting a tampered file. ({verdict['message']})")
     reviewed = _iso(fm.get("reviewed_at"))
     modified = _iso(content_modified_at if content_modified_at is not None else moment.today_utc())
     _require_valid_date(modified, "the prose-modified date")

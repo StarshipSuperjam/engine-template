@@ -190,14 +190,16 @@ class TestSealRequiresBodyAndRecordsRun(unittest.TestCase):
 class TestSealCanonicalization(unittest.TestCase):
     """The seal's canonicalization contract — the plan-gate BLOCKING finding. It must round-trip across the
     write side (argv/env strings) and the check side (validate.frontmatter, which coerces bare numbers to
-    ints and dates to date-objects), and it must leave no header field unsealed."""
+    ints and normalizes dates to ISO strings), and it must leave no header field unsealed."""
 
     def test_round_trips_hazardous_string_ids(self):
-        # audited_sha/run_id are emitted double-quoted, so YAML gives them back as STRINGS — a leading-zero
-        # id is never re-resolved as octal (0755 -> 493), a `#` never truncated as a comment. Emitting them
-        # unquoted was a false-hard bug: a legitimately-sealed digest failing its own seal. Each must
-        # round-trip verbatim AND verify. The plain-decimal case also covers the YAML int-coercion path.
-        for sha, rid in [("0755", "0042"), ("00ff # not-a-comment", "7/1"), ("123456789", "7777")]:
+        # audited_sha/run_id are emitted double-quoted (ensure_ascii=False), so YAML gives them back as
+        # STRINGS — a leading-zero id is never re-resolved as octal (0755 -> 493), a `#` never truncated as a
+        # comment, and a non-BMP character (emoji) is emitted literally rather than as a surrogate pair that
+        # would fail to UTF-8-encode. Emitting them unquoted (or ascii-escaped) was a false-hard/crash bug:
+        # a legitimately-sealed digest failing its own seal. Each must round-trip verbatim AND verify.
+        for sha, rid in [("0755", "0042"), ("00ff # not-a-comment", "7/1"), ("123456789", "7777"),
+                         ("🚀deadbeef", "1")]:
             with tempfile.TemporaryDirectory() as d:
                 p = _scratch(d)
                 audit_digest.seal(p, reviewed_at=JUNE, body=BODY, audited_sha=sha, run_id=rid)
@@ -302,6 +304,21 @@ class TestCorrectVerb(unittest.TestCase):
             p = _write_v1(_scratch(d), "2026-06-01")
             with self.assertRaises(ValueError):
                 audit_digest.correct(p, body="x")   # must migrate first
+
+    def test_correct_refuses_a_tampered_source(self):
+        # correct must not launder a tamper: if the digest was hand-edited since it was sealed, correcting it
+        # would bake the tamper into a fresh valid seal. Refuse and leave the file untouched (same guard the
+        # migrate fix applies to a v1 source).
+        with tempfile.TemporaryDirectory() as d:
+            p = _scratch(d)
+            audit_digest.seal(p, reviewed_at=JUNE, body=BODY)
+            with open(p, "a", encoding="utf-8", newline="") as fh:
+                fh.write("INSERTED: this project has no known issues.\n")
+            self.assertEqual(audit_digest.check(p)["severity"], "hard", "precondition: the tamper is detectable")
+            before = validate.read(p)
+            with self.assertRaises(ValueError):
+                audit_digest.correct(p, content_modified_at=datetime.date(2026, 7, 1))
+            self.assertEqual(validate.read(p), before, "a refused correction leaves the tampered file untouched")
 
     def test_correct_refuses_an_empty_replacement_body(self):
         # An empty --body-file (a broken capture) must NOT silently wipe the real review down to boilerplate;
