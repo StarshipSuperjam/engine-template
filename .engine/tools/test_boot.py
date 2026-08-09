@@ -37,19 +37,26 @@ SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
 # resolves to the operator's real store, so local suite time scaled with the store's size. mock.patch.dict
 # auto-restores on stop, so this never leaks the var into a sibling module in the shared `discover` process.
 _MEM_TMP = None
+_BOOT_TMP = None
 _MEM_PATCH = None
 
 
 def setUpModule():
-    global _MEM_TMP, _MEM_PATCH
+    global _MEM_TMP, _BOOT_TMP, _MEM_PATCH
     _MEM_TMP = tempfile.TemporaryDirectory()
-    _MEM_PATCH = mock.patch.dict(os.environ, {"ENGINE_MEMORY_DIR": _MEM_TMP.name})
+    _BOOT_TMP = tempfile.TemporaryDirectory()
+    # Pin BOTH ledger substrates to throwaway dirs: the memory ledger AND the boot standing-alarm cache.
+    # Without the boot pin, this module's boot `decide()` calls resolve the real `.engine/boot/.cache/` — a
+    # gitignored (so invisible) write of runtime state into the checkout (engine-template #753).
+    _MEM_PATCH = mock.patch.dict(
+        os.environ, {"ENGINE_MEMORY_DIR": _MEM_TMP.name, "ENGINE_BOOT_CACHE_DIR": _BOOT_TMP.name})
     _MEM_PATCH.start()
 
 
 def tearDownModule():
     _MEM_PATCH.stop()
     _MEM_TMP.cleanup()
+    _BOOT_TMP.cleanup()
 
 
 def _floor_text() -> str:
