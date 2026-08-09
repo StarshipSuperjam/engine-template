@@ -134,9 +134,20 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    fold its lines into Review, applying any disclosed defang it emits (see Notes). **Render the
    change-profile** (`scope_profile.py`) into `Scope` and fill the `Behaviors` section — the plain-language
    shape of the change (size, kinds of surface touched, where it lands) and the falsifiable capabilities it
-   delivers, each naming its test or demo. Both are report-only: the profile gates nothing and the Behaviors
-   nudge is soft, there so the operator weighs a change by what it does, not its line count; a change with
-   nothing observable (a dependency bump, a docs-only edit) says so in Behaviors and moves on. **Mark the pull request
+   delivers, each naming the test that exercises it; Behaviors declares *what* the change delivers, while the
+   operator-runnable way to watch one work lives in **Demonstration**. Both are report-only: the profile gates
+   nothing and the Behaviors nudge is soft, there so the operator weighs a change by what it does, not its line
+   count; a change with nothing observable (a dependency bump, a docs-only edit) says so in Behaviors and moves
+   on. **Fill the `Demonstration` section** — the behavioral-evidence slot eADR-0013 requires at every layer: a
+   behaviour-changing change gives the operator a step or walkthrough that drives the real changed surface and
+   can genuinely fail (a committed demo, a reproducible scratch, or a live one), or points to the spec-derived
+   acceptance steps in Review when those already drive it; a genuinely non-behavioral change names the actual
+   reason it has none (docs / dependency / behaviour-preserving refactor / release plumbing). Two things it is
+   NOT: the absence of a settled description is not a valid reason — that clears only the spec-derived lane in
+   Review, never this slot; and an automated test, CI, or a cold review is not a demonstration unless the
+   invocation it offers is itself an operator-legible walkthrough of the changed surface. Its presence-gate
+   confirms the slot is filled, never that the demonstration is real or runnable — that stays the reviewer's
+   judgment. **Mark the pull request
    ready** (`gh pr ready`) — the act that submits it —
    **only once** validation is green, the pre-submission review is clean (no unresolved `blocking` or
    `serious` finding), and every post-review fix is pushed; until then it stays a **draft**, which cannot be
@@ -248,10 +259,11 @@ item (it follows work item → its `docs/spec/` document → that document's acc
 description). Hand those criteria **verbatim** (never a summary or a built-vs-spec judgment of your own) to the
 plan-review and pre-submission passes as the description they check against; when none resolves the pass
 discloses that plainly — never a silent pass. The **same one resolution** (consumed, not re-resolved) fills the
-**Review** record's operator-runnable acceptance steps (`spec_referent.py review-steps`): the steps the operator
+**Review** record's **spec-derived acceptance steps** (`spec_referent.py review-steps`): the steps the operator
 can run themselves, copied verbatim into two plain groups — "things you can confirm yourself" and "things I
 checked for you" — or a plain reason-named line when nothing is operator-runnable (an in-tool demo and a CLI-only
-check go on the engine's account). It is an offer for when the change matters, not a duty, and an unrun step is a
+check go on the engine's account). That reason-named line clears only this spec-derived lane; it never stands in
+for the **Demonstration** section, which a behaviour-changing change still owes on its own terms. It is an offer for when the change matters, not a duty, and an unrun step is a
 promise, not proof — never beside a green check; a step the operator will actually run beats one they won't (a
 screen they click over a paste-this-command); and a step must be able to fail — it exercises the real changed
 surface, never a staged recipe that can only succeed (posture, not a gate). The resolution holds with or without the optional product-design

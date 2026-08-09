@@ -360,7 +360,9 @@ _ENGINE_FRAMING = ("_(these ran on the engine's side — listed so you know what
 def render_review_steps(resolved: dict) -> str:
     """The plain-language Review-section block the orchestrator drops in verbatim. Two labelled groups when there
     are runnable steps; a single plain reason-named line when there are none — never a raw reason token, never a
-    typing token, never "settled"/"locked" framework vocabulary. Deterministic, so it is testable."""
+    typing token, never "settled"/"locked" framework vocabulary. Deterministic, so it is testable. This fills the
+    SPEC-DERIVED acceptance lane only: its no-op line clears that lane, and never discharges the PR's Demonstration
+    section (the behavioral-evidence slot), which a behaviour-changing change owes on its own terms (issue #881)."""
     proj = review_steps(resolved)
 
     def rows(items):

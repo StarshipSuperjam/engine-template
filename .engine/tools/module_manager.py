@@ -1652,7 +1652,7 @@ def _retired_capability_line(description) -> str:
 
 
 def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
-    """The engine update's own pull-request body, authored in the repository template's shape — the eight
+    """The engine update's own pull-request body, authored in the repository template's shape — the nine
     required sections plus the consent preamble every engine pull request carries — so an engine update reads
     like every other engine pull request and clears the same body-completeness gate (the free-form body it
     replaces did not). Operator-facing and consent-critical: it is what a non-engineer reads to decide whether
@@ -1934,6 +1934,14 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "- Close it to decline — nothing changes and you stay on your current version.",
          "- To undo the update after merging, ask me to undo it or revert this pull request."],
         "merging applies the update, and it stays reversible afterward.")
+    out += release_cut.pr_section(
+        "Demonstration",
+        "Nothing to run here — applying the update is the action, not a behaviour to walk through.",
+        ["- Merging applies the update; its effects are the engine's own version records and files, listed "
+         "below. There is no separate operator-runnable walkthrough to paste — this is engine-update plumbing, "
+         "not a single behaviour change with a falsifiable step.",
+         "- After merging, the update stays reversible (see Review above)."],
+        "there is no behavioural walkthrough to run; the update's effects are the recorded version and files below.")
     files_bullets = [
         "- The engine's version record (.engine/engine.json) and the module manifests.",
         "- The engine's own files this version added or removed, and its marked blocks in shared files "
