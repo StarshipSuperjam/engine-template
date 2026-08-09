@@ -225,8 +225,14 @@ def describe_explore_scope() -> str:
         "(`.engine/tools/issue_author.py` — call render_engine_issue_body) so it reads like every "
         "engine-authored Issue; a non-conforming `engine`-labelled `gh issue create` is rerouted back to "
         "that helper (in Build too — the body contract is unconditional), while an unlabelled or "
-        "already-conforming Issue files freely. (The gate is a strong default, not a wall; the real "
-        "guarantee is that nothing reaches the main branch without a pull-request review.)"
+        "already-conforming Issue files freely. Which label to apply at creation: an Issue about the "
+        "engine's OWN health (a fault or debt in engine machinery) carries `--label engine` — the literal "
+        "string is `engine`, never `engine-domain` or a look-alike (a look-alike is read by nothing, so the "
+        "Issue drops out of the debt register and the boot counts); apply it whoever asked for the Issue. "
+        "Any OTHER Issue needs no label from you — the kind label (`bug`, `enhancement`, …) is a "
+        "GitHub-native the engine applies for you from the title's `Kind:` prefix, and you never mint a new "
+        "label of your own; the natives are the only kind labels. (The gate is a strong default, not a wall; "
+        "the real guarantee is that nothing reaches the main branch without a pull-request review.)"
     )
 
 

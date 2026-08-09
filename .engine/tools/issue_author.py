@@ -32,7 +32,11 @@ verbatim, so bulleted detail renders as bullets; `_demo` below models the readab
 PASSIVE FORMATTER, NOT A REGISTRY. This is shared code each producer *calls*; it
 makes no network calls, applies no label, and holds no roster of producers. The engine-domain label is
 applied by each producer's own GitHub boundary (an explicit `labels` value at creation, or a label
-call right after — never a web-only issue-template default, which the programmatic path bypasses). The
+call right after — never a web-only issue-template default, which the programmatic path bypasses). Its
+literal string is `engine` (`telemetry.ENGINE_DOMAIN_LABEL`), never `engine-domain` or a look-alike a
+descriptive phrase might suggest — a look-alike label is read by no machinery, so the Issue silently drops out
+of the debt register and the boot counts. The producer-side rule: whoever files an Issue about the engine's
+OWN health applies `--label engine` AT creation, regardless of who asked for it. The
 product-design spec Issue is the named exception: its body is a plain-prose specification, a
 different realization of the same channel, not authored through this helper.
 
