@@ -179,7 +179,7 @@ def main() -> int:
 
         print("\n[2] The self-review runs today and writes its file. Both rules should be happy.")
         print("-" * 78)
-        audit_digest.seal(digest, generated=today, body=SAMPLE_BODY)
+        audit_digest.seal(digest, reviewed_at=today, body=SAMPLE_BODY)
         print("   --- what got written (this is what you would open in the repo) ---")
         for line in validate.read(digest).splitlines():
             print("   | " + line)
@@ -190,6 +190,31 @@ def main() -> int:
         step2 = f["severity"] == "note" and s["severity"] == "note"
         print(f"   expected: both clear -> {step2}")
         ok = ok and step2
+
+        print("\n[2b] A month later, a WORDING FIX to that same review — the #665 case. `correct` repairs the")
+        print("     prose but must NOT move the run-date, so the freshness clock keeps counting from when the")
+        print("     audit actually ran: a stale review can never be made to look fresh by editing its text.")
+        print("-" * 78)
+        later = today + datetime.timedelta(days=20)
+        audit_digest.correct(digest, body=SAMPLE_BODY + "\n\n(Clarified one sentence in a later edit.)",
+                             content_modified_at=later)
+        fm_after, _ = audit_digest.split(digest)
+        f = audit_digest.check(digest)
+        # Freshness is measured from reviewed_at (today), NOT the correction day (today+20): count past the
+        # bound from the RUN date and the review is correctly flagged stale despite the recent edit.
+        s_far = audit_digest.staleness(digest, now=today + datetime.timedelta(days=audit_digest.STALENESS_DAYS + 1))
+        print("   --- the header after the fix (run-date preserved, only the prose-modified date moves) ---")
+        for line in validate.read(digest).splitlines()[:5]:
+            print("   | " + line)
+        print(f"\n   seal rule: {_verdict(f)}; freshness {audit_digest.STALENESS_DAYS + 1} days after the RUN:"
+              f" {_verdict(s_far)}")
+        step2b = (fm_after.get("reviewed_at") == today.isoformat()          # run-date untouched by the fix
+                  and fm_after.get("content_modified_at") == later.isoformat()   # only the prose-modified date moved
+                  and f["severity"] == "note"                               # the fix re-seals cleanly
+                  and s_far["severity"] == "soft")                          # stale is measured from the run, not the fix
+        print("   expected: run-date unchanged, prose-modified date advanced, and the stale warning still counts")
+        print(f"   from the run — a wording fix cannot postpone it (this is the #665 fix) -> {step2b}")
+        ok = ok and step2b
 
         print("\n[3] Now someone hand-edits the committed file after the fact. The seal rule should catch it.")
         print("-" * 78)
@@ -205,7 +230,7 @@ def main() -> int:
               " days old.")
         print("-" * 78)
         old = today - datetime.timedelta(days=audit_digest.STALENESS_DAYS + 60)
-        audit_digest.seal(digest, generated=old, body=SAMPLE_BODY)
+        audit_digest.seal(digest, reviewed_at=old, body=SAMPLE_BODY)
         s = audit_digest.staleness(digest, now=today)
         print(f"   freshness rule: {_verdict(s)}   ({validate.fmt(s)})")
         step4 = s["severity"] == "soft"
@@ -252,7 +277,8 @@ def main() -> int:
             # versions: list of (sha, date, body), NEWEST-FIRST (the order GitHub's commits API returns).
             import base64 as _b64
             order = [s for s, _d, _b in versions]
-            store = {s: f"---\ngenerated: {d}\nfingerprint: sha256:x\n---\n\n{b}\n" for s, d, b in versions}
+            store = {s: f"---\nschema_version: 2\nreviewed_at: {d}\ncontent_modified_at: {d}\n"
+                        f"fingerprint: sha256:x\n---\n\n{b}\n" for s, d, b in versions}
 
             def transport(method, path, body):
                 if fail:

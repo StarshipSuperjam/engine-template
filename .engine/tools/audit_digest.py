@@ -5,28 +5,46 @@ of its own operational health, and the two rules that protect it.
 The engine's periodic self-review (the audit) produces a short, human-readable file —
 `.engine/audits/audit-digest.md` — that says, in plain words, what it looked at, what it found, and
 what it recommends. It is committed so a non-engineer can open it in the repo and read it (the self-map
-precedent), and it carries its run-date. This module ships the deterministic machinery around that file;
-the scheduled run that actually WRITES one lands later (the audit persona writes the prose; this tool
-seals it). Until then no digest exists, and the two rules below handle that honestly.
+precedent). This module ships the deterministic machinery around that file; the scheduled run that
+actually WRITES one lands later (the audit persona writes the prose; this tool seals it). Until then no
+digest exists, and the two rules below handle that honestly.
+
+AUDIT IDENTITY (schema v2): the header separates WHEN THE AUDIT RAN from WHEN ITS PROSE WAS LAST REPAIRED,
+so a wording correction can never make an old review look freshly run (the #665 defect, where a single
+`generated:` field meant both and a prose re-seal advanced it). v2 carries an IMMUTABLE `reviewed_at` (the
+run-date the freshness signal reads), a `content_modified_at` (bumped only by a prose repair), and — when
+a real workflow run produced the review — the `audited_sha` it assessed and the `run_id` that produced it.
+Only a fresh run (`seal`, which REQUIRES new prose) writes `reviewed_at`; a prose repair (`correct`) moves
+only `content_modified_at`. Legacy v1 digests (a single `generated:` date) are still read and verified;
+`migrate` upgrades one to v2.
 
 Unlike the self-map or the knowledge graph, the digest is NOT source-deterministic — it is run-dated,
 judgment-bearing prose, so it cannot be regenerated-and-byte-compared. So "fingerprint-gated so it cannot
 silently drift" (the audits design) is realized as a SELF-SEAL: the file carries a check-value computed
-over its own run-date + body, and the gate recomputes that value and compares. A hand-edit that changes
-the file after the audit wrote it — without re-running the audit to re-seal — no longer matches, and the
-gate goes red. This catches a *silent* hand-edit, exactly as the self-map gate catches a silent edit of a
-generated file; a deliberate re-seal (re-running the audit) passes, which is the intended way to change it.
+over its own header fields + body, and the gate recomputes that value and compares. A hand-edit that
+changes the file after the audit wrote it — without re-running the audit to re-seal — no longer matches,
+and the gate goes red. This catches a *silent* hand-edit, exactly as the self-map gate catches a silent
+edit of a generated file; a deliberate re-seal (re-running the audit) passes, which is the intended way to
+change it. The seal is tamper-EVIDENCE, not authentication: it proves the recorded fields and body have
+not drifted since sealing, not that `reviewed_at`/`audited_sha` name a real run — that rests on the
+committing workflow and the reviewed merge.
 
-SEAL INVARIANT (load-bearing): the seal hashes the PARSED `generated` scalar (read through
-validate.frontmatter, which normalizes a YAML date to a stable ISO string) plus the RAW body bytes (the
-text after the closing `---` fence, read with newline='' so a CRLF/LF change is caught, not masked). It
-never hashes the frontmatter's serialized text, so re-quoting or re-ordering the header cannot affect
-validity — only a change to the run-date or the body can. The `fingerprint` field is never part of its own
-input.
+SEAL INVARIANT (load-bearing): the v2 seal hashes the header fields MINUS `fingerprint`, each normalized to
+one canonical form (dates to a stable ISO string, the version to an int, everything else to a string,
+absent optionals dropped) and serialized as single-line sorted JSON, plus the RAW body bytes (the text
+after the closing `---` fence, read with newline='' so a CRLF/LF change is caught, not masked). Normalizing
+the parsed values means the seal is independent of how the header was serialized (re-quoting or re-ordering
+cannot affect validity) AND deterministic across the write side (which builds fields from argv/env strings)
+and the check side (which reads them back through validate.frontmatter, which coerces a YAML date to a
+date-object and a bare number to an int). Because the covered set is the whole header minus `fingerprint`,
+no header field is left unsealed — a stray added key breaks the seal. The legacy v1 seal (`compute_seal`)
+hashes only the `generated` scalar + body and is retained for reading existing v1 digests.
 
 Library + CLI (mirrors self_map.py — plain language first):
 
-  uv run --directory .engine -- python tools/audit_digest.py seal <file> [YYYY-MM-DD] [--body-file P]  # stamp + seal
+  uv run --directory .engine -- python tools/audit_digest.py seal <file> [YYYY-MM-DD] --body-file P  # fresh run: stamp reviewed_at + seal
+  uv run --directory .engine -- python tools/audit_digest.py correct <file> [--body-file P] [--content-modified-at YYYY-MM-DD]  # prose repair (run-date preserved)
+  uv run --directory .engine -- python tools/audit_digest.py migrate <file> --reviewed-at YYYY-MM-DD [--content-modified-at YYYY-MM-DD]  # one-time v1 -> v2 upgrade
   uv run --directory .engine -- python tools/audit_digest.py check [<file>]            # is the seal intact?
   uv run --directory .engine -- python tools/audit_digest.py staleness [<file>]        # how fresh is it?
   uv run --directory .engine -- python tools/audit_digest.py body [<file>]             # the review prose, frontmatter stripped
@@ -96,10 +114,72 @@ def _iso(value) -> str:
 # ---- the seal (pure; fixture-testable) -------------------------------------------------------
 
 def compute_seal(generated: str, body: str) -> str:
-    """The self-seal: sha256 over the run-date + the raw body. Never includes the frontmatter's
-    serialized text or the fingerprint field — only a change to the date or the body moves it."""
+    """The legacy v1 self-seal: sha256 over the run-date + the raw body. Retained to read and verify
+    existing v1 digests; the v2 writer uses compute_seal_v2. Never includes the frontmatter's serialized
+    text or the fingerprint field — only a change to the date or the body moves it."""
     digest = hashlib.sha256((generated + "\n" + body).encode("utf-8")).hexdigest()
     return "sha256:" + digest
+
+
+# ---- schema v2: reviewed_at / content_modified_at / audited_sha / run_id ---------------------
+#
+# v1 collapsed the audit RUN-date and the prose MODIFICATION-date into one `generated:` field, so a prose
+# re-seal advanced the run-date and made an old review look freshly run (#665). v2 separates them: an
+# immutable `reviewed_at` (the run-date staleness reads) from a `content_modified_at` (bumped by a prose
+# correction), plus optional `audited_sha` (the committed tree the audit assessed) and `run_id` (the
+# workflow run identity). Only a real run (`seal`, which requires fresh prose) writes `reviewed_at`.
+
+SCHEMA_VERSION_V2 = 2
+
+# The date-typed sealed fields — normalized to a stable ISO string on both the write and the check side.
+_V2_DATE_FIELDS = ("reviewed_at", "content_modified_at")
+
+
+def _schema_version(fm: dict):
+    """The header's `schema_version` as an int, or None when absent/unreadable. It selects the verification
+    algorithm, so a header that cannot name a clean integer version fails closed to a `hard` finding in check()."""
+    try:
+        return int(fm.get("schema_version"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonical_v2_fields(fields: dict) -> dict:
+    """Normalize the sealed field set to fixed types so the seal is (a) independent of how the header was
+    serialized and (b) DETERMINISTIC across write and check. The write side builds these from argv/env
+    strings; the check side reads them back through validate.frontmatter, which coerces a YAML date to a
+    date-then-string and a bare number to an int. Pin every field to one form — dates to ISO strings,
+    schema_version to int, everything else to str — and DROP an absent optional (never emit it empty) so
+    present-vs-absent is unambiguous."""
+    out = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if key == "schema_version":
+            out[key] = int(value)
+        elif key in _V2_DATE_FIELDS:
+            out[key] = _iso(value)
+        else:
+            out[key] = str(value)
+    return out
+
+
+def compute_seal_v2(fields: dict, body: str) -> str:
+    """The v2 self-seal: sha256 over the canonical header fields + the raw body. `fields` is the full
+    frontmatter MINUS `fingerprint` (see _sealed_fields), so nothing in the header is left unprotected — a
+    stray added key changes the hash. Canonicalized (fixed types, absent optionals dropped) and serialized
+    as single-line JSON with sorted keys and no spaces, so the FIRST newline in `<json>\\n<body>` is always
+    the header/body boundary — body prose can neither forge nor strip a header field, and distinct
+    present/absent field sets and distinct values all produce distinct hashes."""
+    canonical = json.dumps(
+        _canonical_v2_fields(fields), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256((canonical + "\n" + body).encode("utf-8")).hexdigest()
+    return "sha256:" + digest
+
+
+def _sealed_fields(fm: dict) -> dict:
+    """The header fields the v2 seal covers: the full frontmatter minus its own `fingerprint`."""
+    return {k: v for k, v in fm.items() if k != "fingerprint"}
 
 
 def split(path: str):
@@ -133,22 +213,60 @@ def check(path: str | None = None) -> dict:
             f"The engine's self-review file ({name}) is present but unreadable (its header is malformed). "
             f"Re-run the audit so it rewrites the file.",
             where)
-    generated, fingerprint = fm.get("generated"), fm.get("fingerprint")
-    if not generated or not fingerprint:
+    fingerprint = fm.get("fingerprint")
+    version = _schema_version(fm)
+    _tampered = (
+        f"The engine's self-review file ({name}) has been changed since the audit wrote it — its "
+        f"contents no longer match the value the audit recorded. Re-run the audit to refresh the "
+        f"file, or revert the hand-edit.")
+    _matches = f"The engine's self-review file ({name}) matches the record the audit wrote."
+    if version is None:
         return validate.finding(
             "hard",
-            f"The engine's self-review file ({name}) is missing its run-date or its check-value, so it "
-            f"cannot be verified. Re-run the audit so it rewrites the file.",
+            f"The engine's self-review file ({name}) does not name a readable schema version, so it cannot "
+            f"be verified. Re-run the audit so it rewrites the file.",
             where)
-    if compute_seal(_iso(generated), body) != fingerprint:
-        return validate.finding(
-            "hard",
-            f"The engine's self-review file ({name}) has been changed since the audit wrote it — its "
-            f"contents no longer match the value the audit recorded. Re-run the audit to refresh the "
-            f"file, or revert the hand-edit.",
-            where)
+    if version == 1:
+        generated = fm.get("generated")
+        if not generated or not fingerprint:
+            return validate.finding(
+                "hard",
+                f"The engine's self-review file ({name}) is missing its run-date or its check-value, so it "
+                f"cannot be verified. Re-run the audit so it rewrites the file.",
+                where)
+        if compute_seal(_iso(generated), body) != fingerprint:
+            return validate.finding("hard", _tampered, where)
+        return validate.finding("note", _matches, where)
+    if version == SCHEMA_VERSION_V2:
+        reviewed, modified = fm.get("reviewed_at"), fm.get("content_modified_at")
+        if not reviewed or not modified or not fingerprint:
+            return validate.finding(
+                "hard",
+                f"The engine's self-review file ({name}) is missing its run-date, its prose-modified date, "
+                f"or its check-value, so it cannot be verified. Re-run the audit so it rewrites the file.",
+                where)
+        try:
+            r_iso, m_iso = _iso(reviewed), _iso(modified)
+            if datetime.date.fromisoformat(m_iso) < datetime.date.fromisoformat(r_iso):
+                return validate.finding(
+                    "hard",
+                    f"The engine's self-review file ({name}) says its prose was repaired ({m_iso}) before "
+                    f"the audit ran ({r_iso}) — an impossible order. Re-run the audit so it rewrites the file.",
+                    where)
+        except ValueError:
+            return validate.finding(
+                "hard",
+                f"The engine's self-review file ({name}) has an unreadable run-date or prose-modified date. "
+                f"Re-run the audit so it rewrites the file.",
+                where)
+        if compute_seal_v2(_sealed_fields(fm), body) != fingerprint:
+            return validate.finding("hard", _tampered, where)
+        return validate.finding("note", _matches, where)
     return validate.finding(
-        "note", f"The engine's self-review file ({name}) matches the record the audit wrote.", where)
+        "hard",
+        f"The engine's self-review file ({name}) names an unrecognized schema version ({version}); this "
+        f"engine cannot verify it. Re-run the audit so it rewrites the file.",
+        where)
 
 
 def staleness(path: str | None = None, now: datetime.date | None = None) -> dict:
@@ -170,7 +288,9 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
             where)
     try:
         fm, _body = split(path)
-        run_date = datetime.date.fromisoformat(_iso(fm.get("generated")))
+        # v2 reads the immutable run-date; a legacy v1 digest falls back to its `generated` field. Either
+        # way the freshness signal keys on when the audit RAN, never on when its prose was last repaired.
+        run_date = datetime.date.fromisoformat(_iso(fm.get("reviewed_at") or fm.get("generated")))
     except Exception:
         return validate.finding(
             "soft",
@@ -222,30 +342,122 @@ def _ensure_recall_completeness(body: str) -> str:
 
 # ---- the seal writer (IO) --------------------------------------------------------------------
 
-def _render(generated: str, fingerprint: str, body: str) -> str:
-    """The committed digest text: a fixed-order header (run-date + check-value the gate recomputes) then
+def _render_v2(fields: dict, fingerprint: str, body: str) -> str:
+    """The committed v2 digest text: a fixed-order header (schema version, the immutable run-date, the
+    prose-modified date, the optional run identity, then the check-value the gate recomputes) followed by
     the body verbatim. Built as a plain string, not via a YAML dumper, so the serialization is stable and
-    the body the seal covers round-trips exactly through split()."""
-    return (f"---\nschema_version: 1\ngenerated: {generated}\nfingerprint: {fingerprint}\n---{body}")
+    the body the seal covers round-trips exactly through split(). Optional fields are emitted only when
+    present, matching the seal's drop-absent-optionals rule."""
+    lines = [
+        "---",
+        f"schema_version: {SCHEMA_VERSION_V2}",
+        f"reviewed_at: {fields['reviewed_at']}",
+        f"content_modified_at: {fields['content_modified_at']}",
+    ]
+    if fields.get("audited_sha"):
+        lines.append(f"audited_sha: {fields['audited_sha']}")
+    if fields.get("run_id"):
+        lines.append(f"run_id: {fields['run_id']}")
+    lines.append(f"fingerprint: {fingerprint}")
+    lines.append("---")
+    return "\n".join(lines) + body
 
 
-def seal(path: str, generated=None, body: str | None = None) -> dict:
-    """Stamp the run-date and write the self-seal over the file's body. With `body` given (the scheduled
-    run's path: the persona's prose), the body is normalized to one blank line after the header; with
-    `body=None` (re-sealing an existing file), the current body is preserved exactly. The write's exact
-    bytes are what check() later verifies. `generated` defaults to the UTC calendar day; a test injects a fixed date."""
-    generated = _iso(generated if generated is not None else moment.today_utc())
-    if body is None:
-        _fm, body = split(path)              # re-seal: reuse the existing body slice verbatim
-    else:
-        body = "\n\n" + body.lstrip("\n")    # fresh: one blank line between the header and the prose
-    body = _ensure_recall_completeness(body)
-    fingerprint = compute_seal(generated, body)
+def _write_sealed(path: str, fields: dict, body: str) -> None:
+    """Seal (over the header-minus-fingerprint + body) and write the committed v2 file. The write's exact
+    bytes are what check() later verifies."""
+    fingerprint = compute_seal_v2(fields, body)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(_render(generated, fingerprint, body))
+        fh.write(_render_v2(fields, fingerprint, body))
+
+
+def _env_run_id():
+    """The workflow run identity from the environment (GitHub Actions default vars) as `run_id/attempt`,
+    or None outside a run. Read from os.environ — the same house style `prior` uses for GITHUB_REPOSITORY —
+    so the seal step needs no workflow env: wiring and no injection-shaped `${{ }}` in its shell."""
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id:
+        return None
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+    return f"{run_id}/{attempt}" if attempt else run_id
+
+
+def seal(path: str, reviewed_at=None, body: str | None = None, audited_sha=None, run_id=None) -> dict:
+    """Write a FRESH self-review: stamp today's run-date (immutable from here on) and seal the persona's
+    prose. A body is REQUIRED — you cannot advance the run-date without a real review; a prose-only repair
+    uses `correct`. `reviewed_at` defaults to the UTC calendar day (a test injects a fixed date) and also
+    fills `content_modified_at` (the prose is written at run time). `audited_sha`/`run_id` default from the
+    workflow environment (GITHUB_SHA / GITHUB_RUN_ID[/RUN_ATTEMPT]) when present — recording which committed
+    snapshot and which run produced the review — and are honestly absent on a local run. The write's exact
+    bytes are what check() later verifies."""
+    if body is None:
+        raise ValueError(
+            "seal needs a fresh review body (--body-file); to repair prose without a new audit run, use `correct`")
+    reviewed = _iso(reviewed_at if reviewed_at is not None else moment.today_utc())
+    body = _ensure_recall_completeness("\n\n" + body.lstrip("\n"))
+    audited_sha = audited_sha if audited_sha is not None else (os.environ.get("GITHUB_SHA") or None)
+    run_id = run_id if run_id is not None else _env_run_id()
+    fields = {"schema_version": SCHEMA_VERSION_V2, "reviewed_at": reviewed, "content_modified_at": reviewed}
+    if audited_sha:
+        fields["audited_sha"] = str(audited_sha)
+    if run_id:
+        fields["run_id"] = str(run_id)
+    _write_sealed(path, fields, body)
     return validate.finding(
-        "note", f"Sealed the self-review file ({_display(path)}), dated {generated}.", _loc_opt(path))
+        "note", f"Sealed the self-review file ({_display(path)}), reviewed {reviewed}.", _loc_opt(path))
+
+
+def correct(path: str, body: str | None = None, content_modified_at=None) -> dict:
+    """Repair the digest's PROSE without a new audit run: preserve the immutable `reviewed_at` (and any
+    recorded `audited_sha`/`run_id`) and advance only `content_modified_at`, so a wording fix can never
+    postpone the staleness warning (#665). `body=None` keeps the existing prose verbatim; a new body
+    replaces it. Operates on a v2 digest only — migrate a legacy v1 file first."""
+    fm, existing_body = split(path)
+    if _schema_version(fm) != SCHEMA_VERSION_V2:
+        raise ValueError("correct operates on a v2 self-review; migrate a legacy file first with `migrate`")
+    reviewed = _iso(fm.get("reviewed_at"))
+    modified = _iso(content_modified_at if content_modified_at is not None else moment.today_utc())
+    if datetime.date.fromisoformat(modified) < datetime.date.fromisoformat(reviewed):
+        raise ValueError(f"content_modified_at ({modified}) cannot precede reviewed_at ({reviewed})")
+    body = existing_body if body is None else "\n\n" + body.lstrip("\n")
+    body = _ensure_recall_completeness(body)
+    fields = {"schema_version": SCHEMA_VERSION_V2, "reviewed_at": reviewed, "content_modified_at": modified}
+    if fm.get("audited_sha"):
+        fields["audited_sha"] = str(fm.get("audited_sha"))
+    if fm.get("run_id"):
+        fields["run_id"] = str(fm.get("run_id"))
+    _write_sealed(path, fields, body)
+    return validate.finding(
+        "note",
+        f"Repaired the self-review prose ({_display(path)}); run-date preserved ({reviewed}), prose last "
+        f"modified {modified}.",
+        _loc_opt(path))
+
+
+def migrate(path: str, reviewed_at, content_modified_at=None) -> dict:
+    """One-time upgrade of a legacy v1 digest to v2: the operator supplies the TRUE `reviewed_at` (the v1
+    `generated:` conflated the run-date with a later correction, so it is not trustworthy), and optionally
+    the `content_modified_at` of the last prose repair (defaults to `reviewed_at`). The body is preserved
+    verbatim and NO run identity is invented — that historical run recorded none. Refuses a file that is
+    already v2 (use `correct`)."""
+    if reviewed_at is None:
+        raise ValueError("migrate needs the true run-date (--reviewed-at YYYY-MM-DD); the legacy date is not trustworthy")
+    fm, existing_body = split(path)
+    if _schema_version(fm) == SCHEMA_VERSION_V2:
+        raise ValueError("this self-review is already v2; use `correct` for a prose repair")
+    reviewed = _iso(reviewed_at)
+    modified = _iso(content_modified_at) if content_modified_at is not None else reviewed
+    if datetime.date.fromisoformat(modified) < datetime.date.fromisoformat(reviewed):
+        raise ValueError(f"content_modified_at ({modified}) cannot precede reviewed_at ({reviewed})")
+    body = _ensure_recall_completeness(existing_body)
+    fields = {"schema_version": SCHEMA_VERSION_V2, "reviewed_at": reviewed, "content_modified_at": modified}
+    _write_sealed(path, fields, body)
+    return validate.finding(
+        "note",
+        f"Migrated the self-review file ({_display(path)}) to schema v2 (run-date {reviewed}, prose last "
+        f"modified {modified}).",
+        _loc_opt(path))
 
 
 # ---- the audit-over-audit corroboration read: the digest's own recent history --------
@@ -302,14 +514,16 @@ def _split_text(raw: str):
 
 
 def _generated_of(fm_text: str):
-    """The `generated:` run-date from a digest's frontmatter text, or None. A light line scan — the prior
-    digests arrive from the API as strings (not files on disk), so validate.frontmatter (which reads a
-    path) does not apply, and only the date label is needed here; the seal itself is verified at commit
-    time, never on this read."""
-    for line in fm_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("generated:"):
-            return stripped[len("generated:"):].strip() or None
+    """The run-date from a digest's frontmatter text, or None. Reads the v2 `reviewed_at:` first, then falls
+    back to the legacy v1 `generated:` — the prior-digest history spans both formats. A light line scan: the
+    prior digests arrive from the API as strings (not files on disk), so validate.frontmatter (which reads a
+    path) does not apply, and only the date label is needed here; the seal itself is verified at commit time,
+    never on this read."""
+    for label in ("reviewed_at:", "generated:"):
+        for line in fm_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(label):
+                return stripped[len(label):].strip() or None
     return None
 
 
@@ -627,6 +841,22 @@ def _take_body_file(argv: list):
     return out, body
 
 
+def _take_opt(argv: list, flag: str):
+    """Pull an optional `--flag VALUE` pair out of argv (wherever it sits) and return
+    (argv_without_it, value|None). Used for `correct`/`migrate`'s date flags."""
+    out, value, i = [], None, 0
+    while i < len(argv):
+        if argv[i] == flag:
+            if i + 1 >= len(argv):
+                raise ValueError(f"{flag} needs a value")
+            value = argv[i + 1]
+            i += 2
+            continue
+        out.append(argv[i])
+        i += 1
+    return out, value
+
+
 def _prior_cli(argv: list) -> int:
     """The audit-prep workflow's audit-over-audit verb: print the engine's own recent committed digests
     (oldest→newest) so the read-only self-review can read them as over-time corroboration — the persona
@@ -677,15 +907,42 @@ def main(argv: list) -> int:
         if cmd == "seal":
             rest, body = _take_body_file(argv)   # strip --body-file PATH before any positional read
             if len(rest) < 2:
-                print("usage: audit_digest.py seal <file> [YYYY-MM-DD] [--body-file PATH]", file=sys.stderr)
+                print("usage: audit_digest.py seal <file> [YYYY-MM-DD] --body-file PATH", file=sys.stderr)
                 return 2
-            if body is not None and not body.strip():
+            if body is None:
+                # A fresh run requires prose. Advancing the run-date without a new review is exactly the
+                # #665 footgun; a prose-only repair goes through `correct`.
+                print("ERROR: seal needs a fresh review body (--body-file); to repair prose without a new "
+                      "audit run, use `correct`.", file=sys.stderr)
+                return 2
+            if not body.strip():
                 # The scheduled run captured nothing (the self-review produced no prose) — refuse rather than
-                # commit an empty digest. The bare re-seal path (body is None) is unaffected.
+                # commit an empty digest.
                 print("ERROR: the captured self-review is empty — nothing to seal.", file=sys.stderr)
                 return 2
-            gen = rest[2] if len(rest) > 2 else None
-            print(validate.fmt(seal(rest[1], generated=gen, body=body)))
+            reviewed = rest[2] if len(rest) > 2 else None
+            print(validate.fmt(seal(rest[1], reviewed_at=reviewed, body=body)))
+            return 0
+        if cmd == "correct":
+            rest, body = _take_body_file(argv)
+            rest, cmod = _take_opt(rest, "--content-modified-at")
+            if len(rest) < 2:
+                print("usage: audit_digest.py correct <file> [--body-file PATH] "
+                      "[--content-modified-at YYYY-MM-DD]", file=sys.stderr)
+                return 2
+            print(validate.fmt(correct(rest[1], body=body, content_modified_at=cmod)))
+            return 0
+        if cmd == "migrate":
+            rest, reviewed = _take_opt(argv, "--reviewed-at")
+            rest, cmod = _take_opt(rest, "--content-modified-at")
+            if len(rest) < 2:
+                print("usage: audit_digest.py migrate <file> --reviewed-at YYYY-MM-DD "
+                      "[--content-modified-at YYYY-MM-DD]", file=sys.stderr)
+                return 2
+            if reviewed is None:
+                print("ERROR: migrate needs the true run-date (--reviewed-at YYYY-MM-DD).", file=sys.stderr)
+                return 2
+            print(validate.fmt(migrate(rest[1], reviewed_at=reviewed, content_modified_at=cmod)))
             return 0
         if cmd == "check":
             print(validate.fmt(check(argv[1] if len(argv) > 1 else None)))
@@ -718,7 +975,8 @@ def main(argv: list) -> int:
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body, prior, memory)", file=sys.stderr)
+    print(f"unknown command '{cmd}' (expected: seal, correct, migrate, check, staleness, body, prior, memory)",
+          file=sys.stderr)
     return 2
 
 
