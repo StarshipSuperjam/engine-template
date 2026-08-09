@@ -1670,5 +1670,79 @@ class TestFirstRunStrandRegression(unittest.TestCase):
                              "setup\n")
 
 
+def _mechanic_with_target(tmp: str, name: str = "mechanic", target: str | None = "acme/product") -> str:
+    """A mechanic checkout whose manifest records (or omits) a product_build_target."""
+    root = _repo(tmp, name)
+    manifest = {"product_build_target": target} if target else {"engine_release": "1.0.0"}
+    with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return root
+
+
+def _product_with_origin(tmp: str, name: str = "product",
+                         origin: str = "git@github.com:acme/product.git") -> str:
+    root = _repo(tmp, name)
+    _git(root, "remote", "add", "origin", origin)
+    return root
+
+
+class TestProductBuildSprawl(unittest.TestCase):
+    """The negative control (engine-template#902): stray product worktrees and sibling clones are surfaced so a
+    regression to the old sprawl is CAUGHT, while the sanctioned .engine/mechanic/worktrees/ home reads clean."""
+
+    def test_clean_mechanic_reports_no_sprawl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_not_a_mechanic_reports_no_sprawl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp, target=None)
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("ENGINE_PRODUCT_CHECKOUT", None)
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_stray_worktree_outside_the_sanctioned_home_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "loose-wt")            # NOT under m/.engine/mechanic/worktrees
+            _git(p, "worktree", "add", "-q", "--detach", stray)
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(stray), got["stray_worktrees"])
+            self.assertEqual(got["sibling_clones"], [])
+
+    def test_sanctioned_worktree_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            ok = os.path.join(m, ".engine", "mechanic", "worktrees", "902-x")
+            _git(p, "worktree", "add", "-q", "--detach", ok)   # the sanctioned home — must read clean
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_sibling_clone_with_matching_origin_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)                      # basename "product"
+            sib = _product_with_origin(tmp, name="product-656-labels")   # same origin, sibling folder
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(sib), got["sibling_clones"])
+
+    def test_sibling_folder_with_a_different_origin_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            _product_with_origin(tmp, name="product-unrelated", origin="git@github.com:acme/other.git")
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+
 if __name__ == "__main__":
     unittest.main()

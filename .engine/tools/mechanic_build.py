@@ -1,13 +1,33 @@
 #!/usr/bin/env python3
-"""The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED preflight that authorizes a cross-repo build.
+"""The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate that authorizes a cross-repo build, with
+two verbs — `preflight` (decide only) and `worktree` (decide, then cut the isolated build workspace).
 
 WHAT IT DOES. An engine-mechanic is a deployed engine whose product is a repository the operator OWNS
 (engine-template), checked out SEPARATELY beside it. Before a mechanic session builds that product and opens a
-direct pull request into the separate checkout, this preflight resolves the committed build target
-(`product_build_target`), resolves this machine's local path to the checkout, and REFUSES unless the checkout is
-genuinely that product on a trusted host and safe to write into. On success it emits the verified checkout path
-and the verified product slug; the runbook then runs the ordinary Build steps as subprocesses INSIDE that
-checkout (`cwd=<checkout>` + `GITHUB_REPOSITORY=<verified slug>`).
+direct pull request, both verbs resolve the committed build target (`product_build_target`), resolve this
+machine's local path to the checkout, and REFUSE unless the checkout's `origin` is genuinely that product on a
+trusted host. They then diverge:
+
+  - `preflight` additionally requires the shared checkout to be lossless (clean, on a branch) and, on success,
+    emits the verified checkout path + slug. OFFLINE and READ-ONLY — it decides, it never writes. It is the
+    identity-and-safety CHECK a session runs to confirm the arrangement is sound.
+  - `worktree <name>` does NOT require the shared checkout clean — a peer session mid-build is a legitimate
+    state, and the build never happens in the shared checkout. Instead it fetches and cuts a fresh, ISOLATED
+    worktree of the product from `origin/<default>`, homed in the mechanic's own durable state area
+    (`<engine root>/.engine/mechanic/worktrees/<name>`), and emits THAT worktree's path (as
+    ENGINE_PRODUCT_WORKTREE, a DISTINCT name from preflight's ENGINE_PRODUCT_CHECKOUT — see below) + the slug.
+    It NEVER moves the shared checkout's HEAD, index, or working tree; its only writes are the new worktree and
+    its branch, plus the shared repo's own git metadata (fetch refs, the worktree admin entry). The build then
+    runs INSIDE that worktree (`cwd=<worktree>` + `GITHUB_REPOSITORY=<verified slug>`), so concurrent sessions
+    never collide on one shared working tree — the sprawl and branch-switch harms that a per-build worktree
+    replaces (engine-template#902).
+
+WHY THE TWO EMISSIONS USE DIFFERENT NAMES. `ENGINE_PRODUCT_CHECKOUT` is the DURABLE per-machine pointer to the
+product clone (checkout_health reads it env-first, ahead of the gitignored path file). If `worktree` emitted its
+EPHEMERAL path under that same name, a later `preflight` in the session would resolve to the worktree but
+health-assess the MAIN checkout it links to (checkout_health.checkout_lossless resolves a linked worktree's main,
+not the worktree) — emitting a path it never checked, a fail-open. So the worktree path travels as
+ENGINE_PRODUCT_WORKTREE and the durable pointer keeps its one meaning.
 
 WHY THIS FILE IS GUARDED (it is in weakening_guard._FLOOR_ENFORCEMENT_HOOKS). The belt
 `product_checkout_matches` is the last line of defence behind a live cross-repo WRITE: it authorizes the
@@ -31,9 +51,10 @@ because under the subprocess-in-place build model a checkout whose origin matche
 local code execution.
 
 CONTRACT. An operation tool invoked by the engine/operator and narrated by build-orchestration.md's owned-product
-mechanic arm — never by the validator. OFFLINE and READ-ONLY: it inspects local git + the manifest and decides;
-it never fetches, branches, commits, or opens a pull request itself (the runbook's ordinary Build steps do that,
-in the checkout).
+mechanic arm — never by the validator. `preflight` is OFFLINE and READ-ONLY: it inspects local git + the manifest
+and decides, never writing. `worktree` is the one verb that ACTS: it fetches and creates a worktree + branch. It
+still commits nothing and opens no pull request — the runbook's ordinary Build steps do that, inside the emitted
+worktree. Neither verb ever writes to the shared checkout's working tree or moves its HEAD.
 """
 from __future__ import annotations
 
@@ -78,6 +99,32 @@ _REFUSALS = {
     "checkout-unhealthy": (
         "The product checkout has uncommitted work, a detached HEAD, or a paused git operation. Commit, clean, "
         "or finish it first — the mechanic will not branch on top of unsaved work in your checkout."),
+    # `worktree` verb refusals (identity reuses the taxonomy above; these are the workspace-creation reasons):
+    "bad-name": (
+        "The worktree name is not allowed. Use letters, digits, dot, dash or underscore (no leading dash or "
+        "dot, no path separators, no '..'). Pick a simple name like the issue number and a short slug."),
+    "engine-root-unresolved": (
+        "Could not resolve this engine's own checkout root, so there is nowhere to home the build worktree. "
+        "Run this from inside the engine-mechanic checkout (a normal git working tree)."),
+    "default-unresolved": (
+        "Could not determine the product's default branch with confidence, so the mechanic will not cut a "
+        "worktree from a guessed base. Ensure the product clone has a tracked origin/HEAD (git remote set-head "
+        "origin -a)."),
+    "fetch-failed": (
+        "Could not fetch the product's origin, so the worktree base could be stale. Check your network and the "
+        "product clone's origin, then try again — the mechanic will not build from an unfetched base."),
+    "origin-moved": (
+        "The product checkout's origin changed while preparing the worktree, so the mechanic stopped rather "
+        "than write against a repository it did not verify. Re-run once the origin is stable."),
+    "worktree-exists": (
+        "A build worktree of that name already exists. Another session may be using it — pick a different name, "
+        "or if it is yours and finished, remove it first (git -C <product> worktree remove <path>)."),
+    "branch-exists": (
+        "A build branch of that name already exists. Another session may have claimed this build — pick a "
+        "different name, or delete the old branch if it is yours and merged."),
+    "worktree-add-failed": (
+        "Creating the build worktree failed (git reported an error). Check that git is recent enough (2.17+) "
+        "and that the product clone is healthy, then try again."),
 }
 
 
@@ -141,19 +188,18 @@ def product_checkout_matches(target_slug: str | None, checkout_path: str | None)
     return _classify_origin(target_slug, checkout_path) == "ok"
 
 
-def resolve_build_target(cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
-    """FAIL-CLOSED resolution of the mechanic's build target. Returns `(checkout_path, product_slug, refusal)`
-    with exactly one side populated:
-      - a refusal (path/slug None) — one of the ordered, mutually-exclusive reasons in `_REFUSALS`:
-        `not-a-mechanic` (no target recorded) -> `path-unset` (target recorded, local path missing) ->
-        `checkout-unreadable` (path is not a readable git checkout) -> `origin-untrusted-host` (origin is not a
-        genuine github.com repo) -> `origin-mismatch` (origin read but != target) -> `checkout-unhealthy`
-        (dirty / detached / paused git op).
-      - `(path, slug, None)` — verified: the checkout at `path` is the committed target on github.com AND is
-        safe to write into. `slug` is the committed target (canonical), suitable for `GITHUB_REPOSITORY`.
+def _resolve_verified_identity(cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """FAIL-CLOSED identity resolution shared by both verbs: the committed target AND a resolved checkout path
+    whose `origin` is the host-anchored match — WITHOUT the working-tree health leg. Returns
+    `(checkout_path, product_slug, refusal)` with exactly one side populated, using the same ordered,
+    mutually-exclusive taxonomy as `resolve_build_target` up to (not including) the health check:
+    `not-a-mechanic` -> `path-unset` -> `checkout-unreadable` -> `origin-untrusted-host` -> `origin-mismatch`.
 
-    INVARIANT (pinned by test): NEVER returns a path unless the host-anchored belt passed AND the health check
-    passed — this is the whole authorization, so no early-out may bypass either."""
+    This is the SINGLE identity gate: `resolve_build_target` adds the cleanliness leg on top for the in-place
+    check, and `create_worktree` uses it WITHOUT that leg — deliberately, because a fresh worktree is cut from
+    `origin/<default>` and cannot ingest the shared checkout's working state, so a peer mid-build there is
+    legitimate. Keeping this factored means the host-anchored security predicate is defined once and cannot
+    drift between the two verbs (the same discipline `_classify_origin` already applies)."""
     target = checkout_health.recorded_product_build_target(cwd)
     if not target:
         return (None, None, "not-a-mechanic")
@@ -165,22 +211,138 @@ def resolve_build_target(cwd: str | None = None) -> tuple[str | None, str | None
         return (None, None, {"unreadable": "checkout-unreadable",
                              "untrusted-host": "origin-untrusted-host",
                              "mismatch": "origin-mismatch"}[origin])
+    return (path, target, None)
+
+
+def resolve_build_target(cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """FAIL-CLOSED resolution of the mechanic's IN-PLACE build target. Returns `(checkout_path, product_slug,
+    refusal)` with exactly one side populated:
+      - a refusal (path/slug None) — one of the ordered, mutually-exclusive reasons in `_REFUSALS`:
+        `not-a-mechanic` (no target recorded) -> `path-unset` (target recorded, local path missing) ->
+        `checkout-unreadable` (path is not a readable git checkout) -> `origin-untrusted-host` (origin is not a
+        genuine github.com repo) -> `origin-mismatch` (origin read but != target) -> `checkout-unhealthy`
+        (dirty / detached / paused git op).
+      - `(path, slug, None)` — verified: the checkout at `path` is the committed target on github.com AND is
+        safe to write into. `slug` is the committed target (canonical), suitable for `GITHUB_REPOSITORY`.
+
+    INVARIANT (pinned by test): NEVER returns a path unless the host-anchored belt passed AND the health check
+    passed — this is the whole authorization, so no early-out may bypass either. The belt is the shared
+    `_resolve_verified_identity`; the health leg is added here and here only."""
+    path, target, refusal = _resolve_verified_identity(cwd)
+    if refusal:
+        return (None, None, refusal)
     health = checkout_health.checkout_lossless(path)
     if health is None or not health[0]:
         return (None, None, "checkout-unhealthy")
     return (path, target, None)
 
 
+# A build-worktree name: a filesystem leaf AND (as `claude/<name>`) a git branch. The conservative charset keeps
+# it from becoming a traversal (`../`), a git option (a leading `-`), or a forged stdout line (a newline) — the
+# three ways an unvalidated name would breach this guarded tool's containment or channel discipline. Anchored,
+# ASCII, no leading dash/dot; `..` is rejected separately (belt-and-braces with a realpath containment check).
+_WORKTREE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", re.ASCII)
+_WORKTREES_REL = os.path.join(".engine", "mechanic", "worktrees")
+
+
+def _valid_worktree_name(name: str | None) -> bool:
+    """True only for a name that is safe as both a path leaf and a git ref segment (see `_WORKTREE_NAME_RE`).
+    `..` is impossible under the charset (a dot is allowed but `..` needs two adjacent dots with nothing else at
+    a boundary the regex still permits, e.g. `a..b`), so it is rejected explicitly rather than trusted to the
+    pattern."""
+    return bool(name) and bool(_WORKTREE_NAME_RE.match(name)) and ".." not in name
+
+
+def _branch_exists(product_path: str, branch: str) -> bool:
+    """True if `branch` already exists as a local branch in the product clone (a fail-closed pre-check so the
+    verb refuses with a plain reason instead of letting `worktree add` error opaquely)."""
+    return _run(["git", "-C", product_path, "rev-parse", "--verify", "--quiet",
+                 f"refs/heads/{branch}"]) is not None
+
+
+def _prune_stale_dest(product_path: str, dest: str) -> None:
+    """Clear ONLY a stale registration for `dest` (a worktree whose directory is gone), so re-using a name after
+    its folder was manually deleted does not wedge on a phantom entry. `git worktree prune` removes solely the
+    entries whose directories no longer exist — a peer's LIVE worktree (its directory present) is never touched,
+    so this cannot orphan another session's work. Gated on `dest` actually being registered-but-missing so the
+    common path performs no prune at all."""
+    if os.path.exists(dest):
+        return
+    listing = _run(["git", "-C", product_path, "worktree", "list", "--porcelain"]) or ""
+    dest_real = os.path.realpath(dest)
+    registered = any(
+        os.path.realpath(line[len("worktree "):].strip()) == dest_real
+        for line in listing.splitlines() if line.startswith("worktree "))
+    if registered:
+        _run(["git", "-C", product_path, "worktree", "prune"])
+
+
+def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """FAIL-CLOSED: cut a fresh, ISOLATED worktree of the verified product from `origin/<default>`, homed under
+    the mechanic's own durable `.engine/mechanic/worktrees/<name>`. Returns `(worktree_path, product_slug,
+    refusal)` with exactly one side populated. The identity gate is the shared `_resolve_verified_identity`
+    (host-anchored origin match) — WITHOUT the shared checkout's cleanliness leg, by design: the build never
+    touches the shared working tree, so a peer mid-build there is legitimate. It NEVER moves the shared
+    checkout's HEAD/index/tree; its only writes are the new worktree, its `claude/<name>` branch, and the shared
+    repo's own git metadata (fetch refs + the worktree admin entry).
+
+    Verify-then-write discipline (the `--repo`-pinning idea, applied to a creating verb): the verified `origin`
+    URL is captured, and re-read immediately before `worktree add` — a mid-operation origin repoint refuses
+    (`origin-moved`) rather than letting the cut follow a repository nobody verified. A failed fetch refuses
+    (`fetch-failed`); it never falls back to a stale remote-tracking ref."""
+    if not _valid_worktree_name(name):
+        return (None, None, "bad-name")
+    product_path, target, refusal = _resolve_verified_identity(cwd)
+    if refusal:
+        return (None, None, refusal)
+    root = checkout_health.engine_common_checkout(cwd)
+    if not root:
+        return (None, None, "engine-root-unresolved")
+    worktrees_dir = os.path.join(root, _WORKTREES_REL)
+    dest = os.path.join(worktrees_dir, name)
+    # Containment belt-and-braces beyond the charset: the realpath of dest's parent must be the worktrees dir.
+    if os.path.realpath(os.path.dirname(dest)) != os.path.realpath(worktrees_dir):
+        return (None, None, "bad-name")
+    branch = f"claude/{name}"
+    # Cheap, local collision checks first — a name clash is reported without any network work. Prune a stale
+    # registration for THIS dest (missing directory) so a re-used name does not wedge on a phantom entry.
+    _prune_stale_dest(product_path, dest)
+    if os.path.exists(dest):
+        return (None, None, "worktree-exists")
+    if _branch_exists(product_path, branch):
+        return (None, None, "branch-exists")
+    # Now the network path, verify-then-write: capture the verified origin, resolve the default, fetch, and
+    # re-verify the origin has not moved before the cut.
+    origin_url = _git_origin_url(product_path)   # the verified origin, captured before any write
+    default = checkout_health.confident_default_branch(product_path)
+    if not default:
+        return (None, None, "default-unresolved")
+    if _run(["git", "-C", product_path, "fetch", "origin"]) is None:
+        return (None, None, "fetch-failed")
+    if _git_origin_url(product_path) != origin_url:   # re-verify: a mid-operation repoint stops the write
+        return (None, None, "origin-moved")
+    os.makedirs(worktrees_dir, exist_ok=True)
+    if _run(["git", "-C", product_path, "worktree", "add", dest, "-b", branch,
+             f"origin/{default}"]) is None:
+        return (None, None, "worktree-add-failed")
+    return (dest, target, None)
+
+
 def main(argv: list | None = None) -> int:
-    """CLI. `preflight`: on success prints the verified environment to STDOUT (two `KEY=value` lines the runbook
-    reads — `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`) and exits 0; on any refusal prints a plain-language
-    reason + remedy to STDERR, leaves STDOUT empty, and exits non-zero. The channel discipline is
-    safety-load-bearing: a refusal string must never reach stdout, where the runbook would consume it as a path."""
+    """CLI with two verbs. `preflight`: on success prints the verified environment to STDOUT (two `KEY=value`
+    lines the runbook reads — `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`) and exits 0. `worktree <name>`:
+    on success prints `ENGINE_PRODUCT_WORKTREE` (the isolated worktree path — a DISTINCT name from preflight's,
+    so the durable pointer is never overwritten) and `GITHUB_REPOSITORY`, and exits 0. On any refusal either
+    verb prints a plain-language reason + remedy to STDERR, leaves STDOUT empty, and exits non-zero. The channel
+    discipline is safety-load-bearing: a refusal string must never reach stdout, where the runbook would consume
+    it as a path."""
     parser = argparse.ArgumentParser(
         prog="mechanic_build.py",
-        description="The engine-mechanic build preflight: verify the product checkout before a cross-repo build.")
-    parser.add_subparsers(dest="verb").add_parser(
-        "preflight", help="resolve+verify the product checkout; emit its env or refuse fail-closed")
+        description="The engine-mechanic build gate: verify the product checkout, and cut the build worktree.")
+    subs = parser.add_subparsers(dest="verb")
+    subs.add_parser("preflight", help="resolve+verify the product checkout; emit its env or refuse fail-closed")
+    wt = subs.add_parser("worktree", help="verify, then cut an isolated build worktree; emit its env or refuse")
+    wt.add_argument("name", help="a short name (issue number + slug); becomes the worktree dir and claude/<name>")
     args = parser.parse_args(argv)
     if args.verb == "preflight":
         path, slug, refusal = resolve_build_target()
@@ -188,6 +350,13 @@ def main(argv: list | None = None) -> int:
             sys.stderr.write(_REFUSALS[refusal] + "\n")
             return 1
         sys.stdout.write(f"ENGINE_PRODUCT_CHECKOUT={path}\nGITHUB_REPOSITORY={slug}\n")
+        return 0
+    if args.verb == "worktree":
+        path, slug, refusal = create_worktree(args.name)
+        if refusal:
+            sys.stderr.write(_REFUSALS[refusal] + "\n")
+            return 1
+        sys.stdout.write(f"ENGINE_PRODUCT_WORKTREE={path}\nGITHUB_REPOSITORY={slug}\n")
         return 0
     parser.print_help(sys.stderr)
     return 2

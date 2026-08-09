@@ -657,7 +657,30 @@ def tilde_path(path: str) -> str:
     return path
 
 
-def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
+def _mechanic_sprawl_note(sprawl: dict | None) -> str:
+    """The AI-facing cleanup note appended to a RESOLVED mechanic's grounding when the build-sprawl detector
+    (engine-template#902) found stray product worktrees or sibling clones. Lists what was found and tells the
+    session to OFFER the operator cleanup — never to delete anything unprompted (a worktree or clone may hold
+    unpushed work). "" when nothing stray, so a clean mechanic's grounding is unchanged."""
+    if not sprawl or sprawl.get("state") != "build-sprawl":
+        return ""
+    stray = [_one_line(str(p)) for p in (sprawl.get("stray_worktrees") or [])]
+    clones = [_one_line(str(p)) for p in (sprawl.get("sibling_clones") or [])]
+    parts = []
+    if stray:
+        parts.append("worktrees registered outside the sanctioned `.engine/mechanic/worktrees/` "
+                     f"({', '.join(stray)})")
+    if clones:
+        parts.append(f"sibling clones beside the product ({', '.join(clones)})")
+    return (" BUILD-SPRAWL FOUND (engine-template#902): older build workspaces are lying around — "
+            + "; ".join(parts) + ". These are the pattern the worktree-isolated model replaces. OFFER the "
+            "operator cleanup — a stray worktree via `git -C <product> worktree remove <path>` (then "
+            "`git worktree prune`), a sibling clone by deleting the folder — but NEVER delete unprompted: one "
+            "may hold unpushed work. Check each has no unpushed branch first, and let the operator decide.")
+
+
+def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False,
+                              sprawl: dict | None = None) -> str:
     """The engine-MECHANIC grounding paragraph (eADR-0026) — AI-facing, Tier 0 in the pack (never shed), or ""
     when this deployment is not a mechanic. A PURE renderer over `checkout_health.mechanic_orientation`'s dict, so
     the grounding can be exercised (and demonstrated) without assembling a whole pack.
@@ -680,17 +703,23 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
         return ("GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
                 f"`{product}`, and a folder for it is recorded on this machine at "
                 f"`{_one_line(str(mech.get('checkout')))}`. That folder is UNVERIFIED here — this orientation "
-                "only checked that something is there, NOT that it is really that product, on a trusted origin, "
-                "or safe to write in. So do not build from this path directly: run `mechanic_build.py preflight` "
-                "FIRST and use the path IT emits, which is checked fail-closed and refuses in plain language "
-                "otherwise. Then you build changes IN that checkout and open a DIRECT pull request into it, "
-                "following the owned-product arm of `.engine/operations/build-orchestration.md` (build in place "
-                "— run the checkout's own tools). "
+                "only checked that something is there, NOT that it is really that product, on a trusted origin. "
+                "It is the DURABLE shared clone, and a peer session may be using it right now — so do NOT build "
+                "in it and do NOT switch its branch (that breaks other sessions). Also do NOT clone a sibling "
+                "folder beside it. Instead, run `mechanic_build.py worktree <name>` from THIS mechanic tree: it "
+                "verifies the checkout fail-closed (refusing in plain language otherwise) and cuts an ISOLATED "
+                "worktree from the product's default branch, homed under the mechanic's own "
+                "`.engine/mechanic/worktrees/`; it emits `ENGINE_PRODUCT_WORKTREE=<path>` — the path to `cd` "
+                "into and build in (NOT `ENGINE_PRODUCT_CHECKOUT`, which stays the durable pointer). Note the "
+                "session worktree you are in now is a worktree of the MECHANIC, not of the product — the product "
+                "build never happens here. Build changes in that worktree and open a DIRECT pull request into "
+                "the product, following the owned-product arm of `.engine/operations/build-orchestration.md`. "
                 "Because you own the product, the merge gate is the operator's OWN gate on it — the same human, "
                 "not an independent reviewer — so what keeps self-improvement honest is NON-REFLEXIVITY: this "
                 "mechanic UPGRADES ITSELF only to human-approved RELEASED output of the product, never to its "
                 "own unmerged branch. (That governs what this engine runs ON, not what you may build: building "
-                "unmerged product work here and opening a pull request for it is exactly the job.)")
+                "unmerged product work in an isolated worktree and opening a pull request for it is exactly the "
+                "job.)") + _mechanic_sprawl_note(sprawl)
     if state not in ("path-unset", "path-unreachable"):
         return ""
     seen = ("The operator is NOT being shown the mechanic setup offer this session — first-time engine setup is "
@@ -1543,6 +1572,14 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
         mechanic = None
     try:
+        # The build-sprawl negative control (engine-template#902), RELAYED from checkout_health's OFFLINE,
+        # READ-ONLY detector: stray product worktrees (outside the sanctioned .engine/mechanic/worktrees/) and
+        # sibling clones beside the product — the old-pattern sprawl. None when clean / not a mechanic. Surfaced
+        # AI-facing on the mechanic grounding so a session OFFERS the operator cleanup; degrades QUIETLY to None.
+        mechanic_sprawl = checkout_health.detect_product_build_sprawl()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        mechanic_sprawl = None
+    try:
         # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
@@ -1749,6 +1786,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # the setup offer — which fires on EITHER broken state, so a mistyped path can never leave the offer
         # silent while the card claims readiness — and the AI grounding overlay.
         "mechanic": mechanic,
+        # the build-sprawl negative control (engine-template#902): stray product worktrees / sibling clones the
+        # worktree-isolated model exists to end, or None (clean / not a mechanic). AI-facing — appended to the
+        # mechanic grounding so a session offers cleanup; never an operator-card element.
+        "mechanic_sprawl": mechanic_sprawl,
         "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
@@ -3031,7 +3072,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # also names a build target is a misconfiguration to be read conservatively rather than acted on.
     if not s.get("home_workshop"):
         grounding = render_mechanic_grounding(s.get("mechanic"),
-                                              first_run_pending=bool((s.get("first_run") or {}).get("present")))
+                                              first_run_pending=bool((s.get("first_run") or {}).get("present")),
+                                              sprawl=s.get("mechanic_sprawl"))
         if grounding:
             out.append(grounding)
             out.append("")

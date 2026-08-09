@@ -107,10 +107,14 @@ and never forces. What differs is *what* each protects and *how* it declines:
   the fix is not a write boot makes: on the operator's "point me at my product checkout" the assistant records
   the folder in the gitignored `.engine/mechanic/product-checkout-path` (durable and per-machine — an
   environment variable would not outlive the session), and on "clone my product for me" it clones the recorded
-  product as a SIBLING folder beside the engine's own, never inside it. The unreachable case echoes the
+  product as a SIBLING folder beside the engine's own, never inside it. That single clone is the DURABLE anchor,
+  not a build workspace: each build gets its own isolated worktree of it inside the mechanic under
+  `.engine/mechanic/worktrees/` (`mechanic_build.py worktree <name>`) — so the sibling rule governs the ONE
+  anchor, never a new `~/…` sibling per build. The unreachable case echoes the
   recorded folder home-contracted (`~/…`) so a typo can be corrected without putting the account name on a card
   the operator may paste; the healthy case shows no path at all. The path is never verified here — the
-  fail-closed preflight in `mechanic_build` decides whether the checkout is really that product and safe to write in.
+  fail-closed `mechanic_build` gate decides whether the checkout is really that product before any build worktree
+  is cut from it.
 - **A stranded checkout — un-stranding (`checkout_health.unstrand`).** The deployed-floor never-strand-main
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
