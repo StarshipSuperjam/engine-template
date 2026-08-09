@@ -174,6 +174,81 @@ def detect_home_workshop(cwd: str | None = None) -> dict | None:
         return None
 
 
+# The LOCAL awaiting-landing marker instantiator.retire drops when first-run setup is APPLIED but not yet landed
+# through review (#810). It lives under the boot presentation cache — an engine-managed GITIGNORED path (the
+# `.engine/boot/.cache/` block ships in the template), so it is LOCAL: never committed, so it does not travel
+# through the landing commit, and it survives the operator's own branch->PR->merge->pull. Its presence is what
+# lets the post-landing "Setup is now complete" confirmation fire EXACTLY ONCE in the operator's own checkout;
+# a repo set up before this shipped (no marker) never shows the confirmation spuriously.
+_LANDING_MARKER_REL = os.path.join(".engine", "boot", ".cache", "first-run-landing.json")
+
+
+def mark_first_run_applied(main: str) -> bool:
+    """Write the local awaiting-landing marker after retire applies setup. FAIL-SOFT: a write failure only means
+    the one-time completion confirmation won't fire (setup itself still succeeded); it never raises into retire."""
+    try:
+        path = os.path.join(main, _LANDING_MARKER_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"schema_version": 1, "awaiting_landing": True}, fh)
+        return True
+    except Exception:  # noqa: BLE001 — best-effort; retire must complete regardless of a marker write failure
+        return False
+
+
+def clear_first_run_marker(main: str) -> None:
+    """Remove the awaiting-landing marker once the completion confirmation has been surfaced (show-once). FAIL-SOFT:
+    a failed clear only risks the confirmation showing again next start, never a crash."""
+    try:
+        os.remove(os.path.join(main, _LANDING_MARKER_REL))
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001 — a failed clear is harmless (at worst a duplicate confirmation)
+        pass
+
+
+def _current_branch(main: str) -> str | None:
+    b = _run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"])
+    return b.strip() if b and b.strip() else None
+
+
+def _default_branch(main: str) -> str | None:
+    """The default branch name from `origin/HEAD`, OFFLINE. None when unresolvable (a fresh clone may not have set
+    it) — the caller then treats durability as unconfirmable and stays quiet, never guessing."""
+    head = _run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    if head and head.strip().startswith("origin/"):
+        return head.strip().split("origin/", 1)[1] or None
+    return None
+
+
+def detect_setup_landed(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY (#810). Returns {"present": True, "main": <path>} when first-run setup was APPLIED in
+    this checkout (the local awaiting-landing marker exists) AND the transformation is now DURABLE: the one-time
+    setup tool is retired, the working tree is CLEAN, and the checkout sits on its DEFAULT branch (so the setup
+    was committed and landed through review, not left uncommitted or parked on a setup branch). This is the
+    post-landing "Setup is now complete" confirmation boot surfaces ONCE (then clears the marker). None — quiet —
+    when there is no marker (a repo set up before this shipped, or already confirmed), the state is not yet
+    durable (applied but not landed), git state is unreadable, or the checkout cannot be resolved. Deliberately
+    OFFLINE: 'durable' means committed + clean + on the default branch, never a network freshness guarantee."""
+    try:
+        main = _main_checkout(cwd)
+        if main is None:
+            return None
+        if not os.path.isfile(os.path.join(main, _LANDING_MARKER_REL)):
+            return None                                   # no marker -> nothing to confirm
+        if os.path.isfile(os.path.join(main, _SETUP_TOOL_REL)):
+            return None                                   # setup tool still present -> retire hasn't finished
+        status = _run(["git", "-C", main, "status", "--porcelain"])
+        if status is None or status.strip():
+            return None                                   # unreadable or dirty -> applied but not yet durable
+        current, default = _current_branch(main), _default_branch(main)
+        if not current or not default or current != default:
+            return None                                   # off the default (e.g., still on a setup branch)
+        return {"present": True, "main": main}
+    except Exception:  # noqa: BLE001 — any failure degrades this one signal, never the pack
+        return None
+
+
 def forked_from_home(repo: str | None, token: str | None, home: str | None, transport=None) -> bool | None:
     """ONLINE, best-effort, READ-ONLY: is `repo` a FORK of the engine's own home `home`? True (suppress the
     offer — a fork of the engine home is a contributor's fork, not an adopter to nag), False (not a fork of

@@ -1375,7 +1375,21 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # offline detector's critical path; a network miss (pr_open None) just re-offers normally.
         foreign_license = license_health.detect_foreign_license()
         if foreign_license and foreign_license.get("present"):
-            foreign_license = {**foreign_license, "pr_open": bool(license_health.removal_pr_open(repo, token))}
+            # #810 boot-signal coherence: the detector reads the STALE committed HEAD, so a checkout that is
+            # behind a freshly-verified target which already dropped LICENSE would re-offer a removal for an
+            # artifact upstream no longer carries. Correlate with the SAME verified snapshot that drives the
+            # behind-origin signal (the local `checkout_snapshot` var — `behind_origin` is None'd when current,
+            # but the snapshot keeps `target_oid`/`fresh` either way). Suppress ONLY on a FRESH snapshot whose
+            # target PROVABLY lacks LICENSE; `license_absent_upstream` fails toward re-offer, so an unreadable
+            # target never silences a real leftover. While the checkout stays behind the offer is deferred to the
+            # catch-up repair; it self-clears once current (HEAD then carries no LICENSE, so the detector rests).
+            if (checkout_snapshot.get("fresh")
+                    and license_health.license_absent_upstream(checkout_snapshot.get("main"),
+                                                               checkout_snapshot.get("target_oid"))):
+                foreign_license = None
+            else:
+                foreign_license = {**foreign_license,
+                                   "pr_open": bool(license_health.removal_pr_open(repo, token))}
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         foreign_license = None
     try:
@@ -1395,6 +1409,23 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
                 first_run = None
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
+    try:
+        # The post-landing "setup is now complete" confirmation (#810), RELAYED from first_run_health's OFFLINE,
+        # READ-ONLY detection: first-run APPLIED setup here (a local awaiting-landing marker exists) AND the
+        # transformation is now durable (setup tool retired, tree clean, on the default branch) — i.e. the setup
+        # changes landed through review. boot surfaces a one-time confirmation and CLEARS the marker in _relay_lines
+        # (show-once), so an established repo (no marker) never sees it. Degrades QUIETLY to None on any failure.
+        setup_landed = first_run_health.detect_setup_landed()
+        # #810 (spec-conformance + usability): the offline detector only confirms clean + on-default. Require the
+        # checkout to be VERIFIED-CURRENT against the freshly-fetched target too — so a local commit straight to
+        # `main` that was never landed through review does NOT read as "complete". The verified snapshot lives in
+        # boot's signals, not the offline detector, so correlate it here (the gate-on requirement is applied at
+        # render/relay time, where the gate signal is settled).
+        if setup_landed and setup_landed.get("present") and not (
+                checkout_snapshot.get("fresh") and checkout_snapshot.get("state") == "current"):
+            setup_landed = None
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        setup_landed = None
     try:
         # The home-workshop signal (#323): the examined main checkout IS the engine's own home (git origin ==
         # recorded home). OFFLINE, READ-ONLY. Strict-positive (fires only on a confirmed origin==home match),
@@ -1610,6 +1641,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
         "first_run": first_run,
+        # the post-landing "setup is now complete" confirmation (#810): first-run applied here and the changes
+        # have since landed durably (marker present + clean + on default), or None. Surfaced ONCE, then the marker
+        # is cleared in _relay_lines so it never repeats and an established repo never shows it.
+        "setup_landed": setup_landed,
         # the home-workshop signal (#323): this checkout IS the engine's own home (origin == recorded home), or
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
@@ -1713,6 +1748,21 @@ def render_dashboard(s: dict) -> str:
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
+
+    # The post-landing "Setup is now complete" confirmation (#810), shown ONCE after the setup changes land
+    # durably (a local awaiting-landing marker plus a clean checkout on the default branch). Mutually exclusive
+    # with the first_run offer above — that requires the one-time setup tool present, this requires it retired —
+    # so the two never both fire. A calm, positive confirmation, not an alarm and not an offer; the marker is
+    # cleared hook-side (_relay_lines) so it shows exactly once and an established repo never sees it.
+    # Gated on the safety gate being ON (#810 usability): "complete" must never appear beside a "your gate is off"
+    # alarm — an un-gated repo has NOT finished setup. When the gate is off the confirmation is held back (and the
+    # marker is NOT cleared, in _relay_lines), so it fires on a later start once the gate is on.
+    setup_landed = s.get("setup_landed")
+    if setup_landed and setup_landed.get("present") and s.get("gate") == "on":
+        pinned.append(
+            "✅ **Setup is now complete.** Your setup changes have landed on your main branch, your safety gate "
+            "is protecting it, and your project is ready — that was the last onboarding step. From here it's "
+            "ordinary work.")
 
     # The engine-MECHANIC setup OFFER (eADR-0026, Slice 3): this engine builds a separate OWNED product checkout,
     # but this machine's path to that checkout is missing (the portable fork case — the committed slug travelled,
@@ -2649,6 +2699,15 @@ def _relay_lines(s: dict) -> list:
             s["greenfield_intake"] = {**gf, "retired": True}
         else:
             eligible.append({"key": "greenfield_intake", "value": gf_fp})
+    # The post-landing "Setup is now complete" confirmation (#810) is SHOW-ONCE: it renders in the dashboard
+    # (below), but the marker CLEAR is a hook-side side effect here (like the ledger stamps in this pass), so the
+    # next start sees no marker and never repeats it, and an established repo never shows it. It is a one-time
+    # positive confirmation — not a pushed alarm and not ledger-collapsed — so it joins no eligible set.
+    # Clear only when the confirmation actually SHOWS (same gate-on condition render_dashboard uses), so a gate-off
+    # session holds the marker rather than burning the one-time confirmation before the operator ever sees it.
+    sl = s.get("setup_landed")
+    if sl and sl.get("present") and sl.get("main") and s.get("gate") == "on":
+        first_run_health.clear_first_run_marker(sl["main"])
     # The broken-hooksPath offer rides this SAME single decide() call (#707/#708), like off_main/foreign_license —
     # it is NOT a pushed governance alarm (it renders only in the dashboard, at the top of the offer tier). It is
     # deliberately NOT retire-eligible (a silently disabled safety hook must never be silenceable), so there is NO

@@ -48,6 +48,14 @@ Design — the operator-checkout strand:
     `checkout <default>` is defensive (never `-f`). Every destructive token stays forbidden (the tests
     source-scan for them, and behavioral tests
     pin that `catch_up` refuses divergence and `return_to_default` blocks on a paused operation).
+  - **Both corrections share a third, rescue-first arm for the first-run-strand case (`_rescue_then_reconcile`,
+    #810).** When the ONLY obstruction is uncommitted work whose every change is ALREADY present at the verified
+    target — a first-run transformation the reviewed upstream absorbed, which the plain lossless gate would
+    otherwise refuse forever — the arm commits the dirty tree to a RETAINED rescue branch FIRST, re-checks
+    subsumption on that commit, then advances the default and lands the target. Unlike the two gates above it
+    DOES switch branches (rescue then back), so here losslessness rests on the retained rescue branch, not on
+    'no branch switch'; a wrong subsumption call adopts the target while the full dirty tree stays recoverable.
+    A read-only pre-check (`_dirty_subsumed`) gates entry so genuine unrelated work still blocks as a true no-op.
   - **Fail-soft, never falsely current:** local strand detection remains quiet on unreadable state because a
     stranded checkout cannot reach the protected branch. Online checkout freshness is different: refresh or
     identity failure returns `unavailable`, which boot renders calmly and explicitly.
@@ -809,15 +817,154 @@ def _materialize_target(main: str, before: str, target: str) -> bool:
     return _ok(["git", "-C", main, "read-tree", "-u", "-m", before, target])
 
 
+# The reconcile arm's rescue message (#810): a first-run transformation the reviewed upstream already absorbed.
+_RECONCILE_MSG = "engine: saved your uncommitted setup changes before bringing the folder current"
+
+
+def _rescue_branches(main: str) -> list[str]:
+    """The `engine-rescue/*` branch names currently in `main` — used to spot a stray one a partial rescue left."""
+    out = _run(["git", "-C", main, "branch", "--list", f"{_RESCUE_PREFIX}/*", "--format=%(refname:short)"])
+    return [n for n in (out or "").split() if n]
+
+
+def _on_branch(main: str, branch: str) -> bool:
+    """True when the checkout's HEAD is the named branch (not detached, not a sibling) — the restore postcondition."""
+    return (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip() == branch
+
+
+def _dirty_subsumed(main: str, target_oid: str) -> bool:
+    """OFFLINE, READ-ONLY pre-check (#810): are ALL of the checkout's uncommitted changes ALREADY present at the
+    verified target? True only when every dirty path — tracked edits/deletes AND untracked non-ignored files —
+    already matches the target's content, so bringing the folder to the target would drop nothing that is not
+    already upstream. This is what tells a first-run transformation the reviewed upstream has absorbed (reconcile
+    it) from genuine unrelated work (leave it untouched). It reads only the working tree and the target commit —
+    never mutates, never rescues — so a False answer keeps the ordinary local-work block a TRUE no-op for the
+    common case. CONSERVATIVE: any unreadable comparison returns False (block), so unrelated work is never
+    disturbed on an inconclusive read."""
+    if not target_oid:
+        return False
+    tracked_raw = _run(["git", "-C", main, "diff", "--name-only", "HEAD"])
+    untracked_raw = _run(["git", "-C", main, "ls-files", "--others", "--exclude-standard"])
+    if tracked_raw is None or untracked_raw is None:
+        return False                                   # unreadable diff/list -> conservative: block, never guess
+    tracked = [p for p in tracked_raw.splitlines() if p]
+    untracked = [p for p in untracked_raw.splitlines() if p]
+    if not tracked and not untracked:
+        return False                                   # nothing uncommitted to reconcile
+    if tracked and not _succeeds(["git", "-C", main, "diff", "--quiet", target_oid, "--", *tracked]):
+        return False                                   # a tracked edit/delete diverges from the target
+    for path in untracked:
+        wt = (_run(["git", "-C", main, "hash-object", "--", path]) or "").strip()
+        at_target = (_run(["git", "-C", main, "rev-parse", "--verify", "--quiet",
+                           f"{target_oid}:{path}"]) or "").strip()
+        if not wt or not at_target or wt != at_target:
+            return False                               # an untracked file is absent at, or differs from, target
+    return True
+
+
+def _commit_subsumed(main: str, base_oid: str, rescue_ref: str, target_oid: str) -> bool:
+    """OFFLINE, READ-ONLY AUTHORITATIVE gate (#810), evaluated on the rescue COMMIT (post `add -A`, so
+    formerly-untracked files are captured with no blind spot). The transformation is the set of paths the rescue
+    commit changed over the pre-rescue HEAD (`base_oid`); it is subsumed when the target already agrees on every
+    one of those paths (an empty change set counts as subsumed). CONSERVATIVE on any git error (returns False):
+    an unreadable name-diff is NOT the same as an empty one, so it must not be read as 'nothing changed → subsumed'."""
+    named = _run(["git", "-C", main, "diff", "--name-only", base_oid, rescue_ref])
+    if named is None:
+        return False                                   # unreadable diff -> conservative: NOT subsumed (block)
+    paths = [p for p in named.splitlines() if p]
+    if not paths:
+        return True
+    return _succeeds(["git", "-C", main, "diff", "--quiet", target_oid, rescue_ref, "--", *paths])
+
+
+def _rescue_then_reconcile(snapshot: dict, *, original_branch: str) -> dict:
+    """LOSSLESS, CONSENT-BOUND reconcile of a behind checkout whose uncommitted changes are already SUBSUMED by
+    the verified target (#810 — a first-run transformation the reviewed upstream absorbed, which the plain
+    lossless gate would otherwise refuse). RESCUE-FIRST: the dirty tree is committed onto a RETAINED
+    `engine-rescue/<sha>` branch BEFORE anything else, so losslessness rests on that branch, NEVER on the
+    subsumption judgment — a wrong 'subsumed' call can only adopt the target while the working tree (all tracked
+    edits/deletes and untracked non-ignored files, via `add -A`) stays recoverable on the rescue branch. Then,
+    only if the AUTHORITATIVE post-rescue check still holds, the NAMED
+    default is CAS-advanced from its exact assessed OID and the checkout returns to it at the exact target. Any
+    block/failure returns HEAD to `original_branch` (the default for the on-default arm, the operator's side
+    branch for the off-main arm) and rolls back any ref advance — nothing is lost (the rescue branch, and any
+    named side branch, retain the work). The caller supplies its ALREADY-VALIDATED snapshot; this NEVER fetches.
+    Every mutation targets `git -C <main>`; no destructive git verb is used (`checkout <branch>` is never `-f`)."""
+    main, default = snapshot["main"], snapshot["branch"]
+    head_oid, default_oid, target = snapshot["head_oid"], snapshot["default_oid"], snapshot["target_oid"]
+    # Last-moment race re-checks (OFFLINE, no fetch): the exact assessed snapshot must still hold and the default
+    # must be a strict ancestor of the target — else REFUSE with NO mutation, so the pre-rescue path stays a true
+    # no-op (the caller's `_dirty_subsumed` gate already ran read-only).
+    if not _snapshot_unchanged(snapshot):
+        return {"status": "blocked", "reason": "checkout-changed", "main": main, "branch": default,
+                "applied": False}
+    if not _succeeds(["git", "-C", main, "merge-base", "--is-ancestor", default_oid, target]):
+        return {"status": "blocked", "reason": "diverged", "main": main, "branch": default, "applied": False}
+    before_rescues = set(_rescue_branches(main))
+    rescue = save_recovery_point(main, message=_RECONCILE_MSG)
+    if rescue is None:
+        # save_recovery_point returns None two ways, and they must be reported differently. (A) the rescue commit
+        # never landed (a rejecting commit hook, `commit.gpgsign` with no key, an index.lock): it left HEAD on a
+        # stray branch at the ORIGINAL commit with the dirty tree — return HEAD to the original branch (the gate
+        # excludes off-branch commits, so the tree carries back cleanly) and safe-delete the empty stray, so
+        # "nothing moved" is literally true. (B) the commit DID land but the tree was dirty again afterward (a
+        # post-commit hook wrote a file), so save_recovery_point refused: the work is now committed on the stray
+        # branch. `git branch -d` REFUSES that branch (it carries a unique commit), which is exactly how we detect
+        # case B — we keep and NAME it rather than claim "couldn't save".
+        _ok(["git", "-C", main, "checkout", original_branch])
+        saved = None
+        for stray in set(_rescue_branches(main)) - before_rescues:
+            if not _ok(["git", "-C", main, "branch", "-d", stray]):   # -d refused -> a real rescue commit landed
+                saved = stray
+        restored = _on_branch(main, original_branch)
+        if saved is not None:
+            return {"status": "blocked", "reason": "rescue-incomplete", "rescue": saved, "restored": restored,
+                    "main": main, "branch": default, "applied": True}
+        return {"status": "blocked", "reason": "rescue-failed", "restored": restored,
+                "main": main, "branch": default, "applied": not restored}
+    # From here HEAD is on the rescue branch, the working tree is CLEAN, and the default ref is still default_oid.
+    # Every block below has already MUTATED (the dirty tree is committed on the retained rescue branch), so each
+    # returns HEAD to `original_branch` and reports `restored` — never the peers' "left everything untouched".
+    if not _commit_subsumed(main, head_oid, rescue, target):
+        restored = _ok(["git", "-C", main, "checkout", original_branch]) and _on_branch(main, original_branch)
+        return {"status": "blocked", "reason": "local-work", "rescue": rescue, "reconciled": False,
+                "restored": restored, "main": main, "branch": default, "applied": True}
+    if not _advance_named_default(main, default, default_oid, target):
+        restored = _ok(["git", "-C", main, "checkout", original_branch]) and _on_branch(main, original_branch)
+        return {"status": "blocked", "reason": "target-changed", "rescue": rescue,
+                "restored": restored, "main": main, "branch": default, "applied": True}
+    if not _ok(["git", "-C", main, "checkout", default]):
+        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}", default_oid, target])   # roll back advance
+        restored = _ok(["git", "-C", main, "checkout", original_branch]) and _on_branch(main, original_branch)
+        return {"status": "blocked", "reason": "checkout-failed", "rescue": rescue,
+                "restored": restored, "main": main, "branch": default, "applied": True}
+    after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+    after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    clean = not (_run(["git", "-C", main, "status", "--porcelain"]) or "").strip()
+    if after == target and after_branch == default and clean:
+        return {"status": "fixed", "reconciled": True, "rescue": rescue, "main": main, "branch": default,
+                "before": head_oid, "after": after, "target_oid": target, "applied": True}
+    # A process raced the tiny advance->checkout window: never claim success. Stop, retain the rescue branch, and
+    # report for inspection (mirrors catch_up's postcondition posture; further mutation risks a messier tree).
+    return {"status": "blocked", "reason": "postcondition-failed", "rescue": rescue,
+            "main": main, "branch": default, "after": after, "applied": True}
+
+
 def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
              expected_target: str | None = None) -> dict:
-    """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. LOSSLESS by
-    construction: it requires the clean lossless gate, proves strict ancestry, and atomically advances the NAMED
-    default from its exact assessed OID before materializing the exact target. A concurrent checkout cannot
-    advance the wrong branch; divergence refuses. When the checkout is PARKED ON A SIDE BRANCH, returning it is
-    `return_to_default`'s job — catch_up never fast-forwards a side branch, so it declines ('off-main'). Dry-run
-    (apply=False) reports without mutating. Every mutation targets `git -C <main>` — never the session's own
-    worktree. status ∈ healthy | behind | off-main | unavailable | fixed | blocked."""
+    """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. Two cases, each
+    lossless. CLEAN case (lossless gate clean): lossless BY CONSTRUCTION — proves strict ancestry, atomically
+    advances the NAMED default from its exact assessed OID, then materializes the exact target WITHOUT ever
+    leaving the default branch. DIRTY-SUBSUMED case (#810): when the ONLY obstruction is uncommitted work whose
+    every change is already present at the verified target (a first-run transformation the reviewed upstream
+    absorbed), it DELEGATES to the rescue-first `_rescue_then_reconcile` arm — which does switch branches while
+    it saves the dirty tree to a retained rescue branch, so here losslessness rests on that rescue branch, not on
+    'no branch switch'. Any OTHER local obstruction (a stash, off-branch commit, paused op, or dirty work NOT
+    subsumed) still BLOCKS 'local-work' with no mutation, exactly as before. A concurrent checkout cannot advance
+    the wrong branch; divergence refuses. When PARKED ON A SIDE BRANCH, returning it is `return_to_default`'s job
+    — catch_up never fast-forwards a side branch, so it declines ('off-main'). Dry-run (apply=False) reports
+    without mutating. Every mutation targets `git -C <main>` — never the session's own worktree.
+    status ∈ healthy | behind | off-main | unavailable | fixed | blocked."""
     behind = _checkout_snapshot(cwd, do_fetch=do_fetch)
     if behind["state"] == "unavailable":
         return {**behind, "status": "unavailable", "applied": False}
@@ -842,6 +989,11 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
         return {**behind, "status": "blocked", "reason": "diverged", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
+        # #810: the only obstruction being uncommitted work already SUBSUMED by the verified target is the
+        # first-run-strand case — reconcile it losslessly (rescue-first). Any other obstruction (stash,
+        # off-branch commit, paused op, or dirty work that is NOT subsumed) still blocks with no mutation.
+        if reasons == ["uncommitted"] and _dirty_subsumed(main, behind["target_oid"]):
+            return _rescue_then_reconcile(behind, original_branch=default)
         return {**behind, "status": "blocked", "reason": "local-work", "reasons": reasons, "applied": False}
     advanced = _advance_named_default(main, default, behind["head_oid"], behind["target_oid"])
     still_default = ((_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
@@ -894,7 +1046,12 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
         return {**snapshot, "status": "blocked", "reason": "target-changed", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
-        # dirty tree / stash / paused op: returning would risk work -> block, no mutation
+        # #810 off-main sibling of catch_up's arm: when the ONLY obstruction is uncommitted work already
+        # SUBSUMED by the verified target, reconcile it losslessly (rescue-first), then land on the default at
+        # the target. `_rescue_then_reconcile` returns HEAD to the side branch (`current`) on any block.
+        if reasons == ["uncommitted"] and _dirty_subsumed(main, snapshot["target_oid"]):
+            return _rescue_then_reconcile(snapshot, original_branch=current)
+        # dirty tree / stash / paused op not subsumed: returning would risk work -> block, no mutation
         return {"status": "blocked", "main": main, "branch": default, "from": current,
                 "reasons": reasons, "applied": False}
     if not _snapshot_unchanged(snapshot):
@@ -1141,8 +1298,35 @@ def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
         print("Your project folder is up to date — nothing to bring in.")
     elif r["status"] == "unavailable":
         _print_unavailable(r)
+    elif r["status"] == "fixed" and r.get("reconciled"):
+        print("Brought your project folder up to date. Your uncommitted setup changes were already part of the "
+              f"shared project, so I saved a copy to a safe point first (the branch '{r['rescue']}'), then "
+              "brought the folder current — nothing was lost.")
     elif r["status"] == "fixed":
         print("Brought your project folder up to date — it now has the recent shared work it was missing.")
+    elif r["status"] == "blocked" and r.get("reason") == "rescue-failed":
+        if r.get("restored"):
+            print("I couldn't safely save your uncommitted changes to a safe point, so I stopped and put your "
+                  "folder back exactly as it was — your changes are still here, nothing is lost.")
+        else:
+            print("I couldn't save your uncommitted changes to a safe point and couldn't fully put your folder "
+                  "back, so I stopped. Your changes are still here — please check the folder before trying again.")
+    elif r["status"] == "blocked" and r.get("reason") == "rescue-incomplete":
+        print(f"I did save your uncommitted changes to a safe point (the branch '{r['rescue']}'), but something on "
+              "your machine — most likely a commit hook — stopped me from finishing. Your changes are safe on that "
+              "branch; your folder is back on its main branch without them, so recover them from that branch.")
+    elif r["status"] == "blocked" and r.get("reason") == "local-work" and r.get("rescue"):
+        print("Your uncommitted changes turned out not to be part of the shared project after all, so I did not "
+              f"change your main line. I saved them safely to a safe point (the branch '{r['rescue']}') and your "
+              "folder is now clean — bring it up to date whenever you're ready.")
+    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
+        extra = f" Your uncommitted changes are safe on the branch '{r['rescue']}'." if r.get("rescue") else ""
+        print("Another project operation raced the final update check, so I stopped without claiming success." +
+              extra + " Inspect the folder's current line and history before doing anything else.")
+    elif r["status"] == "blocked" and r.get("rescue"):
+        print(f"I saved your uncommitted changes to a safe point (the branch '{r['rescue']}') but the project "
+              "changed before I could finish bringing your folder current, so I stopped. Nothing was lost — "
+              "check the folder before trying again.")
     elif r["status"] == "blocked" and r.get("reason") == "consent-target-required":
         print("The exact confirmation target is missing, so I left your folder untouched. Run the dry check "
               "first, then use the complete apply command it prints.")
@@ -1152,9 +1336,6 @@ def _plain_catch_up(apply: bool, expected_target: str | None = None) -> int:
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
         print("Your main line and the shared project have both moved, so I left everything untouched. This "
               "needs a deliberate reconciliation rather than an automatic catch-up.")
-    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
-        print("Another project operation raced the final update check, so I stopped without claiming success. "
-              "Inspect the folder's current line and history before doing anything else.")
     elif r["status"] == "blocked":
         print("Your project folder is behind, but you have unsaved changes that clash with the incoming work, "
               "so I left everything untouched — nothing is lost. Save or set those changes aside and ask again.")
@@ -1178,6 +1359,10 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
         print("Your project folder is on your main branch already — nothing to move.")
     elif r["status"] == "unavailable":
         _print_unavailable(r)
+    elif r["status"] == "fixed" and r.get("reconciled"):
+        print("Pointed your project folder back at your main branch and brought it up to date. Your uncommitted "
+              f"setup changes were already part of the shared project, so I saved a copy to a safe point first "
+              f"(the branch '{r['rescue']}'); your other work stays on its own branch — nothing was lost.")
     elif r["status"] == "fixed" and r.get("brought_current"):
         print("Pointed your project folder back at your main branch and brought it up to date. Your other work "
               "is untouched — it's still saved on its own branch, exactly where it was.")
@@ -1185,6 +1370,34 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
         print("Pointed your project folder back at your main branch — your other work is untouched, still saved "
               "on its own branch. I left your main branch exactly as it was (it has some local changes of its "
               "own that aren't on the shared copy yet), so it may not be fully up to date.")
+    elif r["status"] == "blocked" and r.get("reason") == "rescue-failed":
+        if r.get("restored"):
+            print("I couldn't safely save your uncommitted changes to a safe point, so I stopped and put your "
+                  "folder back exactly where it was — your changes are still here, nothing is lost.")
+        else:
+            print("I couldn't save your uncommitted changes to a safe point and couldn't fully put your folder "
+                  "back, so I stopped. Your changes are still here — please check the folder before trying again.")
+    elif r["status"] == "blocked" and r.get("reason") == "rescue-incomplete":
+        print(f"I did save your uncommitted changes to a safe point (the branch '{r['rescue']}'), but something on "
+              "your machine — most likely a commit hook — stopped me from finishing. Your changes are safe on that "
+              "branch; recover them from there when you're ready.")
+    elif r["status"] == "blocked" and r.get("reason") == "local-work" and r.get("rescue"):
+        print("Your uncommitted changes turned out not to be part of the shared project after all, so I did not "
+              f"move your main branch. I saved them safely to a safe point (the branch '{r['rescue']}') and put "
+              "your folder back on its side branch — bring it up to date whenever you're ready.")
+    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
+        if r.get("restored"):
+            extra = f" Your uncommitted changes are safe on the branch '{r['rescue']}'." if r.get("rescue") else ""
+            print("The final update check failed, so I put your folder back on its original side line." + extra +
+                  " Nothing was lost; inspect the repository state before trying again.")
+        else:
+            extra = f" Your uncommitted changes are safe on the branch '{r['rescue']}'." if r.get("rescue") else ""
+            print("The final update check failed and I couldn't restore the original side line automatically." +
+                  extra + " I stopped immediately; inspect the folder state before doing anything else.")
+    elif r["status"] == "blocked" and r.get("rescue"):
+        print(f"I saved your uncommitted changes to a safe point (the branch '{r['rescue']}') but the project "
+              "changed before I could finish, so I stopped and put your folder back on its side branch. Nothing "
+              "was lost — check the folder before trying again.")
     elif r["status"] == "blocked" and r.get("reason") == "consent-target-required":
         print("The exact confirmation target is missing, so I left your folder exactly where it is. Run the "
               "dry check first, then use the complete apply command it prints.")
@@ -1194,13 +1407,6 @@ def _plain_return_to_default(apply: bool, expected_target: str | None = None) ->
     elif r["status"] == "blocked" and r.get("reason") == "diverged":
         print("Your main line and the shared project have both moved, so I left your folder on its current side "
               "line. This needs a deliberate reconciliation; nothing moved and nothing was lost.")
-    elif r["status"] == "blocked" and r.get("reason") == "postcondition-failed":
-        if r.get("restored"):
-            print("The final update check failed, so I put your folder back on its original side line. Nothing "
-                  "was lost; inspect the repository state before trying again.")
-        else:
-            print("The final update check failed and I couldn't restore the original side line automatically. "
-                  "I stopped immediately; inspect the folder state before doing anything else.")
     elif r["status"] == "blocked":
         print("Your project folder is parked on another branch, but it has unsaved changes (or a git operation "
               "paused mid-way), so I left everything exactly where it is — nothing moved, nothing lost. Save or "
