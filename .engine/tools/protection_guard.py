@@ -149,6 +149,13 @@ def platform_forbids_rulesets(status: int, body, headers=None) -> bool:
         token in msg for token in ("ruleset", "team", "enterprise", "feature", "private repositor"))
 
 
+def http_error_forbids_rulesets(err: urllib.error.HTTPError) -> bool:
+    """platform_forbids_rulesets for the raising read model (get_json raises HTTPError unwrapped) — used by
+    the standing check's main() and by boot's protected_branch_signal so both branch on the genuine
+    plan-limitation 403 through exactly one recognition. Never raises."""
+    return platform_forbids_rulesets(err.code, _forbidden_body(err), err.headers)
+
+
 def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> list:
     """Pure evaluation of the protection floor against the EVALUATED per-branch rules (which already omit rules in
     evaluate/disabled mode), for the given identity `tier`. Returns the list of floor pieces not in force — empty
@@ -247,7 +254,7 @@ def main() -> int:
         # recorded an unsupported-platform posture AND this 403 genuinely carries GitHub's plan-limitation
         # signature (platform_forbids_rulesets excludes rate-limit/incident/permission 403s). Any other
         # failure — no posture, or a 403 that isn't a plan limit — stays HARD, exactly as before.
-        if posture and platform_forbids_rulesets(e.code, _forbidden_body(e), e.headers):
+        if posture and http_error_forbids_rulesets(e):
             when = posture.get("recorded_on") or "an earlier date"
             who = posture.get("operator_login") or "the operator"
             return emit([{"severity": "soft", "location": None,

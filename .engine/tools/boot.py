@@ -68,6 +68,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+import urllib.error
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -288,19 +289,27 @@ def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
 def protected_branch_signal(repo: str | None, token: str | None,
                             branch: str | None = None) -> tuple[str, str | None]:
     """The protected-branch governance signal, RELAYED from protection_guard (the control-plane's own
-    evaluation), in three honest states:
-      ("off", reason)       -> the gate is NOT in force: a pinned governance alarm that OFFERS the fix.
-                               boot stays read-only and only offers; the assistant runs the already-built,
-                               idempotent one-click `bootstrap.py finalize` (bootstrap.ControlPlane.finalize —
-                               apply plus the workflows-present guard, so it can't re-deadlock a freshly-arrived
-                               repo) on the operator's consent — the shared repair-offer contract
-                               (boot-session-start.md).
-      ("on", None)          -> the gate fully bites: no alarm.
-      ("unknown", None)     -> boot could not verify it (no token/repo/unreachable): a clear degraded line
-                               that must NEVER read as a green all-clear.
+    evaluation), in four honest states:
+      ("off", reason)         -> the gate is NOT in force: a pinned governance alarm that OFFERS the fix.
+                                 boot stays read-only and only offers; the assistant runs the already-built,
+                                 idempotent one-click `bootstrap.py finalize` (bootstrap.ControlPlane.finalize —
+                                 apply plus the workflows-present guard, so it can't re-deadlock a freshly-arrived
+                                 repo) on the operator's consent — the shared repair-offer contract
+                                 (boot-session-start.md).
+      ("on", None)            -> the gate fully bites: no alarm.
+      ("unsupported", date)   -> this repository's GitHub plan cannot host branch rulesets AND the operator
+                                 recorded a deliberate acceptance of that (protection_posture): a CALM,
+                                 non-alarm steady state, never "your gate is off (broken)" — the platform,
+                                 not a fault, is why the gate is off, and the operator already accepted it.
+                                 The second slot carries the accepted-on date. Requires BOTH the recorded
+                                 posture AND a live plan-limitation 403, so a stale/forged posture never
+                                 quiets the alarm on a repo whose plan can host protection.
+      ("unknown", None)       -> boot could not verify it (no token/repo/unreachable/an unrecognized failure):
+                                 a clear degraded line that must NEVER read as a green all-clear.
     """
     if not repo or not token:
         return "unknown", None
+    posture = protection_guard.recorded_posture()  # an operator-consented plan-limitation acceptance, or None
     # The branch to probe is the AUTHORITATIVE default (env -> recorded -> origin/HEAD -> "main"), resolved at
     # call time so it self-heals a pre-recorded-key deployment; quoted so a malformed name can never redirect
     # this token-bearing request off its `/rules/branches/` path.
@@ -316,6 +325,13 @@ def protected_branch_signal(repo: str | None, token: str | None,
         # check enforces.
         missing = protection_guard.missing_floor(
             rules, protection_guard.REQUIRED_CHECKS, tier=protection_guard.resolve_tier())
+    except urllib.error.HTTPError as e:
+        # A recorded acceptance PLUS a live plan-limitation 403 is the calm off-by-acceptance state. Any other
+        # failure — no posture, or a 403 that isn't a genuine plan limit — stays the honest "unknown" degraded
+        # line, never a false all-clear.
+        if posture and protection_guard.http_error_forbids_rulesets(e):
+            return "unsupported", posture.get("recorded_on")
+        return "unknown", None
     except Exception:  # noqa: BLE001 — unreachable / auth / malformed body -> unknown, never a false "on"
         return "unknown", None
     if missing:
