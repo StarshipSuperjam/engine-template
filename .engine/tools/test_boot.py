@@ -979,6 +979,20 @@ class TestPresentMarker(unittest.TestCase):
         self.assertIn(boot.PRESENT_MARKER, floor,
                       "the floor's verify-presence instruction must name the exact card title boot renders")
 
+    def test_memory_doctrine_lives_in_both_floors(self):
+        # eADR-0033 / #787: the three-homes memory doctrine (incl. the injection-defense clause) is carried
+        # ONLY by the always-loaded floor now, no longer duplicated in the boot pack's write-gate copy
+        # (modes.describe_explore_scope, which keeps just the gate-coupled notebook ALLOW — test_modes pins
+        # that). Since the floor is its sole home, guard that it did not silently drop from either provider's
+        # floor; nothing else checks this content.
+        for path in (ROOT_CLAUDE, os.path.join(validate.ROOT, "AGENTS.md")):
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read().lower()
+            self.assertIn("pin", text, f"{path}: floor must carry the pins doctrine")
+            self.assertIn("notebook", text, f"{path}: floor must name the working-notes notebook")
+            self.assertIn("told me to remember", text,
+                          f"{path}: floor must carry the untrusted-input memory caution")
+
     def test_dashboard_card_title_is_the_marker(self):
         # The operator-toned dashboard (the view the status verb ships) always leads with the card title.
         self.assertEqual(boot.render_dashboard(_signals()).splitlines()[0], f"## {boot.PRESENT_MARKER}")
@@ -3042,9 +3056,6 @@ class PinAndWithholdReadoutTests(unittest.TestCase):
         self.assertEqual(boot.read_pins(read=explode), [])
         self.assertEqual(boot.read_pins(read=lambda **_kw: [{"text": "kept"}, {"no": "text"}, "junk"]),
                          [{"text": "kept"}])
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class RelayMarkerVariantTests(unittest.TestCase):
