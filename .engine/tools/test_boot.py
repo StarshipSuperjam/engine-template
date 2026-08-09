@@ -3340,5 +3340,76 @@ class TestPackCapGuard(unittest.TestCase):
         self.assertIn("Project status", pack)                        # never truncated, even oversize
 
 
+class TestBriefingBudget(unittest.TestCase):
+    """The briefing-budget reader (_briefing_values) and the component bounds it drives (eADR-0033; #787/#899)."""
+
+    def test_code_fallback_equals_the_shipped_policy_values(self):
+        # the never-raises fallback MUST equal the shipped policy's values, so the doc, the code, and the
+        # margin canary cannot drift while the policy file is readable (the "single source of truth" claim).
+        shipped = validate.frontmatter(
+            os.path.join(validate.ENGINE_DIR, "policies", "briefing-budget.md")).get("values")
+        self.assertEqual(shipped, boot._BRIEFING_BUDGET_DEFAULTS)
+
+    def test_shipped_margin_floor_is_at_or_above_the_code_minimum(self):
+        # a PR that lowers margin_floor_chars in the (unguarded) policy below the hard code floor is caught here.
+        self.assertGreaterEqual(boot._BRIEFING_BUDGET_DEFAULTS["margin_floor_chars"], boot._MIN_MARGIN_FLOOR)
+
+    def test_margin_floor_is_clamped_up_never_below_the_code_minimum(self):
+        # the policy may RAISE the margin but never lower it past the code floor — the number that defines
+        # "eroded" cannot be silently zeroed in an unguarded file (#899).
+        with mock.patch.object(boot.validate, "frontmatter",
+                               return_value={"values": {"margin_floor_chars": 20}}):
+            self.assertEqual(boot._briefing_values()["margin_floor_chars"], boot._MIN_MARGIN_FLOOR)
+        with mock.patch.object(boot.validate, "frontmatter",
+                               return_value={"values": {"margin_floor_chars": 9000}}):
+            self.assertEqual(boot._briefing_values()["margin_floor_chars"], 9000)
+
+    def test_reader_never_raises_and_ignores_junk(self):
+        # a missing/malformed policy falls back to the shipped defaults (fail-open), and non-number or unknown
+        # keys are ignored rather than trusted.
+        with mock.patch.object(boot.validate, "frontmatter", side_effect=OSError("gone")):
+            self.assertEqual(boot._briefing_values(), {**boot._BRIEFING_BUDGET_DEFAULTS,
+                                                       "margin_floor_chars": max(
+                                                           boot._BRIEFING_BUDGET_DEFAULTS["margin_floor_chars"],
+                                                           boot._MIN_MARGIN_FLOOR)})
+        with mock.patch.object(boot.validate, "frontmatter",
+                               return_value={"values": {"excerpt_chars": "lots", "bogus": 5}}):
+            self.assertEqual(boot._briefing_values()["excerpt_chars"],
+                             boot._BRIEFING_BUDGET_DEFAULTS["excerpt_chars"])
+            self.assertNotIn("bogus", boot._briefing_values())
+
+    def test_recent_session_quotes_are_clipped_to_excerpt_chars(self):
+        cards = [{"first_ask": "A" * 500, "last_ask": "B" * 500, "count": 3, "ended": None, "session_id": "s"}]
+        block = "\n".join(boot.render_recent_sessions(cards, 50))
+        self.assertIn("…", block)                        # clipped with an ellipsis
+        self.assertNotIn("A" * 100, block)               # the full 500-char quote never reaches the pack
+        # unbounded (max_chars None) leaves the quote whole — pins-style callers keep full text
+        self.assertIn("A" * 500, "\n".join(boot.render_recent_sessions(cards, None)))
+
+    def test_neighborhood_groups_are_capped_with_a_disclosed_remainder(self):
+        groups = [{"predicate": "depends_on", "direction": "out", "source": f"mod{i}",
+                   "sample": [f"dep{i}"], "total": 1} for i in range(10)]
+        nb = {"focus": ["x"], "focus_total": 1, "groups": groups}
+        lines = boot.render_neighborhood(nb, 3)
+        rel = [ln for ln in lines if ln.strip().startswith(("mod", "…and"))]
+        self.assertEqual(sum(1 for ln in lines if "depends on" in ln), 3)   # only 3 groups shown
+        self.assertTrue(any("…and 7 more relationship groups" in ln for ln in lines))
+
+    def test_execution_posture_fails_toward_showing_more(self):
+        # the real shipped posture renders UNCLIPPED (fail-toward-showing-more); only a runaway is trimmed.
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("EXECUTION POSTURE", pack)
+        self.assertNotIn("posture trimmed to fit", pack)
+        # a runaway posture IS clipped and disclosed
+        body, clipped = boot._bounded_posture(["x" * 50] * 40, 8, 700)
+        self.assertTrue(clipped)
+        self.assertLessEqual(len(body), 700)
+
+
 if __name__ == "__main__":
     unittest.main()
