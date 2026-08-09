@@ -129,7 +129,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
             "fast_search_unavailable": False,
             "set_aside": None, "foreign_license": None, "hooks_path": None,
-            "first_run": None, "greenfield_intake": None,
+            "first_run": None, "setup_landed": None, "greenfield_intake": None,
             "operator_backlog_count": None, "operator_backlog_register": None,
             "operator_backlog_degraded": False}
 
@@ -268,6 +268,73 @@ class TestFirstRunOffer(unittest.TestCase):
     def test_gate_off_offer_shows_normally_without_first_run(self):
         dash = boot.render_dashboard(_signals(gate="off", reason="branch protection not found")).lower()
         self.assertIn("turn my safety gate back on", dash)
+
+
+class TestSetupLandedConfirmation(unittest.TestCase):
+    """#810: the one-time post-landing 'Setup is now complete' confirmation renders when the signal is present,
+    renders nothing otherwise, is not a governance must-relay, and _relay_lines clears the marker (show-once)."""
+
+    _LANDED = {"present": True, "main": "/proj"}
+
+    def test_confirmation_renders_when_present(self):
+        dash = boot.render_dashboard(_signals(setup_landed=self._LANDED))
+        self.assertIn("Setup is now complete", dash)
+        self.assertIn("last onboarding step", dash.lower())
+
+    def test_nothing_renders_when_absent(self):
+        self.assertNotIn("Setup is now complete", boot.render_dashboard(_signals(setup_landed=None)))
+
+    def test_confirmation_is_not_a_governance_must_relay(self):
+        pushed = "\n".join(boot.must_push(_signals(setup_landed=self._LANDED)))
+        self.assertNotIn("Setup is now complete", pushed)
+
+    def test_relay_lines_clears_the_marker_show_once(self):
+        # _relay_lines is the hook-side pass: when the confirmation is present it clears the local marker so the
+        # next start sees no marker and never repeats it. It renders THIS session (same signals) regardless.
+        cleared = {}
+        with mock.patch.object(boot.first_run_health, "clear_first_run_marker",
+                               side_effect=lambda main: cleared.setdefault("main", main)):
+            boot._relay_lines(_signals(setup_landed=self._LANDED))
+        self.assertEqual(cleared.get("main"), "/proj", "the marker is cleared hook-side for show-once")
+
+    def test_relay_lines_no_clear_when_absent(self):
+        called = {"n": 0}
+        with mock.patch.object(boot.first_run_health, "clear_first_run_marker",
+                               side_effect=lambda main: called.__setitem__("n", called["n"] + 1)):
+            boot._relay_lines(_signals(setup_landed=None))
+        self.assertEqual(called["n"], 0)
+
+    def test_confirmation_suppressed_and_marker_held_when_gate_off(self):
+        # #810 usability: "complete" must never appear beside a gate-off alarm, and the marker must NOT be cleared
+        # (so the one-time confirmation isn't burned before the operator ever sees it) until the gate is on.
+        dash = boot.render_dashboard(_signals(setup_landed=self._LANDED, gate="off", reason="ruleset absent"))
+        self.assertNotIn("Setup is now complete", dash)
+        self.assertIn("safety gate is off", dash.lower())
+        called = {"n": 0}
+        with mock.patch.object(boot.first_run_health, "clear_first_run_marker",
+                               side_effect=lambda main: called.__setitem__("n", called["n"] + 1)):
+            boot._relay_lines(_signals(setup_landed=self._LANDED, gate="off", reason="ruleset absent"))
+        self.assertEqual(called["n"], 0, "gate-off holds the marker rather than burning the confirmation unseen")
+
+    def test_gather_drops_confirmation_unless_verified_current(self):
+        # #810 spec-conformance: a local commit straight to main that never landed through review is clean +
+        # on-default (so the offline detector fires) but NOT verified-current — it must not read as "complete".
+        landed = {"present": True, "main": "/proj"}
+        current = {"state": "current", "on_default": True, "fresh": True, "main": "/proj", "target_oid": "t"}
+        behind = {"state": "behind", "on_default": True, "fresh": True, "main": "/proj", "target_oid": "t",
+                  "current": "main", "branch": "main"}
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.first_run_health, "detect_setup_landed", return_value=dict(landed)):
+                with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=current):
+                    kept = boot.gather_signals()
+                with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=behind):
+                    dropped = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIsNotNone(kept["setup_landed"], "verified-current -> the confirmation stands")
+        self.assertIsNone(dropped["setup_landed"], "not verified-current -> no 'complete' confirmation")
 
 
 class TestHomeWorkshopGrounding(unittest.TestCase):
@@ -3002,6 +3069,36 @@ class TestForeignLicenseOffer(unittest.TestCase):
     def test_a_retired_finding_renders_nothing(self):
         dash = boot.render_dashboard(_signals(foreign_license={**self._FIRE, "retired": True}))
         self.assertNotIn("license file", dash)
+
+    def test_gather_signals_suppresses_the_offer_when_the_verified_target_dropped_license(self):
+        # #810 boot-signal coherence: a checkout behind a FRESH target that already removed LICENSE must not
+        # re-offer a removal the reviewed upstream already made. Correlation reads the same verified snapshot;
+        # it fires ONLY on a fresh snapshot and defers to license_absent_upstream (which fails toward re-offer).
+        fire = {"present": True, "main": "/proj", "fingerprint": "seed-x"}
+        fresh_behind = {"state": "behind", "on_default": True, "fresh": True, "main": "/proj",
+                        "target_oid": "deadbeef", "current": "main", "branch": "main"}
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot", return_value=fresh_behind), \
+                 mock.patch.object(boot.license_health, "detect_foreign_license", return_value=dict(fire)):
+                with mock.patch.object(boot.license_health, "license_absent_upstream", return_value=True):
+                    suppressed = boot.gather_signals()
+                with mock.patch.object(boot.license_health, "license_absent_upstream", return_value=False):
+                    offered = boot.gather_signals()
+            # A NON-fresh snapshot must never suppress, even if the target read would say absent.
+            with mock.patch.object(boot.checkout_health, "checkout_snapshot",
+                                   return_value={"state": "unavailable", "fresh": False, "main": None}), \
+                 mock.patch.object(boot.license_health, "detect_foreign_license", return_value=dict(fire)), \
+                 mock.patch.object(boot.license_health, "license_absent_upstream", return_value=True):
+                not_fresh = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIsNone(suppressed["foreign_license"],
+                          "target already dropped LICENSE on a fresh snapshot -> redundant offer suppressed")
+        self.assertIsNotNone(offered["foreign_license"], "target still carries LICENSE -> the offer stands")
+        self.assertTrue(offered["foreign_license"]["present"])
+        self.assertIsNotNone(not_fresh["foreign_license"], "a non-fresh snapshot must not suppress the offer")
 
     def test_absent_signal_renders_nothing(self):
         self.assertNotIn("license file", boot.render_dashboard(_signals(foreign_license=None)))

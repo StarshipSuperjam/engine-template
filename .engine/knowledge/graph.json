@@ -4697,7 +4697,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:aefc1e687e92e07fd8925706a03d827674287ad30f8dcba76aa76d8752db49bb",
+        "fingerprint": "sha256:84b9a2dc16717bd10eedc3d1a91c5ebd77215f79b98c5784d8529aca2bdca16c",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -6414,7 +6414,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:918eace4a834e4fa867326ae88c410f8fefe8bd0663d3d0c6a627fb9e8d377a7",
+        "fingerprint": "sha256:c4c3adcb7aac76e7fc31eb429b93af71f597a2e741bda3b4ad30243f86060c08",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6587,7 +6587,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:709a3e2ee8dd224e69029dac6e28e75b4de941528c374a23011ee7863f07a45d",
+        "fingerprint": "sha256:62c649fadd3530ea41272da198a1a48b2f8d6b3bdc41c393fad5ebd1b6d80597",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -8453,7 +8453,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:a5da9201cb1c8d18e18f5d188bb0f66504bc56c9deed71d365aaeb7a56e7f5e0",
+        "fingerprint": "sha256:da690f6a5b2a7a76f1fee3bdd5c1924bec29a7dc5e19c7773fa03c40c3bd8b36",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -8702,6 +8702,7 @@
         "imports": [
           "tool:boot",
           "tool:bootstrap",
+          "tool:first_run_health",
           "tool:knowledge_gen",
           "tool:license_seeds",
           "tool:module_catalog",
@@ -8720,7 +8721,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:9f86dedf85144558fab6f27fa67d01353ad948f8a362e717be938406a8d72da6",
+        "fingerprint": "sha256:756252a19f39fd6933af2822bc7a36b3be1fc30991b1877fe479a4ac10d45610",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9068,7 +9069,7 @@
       },
       "slug": "license_health",
       "source": {
-        "fingerprint": "sha256:0cde8327ec653e9534eb0ac13acdd36e34e27c8ce9bd2f71e6a7f2439dcfac50",
+        "fingerprint": "sha256:3b5ef8e1b68c617bf585577572be3d9857e3c70dd3c6eb743349bee65318969e",
         "path": ".engine/tools/license_health.py"
       },
       "status": "active",
@@ -10971,7 +10972,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:6305df75c140b6a01e2608c2eed1abd60d71b09caa92b5bf85a725b101f38c98",
+        "fingerprint": "sha256:bce831aab02cb0e08ff2c99ea1292bf883543fef902b153f7ce13fddd7e7d447",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11144,12 +11145,14 @@
           "module:core"
         ],
         "tests": [
-          "tool:checkout_health"
+          "tool:checkout_health",
+          "tool:license_health",
+          "tool:license_seeds"
         ]
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:c1ed2905eb1819bbec190cf6ae635fa1b67cbc5a2a38f8306a7b6f49ceab425d",
+        "fingerprint": "sha256:12eeefe34f27018a19a9672a9f1cba3239f44ea74338981840880ee9b1706ca4",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -11787,7 +11790,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:0ae1e3699122c6da9238147c4cfbedc9087fc3fb234b86693647e8af7e5c3410",
+        "fingerprint": "sha256:70608e9c21117221c0ad5d42f206ffdcf1a0d414a082279967443c471bf7a8a8",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",
@@ -12032,6 +12035,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:first_run_health",
           "tool:instantiator",
           "tool:license_seeds",
           "tool:module_coherence",
@@ -12042,7 +12046,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:7b7b8fdfcc69ce355f76c923d1ea6590654dc78c17fe2e6caa79c6d78e9e7870",
+        "fingerprint": "sha256:bc7b25e2fefee217aee3447bfaa0735a832282e17abede898706c4a5185d6e51",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12368,7 +12372,7 @@
       },
       "slug": "test_license_health",
       "source": {
-        "fingerprint": "sha256:e86f26222e9d3639335e103605d3d50a7347d554b0b0d5fd9f433892b3faeef3",
+        "fingerprint": "sha256:63eb5710176451a398e09e09b53f4613d8ba1c69ce6ca867fd1b998672d3cb25",
         "path": ".engine/tools/test_license_health.py"
       },
       "status": "active",

@@ -2071,7 +2071,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
 # ==== VERIFY + RETIRE ===============================================================
 
 _FINISH_KEYS = ("verify-paused", "verify-next-actions", "verify-ok", "verify-gate-on",
-                "verify-gate-pending", "retire-success")
+                "verify-gate-pending", "retire-applied")
 
 
 def _finished_fixture(tmp, handle="octocat"):
@@ -2174,6 +2174,26 @@ class TestRetire(unittest.TestCase):
             self.assertEqual(res["reason"], "inconsistent")
             self.assertEqual(res["deleted"], [])
             self.assertTrue(present, "the irreversible tidy-up never runs on an inconsistent setup")
+
+    def test_reports_applied_not_complete_and_drops_the_landing_marker(self):
+        # #810: retire runs mid-transformation (the tree is dirty with the just-applied setup), so it must NOT
+        # claim "complete" — it reports setup APPLIED, names the landing step, and drops the local awaiting-landing
+        # marker so boot can confirm completion once, after the change lands durably.
+        import first_run_health
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                res = inst.retire(announce=said.append)
+                marker = os.path.join(d, ".engine", "boot", ".cache", "first-run-landing.json")
+                marker_written = os.path.isfile(marker)
+            self.assertFalse(res["refused"])
+            self.assertFalse(res["durable"], "setup is applied but not yet durable at retire time")
+            self.assertEqual(res["next"], "land-through-review")
+            message = "\n".join(said)
+            self.assertIn("Setup applied", message)
+            self.assertNotIn("Setup is complete", message, "never over-claim completion over an uncommitted tree")
+            self.assertTrue(marker_written, "retire drops the awaiting-landing marker for the post-landing confirm")
 
     def test_tidies_assets_and_preserves_the_permanent_set(self):
         with tempfile.TemporaryDirectory() as d:
