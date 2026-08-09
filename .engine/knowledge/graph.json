@@ -8842,7 +8842,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:7658f813a0125c97fb7b8e67a448799f5006ecd779f2aaf5ba89ff847738abfc",
+        "fingerprint": "sha256:635ec8dc3d421a8af79af73f8032efff522a22e50acea222b98af3e06d7447ab",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -8910,7 +8910,7 @@
       },
       "slug": "issue_kind_label",
       "source": {
-        "fingerprint": "sha256:7a581a19a056ef5663f3e1ceb6b553cb170bde986dd5aa75a15fdcd17bc60fbc",
+        "fingerprint": "sha256:1f7e7e4ad55f54b9f914d714c038718c8906f4754d76f920ff9472515f089231",
         "path": ".engine/tools/issue_kind_label.py"
       },
       "status": "active",
@@ -9454,7 +9454,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:7843aca58d29a29f953b149177c9ebf79786c5352820bbc9887e53f8110f4fb8",
+        "fingerprint": "sha256:5beffb1760cc8389a6ced633bf0eaf6d41d255b40271599de6ac918b38049024",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -12242,7 +12242,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:ffb70b1cca7db7de37739407b070686dd7776b5b017f8788a88b6f443ee6752d",
+        "fingerprint": "sha256:7817719890fff75cbebcb81123858d387b019b65378c408ad329bda906b5a4a3",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -12318,12 +12318,13 @@
           "tool:issue_label_client",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:quiet_call",
           "tool:validate"
         ]
       },
       "slug": "test_issue_kind_label",
       "source": {
-        "fingerprint": "sha256:72e51d17d6f0a3b97c06e9cbcbf08352582a598f79e204c10baf08c5c830edf5",
+        "fingerprint": "sha256:f99f58d31e227041618b71809456f1d2c421c61b62e6c05192bacc4b54a15010",
         "path": ".engine/tools/test_issue_kind_label.py"
       },
       "status": "active",

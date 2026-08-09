@@ -8,8 +8,11 @@ redundant add when the label is already present) and orthogonal to the `engine` 
 and that out-of-scope / unactionable inputs no-op while a genuine API failure surfaces (the safety-net fail
 contract). The label value is a fixed enum, never raw title text.
 """
+import json
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +21,7 @@ import module_coherence         # noqa: E402
 import module_manager           # noqa: E402
 import issue_label_client       # noqa: E402
 import issue_kind_label as k    # noqa: E402
+import quiet_call               # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 
 WORKFLOW_REL = ".github/workflows/engine-issue-kind-label.yml"
 
@@ -127,9 +131,76 @@ class TestScopeFilter(unittest.TestCase):
         self.assertIsNone(k._issue_or_none("not a dict"))
 
 
+class TestRunFailContract(unittest.TestCase):
+    """_run reads the event from $GITHUB_EVENT_PATH and applies the safety-net-not-a-gate fail contract
+    (mirroring the conformance net's TestRunFailContract): no/partial/malformed event or an unmappable
+    title → quiet exit 0; a mappable title with no token → exit 1 (the net's own breakage is visible).
+    These paths reach no network."""
+
+    def _env(self, **overrides):
+        keys = ("GITHUB_EVENT_PATH", "GITHUB_TOKEN", "GITHUB_REPOSITORY")
+        saved = {kk: os.environ.get(kk) for kk in keys}
+
+        def restore():
+            for kk, v in saved.items():
+                if v is None:
+                    os.environ.pop(kk, None)
+                else:
+                    os.environ[kk] = v
+        self.addCleanup(restore)
+        for kk in keys:
+            os.environ.pop(kk, None)
+        for kk, v in overrides.items():
+            if v is not None:
+                os.environ[kk] = v
+
+    def _event_file(self, event) -> str:
+        fd, path = tempfile.mkstemp(suffix=".json")
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            if isinstance(event, str):
+                fh.write(event)            # raw text — the malformed-JSON case
+            else:
+                json.dump(event, fh)
+        return path
+
+    def test_no_event_exits_zero(self):
+        self._env()  # GITHUB_EVENT_PATH unset
+        self.assertEqual(quiet_call.run(k.main, []), 0)
+
+    def test_malformed_event_json_exits_zero(self):
+        path = self._event_file("{not json at all")
+        self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="tok", GITHUB_REPOSITORY="o/r")
+        self.assertEqual(quiet_call.run(k.main, []), 0)
+
+    def test_partial_event_exits_zero(self):
+        path = self._event_file({"issue": None})
+        self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="tok", GITHUB_REPOSITORY="o/r")
+        self.assertEqual(quiet_call.run(k.main, []), 0)
+
+    def test_unmappable_title_exits_zero_without_network(self):
+        # unmappable → no-op BEFORE the env check, so exit 0 even with no token (and no client built).
+        path = self._event_file({"number": 1, "issue": {"number": 1, "title": "Delivery wave 2", "labels": []}})
+        self._env(GITHUB_EVENT_PATH=path)
+        self.assertEqual(quiet_call.run(k.main, []), 0)
+
+    def test_mappable_title_without_token_exits_one(self):
+        path = self._event_file({"issue": {"number": 1, "title": "Fix: broken thing", "labels": []}})
+        self._env(GITHUB_EVENT_PATH=path)  # mappable but no token/repo → visible failure
+        self.assertEqual(quiet_call.run(k.main, []), 1)
+
+
+class TestImportLayering(unittest.TestCase):
+    def test_hot_path_import_stays_lean(self):
+        # The applicator runs per issue event; importing it must never drag the module-manager stack in.
+        for heavy in ("release_cut", "module_manager", "module_coherence"):
+            self.assertNotIn(heavy, getattr(k, "__dict__", {}),
+                             f"issue_kind_label must not import {heavy} (per-issue CI hot path)")
+
+
 class TestDemoSelfChecks(unittest.TestCase):
     def test_demo_passes(self):
-        self.assertEqual(k._demo(), 0)
+        self.assertEqual(quiet_call.run(k._demo), 0)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ The deliverable-gate cold review attests each test's assertion matches its name.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import unittest
 
@@ -85,6 +86,19 @@ class TestNoBareIdDump(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", references=bad)
+
+
+class TestImportOrderStaysCycleFree(unittest.TestCase):
+    def test_both_import_orders_work_in_a_fresh_interpreter(self):
+        # telemetry imports issue_author at module load; issue_author must therefore import telemetry only
+        # function-locally (inside render_engine_issue_body). A module-scope `import telemetry` sneaking back
+        # into issue_author would crash whichever order loads telemetry first — this pins BOTH orders in
+        # fresh interpreters, which the in-process suite (one fixed order) cannot exercise.
+        tools = os.path.dirname(os.path.abspath(__file__))
+        for order in ("import telemetry, issue_author", "import issue_author, telemetry"):
+            proc = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {tools!r}); {order}"],
+                                  capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, f"{order!r} failed:\n{proc.stderr}")
 
 
 class TestUrgencyAtFiling(unittest.TestCase):

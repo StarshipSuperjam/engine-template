@@ -215,14 +215,15 @@ def describe_explore_scope() -> str:
         "file: the file-editing tools (Write/Edit, anywhere but that notebook) plus the "
         "branch/commit/pull-request verbs are what's denied — a command-line tool that isn't one of "
         "those still runs. One carve-out on issue-logging: an Issue about the engine's own health "
-        "carries `--label engine` at creation — the literal string, never `engine-domain` (a look-alike "
-        "is read by nothing, so the Issue drops out of the debt register) — and its body is authored "
+        "carries `--label engine` at creation, whoever asked for it — the literal string, never "
+        "`engine-domain` (a look-alike is read by nothing, so the Issue drops out of the debt register) "
+        "— and its body is authored "
         "through the issue helper (`.engine/tools/issue_author.py` — render_engine_issue_body); a "
         "non-conforming `engine`-labelled `gh issue create` is rerouted back to that helper (in Build "
         "too), while an unlabelled or already-conforming Issue files freely. Any other Issue needs no "
         "label from you — the engine derives the native kind label (`bug`, `enhancement`, …) from the "
-        "title, and you never mint a new label. (The gate is a strong default, not a wall; the real "
-        "guarantee is that nothing reaches main without a pull-request review.)"
+        "title's `Kind:` prefix, and you never mint a new label. (The gate is a strong default, not a "
+        "wall; the real guarantee is that nothing reaches main without a pull-request review.)"
     )
 
 

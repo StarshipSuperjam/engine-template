@@ -151,7 +151,15 @@ def _run() -> int:
     except issue_label_client.DegradedWriteError as exc:
         print(f"kind-label: a GitHub API call failed — {exc}", file=sys.stderr)
         return 1
-    print(f"kind-label: issue #{issue['number']} -> {action}")
+    # Each action word rendered as a sentence a person scanning an Actions run can read cold — `absent`
+    # in particular must read as a deliberate skip (the repo owner removed that default), never a fault.
+    explained = {
+        "labelled": "native kind label applied",
+        "already": "native kind label already present — nothing to do",
+        "absent": "skipped — that native label was removed from this repo, and this tool never creates one",
+        "no-kind": "title has no mappable kind — no action",
+    }
+    print(f"kind-label: issue #{issue['number']} -> {action} ({explained[action]})")
     return 0
 
 
