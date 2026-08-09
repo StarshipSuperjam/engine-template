@@ -1578,8 +1578,8 @@ class TestSeedReadme(unittest.TestCase):
 
 def _template_license_text(holder="StarshipSuperjam"):
     """Reconstruct a full LICENSE from the recognizer's OWN seed, for fixtures — so the fixtures can never silently
-    drift from what the recognizer accepts. With the template author (StarshipSuperjam) named as Licensor this is the
-    engine's traveled license (cleared); with any other holder it is an adopter's own license (preserved)."""
+    drift from what the recognizer accepts. With the template author (StarshipSuperjam) named as the copyright holder
+    this is the engine's traveled license (cleared); with any other holder it is an adopter's own license (preserved)."""
     return inst._TEMPLATE_LICENSE_SEED.replace("StarshipSuperjam", holder)
 
 
@@ -1594,8 +1594,8 @@ class TestLicenseRecognizer(unittest.TestCase):
         self.assertTrue(inst._is_template_license("\ufeff" + base), "a leading byte-order mark")
         self.assertTrue(inst._is_template_license(base.replace("\n\n", "\n\n\n")), "extra blank lines")
 
-    def test_a_renamed_licensor_is_preserved_never_deleted(self):
-        # The catastrophic false-positive guard: our EXACT text, but THEIR name on the Licensor/copyright →
+    def test_a_renamed_holder_is_preserved_never_deleted(self):
+        # The catastrophic false-positive guard: our EXACT text, but THEIR name on the copyright holder line →
         # normalizes differently → preserved, never deleted. Includes near-miss names that merely embed the author.
         for holder in ("Acme Corp", "StarshipSuperjamson", "The StarshipSuperjam Foundation", "starshipsuperjam"):
             self.assertFalse(inst._is_template_license(_template_license_text(holder=holder)),

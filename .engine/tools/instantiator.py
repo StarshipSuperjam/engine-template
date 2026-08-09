@@ -1239,7 +1239,7 @@ def _seed_readme(say, copy=None) -> str:
 # FIRST-RUN-RETIRED file, so the seed set cannot live here (#471). These aliases keep the
 # first-run clear's call sites — and the retiring parity test that binds the seed to the committed root
 # LICENSE — unchanged. The recognizer is a whitespace-normalized FULL-TEXT match: an adopter who chose
-# another license, or who kept this text but renamed the Licensor/copyright to themselves, is PRESERVED.
+# another license, or who kept this text but renamed the copyright holder to themselves, is PRESERVED.
 _TEMPLATE_LICENSE_SEED = license_seeds.CURRENT_SEED
 _is_template_license = license_seeds.recognize
 
@@ -1253,7 +1253,7 @@ def _seed_license(say, copy=None) -> str:
     it, but ONLY where the current root LICENSE still positively matches the engine's own shipped template-license
     seed (_is_template_license: a whitespace-normalized full-text match against the shipped seed). Conservative
     clear-or-preserve: greenfield (the traveled template license) -> removed; brownfield (the product's own license —
-    even one that keeps this text but names a different Licensor), a re-run (the slot is now empty), or an absent/unreadable
+    even one that keeps this text but names a different copyright holder), a re-run (the slot is now empty), or an absent/unreadable
     file -> left exactly as it is, returns "present". No replacement is written. The root LICENSE is product-owned
     config (in no `provides`, at the repo root, outside .engine/ so the ownership leg never reaches it); the engine
     never re-touches it after instantiation. Discloses, in plain language, WHAT WAS REMOVED AND WHY — only when it
