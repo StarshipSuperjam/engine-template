@@ -102,7 +102,17 @@ def ledger_dir(cwd: str | None = None) -> str:
     if env:
         return os.path.abspath(os.path.expanduser(env))
     root = _git_common_root(cwd)
-    base = root if root is not None else (cwd or os.getcwd())
+    if root is None:
+        # git unavailable: fall back to the launch cwd. It is typically `<root>/.engine` (tools run via
+        # `uv run --directory .engine`), so appending CACHE_SUBDIR (`.engine/boot/.cache`) would double it
+        # to `<root>/.engine/.engine/boot/.cache` INSIDE the real checkout (#753; the #176 doubled-path
+        # class). Peel a trailing `.engine` so the fallback names the clone root. Strictly this branch — a
+        # git-CONFIRMED root (even one named `.engine`) is never peeled. (Copied law, not shared: boot's
+        # ledger shares no code path with memory's — see `_git_common_root` above.)
+        base_cwd = cwd or os.getcwd()
+        base = os.path.dirname(base_cwd) if os.path.basename(base_cwd) == ".engine" else base_cwd
+    else:
+        base = root
     return os.path.join(base, CACHE_SUBDIR)
 
 

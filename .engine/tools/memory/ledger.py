@@ -116,7 +116,15 @@ def ledger_dir(cwd: str | None = None) -> str:
         return os.path.abspath(os.path.expanduser(env))
     base_cwd = cwd or os.getcwd()
     root = _git_common_root(base_cwd)
-    base = root if root is not None else base_cwd
+    if root is None:
+        # git unavailable: base_cwd is the launch cwd, not a resolved clone root. Tools launch via
+        # `uv run --directory .engine`, so cwd is typically `<root>/.engine`; appending DATA_SUBDIR
+        # (`.engine/memory`) would double it to `<root>/.engine/.engine/memory` INSIDE the real checkout
+        # (#753; the #176 doubled-path class). Peel a trailing `.engine` so the fallback still names the
+        # clone root. Strictly this branch — a git-CONFIRMED root (even one named `.engine`) is never peeled.
+        base = os.path.dirname(base_cwd) if os.path.basename(base_cwd) == ".engine" else base_cwd
+    else:
+        base = root
     return os.path.join(base, DATA_SUBDIR)
 
 
