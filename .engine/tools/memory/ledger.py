@@ -121,7 +121,11 @@ def ledger_dir(cwd: str | None = None) -> str:
         # `uv run --directory .engine`, so cwd is typically `<root>/.engine`; appending DATA_SUBDIR
         # (`.engine/memory`) would double it to `<root>/.engine/.engine/memory` INSIDE the real checkout
         # (#753; the #176 doubled-path class). Peel a trailing `.engine` so the fallback still names the
-        # clone root. Strictly this branch — a git-CONFIRMED root (even one named `.engine`) is never peeled.
+        # clone root. normpath first (drop a trailing slash / `.`), mirroring `_git_common_root`'s guard, so
+        # a `<root>/.engine/` cwd still peels. Strictly this branch — a git-CONFIRMED root (even one named
+        # `.engine`) is never peeled. Scope: this de-doubles the `cwd == <root>/.engine` launch case; a
+        # git-unavailable call from a deeper cwd or a clone root literally named `.engine` is out of scope.
+        base_cwd = os.path.normpath(base_cwd)
         base = os.path.dirname(base_cwd) if os.path.basename(base_cwd) == ".engine" else base_cwd
     else:
         base = root

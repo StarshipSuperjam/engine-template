@@ -54,6 +54,19 @@ class TestLedgerDirHermeticity(unittest.TestCase):
             self.assertEqual(boot_alarm_ledger.ledger_dir(engine_dir),
                              os.path.join(root, ".engine", "boot", ".cache"))
 
+    def test_a_trailing_slash_cwd_still_peels(self):
+        # `os.path.basename("<root>/.engine/")` is "" — the peel must normalize the path first, or a
+        # trailing-separator cwd would slip through unpeeled and re-double. Mirrors `_git_common_root`.
+        self._clean_env()
+        with tempfile.TemporaryDirectory() as root:
+            os.environ["GIT_CEILING_DIRECTORIES"] = os.path.dirname(root)
+            os.makedirs(os.path.join(root, ".engine"))
+            engine_dir_slash = os.path.join(root, ".engine") + os.sep
+            self.assertIsNone(ledger._git_common_root(engine_dir_slash))  # precondition
+            self.assertEqual(ledger.ledger_dir(engine_dir_slash), os.path.join(root, ".engine", "memory"))
+            self.assertEqual(boot_alarm_ledger.ledger_dir(engine_dir_slash),
+                             os.path.join(root, ".engine", "boot", ".cache"))
+
     def test_a_non_engine_cwd_fallback_is_left_alone(self):
         # The peel fires only for a trailing `.engine`; any other cwd is used verbatim (still cwd-relative,
         # but never doubled — the #753 symptom is specifically the `.engine/.engine` doubling).
