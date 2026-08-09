@@ -1,7 +1,8 @@
 ---
-schema_version: 1
-generated: 2026-07-25
-fingerprint: sha256:08c5a8ef5b228a7d8f1132731c7f59cfb2ce68cb4c66b1a8ad025d14a2a32c06
+schema_version: 2
+reviewed_at: 2026-07-12
+content_modified_at: 2026-07-25
+fingerprint: sha256:b73334b670672ad36ba8c581a7b2d8f271345381087a96bd301d9e2e36e15ccf
 ---
 
 **⚠ Project status: couldn't verify the safety gate**
