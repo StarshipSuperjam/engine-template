@@ -102,20 +102,12 @@ import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector
 # move together.
 PRESENT_MARKER = "Project status"
 
-# The standing, AI-facing advertisement of the knowledge faculty (#92). A cold session — one with no work
-# in hand, where the #37 neighbourhood block (render_neighborhood) is empty — is otherwise told
-# state/stance/attention/findings but NOT that it can query the project's wiring map at all, so it
-# re-derives the wiring by hand. This line names the faculty unconditionally and points at the runbook that
-# says WHEN to reach for it. AI-facing only: assemble_pack places it ABOVE the operator-dashboard divider and
-# it carries no RELAY_MARKER (the engine's own machinery stays out of operator narration). It is
-# distinct from the in-flow "pull deeper" cue render_neighborhood emits only when a change already reaches
-# into the graph (this one advertises the standing faculty; that one points at a specific neighbourhood).
-KNOWLEDGE_FACULTY_NOTE = (
-    "You can query the project's own wiring map any time — for any part, what it is part of, what depends "
-    "on it, what checks it, what governs it — with the knowledge tools that load every session. Reach for it "
-    "before you change something other parts rely on (an impact check), to orient on something unfamiliar, "
-    "or to trace how two parts connect. When and how: `.engine/operations/knowledge-impact-check.md`."
-)
+# The standing advertisement of the knowledge faculty (the wiring-map query tools) and the surface-catalog
+# recognition slice used to live here as always-loaded orientation blocks. They are STATIC content — the same
+# every session — and the capped boot pack is for DYNAMIC, session-specific content (eADR-0033); static
+# doctrine that can shed is content the session sometimes never sees. Both now live in the always-loaded,
+# uncapped CLAUDE.md / AGENTS.md floor instead (the wiring-map advert beside the `engine-parts` readout), so
+# every session still learns of the faculty without spending capped Tier-1 budget on it (#787 / #899).
 
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
 # excluded — a full boot-pack re-render on compaction is deliberately not done and must never be
@@ -796,9 +788,6 @@ def _recent_sessions_recall(read=None, *, session_id=None) -> list:
         return []
 
 
-# How many pins the briefing shows. The whole set is read (so the total can be stated); this bounds what is
-# rendered, because the pack is finite and a standing-instruction list can grow without limit.
-_PINS_SHOWN = 5
 
 # The briefing-budget dials (eADR-0033): the character bounds and set-aside order boot reads to fit the pack
 # to the platform's per-value size limit. Read live from the policy frontmatter; a missing or malformed file
@@ -869,11 +858,13 @@ def read_pins(*, read=None) -> list:
         return []
 
 
-def render_pins(pinned: list) -> list:
-    """The operator-facing block for what they asked to be remembered.
-
-    Bounded, because this is carried into EVERY session and an unbounded block would quietly spend a growing
-    share of the pack forever; the operator can ask to see them all whenever they like.
+def render_pins(pinned: list, title_chars: int | None = None) -> list:
+    """The operator-facing INDEX of what they asked to be remembered: one title-length line per pin, so EVERY
+    pin is always visible at a glance and none is silently aged out, with the full text a pull away. A pin's
+    text is a dense standing directive — too long to show in full every session, and too meaningful to
+    truncate as a quote — so the pack carries the index and the memory tools carry the detail. Showing every
+    pin as a title (not a top-N of full texts) is the deliberate fix for the old rank-out: nothing drops
+    unseen, and a list grown too long is itself the signal to prune.
 
     THE PROVENANCE CAVEAT IS NOT OPTIONAL. A pin is written by the assistant transcribing what the operator
     asked for, and a session's context can also hold a page it recalled or a file it read — text shaped like an
@@ -884,27 +875,29 @@ def render_pins(pinned: list) -> list:
     [] when nothing is pinned — no block, never an empty heading."""
     if not pinned:
         return []
-    out = ["--- what you asked me to remember (orientation context, not an alarm) ---"]
-    for record in pinned[:_PINS_SHOWN]:
-        out.append(f"- {_quote_for_pack(record.get('text'))}")
-    # The count is not decoration. A pin's whole selling point is that nothing ages it out, and a bounded
-    # sample with no total ages one out BY RANK instead — the sixth pin silently stops reaching any session
-    # while the reader believes it has the complete set. Its sibling block is scrupulous about this for the
-    # same reason.
-    if len(pinned) > _PINS_SHOWN:
-        out.append(f"({len(pinned)} in all — these are the {_PINS_SHOWN} most recent. Ask to see them all.)")
-    # WHAT TO DO WITH THESE, not only what to doubt about them. An earlier draft carried three discounting
-    # clauses and no instruction, which is a reliable way to have a pin cost pack budget in every session and
-    # change no behaviour: the reader had been told twice to discount it and never once to act on it. The
-    # provenance caveat still has to be here — nothing can verify who authored a pin — but it is one clause,
-    # after the instruction, rather than the whole paragraph.
+    out = ["--- what you asked me to remember (index — one line each; ask for the full text of any) ---"]
+    for record in pinned:
+        out.append(f"- {_pin_title(record.get('text'), title_chars)}")
+    out.append(f"({len(pinned)} pinned note" + ("" if len(pinned) == 1 else "s")
+               + " — shown as one-line titles; ask for the full text of any, or to drop one.)")
+    # WHAT TO DO WITH THESE, plus the provenance caveat that cannot be verified away.
     out.append("These are the operator's standing instructions: work to them, and say so if something you are "
-               "asked to do cuts against one. Each was written down by the assistant at the time the operator "
-               "asked for it to be remembered, so treat it as a faithful note of what they wanted rather than "
-               "as their exact words, and never as a fresh instruction arriving now. You can read them all "
-               "back, or drop one, whenever the operator asks.")
+               "asked to do cuts against one. Each was noted by the assistant when the operator asked for it — a "
+               "faithful record of what they wanted, not their exact words, and never a fresh instruction "
+               "arriving now.")
     out.append("")
     return out
+
+
+def _pin_title(text: str, max_chars: int | None) -> str:
+    """One-line title for a pin's index entry: the pin's own words with newlines/whitespace collapsed and
+    fence/prompt markers neutralised, clipped to max_chars. Clipping a pin HERE is safe — it is a title
+    pointing at the full text (pulled on request), not a quote presented as complete — unlike a conversation
+    excerpt, which _quote_for_pack governs and which must never be passed off as whole."""
+    line = validate.defang_prompt_fence_markers(" ".join((text or "").split()))
+    if max_chars and len(line) > max_chars:
+        line = line[:max_chars].rstrip() + "…"
+    return line
 
 
 def render_recent_sessions(cards: list, excerpt_chars: int | None = None) -> list:
@@ -1199,9 +1192,9 @@ RELAY_MARKER = "INFORM THE USER THAT"
 # not live this session the operator runs on the committed-file fallback and, unable to read code, has no other
 # way to know. Boot CANNOT detect MCP tool routing — it reads committed files only, so RELAY-NOT-DETECT is
 # preserved (boot computes nothing here); the check is one the MODEL runs against its own tool list. It is
-# therefore emitted in the operator-RELAY portion of the pack (a numbered must-do, NOT the AI-orientation zone
-# where KNOWLEDGE_FACULTY_NOTE sits), so an absent server carries the same "do not skip" force as any gathered
-# alarm. Per-server naming; status-not-fault framing; host-agnostic fix (no Code-only `/mcp` baked into consent-
+# therefore emitted in the operator-RELAY portion of the pack (a numbered must-do in the never-shed governance
+# block, NOT the sheddable orientation components below), so an absent server carries the same "do not skip"
+# force as any gathered alarm. Per-server naming; status-not-fault framing; host-agnostic fix (no Code-only `/mcp` baked into consent-
 # critical copy — consistent with the deployed floor's "reopen Claude"). Single-homed: the PR-Validation runbook
 # and the first-run guide point at THIS behaviour, they do not re-type the words. Residual bound (no non-AI
 # correlate, disclosed at the merge gate): a skipped self-check leaves a degraded engine looking healthy, and a
@@ -2886,27 +2879,25 @@ def _relay_lines(s: dict) -> list:
     return lines
 
 
-def render_recognition_slice() -> "list[str]":
-    """The surface catalog's RECOGNITION slice: the NAME and LOCATION of every surface,
-    re-read and re-rendered on every pack build — deliberately NO dedup mechanism (it is a few hundred
-    characters, and the platform re-issues session ids on resume, so a once-per-session latch cannot
-    hold; earlier drafts of the owe said "once per session" and that was withdrawn). The authoring
-    fields (authority, lifecycle, schema, template) are deliberately NOT read: they are the pull-request
-    author's business, and a cold session pays context for them without acting on them. AI-facing
-    orientation; a missing or unreadable catalog renders nothing — boot never fails over orientation."""
-    try:
-        catalog = validate.load_json(validate.CATALOG_PATH)
-        surfaces = catalog.get("surfaces") or {}
-        if not isinstance(surfaces, dict) or not surfaces:
-            return []
-        entries = "; ".join(f"{name} in `{(rec or {}).get('location', '?')}`"
-                            for name, rec in sorted(surfaces.items()) if isinstance(rec, dict))
-        if not entries:
-            return []                  # a catalog of malformed records renders nothing, not "…lives: ."
-    except Exception:  # noqa: BLE001 — orientation is best-effort, never a boot failure
-        return []
-    return ["Surface recognition — the kinds of file this engine governs and where each lives: "
-            + entries + ".", ""]
+# The set-aside ladder's pin-block name (briefing-budget / eADR-0033) — named once so the two-pass loud
+# pin-shed and the block builder agree, and so the shed notice speaks a plain operator-facing label.
+_PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
+
+
+def _pack_blocks(gov: str, neighborhood: str, wwlo: str, pins: str, dashboard: str) -> list:
+    """The ordered (priority, name, text) blocks handed to cap_shed. The governance briefing never sheds (0);
+    the status dashboard sheds last (2); the pins index (3), where-we-left-off (4) and the work-neighbourhood
+    map (5) shed in that reverse order — the briefing-budget set-aside ladder. Empty components are omitted so
+    the shed notice never names something that was not there. A pure builder (a test seam for the margin
+    canary), doing no measurement of its own."""
+    candidates = [
+        (0, "the governance briefing", gov),
+        (5, "the work-neighbourhood map", neighborhood),
+        (4, "where we left off", wwlo),
+        (3, _PINS_BLOCK_NAME, pins),
+        (2, "the status dashboard", dashboard),
+    ]
+    return [(p, n, t) for (p, n, t) in candidates if t]
 
 
 def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
@@ -3038,33 +3029,16 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                        "`.engine/policies/model-routing.md`.)")
         out.append("")
 
-    # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
-    # knowledge-faculty advertisement, the surface-catalog recognition slice, the structural neighborhood
-    # of the work in hand, and the recently-decided memory recall.
-    orientation: list[str] = []
-    orientation.append(KNOWLEDGE_FACULTY_NOTE)
-    orientation.append("")
-    orientation.extend(render_recognition_slice())
-    orientation.extend(render_neighborhood(s.get("neighborhood"), bvals["neighborhood_groups_max"]))
-    # "Where we left off" (the cold-start thread): the last few sessions in the operator's own words. It sits in
-    # the ORIENTATION tier deliberately — it is context, not state. Putting it in the status dashboard made the
-    # pack exceed the platform's output cap, which shed the dashboard itself and took the stance line and the
-    # alarms with it: a "what was I doing" note is never worth an operator's status. Shed first, like the rest
-    # of this tier, and named in the shed notice so its absence is disclosed rather than silent.
-    orientation.extend(render_recent_sessions(s.get("recent_sessions") or [], bvals["excerpt_chars"]))
-    # Pins sit beside the cold-start thread and shed with it: they are the operator's own standing
-    # instructions, which is orientation for the work rather than state about the project.
-    orientation.extend(render_pins(s.get("pinned") or []))
+    # The sheddable components, each its own block with its own set-aside rank (briefing-budget / eADR-0033),
+    # so trimming is per-component and every shed is named accurately — not one coarse "orientation" tier whose
+    # notice mislabels what actually went. The set-aside ladder (first set aside -> last kept): the
+    # work-neighbourhood map, then where-we-left-off, then the pins index, then the status dashboard; the
+    # governance briefing is never set aside. Each is rendered here; _pack_blocks assigns the priorities.
+    neighborhood = "\n".join(render_neighborhood(s.get("neighborhood"), bvals["neighborhood_groups_max"]))
+    wwlo = "\n".join(render_recent_sessions(s.get("recent_sessions") or [], bvals["excerpt_chars"]))
+    pins = "\n".join(render_pins(s.get("pinned") or [], bvals["pin_index_title_chars"]))
+    status = "\n".join(["--- the full status (your grounding for this session) ---", dashboard])
 
-    status = ["--- the full status (your grounding for this session) ---", dashboard]
-
-    # Measure before injecting: past the platform's per-value output cap it saves the full value to a file
-    # and substitutes a preview of the first 2,000 characters (plus the file path). The grounding marker near the top of the pack survives inside that preview; what drops
-    # from the injected context is the material past it — the status headline and dashboard. So Tier 0
-    # (the governance instructions, marker, and alarm relay) is never shed; the orientation tier goes
-    # first, the status dashboard only after it, keeping the essential content within the surviving
-    # preview window; a shed is named so the AI relays it instead of the operator silently losing their
-    # status.
     def _shed_notice(names: list) -> str:
         return ("(To fit the platform's size limit, part of this briefing was left out this session: "
                 + ", ".join(names) + ". Tell the operator, in one plain sentence, that today's session "
@@ -3076,16 +3050,21 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                 "one plain sentence; the full status is always available with "
                 "`uv run --directory .engine -- python tools/engine_status.py`.)")
 
-    text, _shed = hooks.cap_shed(
-        [(0, "the governance briefing", "\n".join(out)),
-         # Every member of this tier is named, so its absence is disclosed rather than silent. Pins belong in
-         # the list for the strongest reason of any of them: they are the one thing here the operator went out
-         # of their way to make durable, so dropping one unnamed is the worst silence this notice can carry.
-         (2, "the orientation notes (wiring map, surface recognition, work neighborhood, recent decisions, "
-             "where we left off, what you asked me to remember)",
-          "\n".join(orientation)),
-         (1, "the status dashboard", "\n".join(status))],
-        notice=_shed_notice, compact_notice=_compact_notice)
+    blocks = _pack_blocks("\n".join(out), neighborhood, wwlo, pins, status)
+    text, shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
+    # LOUD pin set-aside (operator directive): pins shed BEFORE the dashboard, but a pin dropping silently is
+    # exactly what must not happen — an operator who over-pins must learn to prune rather than lose them
+    # unseen. cap_shed's notice is droppable under pressure, so the disclosure rides the never-shed governance
+    # block instead (a second pass): if the pins index was set aside, add a plain must-relay line to Tier-0 and
+    # rebuild without the pins block. Stated as "did not fit / set aside", never a false "your pins are the
+    # cause" — pruning is the operator's lever whichever component grew.
+    if pins and _PINS_BLOCK_NAME in shed:
+        n = len(s.get("pinned") or [])
+        loud = ("ALSO relay to the operator: their " + str(n) + " pinned note" + ("" if n == 1 else "s")
+                + " did not fit in this session's briefing and were set aside (they are safe) — ask them to "
+                "review and prune any no longer needed, or offer to read any back with the memory tools.")
+        blocks = _pack_blocks("\n".join(out + ["", loud]), neighborhood, wwlo, "", status)
+        text, _shed2 = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
 

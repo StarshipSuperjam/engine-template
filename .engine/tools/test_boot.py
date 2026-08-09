@@ -1038,15 +1038,12 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn("say nothing", note.lower())                  # no cry-wolf on a healthy engine
         self.assertIn("won't start", note)                          # offers the part the AI can do
 
-    def test_notice_lives_in_the_relay_portion_not_the_ai_orientation_zone(self):
-        # B1 (converged across 3 lenses): the notice must carry operator-relay force, so in the assembled pack
-        # it appears BEFORE the AI-orientation content (KNOWLEDGE_FACULTY_NOTE), inside the numbered must-do
-        # sequence — never beside the don't-relay faculty note.
+    def test_notice_lives_in_the_governance_block_above_the_sheddable_components(self):
+        # the notice must carry operator-relay force, so in the assembled pack it sits in the never-shed
+        # governance block — inside the numbered must-do sequence, BEFORE the sheddable components and the
+        # status dashboard, never beside the don't-relay orientation content.
         patchers = _offline()
         try:
-            # Cap patched wide: this fixture's dashboard is big enough that the real #495 cap guard
-            # sheds the orientation tier (its own behavior is pinned in TestPackCapGuard); this test
-            # pins CONTENT ORDER, so it needs the orientation tier present.
             with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
                 pack = boot.assemble_pack()
         finally:
@@ -1054,9 +1051,10 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
                 p.stop()
         self.assertIn(boot.MCP_AVAILABILITY_CHECK, pack)
         self.assertIn("Check the engine's live helpers", pack)      # introduced as a numbered must-do step
-        self.assertLess(pack.index(boot.MCP_AVAILABILITY_CHECK), pack.index(boot.KNOWLEDGE_FACULTY_NOTE),
-                        "the consent-critical MCP notice must sit in the relay portion, above the AI-facing "
-                        "orientation zone")
+        self.assertLess(pack.index(boot.MCP_AVAILABILITY_CHECK),
+                        pack.index("--- the full status (your grounding"),
+                        "the consent-critical MCP notice must sit in the governance block, above the "
+                        "sheddable components and the dashboard")
 
     def test_codex_deferred_discovery_uses_exact_content_free_health_tools(self):
         note = boot.MCP_AVAILABILITY_CHECK_CODEX
@@ -2728,22 +2726,16 @@ class TestStanceLine(unittest.TestCase):
         # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
         self.assertNotIn(note, boot.render_dashboard(_signals()))
 
-    def test_pack_carries_the_standing_knowledge_faculty_note(self):
-        # #92: a cold session must be told the wiring map exists and when to reach for it. _offline() leaves
-        # NO work in hand (boot_slice.read -> None, so render_neighborhood is empty), so this also pins that
-        # the line renders at a genuine cold boot — the actual value case — not piggybacking on the
-        # work-gated #37 neighbourhood block.
-        patchers = _offline()
-        try:
-            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):   # see TestPackCapGuard
-                pack = boot.assemble_pack()
-        finally:
-            for p in patchers:
-                p.stop()
-        self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)            # present even with no work in hand
-        self.assertIn("knowledge-impact-check.md", pack)           # and it points at the runbook
-        # AI-facing only: it stays OUT of the operator's own dashboard view.
-        self.assertNotIn(boot.KNOWLEDGE_FACULTY_NOTE, boot.render_dashboard(_signals()))
+    def test_wiring_map_advert_lives_in_both_floors_not_the_capped_pack(self):
+        # #92 relocated (eADR-0033 / #787): the standing wiring-map advert (formerly KNOWLEDGE_FACULTY_NOTE in
+        # the capped pack) is STATIC orientation, so it moved to the always-loaded, uncapped CLAUDE.md /
+        # AGENTS.md floor rather than spending capped budget every session. Guard it did not silently drop
+        # from either provider's floor and still points at the runbook; nothing else checks this content.
+        for path in (ROOT_CLAUDE, os.path.join(validate.ROOT, "AGENTS.md")):
+            with open(path, encoding="utf-8") as fh:
+                text = " ".join(fh.read().split())            # wrap-insensitive: prose lines wrap freely
+            self.assertIn("wiring map", text.lower(), f"{path}: floor must advertise the wiring map")
+            self.assertIn("knowledge-impact-check.md", text, f"{path}: advert must point at the runbook")
 
     def test_pack_carries_the_status_pull_cue(self):
         # The status verb is operator-typed (non-resident), so the AI's standing cue to run engine_status.py
@@ -2996,19 +2988,26 @@ class PinAndWithholdReadoutTests(unittest.TestCase):
         self.assertIn("work to them", out)
         # The caveat, which is not optional: nothing can verify who authored a pin, so no reader may present
         # one as the operator's exact words or as an instruction arriving now.
-        self.assertIn("rather than as their exact words", out)
-        self.assertIn("never as a fresh instruction arriving now", out)
+        self.assertIn("not their exact words", out)
+        self.assertIn("never a fresh instruction arriving now", out)
 
-    def test_the_pin_block_says_how_many_there_are_when_it_shows_only_some(self):
-        # A pin's whole promise is that nothing ages it out. A bounded sample with no total ages one out BY
-        # RANK instead: the sixth pin silently stops reaching any session while the reader believes it has
-        # seen everything.
-        self.assertNotIn("in all", "\n".join(boot.render_pins(self._pins(3))))
+    def test_the_pin_index_shows_every_pin_as_a_title_with_the_count(self):
+        # The pin INDEX shows EVERY pin as a one-line title (nothing ages out by rank), with the total stated,
+        # so a list grown too long is itself the prompt to prune rather than a pin silently dropping.
+        three = "\n".join(boot.render_pins(self._pins(3)))
+        self.assertIn("3 pinned notes", three)
+        self.assertEqual(sum(1 for line in three.splitlines() if line.startswith("- standing instruction")), 3)
         many = "\n".join(boot.render_pins(self._pins(9)))
-        self.assertIn("9 in all", many)
-        # Count the rendered ITEMS, not a substring: the block's closing sentence contains the phrase too
-        # ("the operator's standing instructions"), so a naive count reads six where five were shown.
-        self.assertEqual(sum(1 for line in many.splitlines() if line.startswith("- standing instruction")), 5)
+        self.assertIn("9 pinned notes", many)
+        self.assertEqual(sum(1 for line in many.splitlines() if line.startswith("- standing instruction")), 9)
+
+    def test_a_pin_title_is_clipped_and_never_shown_as_a_full_quote(self):
+        # a long pin is a title pointing at the full text, clipped to the budget with an ellipsis — never a
+        # truncated quote passed off as complete.
+        long_pin = [{"text": "A" * 400}]
+        line = "\n".join(boot.render_pins(long_pin, 80))
+        self.assertIn("…", line)
+        self.assertNotIn("A" * 200, line)
 
     def test_no_block_is_rendered_when_nothing_is_pinned(self):
         self.assertEqual(boot.render_pins([]), [])
@@ -3257,43 +3256,11 @@ class TestGreenfieldIntakeOffer(unittest.TestCase):
                 self.assertTrue(s2["greenfield_intake"].get("collapsed"), "second, unchanged, collapses to terse")
 
 
-class TestRecognitionSlice(unittest.TestCase):
-    """The pack reads the surface catalog's recognition slice — name and location per
-    surface, none of the authoring fields — on every render, and a broken catalog renders nothing."""
-
-    def test_slice_names_every_surface_with_location_only(self):
-        lines = boot.render_recognition_slice()
-        self.assertTrue(lines and lines[0].startswith("Surface recognition"))
-        catalog = boot.validate.load_json(boot.validate.CATALOG_PATH)
-        for name, rec in catalog["surfaces"].items():
-            self.assertIn(f"{name} in `{rec['location']}`", lines[0])
-        for authoring_field in ("authority", "lifecycle", "governing_schema", "template"):
-            for rec in catalog["surfaces"].values():
-                value = rec.get(authoring_field)
-                if isinstance(value, str) and value and value not in rec["location"]:
-                    self.assertNotIn(value, lines[0],
-                                     f"the recognition slice must not carry the authoring field "
-                                     f"{authoring_field!r}")
-
-    def test_unreadable_catalog_renders_nothing_never_fails(self):
-        with mock.patch.object(boot.validate, "CATALOG_PATH", "/no/such/catalog.json"):
-            self.assertEqual(boot.render_recognition_slice(), [])
-
-    def test_slice_reaches_the_pack_when_it_fits(self):
-        patchers = _offline()
-        try:
-            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
-                pack = boot.assemble_pack()
-        finally:
-            for p in patchers:
-                p.stop()
-        self.assertIn("Surface recognition", pack)
-
-
 class TestPackCapGuard(unittest.TestCase):
-    """#495's owed-regardless leg: the pack is measured before injecting; the orientation tier sheds
-    first, the status dashboard second, and the pinned governance tier (marker + alarm relay) never —
-    with a relayed notice naming what was left out."""
+    """The pack is measured before injecting and set aside per component in the briefing-budget ladder
+    (eADR-0033): the work-neighbourhood map first, then where-we-left-off, then the pins index, then the
+    status dashboard; the governance briefing never — with a relayed notice naming what was left out.
+    The margin canary and the loud pin set-aside live in TestBriefingBudget."""
 
     def _pack(self, cap):
         patchers = _offline()
@@ -3304,9 +3271,25 @@ class TestPackCapGuard(unittest.TestCase):
             for p in patchers:
                 p.stop()
 
+    def _shed(self, cap):
+        # synthetic, uniformly-sized components so the set-aside ORDER is unambiguous.
+        blocks = boot._pack_blocks("G" * 500, "N" * 500, "W" * 500, "P" * 500, "D" * 500)
+        return boot.hooks.cap_shed(blocks, cap=cap, notice=lambda n: "", compact_notice=lambda n: "")[1]
+
+    def test_set_aside_ladder_order(self):
+        # 5 blocks of 500 (+4 newline joins) = 2504. Each tighter cap sheds the next rung of the ladder.
+        self.assertEqual(self._shed(2100), ["the work-neighbourhood map"])
+        self.assertEqual(self._shed(1600), ["the work-neighbourhood map", "where we left off"])
+        self.assertEqual(self._shed(1100),
+                         ["the work-neighbourhood map", "where we left off", boot._PINS_BLOCK_NAME])
+        self.assertEqual(self._shed(600),
+                         ["the work-neighbourhood map", "where we left off", boot._PINS_BLOCK_NAME,
+                          "the status dashboard"])
+        # the governance briefing is never set aside, even at an impossible cap
+        self.assertNotIn("the governance briefing", self._shed(10))
+
     def test_wide_cap_keeps_everything_no_notice(self):
         pack = self._pack(10**6)
-        self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)
         self.assertIn("the full status (your grounding", pack)
         self.assertNotIn("left out this session", pack)
 
@@ -3317,17 +3300,6 @@ class TestPackCapGuard(unittest.TestCase):
         self.assertIn(boot.MCP_AVAILABILITY_CHECK_CODEX, pack)
         self.assertIn("the full status (your grounding", pack)
         self.assertIn("Project status", pack)
-
-    def test_moderate_pressure_sheds_orientation_first_keeps_status(self):
-        wide = self._pack(10**6)
-        cap = len(wide) - 100                      # just too small for everything
-        pack = self._pack(cap)
-        self.assertLessEqual(len(pack), cap)
-        self.assertNotIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)          # orientation shed
-        self.assertIn("the full status (your grounding", pack)       # dashboard kept
-        self.assertIn("left out this session", pack)                 # and the shed is named
-        self.assertIn("engine_status.py", pack)                      # with the recovery path
-        self.assertIn("Project status", pack)                        # the grounding marker survives
 
     def test_extreme_pressure_sheds_status_too_never_the_governance_tier(self):
         pack = self._pack(4000)

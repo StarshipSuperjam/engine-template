@@ -40,7 +40,10 @@ I read the record first, so a settled decision isn't quietly undone.
 **What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
 kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,
 or just ask "what is my engine made of?". It's a plain-language readout, and it only reads — it never changes
-anything.
+anything. I can also query the project's live **wiring map** any session — for any part, what it is part of,
+what depends on it, and what checks or governs it — to run an impact check before I change something or to
+trace how two parts connect (the knowledge tools load every session; the how is in
+`.engine/operations/knowledge-impact-check.md`).
 
 **If you ask for something an add-on would do, I'll offer to add it — never install it behind your back.**
 Your Engine ships with some capabilities turned off — optional add-ons you can include or leave out at setup
