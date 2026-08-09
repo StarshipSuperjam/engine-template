@@ -10869,7 +10869,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:486a130174b8a6270c75e55b89c3350768d5c4b1aebebaa1ede18f0c2d0b8cc3",
+        "fingerprint": "sha256:ab71253fbe910ca8afed37a4044e1fdf310af4e96e1d6139b9341b33defb8bd9",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",

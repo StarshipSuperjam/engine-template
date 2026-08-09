@@ -36,6 +36,27 @@ def _errors(schema, instance):
     return list(validate.Draft202012Validator(schema).iter_errors(instance))
 
 
+_GITHUB_ENV_ISOLATION = None
+
+
+def setUpModule():
+    # seal() reads GITHUB_SHA/GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT from the environment to record run identity.
+    # Under CI those ARE set, which would non-deterministically stamp audited_sha/run_id into digests these
+    # tests build and reason about — e.g. a hand-rebuilt header that omits them then fails its own seal
+    # (a green-locally / red-in-CI trap). Isolate the whole module from them so every test runs as a local
+    # run by default; the tests that exercise env-reading set their own values via mock.patch.dict.
+    global _GITHUB_ENV_ISOLATION
+    _GITHUB_ENV_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
+    _GITHUB_ENV_ISOLATION.start()
+    for var in ("GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
+        os.environ.pop(var, None)
+
+
+def tearDownModule():
+    if _GITHUB_ENV_ISOLATION is not None:
+        _GITHUB_ENV_ISOLATION.stop()
+
+
 def _scratch(d):
     return os.path.join(d, "audit-digest.md")
 
