@@ -6438,7 +6438,7 @@
       },
       "slug": "boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:a13019ffd49386d2783102440ef21253e3cdd61cff8f310aa9e4ac178fb18f2f",
+        "fingerprint": "sha256:da469086bdf4b7df123476da16217da6b9330c85bdd14789b7abea7d29829a3b",
         "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
@@ -7102,6 +7102,30 @@
       },
       "status": "active",
       "summary": "Behavioral FALSIFICATION for the release-cut deployment gate (#664) — the gate must BLOCK a release that",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_753_ledger_dir_hermeticity",
+      "name": ".engine/tools/demo_753_ledger_dir_hermeticity.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot_alarm_ledger",
+          "tool:ledger"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_753_ledger_dir_hermeticity",
+      "source": {
+        "fingerprint": "sha256:a6edb24ea1320446d274d134755a351edd661de035291befb6970023c752cd85",
+        "path": ".engine/tools/demo_753_ledger_dir_hermeticity.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for engine-template #753 — the git-unavailable fallback of the two",
       "type": "tool"
     },
     {
@@ -8925,7 +8949,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:5d60386f6b2ce594495044b71983b924c37ed3ec98e969724d93e04bf928c592",
+        "fingerprint": "sha256:224d431e226cfd41f0393e7d73b391b4445420b2269f9777ab777dbb5f2013b4",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -10947,7 +10971,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:bcbd5d9eebd88b4b03d1a57673f23bb41bb8c2c395b914e8d346e02ba0f10f20",
+        "fingerprint": "sha256:6305df75c140b6a01e2608c2eed1abd60d71b09caa92b5bf85a725b101f38c98",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -13733,6 +13757,33 @@
       },
       "status": "active",
       "summary": "Regression fixture for the full-suite launcher (selftest.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_selftest_hermeticity",
+      "name": ".engine/tools/test_selftest_hermeticity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:boot_alarm_ledger",
+          "tool:demo_753_ledger_dir_hermeticity",
+          "tool:ledger",
+          "tool:quiet_call",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_selftest_hermeticity",
+      "source": {
+        "fingerprint": "sha256:92db332f62de05e02bf329f7cfae91812d24c56ce5ce38fa50dfdea34b82dfae",
+        "path": ".engine/tools/test_selftest_hermeticity.py"
+      },
+      "status": "active",
+      "summary": "Hermeticity guards for the deployed self-test suite (engine-template #753).",
       "type": "tool"
     },
     {
