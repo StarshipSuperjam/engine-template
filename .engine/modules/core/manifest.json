@@ -63,6 +63,7 @@
     ],
     "policy": [
       ".engine/policies/attention.md",
+      ".engine/policies/briefing-budget.md",
       ".engine/policies/contract-threshold.md",
       ".engine/policies/escalation.md",
       ".engine/policies/finding-disposition.md",

@@ -1853,6 +1853,7 @@
         ],
         "targets": [
           "policy:attention",
+          "policy:briefing-budget",
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
@@ -1918,6 +1919,7 @@
         ],
         "targets": [
           "policy:attention",
+          "policy:briefing-budget",
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
@@ -3935,7 +3937,7 @@
       },
       "slug": "eADR-0033-boot-refresh-family",
       "source": {
-        "fingerprint": "sha256:95c19d8e9bab72d94d2f423c9f0ff7afaf0665d9ba98424e7c2cc29d2e1c6841",
+        "fingerprint": "sha256:7ba3671ae8ebb8e12869c1e9d48c2d89456e0070eca0992f799c60968d1bdfd6",
         "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
       },
       "status": "accepted",
@@ -4234,7 +4236,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:fd6b733896e35f10b64021c64ec02bd95db4fea4d13ba011fb9e9ee6bb764d39",
+        "fingerprint": "sha256:4e1186c0cea130a969ebd37e16abb406bba0fbb84c66c686e896c3fea9e3ee0d",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4950,6 +4952,27 @@
       },
       "status": "active",
       "title": "Attention",
+      "type": "policy"
+    },
+    {
+      "id": "policy:briefing-budget",
+      "name": ".engine/policies/briefing-budget.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "briefing-budget",
+      "source": {
+        "fingerprint": "sha256:638b1562ffd3a67c37f513fbc6741b5392d741106a980e0f11c19d1c0cd82e63",
+        "path": ".engine/policies/briefing-budget.md"
+      },
+      "status": "active",
+      "title": "Briefing budget",
       "type": "policy"
     },
     {
@@ -13111,7 +13134,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:15cf13cb8c38e503cd1d51189e36c636c8464c8d2564f18f9a529429147b6345",
+        "fingerprint": "sha256:aa33ddaec1f9b944a8d548ec8aecf652481af0065622f88f23375b8b7e20ebb2",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
