@@ -9,8 +9,8 @@ values:
   posture_lines_max: 8
   posture_chars_max: 700
   neighborhood_groups_max: 8
-  dashboard_chars_max: 4400
-  margin_floor_chars: 500
+  dashboard_chars_max: 4500
+  margin_floor_chars: 400
 ---
 
 ## Rule
