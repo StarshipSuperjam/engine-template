@@ -19,10 +19,15 @@ The session-start briefing (the boot pack) is measured against the platform's pe
 *before* it is injected, and it is made to fit by setting aside whole lower-value components in a
 fixed order — never by cutting a component off mid-sentence. Two things are held, every session:
 
-- A **never-shed core** — the governance and consent content plus the status dashboard — must always
-  fit inside the size limit with a stated character **margin** to spare (`margin_floor_chars`), so a
-  single added line can never silently tip the core out. That margin has a hard minimum set in code
-  that this file may raise but never lower.
+- The **governance and consent content is never set aside**, and the **status dashboard is the last
+  thing set aside** — kept in every ordinary session, yielded only under extreme pressure (after every
+  other component, when a heavy load of governance alarms — which themselves can never be set aside —
+  leaves no room). A **margin canary** holds a stated character **margin** (`margin_floor_chars`) under
+  the size limit in the clean case, so ordinary *structural* growth of the never-shed content is caught
+  before it starts eroding the dashboard's room. That margin has a hard minimum set in code that this
+  file may raise but never lower. (It is not an absolute promise the dashboard never sheds: enough
+  simultaneous alarms will still set it aside — alarms outrank a status readout — and that shed is
+  disclosed, never silent.)
 - Every component that can grow has a **character budget** and a **place in the set-aside order**
   (see Scope). When a component would exceed the size limit, the lowest-value components are set
   aside first, and their absence is disclosed in plain words — including a distinct, always-shown

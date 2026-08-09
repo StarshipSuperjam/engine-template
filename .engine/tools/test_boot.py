@@ -2991,15 +2991,29 @@ class PinAndWithholdReadoutTests(unittest.TestCase):
         self.assertIn("not their exact words", out)
         self.assertIn("never a fresh instruction arriving now", out)
 
-    def test_the_pin_index_shows_every_pin_as_a_title_with_the_count(self):
-        # The pin INDEX shows EVERY pin as a one-line title (nothing ages out by rank), with the total stated,
-        # so a list grown too long is itself the prompt to prune rather than a pin silently dropping.
+    def test_the_pin_index_shows_every_pin_as_a_numbered_title_with_the_count(self):
+        # The pin INDEX shows EVERY pin as a NUMBERED one-line title (nothing ages out by rank), with the total
+        # stated, so a list grown too long is itself the prompt to prune rather than a pin silently dropping.
+        def _numbered(text):
+            return sum(1 for line in text.splitlines() if line[:1].isdigit() and "standing instruction" in line)
         three = "\n".join(boot.render_pins(self._pins(3)))
         self.assertIn("3 pinned notes", three)
-        self.assertEqual(sum(1 for line in three.splitlines() if line.startswith("- standing instruction")), 3)
+        self.assertEqual(_numbered(three), 3)
+        self.assertTrue(three.splitlines()[1].startswith("1. ") and three.splitlines()[3].startswith("3. "))
         many = "\n".join(boot.render_pins(self._pins(9)))
         self.assertIn("9 pinned notes", many)
-        self.assertEqual(sum(1 for line in many.splitlines() if line.startswith("- standing instruction")), 9)
+        self.assertEqual(_numbered(many), 9)
+
+    def test_two_pins_that_collide_on_title_stay_distinct_by_number(self):
+        # usability finding: two different pins sharing an opening clause clip to the same title — numbering
+        # keeps them separate and addressable ("pull them by number to compare").
+        collide = [{"text": "loop in the payments lead before merging, no exceptions ever at all whatsoever now"},
+                   {"text": "loop in the payments lead before merging, but production hotfixes are exempt always"}]
+        lines = boot.render_pins(collide, 40)
+        numbered = [ln for ln in lines if ln[:1].isdigit()]
+        self.assertEqual(len(numbered), 2)                       # two entries, not collapsed into one
+        self.assertTrue(numbered[0].startswith("1. ") and numbered[1].startswith("2. "))
+        self.assertIn("by number", "\n".join(lines).lower())     # the index tells the reader how to disambiguate
 
     def test_a_pin_title_is_clipped_and_never_shown_as_a_full_quote(self):
         # a long pin is a title pointing at the full text, clipped to the budget with an ellipsis — never a
@@ -3408,23 +3422,78 @@ class TestBriefingBudget(unittest.TestCase):
             f"margin — trim Tier-0 or lower a budget deliberately.")
 
     def test_a_pins_set_aside_fails_loudly_in_the_never_shed_portion(self):
-        # operator decision 6: a pin set-aside must never be silent. With many long pins and cap pressure the
-        # pins index is set aside, and the loud disclosure must ride the never-shed governance block (before
-        # the dashboard divider), not the droppable trim notice.
+        # operator decision 6: a pin set-aside must never be silent. The loud disclosure must ride the
+        # never-shed governance block, BEFORE the dashboard divider — not the droppable trim notice. The cap
+        # is chosen dynamically so the DASHBOARD SURVIVES while the pins index is set aside, so the ordering
+        # guarantee is actually exercised (a fixed cap that also sheds the dashboard would leave it unchecked).
         many = [{"text": f"standing directive number {i} " + "x" * 90} for i in range(12)]
         patchers = _offline()
         try:
             with mock.patch.object(boot, "read_pins", return_value=many), \
-                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 8200):
-                pack = boot.assemble_pack()
+                 mock.patch.object(boot, "must_push", return_value=[]), \
+                 mock.patch.object(boot, "_relay_lines", return_value=[]):
+                # baseline never-shed size with NO pins block; give room above it for the loud line + notice
+                # but not for the (much larger) pins index, so pins shed and the dashboard is kept.
+                with mock.patch.object(boot, "render_pins", return_value=[]):
+                    base = len(boot.assemble_pack())
+                with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", base + 600):
+                    pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
         self.assertIn("did not fit in this session's briefing and were set aside", pack)
         self.assertIn("prune", pack)
         divider = pack.find("--- the full status (your grounding")
-        if divider != -1:                          # if the dashboard survived, the loud line precedes it
-            self.assertLess(pack.find("did not fit in this session's briefing"), divider)
+        self.assertNotEqual(divider, -1, "the dashboard must survive so the ordering guarantee is exercised")
+        self.assertLess(pack.find("did not fit in this session's briefing"), divider,
+                        "the loud pin disclosure must precede (sit above, in the never-shed block) the dashboard")
+
+    def test_dashboard_stays_within_its_growth_budget(self):
+        # #787 growth alarm: the ACTUAL rendered dashboard must stay within dashboard_chars_max, or the margin
+        # canary's budgeted-core assumption is void. Checked against a heavy realistic fixture AND the real
+        # offline-assembled dashboard the canary budgets against — a dashboard grown past its budget fails
+        # HERE, naming itself, rather than silently eroding the margin.
+        budget = boot._briefing_values()["dashboard_chars_max"]
+        heavy = _signals(finding_count=40, unrated_count=12, operator_backlog_count=40,
+                         shipped=[f"#{i} — a fairly wordy recently-shipped pull request title {i}" for i in range(15)],
+                         att_lines=[f"- attention item {i} that needs a decision this session" for i in range(6)],
+                         att_degraded=["memory recall is degraded", "fast search unavailable"])
+        self.assertLessEqual(len(boot.render_dashboard(heavy)), budget,
+                             "a heavy dashboard outgrew dashboard_chars_max — raise the budget deliberately or trim")
+        patchers = _offline()
+        captured = {}
+        try:
+            real = boot.hooks.cap_shed
+
+            def spy(blocks, cap=None, notice=None, compact_notice=None):
+                captured["dash"] = next((t for p, n, t in blocks if p == 2), "")
+                return real(blocks, cap, notice, compact_notice)
+            with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
+                boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertLessEqual(len(captured["dash"]), budget,
+                             f"the real assembled dashboard ({len(captured['dash'])}) outgrew "
+                             f"dashboard_chars_max ({budget}) — the canary's budget assumption no longer holds")
+
+    def test_safety_dials_are_floored_so_the_posture_cannot_be_gutted(self):
+        # security finding: posture_chars_max / posture_lines_max gate the NEVER-SHED EXECUTION-POSTURE safety
+        # text; the policy is unguarded, so a tiny value must be clamped UP, not allowed to gut it to "  Exe".
+        with mock.patch.object(boot.validate, "frontmatter",
+                               return_value={"values": {"posture_chars_max": 5, "posture_lines_max": 1,
+                                                        "excerpt_chars": 1, "pin_index_title_chars": 1,
+                                                        "neighborhood_groups_max": 0}}):
+            v = boot._briefing_values()
+        for key, floor in boot._MIN_VALUES.items():
+            self.assertGreaterEqual(v[key], floor, f"{key} must be clamped up to its code floor {floor}")
+        # the real shipped posture still renders UNCLIPPED under the floored value
+        body, clipped = boot._bounded_posture(
+            ["Execution environment is not a verified qualified match here — run your full, careful ceremony.",
+             "Make no model-dependent shortcuts; the running model's identity is not verified by the engine."],
+            v["posture_lines_max"], v["posture_chars_max"])
+        self.assertFalse(clipped, "the real posture must render unclipped even at the floored dial")
+        self.assertIn("careful ceremony", body)
 
     def test_execution_posture_fails_toward_showing_more(self):
         # the real shipped posture renders UNCLIPPED (fail-toward-showing-more); only a runaway is trimmed.

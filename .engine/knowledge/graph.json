@@ -3597,7 +3597,7 @@
       },
       "slug": "eADR-0016-ontology-surfaces-catalogued-ranked",
       "source": {
-        "fingerprint": "sha256:63163a6ce90cdbc79e56822843c5692ffdf9a8d260918cc21775e208090f6221",
+        "fingerprint": "sha256:4b8c1fdb9c58ba8b1e1b47a43d11a753e5c439f0b2ec342ce56e006d870dada7",
         "path": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md"
       },
       "status": "accepted",
@@ -4968,7 +4968,7 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:e654abee73e8dccdf966c98800fc750228722a94f1b6ec73f3137faa8863dc00",
+        "fingerprint": "sha256:d75664c0c933a8dd72d2679fbd546e990fa3648546bb151e8486c72fd75931ab",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
@@ -6465,7 +6465,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d238441e18bda9338b913b805207d1a0d0b27a797cfcc167700c3b1d0a065c0d",
+        "fingerprint": "sha256:b1f5d4296a3e7bb922725b3c115809dfb7caac18f8f6543bcd3e21c5a3d23bfa",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -11121,7 +11121,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:296e605d204ccfb06053f15322a4ee849e24f449d48f6c32ba69e6a42bc325ff",
+        "fingerprint": "sha256:8c3029983bdb83eaf385c545b3cb893f3187c2f05fd523b2684092da2d328652",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
