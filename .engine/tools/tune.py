@@ -265,8 +265,9 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     # (a checkout there would revert the not-yet-merged override out of the working tree) and never tells the
     # operator to delete the branch they are standing on. `checkout -B` (create-or-RESET), not `-b`: `set` can be
     # run repeatedly, and the branch is throwaway staging of an already-saved override, so a leftover branch from an
-    # earlier failed attempt is reset rather than colliding — closing the collide-then-can't-delete dead-end (which
-    # the module_manager mirror, being one-shot, does not hit).
+    # earlier failed attempt is reset rather than colliding — closing the collide-then-can't-delete dead-end. The
+    # module_manager mirror cannot use `-B` (its branch holds the arrival's committed, non-re-derivable work, which
+    # a reset would discard), so it handles the same collision at the message level instead — see #877.
     for args in (["git", "checkout", "-B", branch], ["git", "add", *paths],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
