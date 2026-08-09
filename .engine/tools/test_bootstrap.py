@@ -1000,5 +1000,85 @@ class TestFinalize(unittest.TestCase):
         self.assertEqual(bootstrap._union_added(arrival, created), created)
 
 
+class TestAcceptUnprotected(unittest.TestCase):
+    """The accept-unprotected verb records an operator-consented unsupported-platform posture — but ONLY after
+    it re-verifies live that the branch-rules read genuinely returns GitHub's plan-limitation 403, so it can
+    never mint an exception on a repo whose plan can host protection."""
+
+    def _run(self, *, rules_response, login="octocat", tier="solo"):
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        recorded = {}
+
+        def transport(method, path, body=None):
+            if path == "/user":
+                return 200, {"login": login}, {}
+            return rules_response  # (status, body, headers) for the /rules/branches read
+
+        cp = bootstrap.ControlPlane("o/r", "tok", transport=transport, refresh_fn=lambda s: True,
+                                    issues=FakeIssues())
+        args = argparse.Namespace(repo="o/r", branch="main")
+        buf = io.StringIO()
+        with mock.patch.object(bootstrap, "boot") as mb, \
+                mock.patch.object(bootstrap, "ControlPlane", lambda repo, token: cp), \
+                mock.patch.object(bootstrap, "_persist_protection_posture",
+                                  side_effect=lambda p: recorded.update(p) or True), \
+                mock.patch.object(protection_guard, "resolve_tier", return_value=tier), \
+                contextlib.redirect_stdout(buf):
+            mb.gh_token.return_value = "tok"
+            rc = bootstrap.cmd_accept_unprotected(args)
+        return rc, recorded, buf.getvalue()
+
+    def test_records_on_genuine_plan_limitation_403(self):
+        rc, recorded, out = self._run(
+            rules_response=(403, {"message": "Upgrade to GitHub Team to enable this feature."}, {}))
+        self.assertEqual(rc, 0)
+        self.assertEqual(recorded.get("status"), "unsupported-platform")
+        self.assertEqual(recorded.get("operator_login"), "octocat")
+        self.assertRegex(recorded.get("recorded_on", ""), r"^\d{4}-\d{2}-\d{2}$")
+        self.assertIn("safety gate is OFF", out)         # the security consequence is stated at consent time
+
+    def test_refuses_when_the_read_succeeds(self):
+        # A repo whose plan CAN host rulesets returns 200 on the read — the belt refuses to record.
+        rc, recorded, out = self._run(rules_response=(200, [], {}))
+        self.assertEqual(rc, 1)
+        self.assertEqual(recorded, {})                   # nothing recorded
+        self.assertIn("CAN host", out)
+
+    def test_refuses_on_a_non_plan_limitation_403(self):
+        # An ordinary not-admin 403 is NOT a plan limitation — refuse rather than record on a guess.
+        rc, recorded, out = self._run(
+            rules_response=(403, {"message": "Resource not accessible by personal access token"}, {}))
+        self.assertEqual(rc, 1)
+        self.assertEqual(recorded, {})
+
+    def test_team_mode_states_the_team_implication(self):
+        rc, recorded, out = self._run(
+            rules_response=(403, {"message": "Upgrade to GitHub Team to enable this feature."}, {}), tier="team")
+        self.assertEqual(rc, 0)
+        self.assertIn("TEAM mode", out)
+
+    def test_posture_persist_and_clear_roundtrip(self):
+        import json
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "engine.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"engine_release": "1.0.0", "packages": {}, "identity": "solo"}, fh)
+            with mock.patch.object(bootstrap, "_engine_json_path", return_value=path):
+                ok = bootstrap._persist_protection_posture(
+                    {"status": "unsupported-platform", "reason": "x", "operator_login": "me",
+                     "recorded_on": "2026-08-08"})
+                self.assertTrue(ok)
+                with open(path, encoding="utf-8") as fh:
+                    self.assertEqual(json.load(fh)["protection_posture"]["operator_login"], "me")
+                bootstrap._clear_protection_posture()     # apply-on-success clears the now-stale record
+                with open(path, encoding="utf-8") as fh:
+                    self.assertNotIn("protection_posture", json.load(fh))
+
+
 if __name__ == "__main__":
     unittest.main()
