@@ -617,9 +617,10 @@ def _default_on_dependency_violations(present: dict) -> list:
             if tier in _DEFAULT_ON_ALLOWED_DEP_TIERS:
                 continue
             shown = f"'{tier}'" if tier else "of an unset/unknown tier"
-            out.append(f"the default-on '{mid}' capability depends on '{dep}', which is {shown} — a capability a "
-                       f"deployment may not have; a default-on module may depend only on required or default-on "
-                       f"capabilities, or it cannot be coherently installed everywhere")
+            out.append(f"the default-on '{mid}' capability depends on '{dep}', which is {shown} — not "
+                       f"guaranteed present on every deployment; a default-on module may depend only on "
+                       f"required or default-on capabilities, so make '{dep}' required or default-on, or make "
+                       f"'{mid}' optional")
     return out
 
 
@@ -1539,7 +1540,8 @@ def _cmd_propose(args) -> int:
             recovery.append("Make each such dependency required or default-on, or lower the dependent to optional "
                             "so it is not installed by default — a default-on module may depend only on "
                             "capabilities guaranteed present on every deployment.")
-        _print_refusal({"reason": "a required release record is missing, dropped, or inconsistent",
+        _print_refusal({"reason": "a required release record or module dependency is missing, dropped, or "
+                                  "inconsistent",
                         "violations": mig_viol + ret_viol + rem_viol + dep_viol + don_viol,
                         "recovery": " ".join(recovery)})
         return 2

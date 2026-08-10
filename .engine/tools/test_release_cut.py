@@ -563,6 +563,30 @@ class DefaultOnDependencyGuard(unittest.TestCase):
             rc.resolve_baseline = saved
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_propose_refuses_a_default_on_optional_dependency_in_first_cut_mode(self):
+        # the CLI-level refusal on the FIRST cut too: classify() omits the diff siblings there, but this
+        # baseline-independent guard is wired into the first-cut return and must still reach _cmd_propose's
+        # refusal (exit 2). Proves the first-cut path end-to-end, not only via classify().
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core")})   # injected so propose never reaches the network
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                "addon": _module("addon", status="optional")}
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.0", True, "first")
+        try:
+            with _Tree(live):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 2)
+            self.assertIn("feature", err.getvalue())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
     def test_product_cut_has_no_default_on_dependency_guard(self):
         # engine-mode only: a product cut is built by _product_proposal, which never computes the guard.
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
