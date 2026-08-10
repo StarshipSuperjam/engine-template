@@ -6227,6 +6227,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_write",
           "tool:github_client",
           "tool:moment",
           "tool:repo_identity",
@@ -6239,7 +6240,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:96eb83eb28cd0f09947dd6f44bdae9d354358a115e652343cb3de60dc362396f",
+        "fingerprint": "sha256:cc457d2d58935ab383bd251a0d32707a7d5c4ead40c3867dd107dbd0dae343d5",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -8408,6 +8409,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:engine_write",
+      "name": ".engine/tools/engine_write.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_write",
+      "source": {
+        "fingerprint": "sha256:39ee723c3415d24a11b5b7b09d38fcf6e139a6841c4a8aa8704fc59787b892d9",
+        "path": ".engine/tools/engine_write.py"
+      },
+      "status": "active",
+      "summary": "The write boundary for the engine's OWN files — one predicate, homed once (#923).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:erase",
@@ -8801,6 +8822,7 @@
         "imports": [
           "tool:boot",
           "tool:bootstrap",
+          "tool:engine_write",
           "tool:first_run_health",
           "tool:knowledge_gen",
           "tool:license_seeds",
@@ -8820,7 +8842,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:4d38a04530daaa227f7546c753d3a2540e8b047b2f53d03b3c5e9cb4c26d39b9",
+        "fingerprint": "sha256:5a613596f3d9f940f6d39ee850cad2c8dacf603ba59df40107f0f1b40b83bbf5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9549,6 +9571,7 @@
           "tool:capture",
           "tool:checkout_health",
           "tool:close",
+          "tool:engine_write",
           "tool:github_client",
           "tool:knowledge_gen",
           "tool:ledger",
@@ -9570,7 +9593,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:c6979d94cc080a0e5f25d6d27a0b49414b9bb2f2021b2e73e54f68f67e81e94f",
+        "fingerprint": "sha256:6bac8e76b413e9b54e378f92ad93014a889a79fcbadf0844f0f6edd3fc35c59b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -10942,7 +10965,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:ab71253fbe910ca8afed37a4044e1fdf310af4e96e1d6139b9341b33defb8bd9",
+        "fingerprint": "sha256:b939d84145bedf9f88d94c111fd590292ae1faeea06af4c2d6467e2aaddf4f07",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -11785,6 +11808,29 @@
       },
       "status": "active",
       "summary": "Tests for the deferred-work marker parser and its form check (eADR-0035).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_engine_write",
+      "name": ".engine/tools/test_engine_write.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:engine_write"
+        ]
+      },
+      "slug": "test_engine_write",
+      "source": {
+        "fingerprint": "sha256:655d9475a4ed4285d684556689e0518ba68e94b9198da01f4743f1b6fe04b7ab",
+        "path": ".engine/tools/test_engine_write.py"
+      },
+      "status": "active",
+      "summary": "Tests for engine_write — the engine-owned write boundary, homed once (#862/#923).",
       "type": "tool"
     },
     {
@@ -12811,7 +12857,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:4369ba2b4612c5fce8e1ced22e7459c367363138e364e246695a9f0ce258e1fe",
+        "fingerprint": "sha256:f506b30b1616388e48c0b5c9618ae88f79965c5e123168e19b8fe3c4a7d39f16",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
