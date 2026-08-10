@@ -1935,6 +1935,37 @@ class TestRemoveEngine(unittest.TestCase):
         self.assertEqual(len(prs), 1)
         self.assertIsNotNone(r["pr"])
 
+    def test_a_failed_opener_notes_the_engine_is_removed_on_disk_and_how_to_restore(self):
+        # #877 (folded in): when the removal PR opener fails, the engine files are already deleted from the
+        # working tree. The note must name that on-disk fact and give a WORKING, scoped way to undo — restoring
+        # `.engine` from the default branch (correct whether or not the removal was already committed) — never a
+        # blanket `git restore .` (a silent no-op once the deletion is committed, and it would discard unrelated
+        # work), and it must not contradict the opener's own finish-by-hand guidance.
+        _, transport, _, _ = self._fakes(True)
+
+        def failing_opener(branch, title, body):
+            # mimic the opener's real push-failure message (the committed case), which the note embeds via {exc}
+            raise RuntimeError(
+                f"preparing the pull-request branch failed at `git push -u origin {branch}`: fatal: "
+                f"Authentication failed — the branch '{branch}' was created and holds the committed changes "
+                f"from this attempt, so do not delete it. ... finish by pushing the branch ... gh pr create ...")
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                r = module_manager.remove_engine(opener=failing_opener, transport=transport,
+                                                 choice="keep", announce=lambda m: None)
+                engine_gone = not os.path.isdir(os.path.join(d, ".engine"))
+        self.assertIsNone(r["pr"])                            # the pull request was not opened
+        self.assertTrue(engine_gone)                          # the on-disk premise holds: .engine is deleted
+        note = next(n for n in r["notes"]
+                    if "removal is staged but the pull request could not be opened" in n)
+        self.assertIn("already removed the engine files", note)   # names the removal-specific on-disk fact
+        self.assertIn("preserved in git", note)                   # reassures: nothing is lost
+        self.assertIn("pre-removal state", note)                  # points at the recovery target
+        self.assertIn("branch guidance above", note)              # defers finishing to the opener — no contradiction
+        self.assertNotIn("git restore .", note)                   # no single command prescribed (it is case-dependent)
+        self.assertNotIn("git checkout", note)                    # ...so none can be wrong for the sub-case that hit
+
     def test_github_member_is_in_the_delete_set_unlike_per_module_remove(self):
         # whole-engine removal deletes the .github/ foundation files + root CLAUDE.md too — these are
         # foundation infra, NOT any module's `provides`, so per-module remove() (which deletes only the
@@ -3133,27 +3164,185 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
         out = self._run(ok)
         self.assertEqual(out["number"], 7)
 
-    def test_a_git_step_failure_says_the_branch_is_NOT_pushed(self):
-        # The failure-before-the-POST case (e.g. `checkout -b` colliding with a leftover branch): the recovery is
-        # the OPPOSITE of the POST case — the branch is not pushed, so re-running after clearing the collision is
-        # the fix, NOT opening a PR from a branch that isn't there. git's own stderr is surfaced.
+    def test_a_checkout_collision_never_dead_ends_or_force_deletes(self):
+        # #877: `checkout -b` colliding with a leftover branch from an earlier attempt. That branch may hold
+        # committed, non-re-derivable work and the operator is usually standing on it, so the recovery must NOT
+        # steer them to delete it: no `git branch -D` (force), no dead-end. The opener tells a collision from
+        # other checkout failures with a read-only `git rev-parse --verify refs/heads/<branch>` probe — faked
+        # here to report the branch EXISTS.
         import subprocess
         from unittest import mock
 
-        def boom(args, **kw):
-            raise subprocess.CalledProcessError(128, args,
-                                                stderr=b"fatal: a branch named 'engine-arrival' already exists\n")
-        with mock.patch("subprocess.run", side_effect=boom), \
+        def fake(args, **kw):
+            if args[:2] == ["git", "checkout"]:
+                raise subprocess.CalledProcessError(
+                    128, args, stderr=b"fatal: a branch named 'engine-arrival' already exists\n")
+            if args[:3] == ["git", "rev-parse", "--verify"]:
+                return subprocess.CompletedProcess(args, 0)   # the branch EXISTS -> a collision
+            return None                                       # anything else (e.g. base resolution) is benign
+        with mock.patch("subprocess.run", side_effect=fake), \
              mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
             with self.assertRaises(RuntimeError) as ctx:
                 module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
                                                 repo="acme/widget", token="secret-token-xyz")
         msg = str(ctx.exception)
-        self.assertIn("was not created", msg)                 # the CREATE step failed → no branch yet
         self.assertIn("already exists", msg)                  # surfaces git's real stderr
-        self.assertIn("git branch -D engine-arrival", msg)    # delete is safe ONLY for the checkout collision
-        self.assertNotIn("was pushed but", msg)               # never the POST-case "branch was pushed" claim
+        self.assertNotIn("git branch -D", msg)                # NEVER force-delete: that would discard the work
+        self.assertIn("git branch -d", msg)                   # only the safe lowercase form (git refuses unmerged)
+        self.assertIn("switch off it", msg)                   # delete only after moving OFF the branch — no dead-end
+        self.assertIn("git switch ", msg)                     # resume/switch-off path, not a standing-on-it delete
+        self.assertIn("gh pr create", msg)                    # a real finish-by-hand recovery
+        self.assertNotIn("was pushed", msg)                   # pre-push failure: never the "branch was pushed" claim
         self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_non_collision_checkout_failure_advises_no_delete(self):
+        # #877: a checkout failure that is NOT a name collision (the probe reports the branch is absent). No
+        # branch was created and nothing changed, so the recovery is simply fix-and-re-run — never delete advice.
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if args[:2] == ["git", "checkout"]:
+                raise subprocess.CalledProcessError(1, args, stderr=b"fatal: unable to update HEAD\n")
+            if args[:3] == ["git", "rev-parse", "--verify"]:
+                return subprocess.CompletedProcess(args, 1)   # branch ABSENT -> not a collision
+            return None
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("no branch was created", msg)           # honest: this run created nothing
+        self.assertIn("run this again", msg)                  # the recovery is just fix-and-re-run
+        self.assertNotIn("git branch -d", msg)                # nothing exists to delete
+        self.assertNotIn("git branch -D", msg)
+        self.assertNotIn("was pushed", msg)
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_nothing_to_commit_is_reported_from_stdout_not_as_opaque_exit_1(self):
+        # #877: a no-op `git commit` writes "nothing to commit" to STDOUT (not stderr) and exits 1. The opener
+        # must surface that reason (read stdout) and give the caller-neutral no-change recovery — never the wrong
+        # "holds the committed changes, push it". Faked: commit fails with the reason on stdout, and the
+        # staged-diff probe reports nothing staged.
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if args[:2] == ["git", "commit"]:
+                raise subprocess.CalledProcessError(
+                    1, args, output=b"nothing to commit, working tree clean\n", stderr=b"")
+            if args[:3] == ["git", "diff", "--cached"]:
+                return subprocess.CompletedProcess(args, 0)   # nothing staged
+            return None                                       # checkout, add succeed
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-update-v2", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("nothing to commit", msg.lower())       # the reason, read from STDOUT
+        self.assertIn("working tree already matches", msg)    # the caller-neutral no-change recovery
+        self.assertNotIn("holds the committed changes", msg)  # NOT the wrong "push it" advice
+        self.assertNotIn("(exit 1)", msg)                     # never the opaque bare exit
+        self.assertNotIn("git branch", msg)                   # nothing to delete
+        self.assertNotIn("failed", msg.lower())               # a benign no-op is not framed as a failure
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_an_add_failure_says_nothing_was_committed_not_holds_changes(self):
+        # #877: `git add -A` fails → the branch was created but nothing was staged or committed. The message
+        # must NOT claim it holds committed changes or advise pushing (that would open an empty PR).
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if args[:2] == ["git", "add"]:
+                raise subprocess.CalledProcessError(1, args, stderr=b"fatal: unable to index file\n")
+            return None                                       # checkout succeeds; nothing later is reached
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-update-v2", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("nothing was committed", msg)           # honest: no commit exists
+        self.assertNotIn("holds the committed changes", msg)  # NOT the false "push it" claim
+        self.assertNotIn("git push -u", msg)                  # never advise pushing an empty branch
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_commit_failure_with_staged_changes_is_not_called_committed(self):
+        # #877: `git commit` fails for a reason OTHER than an empty index (a rejecting hook, no git identity,
+        # GPG) while something IS staged → the branch exists but nothing was committed. Must NOT claim it holds
+        # committed changes. Faked: checkout/add succeed, commit raises, and the staged-diff probe reports STAGED.
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if args[:2] == ["git", "commit"]:
+                raise subprocess.CalledProcessError(1, args, stderr=b"error: commit-msg hook rejected\n")
+            if args[:3] == ["git", "diff", "--cached"]:
+                return subprocess.CompletedProcess(args, 1)   # something IS staged (not the nothing-to-commit case)
+            return None                                       # checkout, add succeed
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-update-v2", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("staged", msg)                          # names the true state
+        self.assertIn("nothing was committed", msg)           # not committed
+        self.assertIn("commit-msg hook rejected", msg)        # surfaces git's real reason
+        self.assertNotIn("holds the committed changes", msg)  # NOT the false claim
+        self.assertNotIn("git push -u", msg)                  # never advise pushing an empty branch
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_checkout_failure_with_an_unrunnable_probe_fails_safe_to_no_delete(self):
+        # #877: if the collision probe itself cannot run, fail SAFE — assume the branch may hold work (never a
+        # delete) and say the state could not be confirmed rather than asserting the branch exists as fact.
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if args[:2] == ["git", "checkout"]:
+                raise subprocess.CalledProcessError(128, args, stderr=b"fatal: could not create branch\n")
+            if args[:3] == ["git", "rev-parse", "--verify"]:
+                raise OSError("git not found")                # the probe itself cannot run
+            return None
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertIn("could not run", msg)                   # hedged: the collision state was not confirmed
+        self.assertNotIn("git branch -D", msg)                # still never force-delete
+        self.assertIn("git branch -d", msg)                   # the safe form remains the only delete offered
+        self.assertNotIn("secret-token-xyz", msg)
+
+    def test_a_git_error_with_an_embedded_credential_is_redacted(self):
+        # #877 review: git writes the remote URL into push errors, and an HTTPS remote can embed a token in its
+        # userinfo. The surfaced message must redact the credential (host and reason preserved for diagnosis).
+        import subprocess
+        from unittest import mock
+
+        def fake(args, **kw):
+            if "push" in args:
+                raise subprocess.CalledProcessError(
+                    128, args,
+                    stderr=b"fatal: unable to access "
+                           b"'https://x-access-token:ghs_SECRETTOKEN@github.com/acme/widget.git/': 403\n")
+            return None                                       # checkout/add/commit succeed
+        with mock.patch("subprocess.run", side_effect=fake), \
+             mock.patch("time.sleep"), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                module_manager._open_upgrade_pr(branch="engine-arrival", title="t", body="b",
+                                                repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertNotIn("ghs_SECRETTOKEN", msg)              # the embedded git credential is redacted
+        self.assertIn("***@github.com", msg)                  # ...the host survives
+        self.assertIn("github.com/acme/widget", msg)          # ...and the useful part of git's reason remains
+        self.assertNotIn("secret-token-xyz", msg)             # the API token still never leaks
 
     def test_a_push_failure_does_NOT_tell_the_operator_to_delete_the_branch(self):
         # The far more likely git failure (auth/network/branch-protection at `git push`): checkout/add/commit

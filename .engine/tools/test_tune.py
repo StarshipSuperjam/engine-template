@@ -239,6 +239,31 @@ class TestOpenTunePrPushRetry(unittest.TestCase):
         self.assertNotIn("secret-token-xyz", msg)             # the token NEVER surfaces
         self.assertNotIn("Bearer", msg)
 
+    def test_a_git_error_with_an_embedded_credential_is_redacted(self):
+        # #877: git writes the remote URL into push errors; an HTTPS remote can embed a token in its userinfo.
+        # The surfaced message must redact the credential (host + reason preserved). Mirrors module_manager's
+        # opener, which carries the identical _redact_credentials copy.
+        import subprocess
+
+        def fail_push(args, **kw):
+            if "push" in args:
+                raise subprocess.CalledProcessError(
+                    128, args,
+                    stderr=b"fatal: unable to access "
+                           b"'https://x-access-token:ghs_SECRETTOKEN@github.com/acme/widget.git/': 403\n")
+            return None
+        with mock.patch("subprocess.run", side_effect=fail_push), \
+             mock.patch("time.sleep"), \
+             mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not be reached")):
+            with self.assertRaises(RuntimeError) as ctx:
+                tune._open_tune_pr(branch="engine-tune-x", title="t", body="b", paths=["p"],
+                                   repo="acme/widget", token="secret-token-xyz")
+        msg = str(ctx.exception)
+        self.assertNotIn("ghs_SECRETTOKEN", msg)              # the embedded git credential is redacted
+        self.assertIn("***@github.com", msg)                  # ...the host survives
+        self.assertIn("github.com/acme/widget", msg)          # ...and the useful part of git's reason remains
+        self.assertNotIn("secret-token-xyz", msg)
+
     def test_a_checkout_failure_is_diagnosable_and_not_retried(self):
         # #874: a genuine `checkout -B` failure (e.g. the branch is checked out in another worktree) raises a
         # DIAGNOSABLE RuntimeError naming the step, confirms the setting is untouched, advises a re-run — and is

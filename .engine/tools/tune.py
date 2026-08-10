@@ -197,6 +197,16 @@ _ORIGIN_RETRY_ATTEMPTS = 3
 _ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 
 
+# Strip an embedded credential from surfaced git output before it is shown or logged: git writes the remote
+# URL into its push errors, and an HTTPS remote can carry a token in its userinfo (`https://<token>@host` or
+# `https://user:<token>@host`, e.g. an `x-access-token:` CI remote), which must never reach a message. Replaces
+# ONLY the userinfo, so the host and the rest of git's reason survive for diagnosis. Copied — not shared — into
+# the two PR openers (module_manager, tune) exactly like the retry constants above, because the natural shared
+# homes (github_client, repo_identity) are guardrail-floored; keep the two copies identical.
+def _redact_credentials(text: str) -> str:
+    return re.sub(r"(https?://)[^/\s@]+@", r"\1***@", text)
+
+
 def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY: stage the saved override on a new branch, commit, push, and open a pull request so
     the change is reviewed + reversible like any change. Mirrors the module-manager upgrade opener — git via
@@ -265,8 +275,9 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     # (a checkout there would revert the not-yet-merged override out of the working tree) and never tells the
     # operator to delete the branch they are standing on. `checkout -B` (create-or-RESET), not `-b`: `set` can be
     # run repeatedly, and the branch is throwaway staging of an already-saved override, so a leftover branch from an
-    # earlier failed attempt is reset rather than colliding — closing the collide-then-can't-delete dead-end (which
-    # the module_manager mirror, being one-shot, does not hit).
+    # earlier failed attempt is reset rather than colliding — closing the collide-then-can't-delete dead-end. The
+    # module_manager mirror cannot use `-B` (its branch holds the arrival's committed, non-re-derivable work, which
+    # a reset would discard), so it handles the same collision at the message level instead — see #877.
     for args in (["git", "checkout", "-B", branch], ["git", "add", *paths],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
@@ -274,7 +285,7 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
         except subprocess.CalledProcessError as exc:
             def _decode(v):
                 return (v.decode("utf-8", errors="replace") if isinstance(v, bytes) else (v or "")).strip()
-            err = _decode(exc.stderr) or _decode(exc.stdout)   # git writes "nothing to commit" to STDOUT, not stderr
+            err = _redact_credentials(_decode(exc.stderr) or _decode(exc.stdout))   # stdout: "nothing to commit"; redact any tokened remote URL
             head = (f"preparing the pull-request branch failed at `{' '.join(args)}`"
                     + (f": {err}" if err else f" (exit {exc.returncode})"))
             if args[1] == "checkout":

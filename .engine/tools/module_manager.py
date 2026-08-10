@@ -2018,6 +2018,16 @@ _ORIGIN_RETRY_ATTEMPTS = 3
 _ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 
 
+# Strip an embedded credential from surfaced git output before it is shown or logged: git writes the remote
+# URL into its push errors, and an HTTPS remote can carry a token in its userinfo (`https://<token>@host` or
+# `https://user:<token>@host`, e.g. an `x-access-token:` CI remote), which must never reach a message. Replaces
+# ONLY the userinfo, so the host and the rest of git's reason survive for diagnosis. Copied — not shared — into
+# the two PR openers (module_manager, tune) exactly like the retry constants above, because the natural shared
+# homes (github_client, repo_identity) are guardrail-floored; keep the two copies identical.
+def _redact_credentials(text: str) -> str:
+    return re.sub(r"(https?://)[^/\s@]+@", r"\1***@", text)
+
+
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
@@ -2030,10 +2040,13 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
     committed and pushed by the time the POST runs, so the message names the resolved repo/base/head/URL and
     GitHub's own safe reason (read via _github_error_detail — never the auth token or headers) and says the
     branch is already pushed so the recovery is to open the pull request by hand, not to re-run. A git step
-    failing EARLIER (checkout/add/commit/push) raises the OPPOSITE contract — the branch was NOT pushed, so it
-    names the failed step, surfaces git's stderr, and says to clear a leftover branch and run again — because a
-    "branch is pushed" claim would be false there. Each caller frames its own surrounding recovery; this
-    boundary supplies only the diagnostics both callers share."""
+    failing EARLIER raises the OPPOSITE contract — the branch was NOT pushed — and is PHASE-AWARE (#877): a
+    `checkout -b` collision points to resuming the leftover branch by hand and never to a blind delete of the
+    branch the operator is standing on; a `commit` with nothing staged says the change is already applied; an
+    `add` or a non-empty `commit` failure says nothing was committed yet, so fix and re-run rather than push an
+    empty branch; and a `push` failure says the branch holds this attempt's committed changes, so keep it and
+    finish by hand. Each caller frames its own surrounding recovery; this boundary supplies only the diagnostics
+    both callers share."""
     import subprocess, time, urllib.request, urllib.error, json as _json, boot, github_client  # local: only the real open needs these
     import repo_identity  # local: the shared default-branch resolver (dependency-light)
     slug = repo or boot.repo_slug()
@@ -2060,35 +2073,103 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
                 raise
 
     # STAGE-AND-PUSH. A git step failing here means the branch was NOT (fully) pushed, so the recovery is the
-    # OPPOSITE of the POST-failure case below — there is no branch to open a pull request from yet. The most
-    # common cause is a leftover branch from an earlier partial attempt colliding on `checkout -b`, so the
-    # message names the failed step, surfaces git's own stderr (captured but otherwise dropped), and says
-    # plainly the branch is not pushed and how to clear the collision — never the false "already pushed" claim.
+    # OPPOSITE of the POST-failure case below — there is no branch to open a pull request from yet. The message
+    # names the failed step, surfaces git's own reason, and is PHASE-AWARE so it never dead-ends the operator or
+    # steers them into discarding committed work (#877): a `checkout -b` COLLISION with a leftover branch from an
+    # earlier attempt (which holds that attempt's committed, non-re-derivable changes) must NOT be met with
+    # `git branch -D` — the operator is usually standing on that very branch, so the delete cannot run, and even
+    # off it a force-delete would destroy the work. Unlike tune's throwaway staging branch (which safely uses
+    # `checkout -B`, #874), this branch is not disposable, so the collision is handled at the message level.
+    def _decode(v):
+        return (v.decode("utf-8", errors="replace") if isinstance(v, bytes) else (v or "")).strip()
+
+    def _nothing_staged():
+        # Deterministic, read-only: is the index empty relative to HEAD? Wrapped like the collision probe — a
+        # probe that cannot run must not mask the recovery, so fail toward "something IS staged" (the safe
+        # message that never falsely claims a no-op change).
+        try:
+            return subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=validate.ROOT,
+                                  capture_output=True).returncode == 0
+        except Exception:  # noqa: BLE001 — a probe that cannot run fails safe to "staged"
+            return False
+
     for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
             _run_step(args)
         except subprocess.CalledProcessError as exc:
-            err = exc.stderr.decode("utf-8", errors="replace").strip() if isinstance(exc.stderr, bytes) \
-                else (exc.stderr or "").strip()
+            err = _redact_credentials(_decode(exc.stderr) or _decode(exc.stdout))   # stdout: git writes "nothing to commit" there; redact any tokened remote URL
+            # A `commit` that failed ONLY because nothing was staged is not really a failure — the working tree
+            # already matches, so this change is already applied. Say that plainly WITHOUT the alarming "failed"
+            # head, rather than steer the operator to push an empty branch. Caller-neutral (upgrade + removal).
+            if args[1] == "commit" and _nothing_staged():
+                raise RuntimeError(
+                    "no pull request was opened because there was nothing to commit"
+                    + (f" ({err})" if err else "")
+                    + " — the working tree already matches, so this change is already applied and nothing "
+                      "changed.") from exc
             head = (f"preparing the pull-request branch failed at `{' '.join(args)}`"
                     + (f": {err}" if err else f" (exit {exc.returncode})"))
             if args[1] == "checkout":
-                # The CREATE step failed, so no branch (and no commit) exists yet — most often a name collision
-                # with a leftover branch from an earlier attempt. Deleting that is safe (nothing new is on it).
-                recovery = (f" — so the branch '{branch}' was not created and there is no pull request to open "
-                            f"yet. A common cause is a leftover '{branch}' branch from an earlier attempt; "
-                            f"remove it (locally with `git branch -D {branch}`, and on the remote if it was "
-                            f"pushed) and run this again.")
+                # The CREATE step failed, so THIS run made no branch and committed nothing. Tell a name
+                # COLLISION (a leftover branch from an earlier attempt, which may hold that attempt's committed
+                # work) from any other checkout failure with a deterministic, read-only probe — qualified to
+                # `refs/heads/` so a same-named tag is never mistaken for a branch, and in validate.ROOT like
+                # the steps above. If the probe itself cannot run, fail SAFE: assume the branch may hold work,
+                # and say the state could not be confirmed rather than asserting the branch exists.
+                probe_ran, exists = True, False
+                try:
+                    exists = subprocess.run(
+                        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+                        cwd=validate.ROOT, capture_output=True).returncode == 0
+                except Exception:  # noqa: BLE001 — a probe that cannot run must not mask recovery; fail safe
+                    probe_ran, exists = False, True
+                if exists:
+                    # A leftover '{branch}' from an earlier attempt (or, when the probe could not run, possibly
+                    # so). It may hold committed changes that cannot be re-created, and the operator is most
+                    # likely standing on it — so NEVER a blind delete. Resume it by hand; delete only if sure it
+                    # is stale, with lowercase `-d` (which git REFUSES on an unmerged branch — the safety net)
+                    # after switching off it first.
+                    lead = (f"a branch named '{branch}' already exists" if probe_ran
+                            else f"a branch named '{branch}' may already exist (that check could not run here)")
+                    recovery = (f" — {lead}, most likely the committed changes from an earlier attempt whose "
+                                f"pull request was not opened. It may hold work that cannot be re-created, so do "
+                                f"not delete it blindly. If it is that earlier attempt, finish it by hand: switch "
+                                f"to it if you are not already there (`git switch {branch}`), then `git push -u "
+                                f"origin {branch}` and open the pull request yourself: `gh pr create --repo "
+                                f"{slug} --base {base} --head {branch}`. Only if you are certain it is stale — for "
+                                f"example, you have confirmed no pull request from it was merged — first switch "
+                                f"off it (`git switch {base}`) so you are not standing on it, then `git branch -d "
+                                f"{branch}` (git refuses if it still holds unmerged work) and run this again.")
+                else:
+                    # Not a collision — some other checkout failure. No branch was created and nothing changed,
+                    # so there is nothing to delete or recover; fix the reported cause and re-run.
+                    recovery = (f" — so no branch was created and nothing changed. Fix the cause reported above "
+                                f"and run this again.")
+            elif args[1] == "add":
+                # `git add -A` failed: the branch was created but nothing was staged or committed, so there is
+                # nothing to push. Do not claim it holds changes. Caller-neutral. (Rare — I/O / index faults.)
+                recovery = (f" — the branch '{branch}' was created but staging the changes failed, so nothing "
+                            f"was committed and there is nothing to push. Fix the cause reported above and run "
+                            f"this again.")
+            elif args[1] == "commit":
+                # Reached only when something IS staged (the nothing-staged case raised above): `git commit`
+                # failed for another reason — a rejecting commit hook, GPG signing, or no configured git
+                # identity. The branch exists but NOTHING was committed, so never claim it holds committed work
+                # or advise pushing (that would open an empty-diff pull request). Caller-neutral.
+                recovery = (f" — the branch '{branch}' was created and your changes are staged, but the commit "
+                            f"did not complete, so nothing was committed. Do not push it — that would open an "
+                            f"empty pull request. Fix the cause reported above and run this again.")
             else:
-                # A LATER step failed (add/commit/push): the branch was already created and may hold the
-                # arrival's committed changes, so DO NOT tell the operator to delete it — that would discard
-                # their work. A push failure (the common case) is usually authentication, network, or branch
-                # protection. Fix the reported cause, then finish by hand.
-                recovery = (f" — the branch '{branch}' was created and holds the arrival's changes, so do not "
-                            f"delete it. The pull request was not opened; fix the cause reported above, then "
-                            f"finish by pushing the branch (`git push -u origin {branch}`) and opening the pull "
-                            f"request yourself: `gh pr create --repo {slug} --base {base} --head {branch}`.")
+                # The PUSH failed: checkout/add/commit already succeeded, so the branch holds this attempt's
+                # committed changes. DO NOT tell the operator to delete it — that would discard the work. A push
+                # failure (the common case) is usually authentication, network, or branch protection.
+                # Caller-neutral wording — the upgrade and the removal path share this opener.
+                recovery = (f" — the branch '{branch}' was created and holds the committed changes from this "
+                            f"attempt, so do not delete it. The pull request was not opened; fix the cause "
+                            f"reported above, then finish by pushing the branch (`git push -u origin {branch}`) "
+                            f"and opening the pull request yourself: `gh pr create --repo {slug} --base {base} "
+                            f"--head {branch}`.")
             raise RuntimeError(head + recovery) from exc
     path = f"/repos/{slug}/pulls"
     payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
@@ -3594,7 +3675,19 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
         try:
             result["pr"] = open_fn(branch="engine-remove", title="Removal: remove the engine", body=body)
         except Exception as exc:  # noqa: BLE001 — staged but not opened; surfaced, never a traceback
-            result["notes"].append(f"(removal is staged but the pull request could not be opened: {exc})")
+            # The removal already deleted the engine files from the working tree (step 3 above), so a failure
+            # here leaves the engine gone from disk — a removal-specific fact the shared opener cannot know.
+            # Name it and reassure: the opener's own message (in {exc}) already tells the operator how to
+            # FINISH; this adds the on-disk fact and that nothing is lost. The exact UNDO command is NOT
+            # prescribed on purpose — how far the failed attempt got decides it (an unstaged deletion, a staged
+            # one, or one already committed to the branch each need a DIFFERENT git command), so any single
+            # command would be wrong — or a silent no-op — for the other cases. Point at the pre-removal state
+            # instead; nothing is ever lost, since git holds every removed file (#877, finding folded in).
+            result["notes"].append(
+                f"(removal is staged but the pull request could not be opened: {exc} — note that this removal "
+                f"has already removed the engine files from your working tree. Nothing is lost: every removed "
+                f"file is preserved in git. To finish the removal, follow the branch guidance above; to undo it "
+                f"instead, restore your working tree to its pre-removal state from git.)")
 
     # The sharpened reversal disclosure (names the unprotected window + the drop case explicitly).
     db = result["de_bootstrap"] or {}
