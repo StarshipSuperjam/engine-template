@@ -4485,7 +4485,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:19114c2185261f7aeb9e4930a70137b6e9500aeafd4f74e023182b6f11ac5751",
+        "fingerprint": "sha256:1deab310ee270827a4fd5842bf7805d68d6024010c2e7ce00c79afa408dbb0a3",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6442,7 +6442,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:a9612eec716f0b0c63406c075fe59c098efac8a2e9bc7f0cc20b81c918e2ce8b",
+        "fingerprint": "sha256:f2ca0aedcac834a1d111902e194eeb2bdb0d7e0a23cbbcc7ad5f8c717842f8d5",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9337,11 +9337,11 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:2ea40508bbe31bbfe8c7cbbe566c8e2beeae048921181b2ed100a98e3245c94c",
+        "fingerprint": "sha256:14f7e85fa081b44b270f66b4c5df40a44a39685eed491d835485952a9c072887",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
-      "summary": "The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate that authorizes a cross-repo build, with",
+      "summary": "The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate behind an engine-mechanic's cross-repo build.",
       "type": "tool"
     },
     {
@@ -11278,7 +11278,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:9db2831f2051c1f9c3bf512b4fed628574723c11e0fa83e2db9267ed9c092928",
+        "fingerprint": "sha256:339c07f8a6421650f1db14a1d9995c6774f4a7082ca1c926d0d33697610d09b7",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -12650,7 +12650,7 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:cb938abb92f391fa93534b286c0b56693ef4c9926ad8f2f9d49ecf1d365c8f8d",
+        "fingerprint": "sha256:3ec9d35fc94cd6123757174bd4912540a30988442b5e3ad20f259ac06de633b2",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",

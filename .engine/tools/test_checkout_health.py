@@ -1744,5 +1744,39 @@ class TestProductBuildSprawl(unittest.TestCase):
                 self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
 
 
+class TestEngineRootAndDefaultSeams(unittest.TestCase):
+    """The two public seams the mechanic build entry rides: the durable engine root (even from a linked
+    worktree) and the confident default branch (never a guess)."""
+
+    def test_engine_common_checkout_resolves_the_main_from_a_linked_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "eng")
+            wt = os.path.join(tmp, "wt")
+            _git(main, "worktree", "add", "-q", "--detach", wt)
+            self.assertEqual(os.path.realpath(checkout_health.engine_common_checkout(cwd=wt)),
+                             os.path.realpath(main))
+
+    def test_engine_common_checkout_is_none_outside_a_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(checkout_health.engine_common_checkout(cwd=tmp))
+
+    def test_confident_default_branch_reads_a_clone_origin_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = _repo(tmp, "seed")
+            bare = os.path.join(tmp, "remote.git")
+            subprocess.run(["git", "clone", "--quiet", "--bare", seed, bare], capture_output=True, text=True)
+            clone = os.path.join(tmp, "clone")
+            subprocess.run(["git", "clone", "--quiet", bare, clone], capture_output=True, text=True)
+            got = checkout_health.confident_default_branch(clone)
+            head = subprocess.run(["git", "-C", clone, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+            self.assertEqual(got, head.split("origin/", 1)[1])       # the default, without the origin/ prefix
+
+    def test_confident_default_branch_is_none_without_a_confident_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solo = _repo(tmp, "solo")                                # no origin/HEAD, no persisted default
+            self.assertIsNone(checkout_health.confident_default_branch(solo))
+
+
 if __name__ == "__main__":
     unittest.main()

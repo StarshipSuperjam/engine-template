@@ -664,6 +664,7 @@ def _mechanic_sprawl_note(sprawl: dict | None) -> str:
     unpushed work). "" when nothing stray, so a clean mechanic's grounding is unchanged."""
     if not sprawl or sprawl.get("state") != "build-sprawl":
         return ""
+    product = _one_line(str(sprawl.get("product") or "<product checkout>"))
     stray = [_one_line(str(p)) for p in (sprawl.get("stray_worktrees") or [])]
     clones = [_one_line(str(p)) for p in (sprawl.get("sibling_clones") or [])]
     parts = []
@@ -674,9 +675,11 @@ def _mechanic_sprawl_note(sprawl: dict | None) -> str:
         parts.append(f"sibling clones beside the product ({', '.join(clones)})")
     return (" BUILD-SPRAWL FOUND (engine-template#902): older build workspaces are lying around — "
             + "; ".join(parts) + ". These are the pattern the worktree-isolated model replaces. OFFER the "
-            "operator cleanup — a stray worktree via `git -C <product> worktree remove <path>` (then "
-            "`git worktree prune`), a sibling clone by deleting the folder — but NEVER delete unprompted: one "
-            "may hold unpushed work. Check each has no unpushed branch first, and let the operator decide.")
+            "operator cleanup, but NEVER delete unprompted — one may hold unpushed work. Check each FIRST with "
+            "`git -C <that path> log --oneline --branches --not --remotes` (it prints nothing when there is no "
+            "local-only work); then, on the operator's OK, remove a stray worktree with "
+            f"`git -C {product} worktree remove <that path>` (then `git -C {product} worktree prune`), and a "
+            "sibling clone by deleting its folder. Let the operator decide.")
 
 
 def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False,

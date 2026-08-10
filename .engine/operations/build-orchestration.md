@@ -352,13 +352,15 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   left behind.
 - **Scan for this repo's OWN references before opening — run this one from the MECHANIC tree, not the
   worktree.** Every other step above runs inside the product worktree; this one deliberately does not. Run
-  `uv run --directory .engine -- python tools/local_references.py scan --ref origin/<the product's default branch>
-  --checkout <the ENGINE_PRODUCT_WORKTREE path>`. It reads the vocabulary from **here** — the repository whose
-  shorthand would dangle — and scans the diff **there**. Diff against `origin/<default>`, not the shared repo's
-  local default: the worktree was cut from `origin/<default>`, which a plain fetch does not fast-forward the
-  shared checkout's local branch to, so a local-default base would report unrelated upstream files as changed. Run it inside the checkout and it reads the product's own
-  declaration — which ships ABSENT — so it would report that nothing was checked, on the one path with
-  no merge gate behind it. If it names anything, rewrite each one to
+  `uv run --directory .engine -- python tools/local_references.py scan --ref "$ENGINE_PRODUCT_BASE"
+  --checkout "$ENGINE_PRODUCT_WORKTREE"`. It reads the vocabulary from **here** — the repository whose
+  shorthand would dangle — and scans the diff **there**. `ENGINE_PRODUCT_BASE` is the `origin/<default>` ref the
+  `worktree` verb emitted alongside the worktree path; diff against it, not the shared repo's local default,
+  because the worktree was cut from `origin/<default>`, which a plain fetch does not fast-forward the shared
+  checkout's local branch to — a local-default base would report unrelated upstream files as changed. Run this
+  scan from the PRODUCT side instead of the mechanic tree and it reads the product's own vocabulary declaration —
+  which ships ABSENT — so it would report that nothing was checked, on the one path with no merge gate behind it.
+  If it names anything, rewrite each one to
   say what it MEANS rather than what it refers to; the operator may wave one through, and that is their call.
   **This is a mandated step, not a wall:** the mechanic does not own the product's CI, so no merge gate is
   available on this path — the discipline is the instrument, and a skipped step is a real gap, not a caught one.

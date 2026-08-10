@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate that authorizes a cross-repo build, with
-two verbs — `preflight` (decide only) and `worktree` (decide, then cut the isolated build workspace).
+"""The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate behind an engine-mechanic's cross-repo build.
+It exposes two verbs — `preflight` (decide only) and `worktree` (decide, then cut the isolated build workspace).
 
 WHAT IT DOES. An engine-mechanic is a deployed engine whose product is a repository the operator OWNS
 (engine-template), checked out SEPARATELY beside it. Before a mechanic session builds that product and opens a
@@ -63,6 +63,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checkout_health  # noqa: E402  (the OFFLINE readers + fail-soft health probes; this module adds the gate)
@@ -111,20 +112,24 @@ _REFUSALS = {
         "worktree from a guessed base. Ensure the product clone has a tracked origin/HEAD (git remote set-head "
         "origin -a)."),
     "fetch-failed": (
-        "Could not fetch the product's origin, so the worktree base could be stale. Check your network and the "
-        "product clone's origin, then try again — the mechanic will not build from an unfetched base."),
+        "Could not fetch the product's origin after retrying, so the worktree base could be stale. A concurrent "
+        "peer session fetching the same clone can cause a transient git lock (it usually self-heals on retry); "
+        "otherwise check your network and the product clone's origin. Run `git -C <product checkout> fetch "
+        "origin` yourself to see the exact error — the mechanic will not build from an unfetched base."),
     "origin-moved": (
         "The product checkout's origin changed while preparing the worktree, so the mechanic stopped rather "
         "than write against a repository it did not verify. Re-run once the origin is stable."),
     "worktree-exists": (
         "A build worktree of that name already exists. Another session may be using it — pick a different name, "
-        "or if it is yours and finished, remove it first (git -C <product> worktree remove <path>)."),
+        "or if it is yours and finished, remove it first (git -C <product checkout> worktree remove <path>)."),
     "branch-exists": (
         "A build branch of that name already exists. Another session may have claimed this build — pick a "
-        "different name, or delete the old branch if it is yours and merged."),
+        "different name, or if it is yours and merged, delete it: git -C <product checkout> branch -D "
+        "claude/<name>."),
     "worktree-add-failed": (
-        "Creating the build worktree failed (git reported an error). Check that git is recent enough (2.17+) "
-        "and that the product clone is healthy, then try again."),
+        "Creating the build worktree failed (git reported an error). Run `git -C <product checkout> worktree add "
+        "<path> -b claude/<name> origin/<default>` yourself to see the exact error; check git is recent enough "
+        "(2.17+) and the product clone is healthy, then try again."),
 }
 
 
@@ -261,11 +266,14 @@ def _branch_exists(product_path: str, branch: str) -> bool:
 
 
 def _prune_stale_dest(product_path: str, dest: str) -> None:
-    """Clear ONLY a stale registration for `dest` (a worktree whose directory is gone), so re-using a name after
-    its folder was manually deleted does not wedge on a phantom entry. `git worktree prune` removes solely the
-    entries whose directories no longer exist — a peer's LIVE worktree (its directory present) is never touched,
-    so this cannot orphan another session's work. Gated on `dest` actually being registered-but-missing so the
-    common path performs no prune at all."""
+    """Clear a stale registration blocking `dest` (a worktree whose directory is gone), so re-using a name after
+    its folder was manually deleted does not wedge on a phantom entry. This is GATED to run only when `dest`
+    itself is registered-but-missing, so the ordinary create path (a fresh name) prunes nothing. NOTE the git
+    call it makes — `git worktree prune` — is inherently repo-wide (git has no per-path prune), so once it fires
+    it clears EVERY stale registration in the clone, not only `dest`'s. That is still safe: prune removes solely
+    entries whose directories no longer exist, so a peer's LIVE worktree (its directory present) is never
+    touched — it can, at most, also clear some other already-dead registration a bit earlier than a manual
+    prune would have."""
     if os.path.exists(dest):
         return
     listing = _run(["git", "-C", product_path, "worktree", "list", "--porcelain"]) or ""
@@ -277,10 +285,32 @@ def _prune_stale_dest(product_path: str, dest: str) -> None:
         _run(["git", "-C", product_path, "worktree", "prune"])
 
 
-def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
+# Bounded retry for the fetch: concurrent `worktree` calls against the ONE shared clone can collide on git's
+# `.git/config`/ref locks during fetch — a peer session mid-build is exactly the supported case — and fail
+# spuriously. A short bounded retry lets that self-heal (the #704 self-healing-retry pattern), so a transient
+# lock is not misreported as a stale base. Kept as module constants so a test can zero the backoff.
+_FETCH_ATTEMPTS = 3
+_FETCH_BACKOFF_SEC = 0.5
+
+
+def _fetch_origin_with_retry(product_path: str) -> bool:
+    """`git fetch origin`, retried a bounded number of times on failure (True on success, False if all attempts
+    failed). Fetch is idempotent, so retrying is safe; the retry absorbs the transient shared-`.git` lock
+    contention two concurrent `worktree` cuts can cause."""
+    for attempt in range(_FETCH_ATTEMPTS):
+        if _run(["git", "-C", product_path, "fetch", "origin"]) is not None:
+            return True
+        if attempt + 1 < _FETCH_ATTEMPTS:
+            time.sleep(_FETCH_BACKOFF_SEC)
+    return False
+
+
+def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str | None, str | None, str | None]:
     """FAIL-CLOSED: cut a fresh, ISOLATED worktree of the verified product from `origin/<default>`, homed under
     the mechanic's own durable `.engine/mechanic/worktrees/<name>`. Returns `(worktree_path, product_slug,
-    refusal)` with exactly one side populated. The identity gate is the shared `_resolve_verified_identity`
+    base_ref, refusal)` with either the first three populated (success; `base_ref` is `origin/<default>`, the
+    base the worktree was cut from — the ref to diff a build against) or only `refusal`. The identity gate is the
+    shared `_resolve_verified_identity`
     (host-anchored origin match) — WITHOUT the shared checkout's cleanliness leg, by design: the build never
     touches the shared working tree, so a peer mid-build there is legitimate. It NEVER moves the shared
     checkout's HEAD/index/tree; its only writes are the new worktree, its `claude/<name>` branch, and the shared
@@ -291,49 +321,54 @@ def create_worktree(name: str, cwd: str | None = None) -> tuple[str | None, str 
     (`origin-moved`) rather than letting the cut follow a repository nobody verified. A failed fetch refuses
     (`fetch-failed`); it never falls back to a stale remote-tracking ref."""
     if not _valid_worktree_name(name):
-        return (None, None, "bad-name")
+        return (None, None, None, "bad-name")
     product_path, target, refusal = _resolve_verified_identity(cwd)
     if refusal:
-        return (None, None, refusal)
+        return (None, None, None, refusal)
     root = checkout_health.engine_common_checkout(cwd)
     if not root:
-        return (None, None, "engine-root-unresolved")
+        return (None, None, None, "engine-root-unresolved")
     worktrees_dir = os.path.join(root, _WORKTREES_REL)
     dest = os.path.join(worktrees_dir, name)
-    # Containment belt-and-braces beyond the charset: the realpath of dest's parent must be the worktrees dir.
+    # Containment: redundant with the charset today (which forbids path separators, so dest's parent is always
+    # worktrees_dir), kept so a later charset change that allowed subdirectories cannot silently open a
+    # traversal. Re-verify this guard if the charset is ever loosened — today it is defense-in-depth, not a
+    # live second line.
     if os.path.realpath(os.path.dirname(dest)) != os.path.realpath(worktrees_dir):
-        return (None, None, "bad-name")
+        return (None, None, None, "bad-name")
     branch = f"claude/{name}"
     # Cheap, local collision checks first — a name clash is reported without any network work. Prune a stale
     # registration for THIS dest (missing directory) so a re-used name does not wedge on a phantom entry.
     _prune_stale_dest(product_path, dest)
     if os.path.exists(dest):
-        return (None, None, "worktree-exists")
+        return (None, None, None, "worktree-exists")
     if _branch_exists(product_path, branch):
-        return (None, None, "branch-exists")
-    # Now the network path, verify-then-write: capture the verified origin, resolve the default, fetch, and
-    # re-verify the origin has not moved before the cut.
+        return (None, None, None, "branch-exists")
+    # Now the network path, verify-then-write: capture the verified origin, resolve the default, fetch (with a
+    # bounded retry for transient concurrent-lock contention), and re-verify the origin has not moved before the
+    # cut.
     origin_url = _git_origin_url(product_path)   # the verified origin, captured before any write
     default = checkout_health.confident_default_branch(product_path)
     if not default:
-        return (None, None, "default-unresolved")
-    if _run(["git", "-C", product_path, "fetch", "origin"]) is None:
-        return (None, None, "fetch-failed")
+        return (None, None, None, "default-unresolved")
+    if not _fetch_origin_with_retry(product_path):
+        return (None, None, None, "fetch-failed")
     if _git_origin_url(product_path) != origin_url:   # re-verify: a mid-operation repoint stops the write
-        return (None, None, "origin-moved")
+        return (None, None, None, "origin-moved")
     os.makedirs(worktrees_dir, exist_ok=True)
     if _run(["git", "-C", product_path, "worktree", "add", dest, "-b", branch,
              f"origin/{default}"]) is None:
-        return (None, None, "worktree-add-failed")
-    return (dest, target, None)
+        return (None, None, None, "worktree-add-failed")
+    return (dest, target, f"origin/{default}", None)
 
 
 def main(argv: list | None = None) -> int:
     """CLI with two verbs. `preflight`: on success prints the verified environment to STDOUT (two `KEY=value`
     lines the runbook reads — `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`) and exits 0. `worktree <name>`:
     on success prints `ENGINE_PRODUCT_WORKTREE` (the isolated worktree path — a DISTINCT name from preflight's,
-    so the durable pointer is never overwritten) and `GITHUB_REPOSITORY`, and exits 0. On any refusal either
-    verb prints a plain-language reason + remedy to STDERR, leaves STDOUT empty, and exits non-zero. The channel
+    so the durable pointer is never overwritten), `ENGINE_PRODUCT_BASE` (the `origin/<default>` ref it was cut
+    from — the base a build diffs against), and `GITHUB_REPOSITORY`, and exits 0. On any refusal either verb
+    prints a plain-language reason + remedy to STDERR, leaves STDOUT empty, and exits non-zero. The channel
     discipline is safety-load-bearing: a refusal string must never reach stdout, where the runbook would consume
     it as a path."""
     parser = argparse.ArgumentParser(
@@ -352,11 +387,11 @@ def main(argv: list | None = None) -> int:
         sys.stdout.write(f"ENGINE_PRODUCT_CHECKOUT={path}\nGITHUB_REPOSITORY={slug}\n")
         return 0
     if args.verb == "worktree":
-        path, slug, refusal = create_worktree(args.name)
+        path, slug, base, refusal = create_worktree(args.name)
         if refusal:
             sys.stderr.write(_REFUSALS[refusal] + "\n")
             return 1
-        sys.stdout.write(f"ENGINE_PRODUCT_WORKTREE={path}\nGITHUB_REPOSITORY={slug}\n")
+        sys.stdout.write(f"ENGINE_PRODUCT_WORKTREE={path}\nENGINE_PRODUCT_BASE={base}\nGITHUB_REPOSITORY={slug}\n")
         return 0
     parser.print_help(sys.stderr)
     return 2

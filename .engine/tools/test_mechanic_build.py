@@ -134,7 +134,7 @@ class TestWorktreeNameValidation(unittest.TestCase):
 
     def test_bad_name_refuses_before_touching_identity_or_git(self):
         # No fixtures, no stub: the name gate is first, so a hostile name can never reach resolution or git.
-        self.assertEqual(mechanic_build.create_worktree("../evil"), (None, None, "bad-name"))
+        self.assertEqual(mechanic_build.create_worktree("../evil"), (None, None, None, "bad-name"))
 
 
 class TestCreateWorktree(unittest.TestCase):
@@ -146,9 +146,10 @@ class TestCreateWorktree(unittest.TestCase):
             m = _mechanic(tmp)
             p = _fetchable_product(tmp)
             with _stub_identity((p, _TARGET, None)):
-                path, slug, refusal = mechanic_build.create_worktree("902-x", cwd=m)
+                path, slug, base, refusal = mechanic_build.create_worktree("902-x", cwd=m)
             self.assertIsNone(refusal)
             self.assertEqual(slug, _TARGET)
+            self.assertTrue(base.startswith("origin/"))        # the base ref it was cut from, for diffing
             expected = os.path.join(m, ".engine", "mechanic", "worktrees", "902-x")
             self.assertEqual(os.path.realpath(path), os.path.realpath(expected))
             self.assertTrue(os.path.isdir(path))
@@ -168,7 +169,7 @@ class TestCreateWorktree(unittest.TestCase):
             with open(os.path.join(p, "peer.txt"), "w") as fh:
                 fh.write("a peer's uncommitted work")
             with _stub_identity((p, _TARGET, None)):
-                path, _slug, refusal = mechanic_build.create_worktree("902-y", cwd=m)
+                path, _slug, _base, refusal = mechanic_build.create_worktree("902-y", cwd=m)
             self.assertIsNone(refusal)
             self.assertTrue(os.path.isdir(path))
             self.assertEqual(_head_branch(p), "peer-wip")                     # HEAD not moved
@@ -183,7 +184,7 @@ class TestCreateWorktree(unittest.TestCase):
             notmech = _mechanic(tmp, target=None)
             with _env(ENGINE_PRODUCT_CHECKOUT=None):
                 self.assertEqual(mechanic_build.create_worktree("x", cwd=notmech),
-                                 (None, None, "not-a-mechanic"))
+                                 (None, None, None, "not-a-mechanic"))
 
     def test_worktree_exists_refuses(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,7 +193,8 @@ class TestCreateWorktree(unittest.TestCase):
             dest = os.path.join(m, ".engine", "mechanic", "worktrees", "dup")
             os.makedirs(dest)
             with _stub_identity((p, _TARGET, None)):
-                self.assertEqual(mechanic_build.create_worktree("dup", cwd=m), (None, None, "worktree-exists"))
+                self.assertEqual(mechanic_build.create_worktree("dup", cwd=m),
+                                 (None, None, None, "worktree-exists"))
 
     def test_branch_exists_refuses(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,7 +202,8 @@ class TestCreateWorktree(unittest.TestCase):
             p = _fetchable_product(tmp)
             subprocess.run(["git", "-C", p, "branch", "claude/taken"], capture_output=True, text=True)
             with _stub_identity((p, _TARGET, None)):
-                self.assertEqual(mechanic_build.create_worktree("taken", cwd=m), (None, None, "branch-exists"))
+                self.assertEqual(mechanic_build.create_worktree("taken", cwd=m),
+                                 (None, None, None, "branch-exists"))
 
     def test_default_unresolved_refuses_rather_than_guess_a_base(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,7 +211,7 @@ class TestCreateWorktree(unittest.TestCase):
             p = _product(tmp, origin="git@github.com:acme/product.git")   # a remote, but no origin/HEAD
             with _stub_identity((p, _TARGET, None)):
                 self.assertEqual(mechanic_build.create_worktree("no-default", cwd=m),
-                                 (None, None, "default-unresolved"))
+                                 (None, None, None, "default-unresolved"))
 
     def test_prune_clears_stale_registration_but_a_lingering_branch_stays_fail_closed(self):
         # Crash recovery, done safely. After a worktree directory vanishes, the phantom registration must not
@@ -218,19 +221,108 @@ class TestCreateWorktree(unittest.TestCase):
             m = _mechanic(tmp)
             p = _fetchable_product(tmp)
             with _stub_identity((p, _TARGET, None)):
-                path, _s, refusal = mechanic_build.create_worktree("reuse", cwd=m)
+                path, _s, _b, refusal = mechanic_build.create_worktree("reuse", cwd=m)
                 self.assertIsNone(refusal)
                 shutil.rmtree(path)                          # the directory vanishes; the registration is stale
                 # Re-cut the same name: prune clears the phantom registration, so the ONLY block is the branch —
                 # never a silent clobber of possible unpushed work.
                 self.assertEqual(mechanic_build.create_worktree("reuse", cwd=m),
-                                 (None, None, "branch-exists"))
+                                 (None, None, None, "branch-exists"))
                 # With the registration pruned, the lingering branch can now be deleted deliberately, and the
                 # re-cut succeeds — proving prune did clear the stale registration.
                 self.assertIsNotNone(mechanic_build._run(["git", "-C", p, "branch", "-D", "claude/reuse"]))
-                path3, _s3, refusal3 = mechanic_build.create_worktree("reuse", cwd=m)
+                path3, _s3, _b3, refusal3 = mechanic_build.create_worktree("reuse", cwd=m)
             self.assertIsNone(refusal3)
             self.assertTrue(os.path.isdir(path3))
+
+    def test_engine_root_unresolved_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic(tmp)
+            p = _fetchable_product(tmp)
+            orig = checkout_health.engine_common_checkout
+            checkout_health.engine_common_checkout = lambda cwd=None: None
+            try:
+                with _stub_identity((p, _TARGET, None)):
+                    self.assertEqual(mechanic_build.create_worktree("x", cwd=m),
+                                     (None, None, None, "engine-root-unresolved"))
+            finally:
+                checkout_health.engine_common_checkout = orig
+
+    def test_fetch_failed_refuses_when_fetch_never_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic(tmp)
+            p = _fetchable_product(tmp)
+            orig = mechanic_build._fetch_origin_with_retry
+            mechanic_build._fetch_origin_with_retry = lambda product_path: False
+            try:
+                with _stub_identity((p, _TARGET, None)):
+                    self.assertEqual(mechanic_build.create_worktree("902-f", cwd=m),
+                                     (None, None, None, "fetch-failed"))
+            finally:
+                mechanic_build._fetch_origin_with_retry = orig
+
+    def test_origin_moved_refuses_when_origin_repoints_mid_operation(self):
+        # The verify-then-write guard: origin is captured before the fetch and re-read before the cut; a change
+        # between the two must refuse rather than write against a repository nobody verified.
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic(tmp)
+            p = _fetchable_product(tmp)
+            seq = iter(["git@github.com:acme/product.git", "git@github.com:acme/MOVED.git"])
+            orig_url = mechanic_build._git_origin_url
+            orig_fetch = mechanic_build._fetch_origin_with_retry
+            mechanic_build._git_origin_url = lambda path: next(seq)
+            mechanic_build._fetch_origin_with_retry = lambda product_path: True
+            try:
+                with _stub_identity((p, _TARGET, None)):
+                    self.assertEqual(mechanic_build.create_worktree("902-o", cwd=m),
+                                     (None, None, None, "origin-moved"))
+            finally:
+                mechanic_build._git_origin_url = orig_url
+                mechanic_build._fetch_origin_with_retry = orig_fetch
+
+    def test_worktree_add_failure_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic(tmp)
+            p = _fetchable_product(tmp)
+            orig_run = mechanic_build._run
+
+            def fake_run(cmd, cwd=None, timeout=30):
+                if "worktree" in cmd and "add" in cmd:
+                    return None                          # only the cut fails; every other git call is real
+                return orig_run(cmd, cwd=cwd, timeout=timeout)
+
+            mechanic_build._run = fake_run
+            try:
+                with _stub_identity((p, _TARGET, None)):
+                    self.assertEqual(mechanic_build.create_worktree("902-a", cwd=m),
+                                     (None, None, None, "worktree-add-failed"))
+            finally:
+                mechanic_build._run = orig_run
+
+
+class TestFetchRetry(unittest.TestCase):
+    """The bounded fetch retry that absorbs the transient shared-.git lock two concurrent cuts can cause."""
+
+    def test_retries_up_to_the_cap_then_reports_failure(self):
+        calls = []
+        orig_run, orig_backoff = mechanic_build._run, mechanic_build._FETCH_BACKOFF_SEC
+        mechanic_build._run = lambda cmd, cwd=None, timeout=30: calls.append(1) and None
+        mechanic_build._FETCH_BACKOFF_SEC = 0
+        try:
+            self.assertFalse(mechanic_build._fetch_origin_with_retry("/x"))
+            self.assertEqual(len(calls), mechanic_build._FETCH_ATTEMPTS)   # exhausted the cap, no more
+        finally:
+            mechanic_build._run, mechanic_build._FETCH_BACKOFF_SEC = orig_run, orig_backoff
+
+    def test_returns_on_first_success_without_retrying(self):
+        calls = []
+        orig_run = mechanic_build._run
+        mechanic_build._run = lambda cmd, cwd=None, timeout=30: (calls.append(1), "ok")[1]
+        try:
+            self.assertTrue(mechanic_build._fetch_origin_with_retry("/x"))
+            self.assertEqual(len(calls), 1)                                # first attempt succeeded, no retry
+        finally:
+            mechanic_build._run = orig_run
 
 
 class TestWorktreeCLI(unittest.TestCase):
@@ -249,16 +341,18 @@ class TestWorktreeCLI(unittest.TestCase):
             mechanic_build.create_worktree = orig
         return rc, out.getvalue(), err.getvalue()
 
-    def test_success_emits_the_distinct_worktree_env_var(self):
-        rc, out, err = self._run_cli(("/home/me/eng/.engine/mechanic/worktrees/902-x", _TARGET, None))
+    def test_success_emits_the_distinct_worktree_env_var_and_base(self):
+        rc, out, err = self._run_cli(
+            ("/home/me/eng/.engine/mechanic/worktrees/902-x", _TARGET, "origin/main", None))
         self.assertEqual(rc, 0)
         self.assertEqual(out, "ENGINE_PRODUCT_WORKTREE=/home/me/eng/.engine/mechanic/worktrees/902-x\n"
+                              "ENGINE_PRODUCT_BASE=origin/main\n"
                               f"GITHUB_REPOSITORY={_TARGET}\n")
         self.assertNotIn("ENGINE_PRODUCT_CHECKOUT", out)   # never overwrites the durable pointer
         self.assertEqual(err, "")
 
     def test_refusal_goes_to_stderr_with_empty_stdout_and_nonzero_exit(self):
-        rc, out, err = self._run_cli((None, None, "branch-exists"))
+        rc, out, err = self._run_cli((None, None, None, "branch-exists"))
         self.assertNotEqual(rc, 0)
         self.assertEqual(out, "")
         self.assertIn("branch", err.lower())
