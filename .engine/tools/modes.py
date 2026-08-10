@@ -302,10 +302,10 @@ def is_plan_artifact(tool_name: str, tool_input, permission_mode, provider: str 
     return permission_mode == _PLAN_MODE
 
 
-# ---- the harness auto-memory carve-out (#766) -----------------------------------------------
+# ---- the harness auto-memory carve-out (StarshipSuperjam/engine-template#766) -----------------------------------------------
 # The harness's OWN memory notebook (Claude Code's auto-memory, ~/.claude/projects/<project>/memory/) is
 # the session's notebook, not the project — writing it is upkeep of the assistant's own orientation, not
-# building — so the gate allows it in Explore. Denying it produced the exact harm #766 records: the one
+# building — so the gate allows it in Explore. Denying it produced the exact harm StarshipSuperjam/engine-template#766 records: the one
 # durable self-store a session has was blocked (and the old relay claimed "saved"), so sessions dumped
 # their operating notes into the operator's pin store instead. This is the gate's FIRST path-based allow,
 # and it is held to a stricter standard than every matcher above, because unlike the plan file there is
@@ -332,7 +332,7 @@ def is_plan_artifact(tool_name: str, tool_input, permission_mode, provider: str 
 #     the old denial (a cosmetic miss), never an open door.
 # Residuals, stated honestly: realpath is time-of-check — a symlink swapped in after the check can still
 # redirect the write (the TOCTOU every path gate carries); and a RELOCATED auto-memory directory
-# (autoMemoryDirectory) simply misses the anchor and falls back to deny — degraded to the pre-#766
+# (autoMemoryDirectory) simply misses the anchor and falls back to deny — degraded to the pre-StarshipSuperjam/engine-template#766
 # denial, never opened wider. PROVIDER-CONFINED like the plan carve-out: auto-memory is Claude Code's
 # feature, so on any other runtime this allow is inert by rule.
 
@@ -409,12 +409,12 @@ _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files
            "authoring any engine Issue through the issue helper — while we explore; those don't need build.) "
            "Tell me to build it and I'll open a pull request — the change I submit for your approval.")
 
-# The MEMORY-specific denial relay (#257, made honest by #766). A blocked Write/Edit that targets a
+# The MEMORY-specific denial relay (StarshipSuperjam/engine-template#257, made honest by StarshipSuperjam/engine-template#766). A blocked Write/Edit that targets a
 # memory store is NOT a code change the operator must "build" — most often it is the operator asking to
 # be REMEMBERED — so the generic _DENIAL ("…open a pull request…") would read as the engine mishearing
 # "remember this" as a code change, corrosive to a non-engineer's trust at exactly that moment. The OLD
 # relay went further and claimed the content was already "saved to this project's memory"; on a DENIED
-# write that claim was false (#766 — nothing had been saved), and a session that believed it stopped
+# write that claim was false (StarshipSuperjam/engine-template#766 — nothing had been saved), and a session that believed it stopped
 # writing the note anywhere. The message (NEVER the decision — the write stays denied) now confirms only
 # what is true — nothing was saved — and makes the one promise the assistant can keep: save it properly
 # (the pin verb, for an operator ask) and read it back on request. That promise rides the assistant's
@@ -432,7 +432,7 @@ def is_memory_target(tool_name: str, tool_input) -> bool:
     """True iff this file-mutating call targets a MEMORY store — the engine's own `.engine/memory/` or the
     harness auto-memory notebook (the `~/.claude/.../memory/` default shape). MESSAGE-CHOICE ONLY: it never
     changes the gate's decision — it only selects, on a write the gate has ALREADY denied, the
-    memory-specific relay (#257); the harness-notebook ALLOW is a separate, stricter predicate
+    memory-specific relay (StarshipSuperjam/engine-template#257); the harness-notebook ALLOW is a separate, stricter predicate
     (is_harness_memory_write), never this one. Recognizing the memory path *for message choice* is safe —
     the allow-exemption hazard a path match raises does not apply here, so a relocated `autoMemoryDirectory`
     this misses simply falls back to the generic denial (cosmetic). It never hardcodes a platform-owned basename: it matches the engine store
@@ -495,7 +495,7 @@ def handler(payload: dict) -> dict:
                                             payload.get("cwd") if isinstance(payload, dict) else None,
                                             provider):
         # Same DECISION (deny) for everything still in the building set; only the relayed reason differs —
-        # a denied memory-shaped write earns the honest memory line (#257/#766), every other write the
+        # a denied memory-shaped write earns the honest memory line (StarshipSuperjam/engine-template#257/StarshipSuperjam/engine-template#766), every other write the
         # generic build-set denial.
         reason = _MEMORY_DENIAL if is_memory_target(tool_name, tool_input) else _DENIAL
         return hooks.decide("deny", reason)
@@ -626,7 +626,7 @@ def _classify(argv: list) -> int:
 
 def _demo(_argv: list) -> int:
     """A scripted fail-then-pass demonstration over the REAL handlers (only the session id is a fixture):
-    the Explore write-gate, the plan-mode carve-out (#64), and the plan-acceptance Build-entry (#67)."""
+    the Explore write-gate, the plan-mode carve-out (StarshipSuperjam/engine-template#64), and the plan-acceptance Build-entry (StarshipSuperjam/engine-template#67)."""
     sid = "engine-demo-session"
     clear_stance(sid)
 

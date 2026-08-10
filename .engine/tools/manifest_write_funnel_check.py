@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Manifest-write funnel floor (engine-template #923) — the custom/script entry for
+"""Manifest-write funnel floor (StarshipSuperjam/engine-template#923) — the custom/script entry for
 engine/check/manifest-write-funnel.
 
 The engine must never write its own deployed manifest (`.engine/engine.json`) THROUGH a symlink or to a
-path escaping the tree. #862 and #923 homed that invariant in `engine_write` and routed every known writer
+path escaping the tree. StarshipSuperjam/engine-template#862 and StarshipSuperjam/engine-template#923 homed that invariant in `engine_write` and routed every known writer
 through it — but that convergence rested on discipline: a NEW writer inherits the guard only if its author
 remembers to. Eight writers were discovered across seven review rounds spanning two pull requests, and the
 pattern kept recurring — so this check makes convergence MECHANICAL rather than disciplinary.
@@ -289,7 +289,7 @@ def check(root: str | None = None) -> list:
 def main() -> int:
     # ENGINE_ROOT (unset in production) lets the negative-fixture meta-check point the scan at a seeded
     # mini-tree carrying a manifest writer that bypasses the funnel, so the gate is witnessed biting a real
-    # bad input (#286 fixture seam).
+    # bad input (StarshipSuperjam/engine-template#286 fixture seam).
     print(json.dumps(check(validate.env_override_path("ENGINE_ROOT"))))
     return 0
 

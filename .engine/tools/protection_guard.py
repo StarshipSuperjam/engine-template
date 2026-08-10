@@ -240,7 +240,7 @@ def main() -> int:
         # kind's fail-open-locally posture; never a false local block.
         # A disclosed not-applicable: on a local run there is no token, so the real check runs in CI
         # and there is nothing to do here. Marked so the validator collapses it away from actionable
-        # notes (#322); the marker rides through the custom/script boundary's allow-list.
+        # notes (StarshipSuperjam/engine-template#322); the marker rides through the custom/script boundary's allow-list.
         return emit([{"severity": "soft", "location": None, "not_applicable": True,
                       "message": "Branch protection was not checked here — no repository "
                       "access token is available, which is normal on your own machine. The "

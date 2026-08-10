@@ -20,7 +20,7 @@ trusted host. They then diverge:
     its branch, plus the shared repo's own git metadata (fetch refs, the worktree admin entry). The build then
     runs INSIDE that worktree (`cwd=<worktree>` + `GITHUB_REPOSITORY=<verified slug>`), so concurrent sessions
     never collide on one shared working tree — the sprawl and branch-switch harms that a per-build worktree
-    replaces (engine-template#902).
+    replaces (StarshipSuperjam/engine-template#902).
 
 WHY THE TWO EMISSIONS USE DIFFERENT NAMES. `ENGINE_PRODUCT_CHECKOUT` is the DURABLE per-machine pointer to the
 product clone (checkout_health reads it env-first, ahead of the gitignored path file). If `worktree` emitted its
@@ -75,7 +75,7 @@ import checkout_health  # noqa: E402  (the OFFLINE readers + fail-soft health pr
 # Unicode homograph (`gİthub.com`, where U+0130 folds to `i`) cannot satisfy the `github.com` literal and pass
 # this belt as a genuine origin. The flags never touch the structural anchors, so the security boundary is
 # unchanged — no look-alike host is newly accepted; a genuine mixed-case origin that previously mis-classified
-# as `untrusted-host` is now read correctly (#625).
+# as `untrusted-host` is now read correctly (StarshipSuperjam/engine-template#625).
 _GITHUB_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
                              re.IGNORECASE | re.ASCII)
 
@@ -287,7 +287,7 @@ def _prune_stale_dest(product_path: str, dest: str) -> None:
 
 # Bounded retry for the fetch: concurrent `worktree` calls against the ONE shared clone can collide on git's
 # `.git/config`/ref locks during fetch — a peer session mid-build is exactly the supported case — and fail
-# spuriously. A short bounded retry lets that self-heal (the #704 self-healing-retry pattern), so a transient
+# spuriously. A short bounded retry lets that self-heal (the StarshipSuperjam/engine-template#704 self-healing-retry pattern), so a transient
 # lock is not misreported as a stale base. Kept as module constants so a test can zero the backoff.
 _FETCH_ATTEMPTS = 3
 _FETCH_BACKOFF_SEC = 0.5

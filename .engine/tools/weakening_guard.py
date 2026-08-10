@@ -19,8 +19,8 @@ on), defined by that PROPERTY rather than a path-prefix list, so
 benign edits to non-gate tooling no longer demand the ack — AND a REPOINT of the
 engine's update home in the manifest (`home_repository` in .engine/engine.json) —
 which changes where executable engine code is fetched from at the next update, a
-supply-chain weakening (#367) — AND a SHRINK of the deployment's own instance floor
-(`.engine/operator-guarded-paths.json`, #532): a repo may declare extra product-side paths
+supply-chain weakening (StarshipSuperjam/engine-template#367) — AND a SHRINK of the deployment's own instance floor
+(`.engine/operator-guarded-paths.json`, StarshipSuperjam/engine-template#532): a repo may declare extra product-side paths
 to guard (a scanner the engine cannot discover by presence), UNIONED with the engine's set and
 read from the trusted base; removing a declared path is a weakening, while adding one is a
 strengthening that never stops here.
@@ -158,7 +158,7 @@ _FLOOR_ENFORCEMENT_HOOKS = (
 # floored here by exact path. Presence-SEEDING this file and disclosing a missing floor stay provisioning's job;
 # this entry only gates its removal/weakening via a pull request.
 _FLOOR_SECURITY_PROVISION = (".github/dependabot.yml",)
-# Schema files that are the TEETH of a hard, merge-blocking (CI) schema-kind check (#467): the check rule names
+# Schema files that are the TEETH of a hard, merge-blocking (CI) schema-kind check (StarshipSuperjam/engine-template#467): the check rule names
 # no schema (it is resolved through the surface catalog's `governing_schema`, or a `params.schema` override), so
 # loosening the schema loosens that HARD gate with NO other on-disk correlate — the `.engine/check/` rule itself
 # may be untouched. Guarded here by EXACT PATH, deliberately NOT by a blanket `.engine/schemas/` prefix: that
@@ -221,7 +221,7 @@ _DERIVE = object()  # sentinel: is_guardrail/flagged_changes derive the check-sc
 # FIRST install still enters with no ack (WEAKENING_STATUS excludes 'added') — only a later weakening is gated.
 _KIND_CALLABLE_RE = re.compile(r"^\.engine/tools/[^/]+/kind_[^/]+\.py$")
 
-# The INSTANCE-EXTENSIBLE floor (#532). A deployment can stand up its own guardrail in PRODUCT territory —
+# The INSTANCE-EXTENSIBLE floor (StarshipSuperjam/engine-template#532). A deployment can stand up its own guardrail in PRODUCT territory —
 # e.g. a containment scanner whose enforcement CODE the engine cannot discover by presence (it is not a
 # `.engine/check/` rule). Such a deployment declares the extra paths to guard in a committed operator-config
 # file the guard UNIONS with its own set. The engine's own floor above is evaluated FIRST and independently,
@@ -302,7 +302,7 @@ def classify(path: str, status: str, prev: str = "", instance_guards=_READ_INSTA
     Removal or rename of ANY guarded file is hard — rare, unambiguous, and never the measured noise. A
     hard-floor member is hard on any weakening status. A path a DEPLOYMENT declared in its instance floor is
     hard — the operator opted into that friction themselves, so their declaration keeps its old meaning
-    (#532). Everything else guarded is soft: the disclosure tier. The directional detectors below escalate
+    (StarshipSuperjam/engine-template#532). Everything else guarded is soft: the disclosure tier. The directional detectors below escalate
     specific gate-shaped MODIFICATIONS of soft-tier files back to hard; they run separately in main()."""
     if instance_guards is _READ_INSTANCE:
         instance_guards = _read_instance_guards()
@@ -345,7 +345,7 @@ def _derive_check_scripts(check_dir: str | None = None) -> set | None:
 
 def is_guardrail(path: str, derived_scripts=_DERIVE, instance_guards=_READ_INSTANCE) -> bool:
     """True iff `path` is a guarded file: a floor member, under a guarded prefix, an enforcement script
-    discovered by presence in the base check rules, or a path a DEPLOYMENT declared in its instance floor (#532).
+    discovered by presence in the base check rules, or a path a DEPLOYMENT declared in its instance floor (StarshipSuperjam/engine-template#532).
     `derived_scripts` defaults to deriving from disk; `instance_guards` defaults to reading the base instance
     declaration; tests pass an explicit set / `(exact, prefixes)` pair (or None derived-set for the fail-safe
     sentinel). A None derived set -> also guard all of `.engine/tools/` (fail-safe when the check dir could not be
@@ -360,7 +360,7 @@ def is_guardrail(path: str, derived_scripts=_DERIVE, instance_guards=_READ_INSTA
         return True
     inst_exact, inst_prefixes = instance_guards
     if path in inst_exact or (inst_prefixes and path.startswith(inst_prefixes)):
-        return True                     # a deployment-declared product guardrail (#532) — union, never subtraction
+        return True                     # a deployment-declared product guardrail (StarshipSuperjam/engine-template#532) — union, never subtraction
     if derived_scripts is None:
         return path.startswith(_BLANKET_TOOLS_PREFIX)  # fail-safe: derivation failed -> guard the whole dir
     return path in derived_scripts
@@ -397,7 +397,7 @@ def flagged_changes(files: list, derived_scripts=_DERIVE, instance_guards=_READ_
 
 # The engine's update HOME lives in the manifest as a single key. A change to its VALUE (a repoint)
 # redirects where executable engine code is fetched from at the next update — a supply-chain weakening
-# that needs the deliberate ack (#367). The manifest is deliberately NOT whole-file guarded:
+# that needs the deliberate ack (StarshipSuperjam/engine-template#367). The manifest is deliberately NOT whole-file guarded:
 # it legitimately churns on every upgrade/add (version bumps) and on first-run setup, so blanket-guarding
 # it would demand an ack on routine updates. Instead the detector compares the diff against the home
 # recorded in the TRUSTED BASE manifest and FAILS CLOSED — so it cannot be falsified by the change it judges.
@@ -428,7 +428,7 @@ def _diff_lines(patch: str) -> list:
     characters a GitHub diff and JSON treat as ordinary content, so `splitlines` would fragment one `+`
     line into pieces, and every fragment past the separator loses its `+`/`-` marker and goes invisible to
     the checks below. Splitting on `\\n` keeps each diff line whole, so an embedded separator stays inside
-    its line where `_added_line_is_anomalous` can catch it (#550 review)."""
+    its line where `_added_line_is_anomalous` can catch it (StarshipSuperjam/engine-template#550 review)."""
     return patch.split("\n")
 
 
@@ -464,14 +464,14 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
       - "deletion" — the home line is REMOVED and not re-added. A removal is not harmless: with no home
         recorded, the guard's own rule makes the NEXT change that adds one back a first recording, unflagged
         — so a deletion + a later add would compose into a silent two-PR repoint. A deletion therefore always
-        keeps the flag (the review of #515 proved this composition against the first draft, which cleared it);
+        keeps the flag (the review of StarshipSuperjam/engine-template#515 proved this composition against the first draft, which cleared it);
       - "unclear" — the home line is touched with an added line, but no clean single-line value could be read;
       - "unreadable-patch" — the whole manifest diff was too large for GitHub to return;
       - "escaped" — an ADDED manifest line carries a JSON string escape (a backslash), which the plain-ASCII
         engine manifest never legitimately needs and which can disguise the home key past the substring
         touch-test (JSON folds e.g. `home_repositor\\u0079` back to the real key, last value wins).
 
-    ONE provably-benign carve-out (#515): the flag is suppressed ONLY when EVERY touched home line (added and
+    ONE provably-benign carve-out (StarshipSuperjam/engine-template#515): the flag is suppressed ONLY when EVERY touched home line (added and
     removed alike) is EXACTLY a one-line `"home_repository": "<base>"` entry — bare key, base value, optional
     trailing comma, nothing else — AND at least one such line is ADDED (the home must SURVIVE the change).
     That admits the first-run trailing-comma reformat (which always re-adds the line) and nothing wider: a
@@ -680,7 +680,7 @@ _QUOTED_RE = re.compile(r'"([^"]*)"')
 
 
 def instance_declaration_shrink(files: list) -> tuple | None:
-    """Removing a path from the deployment's instance floor (`.engine/operator-guarded-paths.json`, #532) is a
+    """Removing a path from the deployment's instance floor (`.engine/operator-guarded-paths.json`, StarshipSuperjam/engine-template#532) is a
     guardrail-WEAKENING — it stops the guard flagging future edits to a path the deployment chose to protect, a
     protection a non-engineer cannot see removed by reading a diff. So a SHRINK of the declaration needs the ack,
     while a pure ADDITION (strengthening — declaring MORE) passes unflagged. This is the directional detector for

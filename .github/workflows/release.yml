@@ -3,7 +3,7 @@
 # depends on where it runs: in the ENGINE's construction repo it cuts the engine's version (from what changed
 # since the last engine release, recorded into the manifests); once the engine is DEPLOYED into a product repo
 # it cuts that repo's OWN PRODUCT version (from product-version.json), publishing the product, not the engine
-# (#516). The tool detects which automatically — the workflow is the same in both. THE MERGE IS THE ONLY
+# (StarshipSuperjam/engine-template#516). The tool detects which automatically — the workflow is the same in both. THE MERGE IS THE ONLY
 # GO-AHEAD: this workflow opens the pull request and STOPS — it has no merge step, no auto-merge, and never
 # tags or publishes a release (the tag + GitHub Release on merge is release-publish.yml). The maintainer's
 # merge click stays the sole, human, unbypassable consent act.
@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/knowledge_gen.py generate
           uv run --directory .engine --frozen -- python tools/self_map.py generate
-      # Deployment gate (#664): prove this release OPERATES and UPGRADES when deployed BEFORE the pull request
+      # Deployment gate (StarshipSuperjam/engine-template#664): prove this release OPERATES and UPGRADES when deployed BEFORE the pull request
       # is written or opened. Placed after the map refresh and before the PR steps, so a red fails the job and
       # NO pull request is ever opened (the branch/commit/push all live in the final step). Fails CLOSED: any
       # block or setup error exits nonzero and stops the cut. The gate is home-repo only; a deployed repo

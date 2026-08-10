@@ -66,7 +66,7 @@ import validate  # noqa: E402
 
 def _dangling_shortcut_reason(path: str) -> str | None:
     """A plain reason when `path` is a DANGLING symlink (a shortcut whose target does not exist), else
-    None (#923). The wiring surfaces are OPERATOR-SHARED files (.claude/settings.json, .mcp.json, the
+    None (StarshipSuperjam/engine-template#923). The wiring surfaces are OPERATOR-SHARED files (.claude/settings.json, .mcp.json, the
     fence files): a LIVE shortcut there is the operator's own arrangement (a dotfiles link) and a write
     through it is honored — but a dangling one reads as "absent" to every exists() check, so a blind
     create-through would drop a brand-new file OUTSIDE the operator's tree. Refuse just that case."""
@@ -324,7 +324,7 @@ FOUNDATION_IGNORES_FENCE = "foundation-ignores"
 # pollutes the main tree's git status, keeping the operator-checkout-strand pre-check's clean-tree read true).
 # `.engine/**/__pycache__/` is the engine's own regenerable Python bytecode: running the engine's tools (the
 # status readout, the validator, the self-test discovery run) writes `__pycache__/*.pyc` under `.engine/`, and
-# without this a read-only diagnostics pass dirties a deployed repo's `git status` (#675). Scoped to `.engine/`
+# without this a read-only diagnostics pass dirties a deployed repo's `git status` (StarshipSuperjam/engine-template#675). Scoped to `.engine/`
 # — never a repo-wide `__pycache__/` — so the fence stays in the engine's corner and never asserts an ignore
 # rule over the operator's product tree, which may not even be Python. Its effect is purely `git status`
 # cleanliness: the surface census / untracked-surface detector already excludes bytecode by name via
@@ -347,7 +347,7 @@ def apply_foundation_ignores(path: str) -> dict:
         new_text = fence_apply(existing, FOUNDATION_IGNORES_FENCE, FOUNDATION_IGNORE_LINES)
         if new_text == existing:
             return {"status": "already"}
-        _write_text(path, new_text)   # inside the swallow: a dangling-shortcut refusal degrades too (#923)
+        _write_text(path, new_text)   # inside the swallow: a dangling-shortcut refusal degrades too (StarshipSuperjam/engine-template#923)
     except WiringError as exc:
         return {"status": "degraded", "detail": str(exc)}
     return {"status": "written"}
@@ -383,7 +383,7 @@ def _read_json_tolerant(path: str, create: bool):
 
 
 def _write_json(path: str, data) -> None:
-    reason = _dangling_shortcut_reason(path)   # #923: never blind-create through a broken shortcut
+    reason = _dangling_shortcut_reason(path)   # StarshipSuperjam/engine-template#923: never blind-create through a broken shortcut
     if reason:
         raise WiringError(reason)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -397,7 +397,7 @@ def _read_text(path: str) -> str:
 
 
 def _write_text(path: str, text: str) -> None:
-    reason = _dangling_shortcut_reason(path)   # #923: never blind-create through a broken shortcut
+    reason = _dangling_shortcut_reason(path)   # StarshipSuperjam/engine-template#923: never blind-create through a broken shortcut
     if reason:
         raise WiringError(reason)
     parent = os.path.dirname(path)
@@ -548,7 +548,7 @@ def catalog_add(data: dict, directive: dict, schema: dict):
     if not isinstance(name, str) or not _SURFACE_NAME_RE.match(name):
         raise WiringError(f"refused: {name!r} is not a valid surface name (lowercase letters and "
                           f"hyphens).")
-    # Authority-tier reservation (issue #401): the top two authority ranks are reserved to the
+    # Authority-tier reservation (issue StarshipSuperjam/engine-template#401): the top two authority ranks are reserved to the
     # self-referential core (`contract`/`policy`); a module `ontology-entry` may not mint or downgrade one.
     # Name-bound half (the seam has no module identity) — the owner-based half is authority_reservation_findings
     # at the merge gate. Refused fail-closed here so a bad record never lands, mirroring the schema re-check.
@@ -751,7 +751,7 @@ def ontology_entry_reverse(directive: dict) -> dict:
 
 # Fence keys the FOUNDATION owns in .gitignore — a module `gitignore` wire must never claim one, or its
 # apply would collide with the foundation body and its uninstall reverser would rip out the foundation block
-# (which the orphan-wire carve-out then hides from coherence). Reserved and refused fail-closed (#409).
+# (which the orphan-wire carve-out then hides from coherence). Reserved and refused fail-closed (StarshipSuperjam/engine-template#409).
 _RESERVED_GITIGNORE_KEYS = {FOUNDATION_IGNORES_FENCE}
 
 
@@ -796,7 +796,7 @@ def codex_hook_reverse(directive: dict) -> dict:
 # carries no per-wire optional flag: validate.wiring_findings emits a HARD finding for EVERY unapplied
 # declared wire (so a skipped codex-mcp wire is never "safely left" — it stops first-run's verify from
 # finishing and leaves a module-add incompletely wired). If an optional-wire flag is ever added, this
-# categorical wording must be revisited (#875). The message is context-neutral on purpose: codex_mcp_apply
+# categorical wording must be revisited (StarshipSuperjam/engine-template#875). The message is context-neutral on purpose: codex_mcp_apply
 # runs on BOTH first-run arrival and module-add, so it names the consistency-check outcome, not one path.
 _CODEX_NO_TOMLLIB_APPLY = (
     "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
@@ -845,7 +845,7 @@ def _codex_config_is_engine_owned(text: str) -> bool:
     catch as a no-write _fail — the same fail-safe outcome (config untouched). Pure
     text: it reads the already-read buffer, not the disk. This is what lets a SECOND engine codex-mcp wire
     land on the config the FIRST wire just created, instead of mistaking it for pre-existing operator
-    config (#751); it also fixes the same skip on the module-add path."""
+    config (StarshipSuperjam/engine-template#751); it also fixes the same skip on the module-add path."""
     ids = _applied_fence_ids(CODEX_CONFIG_PATH, text=text)
     if not ids:
         return False
@@ -1184,7 +1184,7 @@ def main(argv: list) -> int:
     except IndexError:
         print("CONFIG ERROR: missing the <file> argument.", file=sys.stderr)
         return 2
-    except WiringError as exc:   # #923: a dangling-shortcut refusal is a clean stop here too, not a traceback
+    except WiringError as exc:   # StarshipSuperjam/engine-template#923: a dangling-shortcut refusal is a clean stop here too, not a traceback
         print(f"CONFIG ERROR: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
