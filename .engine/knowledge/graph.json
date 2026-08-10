@@ -6240,7 +6240,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:cc457d2d58935ab383bd251a0d32707a7d5c4ead40c3867dd107dbd0dae343d5",
+        "fingerprint": "sha256:5cfbc16ed8c7cbe1f9588f16e115d03f071671fb90128a8de1b33f4c183b2d0e",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -6530,6 +6530,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:engine_write",
           "tool:github_client",
           "tool:moment",
           "tool:protection_guard",
@@ -6544,7 +6545,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:a84ed2e2ba23c6031ffab48169ee778f9a11efcf43fe2060de9144622b9dce4e",
+        "fingerprint": "sha256:617022d84e786bee481a00354b9cf3c5c6d448db2d0dad8c701fc98453ad442c",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -8421,7 +8422,7 @@
       },
       "slug": "engine_write",
       "source": {
-        "fingerprint": "sha256:39ee723c3415d24a11b5b7b09d38fcf6e139a6841c4a8aa8704fc59787b892d9",
+        "fingerprint": "sha256:0d38009160d70104f43a4cb651e98aa4c39dba49adf57550b1d278f0079b6884",
         "path": ".engine/tools/engine_write.py"
       },
       "status": "active",
@@ -8842,7 +8843,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5a613596f3d9f940f6d39ee850cad2c8dacf603ba59df40107f0f1b40b83bbf5",
+        "fingerprint": "sha256:da762f202aa14a5be46223296cb56ed7a4eae7a64c07aa875b23c079bf5c0083",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9593,7 +9594,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:6bac8e76b413e9b54e378f92ad93014a889a79fcbadf0844f0f6edd3fc35c59b",
+        "fingerprint": "sha256:d9c0dac732323ae806a7c7c5527709e949b6bb0489e4f42ddf98e310eac0c067",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -10965,7 +10966,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:b939d84145bedf9f88d94c111fd590292ae1faeea06af4c2d6467e2aaddf4f07",
+        "fingerprint": "sha256:e32f7b21532cce4d56de1f1613d69cd33d39557ddc7cc60e1665ba63ee18689f",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -11225,7 +11226,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:bcd26ffc51c7690174c75972de868a6a278490724383b8aabfe688557dbea7c0",
+        "fingerprint": "sha256:f7537d410308a5d627a12f8da2736fb7fbbf35d58d476abc3fb10a265758bf72",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -12241,7 +12242,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:a0f65a4ea02849148ba3b85dcf3a6740adb07f045fe6acb055647f18a67aa717",
+        "fingerprint": "sha256:6609e364ef9a64f96c17e96469b59c99b279a25ae2d005d7fcaad8fd5de6e1b2",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12857,7 +12858,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:f506b30b1616388e48c0b5c9618ae88f79965c5e123168e19b8fe3c4a7d39f16",
+        "fingerprint": "sha256:da52ffdf1a5d710467da34a491e598ba441cc7441b1642a2575321e093fbea61",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -14401,7 +14402,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:a269ea017486e52ac89d1f1b0d899d59c42b56df9e0eb6683dca7e907c847bf2",
+        "fingerprint": "sha256:b1fc401bc745930d8c4958535fb2324a388755ca7b196f614f258cf2a4a0e04d",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -14637,7 +14638,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:5f5d52a943b66c2ae7fd5912abb99d4b9d442c7598bc1cd747a4a5a88ba95e58",
+        "fingerprint": "sha256:fe0be7a5ecb15364d89ec55932baa438b9c4284e5bf5a86d86f65ed622db2f69",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",
