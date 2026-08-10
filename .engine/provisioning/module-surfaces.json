@@ -381,6 +381,9 @@
   ".engine/check/self-map-drift.json": [
    "validators-core"
   ],
+  ".engine/check/shipped-issue-references.json": [
+   "validators-core"
+  ],
   ".engine/check/skill-coherence.json": [
    "validators-core"
   ],
@@ -1548,6 +1551,9 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/shipped_issue_references_check.py": [
+   "core"
+  ],
   ".engine/tools/skill_coherence_check.py": [
    "core"
   ],
@@ -1846,6 +1852,9 @@
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
+   "core"
+  ],
+  ".engine/tools/test_shipped_issue_references_check.py": [
    "core"
   ],
   ".engine/tools/test_skill.py": [
