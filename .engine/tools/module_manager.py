@@ -352,7 +352,11 @@ def _release_api_request(path: str, *, token: str | None,
     401 even a public repo. So this helper keeps the `if tok` conditional. It also carries no off-host guard:
     the callers build their own paths and never follow a `Link` header, so there is no redirect to guard.
     Callers keep their own slug-resolve (each with its own not-found message) and their own transport (raw
-    tarball bytes / JSON parse / 404-vs-raise), mirroring github_client's own request/get seam split."""
+    tarball bytes / JSON parse / 404-vs-raise), mirroring github_client's own request/get seam split. `path`
+    must be host-relative (a leading `/`): it is joined onto the host verbatim, so a slash-less path would
+    silently build a malformed URL — refuse it loudly instead."""
+    if not path.startswith("/"):
+        raise ValueError(f"release API path must be host-relative and start with '/': {path!r}")
     import urllib.request, boot   # lazy: only the real network path needs these (matches the call sites)
     tok = token if token is not None else boot.gh_token()
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",

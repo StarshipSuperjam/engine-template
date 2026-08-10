@@ -517,6 +517,12 @@ class TestReleaseApiRequest(unittest.TestCase):
         self.assertEqual(self._headers(default)["user-agent"], "engine-module-manager")
         self.assertEqual(self._headers(custom)["user-agent"], "engine-something-else")
 
+    def test_a_path_without_a_leading_slash_is_refused(self):
+        # The path is joined onto the host verbatim, so a slash-less path would silently build a malformed
+        # URL (https://api.github.comrepos/...); the helper must refuse it loudly, not emit a bad request.
+        with self.assertRaises(ValueError):
+            module_manager._release_api_request("repos/acme/home/releases/latest", token="t")
+
 
 class TestBareVersionTagResolution(unittest.TestCase):
     """#760: the manifest records the engine release BARE (`_bump_engine_manifest` strips a leading `v`), so
