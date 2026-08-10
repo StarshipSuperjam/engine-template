@@ -23,12 +23,14 @@ def _write(path, obj):
         f.write("\n")
 
 
-def _module(mid, ver="0.0.0-dev", migrations=None, retired_capabilities=None):
-    m = {"id": mid, "version": ver, "status": "required", "provides": {}}
+def _module(mid, ver="0.0.0-dev", migrations=None, retired_capabilities=None, status="required", depends=None):
+    m = {"id": mid, "version": ver, "status": status, "provides": {}}
     if migrations:
         m["migrations"] = migrations
     if retired_capabilities:
         m["retired_capabilities"] = retired_capabilities
+    if depends is not None:
+        m["depends"] = depends
     return m
 
 
@@ -460,6 +462,111 @@ class RemovedCapabilityAccumulation(unittest.TestCase):
     def test_product_cut_has_no_removal_guard(self):
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
         self.assertNotIn("removed_capability_violations", p)
+
+
+class DefaultOnDependencyGuard(unittest.TestCase):
+    # #891: a default-on module is installed on every deployment unless the operator opts out (#759), so it may
+    # depend only on capabilities guaranteed present — required or other default-on. A dep that is optional /
+    # experimental / retired (or statusless) cannot be assumed present, so the module could not be coherently
+    # installed there. The cut refuses it; #759's runtime demotion is the per-deployment safety net this backstops
+    # at authoring time. The guard is baseline-independent, so it is enforced in first-cut mode too.
+    def _classify(self, live, first_cut=False):
+        base = _baseline_tree({"core": _module("core")})
+        try:
+            with _Tree(live):
+                baseline = (rc.Baseline("v0.0.0", True, "first") if first_cut
+                            else rc.Baseline("v0.0.9", False, "diff"))
+                return rc.classify(baseline, None if first_cut else base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def _viol(self, live, **kw):
+        return self._classify(live, **kw)["default_on_dependency_violations"]
+
+    def test_a_default_on_module_depending_on_an_optional_module_is_refused(self):
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                "addon": _module("addon", status="optional")}
+        v = self._viol(live)
+        self.assertEqual(len(v), 1)
+        self.assertIn("feature", v[0])
+        self.assertIn("addon", v[0])
+        self.assertIn("optional", v[0])
+
+    def test_experimental_and_retired_dependencies_are_also_refused(self):
+        # the allowlist ({required, default-on}) flags every other tier, not only the `optional` the issue names.
+        for tier in ("experimental", "retired"):
+            live = {"core": _module("core"),
+                    "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                    "addon": _module("addon", status=tier)}
+            v = self._viol(live)
+            self.assertTrue(any("feature" in x and "addon" in x and tier in x for x in v),
+                            f"a {tier} dependency of a default-on module should be refused: {v}")
+
+    def test_depending_only_on_required_and_default_on_is_clean(self):
+        live = {"core": _module("core"),
+                "base-on": _module("base-on", status="default-on"),
+                "feature": _module("feature", status="default-on", depends={"core": "", "base-on": ""})}
+        self.assertEqual(self._viol(live), [])
+
+    def test_a_non_default_on_module_depending_on_optional_is_not_this_guards_concern(self):
+        # this guard judges DEFAULT-ON modules only; a required module depending on optional is a separate
+        # required-depends-on-optional smell, out of scope for #891.
+        live = {"core": _module("core"),
+                "req": _module("req", status="required", depends={"addon": ""}),
+                "addon": _module("addon", status="optional")}
+        self.assertEqual(self._viol(live), [])
+
+    def test_a_dependency_absent_from_the_tree_is_left_to_the_coherence_gate(self):
+        # a missing dependency is a dependency-PRESENCE concern (the branch coherence gate owns it), not a status
+        # concern — this guard resolves-then-judges-status and skips a dep it cannot find, so the two never
+        # double-report.
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"ghost": ""})}
+        self.assertEqual(self._viol(live), [])
+
+    def test_a_statusless_dependency_is_flagged_fail_closed(self):
+        # a present manifest with no status is already a schema defect; a default-on module leaning on it cannot be
+        # assumed coherent, so it is flagged (belt-and-suspenders), never silently allowed.
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                "addon": _module("addon", status=None)}
+        self.assertTrue(any("feature" in x and "addon" in x for x in self._viol(live)))
+
+    def test_the_first_cut_also_refuses_a_default_on_optional_dependency(self):
+        # classify() returns early in first-cut mode and omits the diff siblings (they need a baseline); this
+        # invariant is baseline-independent, so it MUST still be present and enforced on the first cut.
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                "addon": _module("addon", status="optional")}
+        self.assertEqual(len(self._viol(live, first_cut=True)), 1)
+
+    def test_propose_refuses_a_default_on_optional_dependency_with_a_plain_reason(self):
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core")})
+        live = {"core": _module("core"),
+                "feature": _module("feature", status="default-on", depends={"addon": ""}),
+                "addon": _module("addon", status="optional")}
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree(live):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 2)                              # non-zero => the propose step fails the cut
+            self.assertIn("feature", err.getvalue())              # a plain reason naming the offending module
+            self.assertIn("default-on", err.getvalue().lower())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_product_cut_has_no_default_on_dependency_guard(self):
+        # engine-mode only: a product cut is built by _product_proposal, which never computes the guard.
+        p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
+        self.assertNotIn("default_on_dependency_violations", p)
 
 
 class Apply(unittest.TestCase):
