@@ -2556,6 +2556,31 @@ class TestUpgradeReconcile(unittest.TestCase):
         self.assertTrue(regenerated["rows"], "the product-spec-matrix was not regenerated from docs/spec")
         self.assertEqual(regenerated["rows"][0]["who"], "operator")
 
+    def test_regen_indexes_refuses_to_regenerate_through_a_symlinked_index(self):
+        # #862: os.path.isfile FOLLOWS a symlink, so a live symlink at an engine index would be regenerated
+        # THROUGH it — an out-of-tree write. _regen_indexes must skip it, leaving the out-of-tree target
+        # untouched. Uses the product-spec-matrix path (a settled docs/spec makes the generator SUCCEED, so the
+        # test genuinely bites: without the guard the outside file IS overwritten). This is the guarded path for
+        # the floored obligation_matrix writer, reached without editing it.
+        cap = ("---\nstatus: locked\n---\n\n# A capability\n\n## Summary\nWhat.\n\n## Behavior\nHow.\n\n"
+               "## Acceptance criteria\n\n| Criterion | How verified | Who checks it |\n"
+               "| --- | --- | --- |\n| It works end to end | a behavioral demo | operator |\n")
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "outside-matrix.json")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write('{"schema_version": 1, "source": "docs/spec", "rows": ["ORIGINAL"]}\n')
+            with module_manager._redirect_root(d):
+                self._write_file(d, "docs/spec/index.md",
+                                 "# Product spec\n\n| Capability | Status | Doc |\n| --- | --- | --- |\n"
+                                 "| A | settled | [A](a.md) |\n")
+                self._write_file(d, "docs/spec/a.md", cap)
+                os.makedirs(os.path.join(d, ".engine"), exist_ok=True)
+                os.symlink(outside, os.path.join(d, ".engine", "product-spec-matrix.json"))
+                module_manager._regen_indexes()
+            with open(outside, encoding="utf-8") as fh:
+                self.assertIn("ORIGINAL", fh.read(),
+                              "a symlinked engine index must not be regenerated through the link, out of the tree")
+
     def test_refuses_cleanly_on_a_hard_consistency_finding_without_opening(self):
         # An .engine file no module claims makes check_coherence hard-flag; the gate must refuse in plain
         # language (no raw check id), leave the working copy staged (half-state), and open nothing.

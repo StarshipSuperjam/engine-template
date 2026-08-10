@@ -198,6 +198,14 @@ engine would put its own file here in place of yours — so you'd only lose your
 choices: let the engine use this spot (your file here is replaced) · keep your file and have the engine skip it
 · stop, and decide later. Nothing is replaced until you choose.
 
+## A file sits where the engine keeps one of its own GitHub files
+
+You already have a file here: {paths}. This is where the engine keeps one of its own GitHub files (a
+workflow, or a pull-request or issue template). What's here now may be the engine's own file from an earlier
+version, or your own file from before you adopted the engine. Your choices: let the engine put its current file
+here (what's here is replaced) · keep what's here and have the engine skip it · stop, and decide later. Nothing
+is replaced until you choose.
+
 ## The engine and your project both use the same file
 
 You already have your own entries in {paths}. The engine adds its own clearly-marked section here and leaves

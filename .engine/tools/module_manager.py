@@ -2634,10 +2634,17 @@ def _regen_indexes() -> None:
         # rebuilds. Fail LOUD (this runs outside the regen swallow below), never a silent skip.
         raise KeyError(f"REGENERATED_DERIVED member {rel!r} has no generator in _regen_indexes — add one")
 
+    root = os.path.realpath(validate.ROOT)
     for rel in REGENERATED_DERIVED:
         target = os.path.join(validate.ENGINE_DIR, *rel.split("/")[1:])
         if not os.path.isfile(target):
             continue   # the tree does not carry this index (a minimal fixture / no settled spec) — never fabricate
+        # #862: os.path.isfile FOLLOWS a symlink, so a live symlink at an engine index would be regenerated
+        # THROUGH it — an out-of-tree write (self-map/matrix use a plain open('w')). Refuse: skip the regen so no
+        # write ever follows the link; the drift gate (arrival's index gate / the upgrade reconcile) then surfaces
+        # the un-regenerated index as a hard finding, so the skip is disclosed, never silent.
+        if os.path.islink(target) or not os.path.realpath(target).startswith(root + os.sep):
+            continue
         gen = _generator(rel)          # OUTSIDE the swallow: an unmapped member is a loud maintenance bug
         if gen is None:
             continue                   # optional module absent — nothing to regenerate here
