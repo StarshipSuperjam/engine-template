@@ -1175,6 +1175,19 @@ class TestDanglingShortcutRefusal(_Redirected):
         self.assertEqual(out["status"], "degraded")
         self.assertFalse(os.path.exists(wiring.GITIGNORE_PATH + ".nowhere"))
 
+    def test_the_cli_reports_a_dangling_shortcut_as_a_config_error_not_a_traceback(self):
+        # the CLI reaches _write_text through _text_fence_apply, whose except only wraps the read —
+        # the write's WiringError must be a clean CONFIG ERROR, not an unhandled crash
+        with tempfile.TemporaryDirectory() as d:
+            link = os.path.join(d, "mine.gitignore")
+            os.symlink(os.path.join(d, "nowhere"), link)
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = wiring.main(["gitignore-apply", link, "build/"])
+            self.assertEqual(code, 2)
+            self.assertIn("CONFIG ERROR", buf.getvalue())
+            self.assertIn("broken shortcut", buf.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

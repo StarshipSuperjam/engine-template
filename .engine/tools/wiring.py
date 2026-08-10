@@ -1184,6 +1184,9 @@ def main(argv: list) -> int:
     except IndexError:
         print("CONFIG ERROR: missing the <file> argument.", file=sys.stderr)
         return 2
+    except WiringError as exc:   # #923: a dangling-shortcut refusal is a clean stop here too, not a traceback
+        print(f"CONFIG ERROR: {exc}", file=sys.stderr)
+        return 2
     except OSError as exc:
         print(f"CONFIG ERROR: {exc}", file=sys.stderr)
         return 2
