@@ -8422,7 +8422,7 @@
       },
       "slug": "engine_write",
       "source": {
-        "fingerprint": "sha256:0d38009160d70104f43a4cb651e98aa4c39dba49adf57550b1d278f0079b6884",
+        "fingerprint": "sha256:0349a140a0e1ca33f2b356164b0c0ce814c3919a28e1adc13a8ef1846c4049fd",
         "path": ".engine/tools/engine_write.py"
       },
       "status": "active",
@@ -10120,6 +10120,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:engine_write",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:validate"
@@ -10130,7 +10131,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:c2dac5319d6e1b1e5b07703fd9fc5252208a8b44b2982b6d3d8d2776f6c7829d",
+        "fingerprint": "sha256:5269a81facd57b885ee50a3c6b41230fd41128ef5e7e85241e8dd01791e61784",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -13435,7 +13436,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:39750219e0891ff9f2c474756fdf093279e637b377a5636e3b1cfff9fcb7854b",
+        "fingerprint": "sha256:2e91de52950f36bb3095d6e99e099886eb1c87242835f3ce434adb1f11c6528f",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
