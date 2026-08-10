@@ -1943,10 +1943,10 @@ def retire(*, root=None, announce=None) -> dict:
     # Same degrade-and-disclose posture as the graph.
     map_status = "regenerated"
     try:
-        if not os.path.isfile(self_map.SELF_MAP_PATH):
+        if _write_through_symlink_reason(self_map.SELF_MAP_PATH, validate.ROOT):   # #862: symlink check FIRST — os.path.isfile
+            map_status = "skipped (the self-map is a symlink; not regenerated through it)"  # follows a link and returns False for a
+        elif not os.path.isfile(self_map.SELF_MAP_PATH):                           # DANGLING one, which would else mis-report "absent"
             map_status = "absent (nothing to re-derive)"
-        elif _write_through_symlink_reason(self_map.SELF_MAP_PATH, validate.ROOT):   # #862: never regenerate the
-            map_status = "skipped (the self-map is a symlink; not regenerated through it)"  # self-map THROUGH a symlink
         else:
             self_map.generate()
     except Exception as exc:  # noqa: BLE001
