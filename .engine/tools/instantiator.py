@@ -1362,6 +1362,9 @@ def _seed_state(say, copy=None) -> str:
     if repo_identity.is_home_repo(validate.ROOT):
         return "present"                          # the engine's own home -> never reset (belt: protects the workshop cursor)
     path = os.path.join(validate.ROOT, _STATE_REL)
+    reason = _write_through_symlink_reason(path, validate.ROOT)   # #862: check BEFORE the read — a dangling/unreadable
+    if reason:                                    # symlinked cursor would otherwise be swallowed by the read's own
+        raise _EngineWriteRefused(reason)         # except below and skip this guard (a silently broken "accept", per review)
     try:
         with open(path, encoding="utf-8") as fh:
             register = json.load(fh)["integration_debt"]["register"]
@@ -1375,9 +1378,6 @@ def _seed_state(say, copy=None) -> str:
     # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak this match exists to prevent).
     if own and (f"/{own}/" in register or register.rstrip("/").endswith(f"/{own}")):
         return "present"                          # register names THIS repo -> operator's own cursor -> preserve
-    reason = _write_through_symlink_reason(path, validate.ROOT)
-    if reason:                                    # #862: never reseed THROUGH a symlink — RAISE (a clean, disclosed stop),
-        raise _EngineWriteRefused(reason)         #   never a SILENT skip that would break the operator's implied choice
     try:                                          # foreign / traveled register (or unknown origin past the belt) -> reset
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(_GENESIS_CURSOR, fh, indent=2)
@@ -1441,8 +1441,11 @@ def _apply_substrates(say, copy=None) -> dict:
     run never rewrites the real graph. Memory-backup setup is owed to the memory module (backup_vault), not done here."""
     result = {"step": "substrates", "status": "done"}
     try:
-        knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
-        result["knowledge"] = "derived"
+        if _write_through_symlink_reason(knowledge_gen.GRAPH_PATH, validate.ROOT):   # #862: never regenerate the
+            result["knowledge"] = "skipped (the knowledge graph is a symlink; not regenerated through it)"  # graph THROUGH a symlink
+        else:
+            knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
+            result["knowledge"] = "derived"
     except Exception as exc:  # noqa: BLE001 — degrade-and-disclose, never crash the phase
         result["knowledge"] = f"skipped ({type(exc).__name__})"
         result["status"] = "degraded"
@@ -1926,7 +1929,10 @@ def retire(*, root=None, announce=None) -> dict:
     _drop_bytecode(base, _tool_stems)
     graph_status = "regenerated"
     try:
-        knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
+        if _write_through_symlink_reason(knowledge_gen.GRAPH_PATH, validate.ROOT):   # #862: never regenerate the
+            graph_status = "skipped (the knowledge graph is a symlink; not regenerated through it)"  # graph THROUGH a symlink
+        else:
+            knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
     except Exception as exc:  # noqa: BLE001 — degrade-and-disclose; never crash the close   # removed tools
         graph_status = f"skipped ({type(exc).__name__})"
     # The wiring map is the graph's sibling index and re-derives here for the same reason (#513): its
@@ -1937,10 +1943,12 @@ def retire(*, root=None, announce=None) -> dict:
     # Same degrade-and-disclose posture as the graph.
     map_status = "regenerated"
     try:
-        if os.path.isfile(self_map.SELF_MAP_PATH):
-            self_map.generate()
-        else:
+        if not os.path.isfile(self_map.SELF_MAP_PATH):
             map_status = "absent (nothing to re-derive)"
+        elif _write_through_symlink_reason(self_map.SELF_MAP_PATH, validate.ROOT):   # #862: never regenerate the
+            map_status = "skipped (the self-map is a symlink; not regenerated through it)"  # self-map THROUGH a symlink
+        else:
+            self_map.generate()
     except Exception as exc:  # noqa: BLE001
         map_status = f"skipped ({type(exc).__name__})"
     preserved = [".engine/tools/module_catalog.py", ".engine/tools/test_module_catalog.py",

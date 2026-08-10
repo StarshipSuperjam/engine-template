@@ -2070,6 +2070,29 @@ class TestFirstRunVerbGuards(unittest.TestCase):
                 self.assertEqual(result["self_map"], "absent (nothing to re-derive)")
                 self.assertFalse(os.path.isfile(self_map.SELF_MAP_PATH))
 
+    def test_retire_refuses_to_regenerate_through_a_symlinked_self_map(self):
+        # #862: retire() re-derives .engine/self-map.md via self_map.generate (a plain open('w') that FOLLOWS a
+        # symlink). A symlinked self-map.md must be skipped, not written through, out of the tree — the exact
+        # out-of-tree write the security re-audit reproduced on the real retire() path.
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "outside-self-map.md")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write("ORIGINAL — must not be overwritten\n")
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                mpath = os.path.join(d, ".engine", "modules", "core", "manifest.json")
+                with open(mpath, encoding="utf-8") as fh:
+                    m = json.load(fh)
+                m.setdefault("provides", {})["foundation"] = [".engine/self-map.md"]   # owned -> not an orphan
+                with open(mpath, "w", encoding="utf-8") as fh:
+                    json.dump(m, fh)
+                os.symlink(outside, self_map.SELF_MAP_PATH)   # the map is a symlink pointing OUT of the tree
+                result = inst.retire(announce=lambda _s: None)
+                self.assertIn("symlink", result["self_map"])
+            with open(outside, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "ORIGINAL — must not be overwritten\n",
+                                 "the self-map must not be regenerated through the symlink, out of the tree")
+
 # ==== VERIFY + RETIRE ===============================================================
 
 _FINISH_KEYS = ("verify-paused", "verify-next-actions", "verify-ok", "verify-gate-on",
@@ -3330,14 +3353,34 @@ class TestArrive(unittest.TestCase):
     def test_persist_control_plane_marker_skips_a_symlinked_manifest(self):
         # #862 write-boundary: the best-effort control-plane marker is a SECOND writer of .engine/engine.json
         # (a read-modify-write). On a symlinked manifest it must skip (its contract: a write failure never fails the
-        # gate) rather than follow the link out of the tree.
+        # gate) rather than follow the link out of the tree. The symlink target is a REAL, readable file so the
+        # GUARD — not an incidental read error on a dangling link — is what prevents the write-through (a dangling
+        # target would be swallowed by the pre-existing except, and the test would pass even without the guard).
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "repo")
             os.makedirs(os.path.join(root, ".engine"))
             outside = os.path.join(d, "outside-engine.json")
+            with open(outside, "w") as fh:
+                json.dump({"engine_release": "9.9.9"}, fh)          # a real, readable out-of-tree file
             os.symlink(outside, os.path.join(root, ".engine", "engine.json"))
             inst._persist_control_plane_marker(root, {"created": True, "ruleset_id": "x"})
-            self.assertFalse(os.path.exists(outside), "the marker was never written through the symlink, out of the tree")
+            with open(outside) as fh:
+                self.assertNotIn("control_plane", fh.read(),
+                                 "the marker must never be written through the symlink into the out-of-tree file")
+
+    def test_seed_state_refuses_a_dangling_symlinked_cursor(self):
+        # #862 / spec-review: the guard must run BEFORE the register read, or a DANGLING (or unreadable) symlinked
+        # cursor makes open() raise, is swallowed by the read's own except -> "present", and the symlink guard is
+        # never reached — a silently broken "accept". With the guard first, a dangling symlink RAISES.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine", "state"))
+            os.symlink(os.path.join(d, "nonexistent-cursor.json"),        # dangling
+                       os.path.join(root, ".engine", "state", "state.json"))
+            with inst._redirect_root(root), \
+                    mock.patch.object(inst.repo_identity, "is_home_repo", return_value=False):
+                with self.assertRaises(inst._EngineWriteRefused):
+                    inst._seed_state(lambda _s: None, copy=None)
 
     def test_arrive_stops_cleanly_when_an_engine_generated_file_is_a_symlink(self):
         # #862 integration (the accept path — covers arrive()'s _EngineWriteRefused catch end to end): with
