@@ -451,6 +451,73 @@ class TestAddSafety(unittest.TestCase):
         self.assertIn("Nothing was changed", res["reason"])
 
 
+class TestReleaseApiRequest(unittest.TestCase):
+    """#867: the three release/tag network boundaries (`_fetch_release_tree`, `_resolve_release_ref`,
+    `_release_tag_published`) now build their GitHub Request through ONE shared helper, so the header block
+    and the token resolution live in one place. These offline tests are the FIRST coverage of that block —
+    the three call sites are a named inductive gap the suite never runs against the network. The load-bearing
+    property is the CONDITIONAL auth: a tokenless call must send NO `Authorization` (an empty `Bearer ` would
+    401 even an anonymous public-release fetch), which the pre-#867 copies preserved by hand and this helper
+    must keep — hence the deliberate `if tok:` rather than github_client.request's unconditional Bearer."""
+
+    @staticmethod
+    def _headers(req):
+        # urllib capitalizes header keys on store; normalize for a case-insensitive assertion.
+        return {k.lower(): v for k, v in req.header_items()}
+
+    def test_an_explicit_token_sets_a_bearer_authorization_and_the_full_header_block(self):
+        req = module_manager._release_api_request("/repos/acme/home/releases/latest", token="ghp_secret")
+        self.assertEqual(req.full_url, "https://api.github.com/repos/acme/home/releases/latest")
+        h = self._headers(req)
+        self.assertEqual(h["authorization"], "Bearer ghp_secret")
+        self.assertEqual(h["accept"], "application/vnd.github+json")
+        self.assertEqual(h["x-github-api-version"], "2022-11-28")
+        self.assertEqual(h["user-agent"], "engine-module-manager")
+
+    def test_no_token_and_no_ambient_token_sends_no_authorization(self):
+        # The anonymous public-release fetch: boot.gh_token() -> None, so NO Authorization header at all.
+        import boot
+        saved = boot.gh_token
+        boot.gh_token = lambda: None
+        try:
+            req = module_manager._release_api_request("/repos/acme/home/tarball/v1.0.0", token=None)
+        finally:
+            boot.gh_token = saved
+        h = self._headers(req)
+        self.assertNotIn("authorization", h)                          # the property this de-dup must preserve
+        self.assertEqual(h["accept"], "application/vnd.github+json")   # the rest of the block still present
+        self.assertEqual(h["x-github-api-version"], "2022-11-28")
+        self.assertEqual(h["user-agent"], "engine-module-manager")
+
+    def test_no_explicit_token_falls_back_to_the_ambient_gh_token(self):
+        import boot
+        saved = boot.gh_token
+        boot.gh_token = lambda: "ambient_tok"
+        try:
+            req = module_manager._release_api_request("/repos/acme/home/releases/tags/v1.0.0", token=None)
+        finally:
+            boot.gh_token = saved
+        self.assertEqual(self._headers(req)["authorization"], "Bearer ambient_tok")
+
+    def test_an_empty_token_string_sends_no_authorization_and_never_consults_boot(self):
+        # `token=""` is "not None", so the fallback is skipped, and the empty string is falsy, so no auth
+        # header — matching the pre-#867 `if tok:` truthiness exactly, never drawing an empty `Bearer `.
+        import boot
+        saved = boot.gh_token
+        boot.gh_token = lambda: (_ for _ in ()).throw(AssertionError("consulted boot for an explicit token"))
+        try:
+            req = module_manager._release_api_request("/repos/acme/home/tarball/main", token="")
+        finally:
+            boot.gh_token = saved
+        self.assertNotIn("authorization", self._headers(req))
+
+    def test_the_user_agent_is_overridable_and_defaults_to_the_module_manager_agent(self):
+        default = module_manager._release_api_request("/x", token="t")
+        custom = module_manager._release_api_request("/x", token="t", user_agent="engine-something-else")
+        self.assertEqual(self._headers(default)["user-agent"], "engine-module-manager")
+        self.assertEqual(self._headers(custom)["user-agent"], "engine-something-else")
+
+
 class TestBareVersionTagResolution(unittest.TestCase):
     """#760: the manifest records the engine release BARE (`_bump_engine_manifest` strips a leading `v`), so
     `add`/`upgrade` must resolve that bare version to the home's REAL published tag before fetching — a

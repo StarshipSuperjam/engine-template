@@ -337,6 +337,31 @@ class _NoPublishedRelease(RuntimeError):
     refuses LOUDLY naming the home rather than degrading it as a network problem (#367)."""
 
 
+def _release_api_request(path: str, *, token: str | None,
+                         user_agent: str = "engine-module-manager"):
+    """Build the authenticated-OR-anonymous GitHub API Request that the three release/tag network
+    boundaries below share (the tarball fetch, the latest-release resolve, the tag-published probe), so the
+    token resolution and the header block live in ONE place — an API-version or auth change is now a single
+    edit here, not three. Resolves the token ITSELF: the caller passes its own `token`, or None to fall back
+    to `boot.gh_token()` (matching the `tok = token if token is not None else boot.gh_token()` the three
+    callers each used to inline). `path` is an `api.github.com`-relative path the caller builds.
+
+    Deliberately NOT `github_client.request`: that core client sets `Authorization: Bearer` UNCONDITIONALLY
+    (its off-host guard protects a token-BEARING request), but these release reads stay OPTIONALLY
+    authenticated — a public engine home's release is fetchable with no token, and an empty `Bearer ` would
+    401 even a public repo. So this helper keeps the `if tok` conditional. It also carries no off-host guard:
+    the callers build their own paths and never follow a `Link` header, so there is no redirect to guard.
+    Callers keep their own slug-resolve (each with its own not-found message) and their own transport (raw
+    tarball bytes / JSON parse / 404-vs-raise), mirroring github_client's own request/get seam split."""
+    import urllib.request, boot   # lazy: only the real network path needs these (matches the call sites)
+    tok = token if token is not None else boot.gh_token()
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": user_agent}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    return urllib.request.Request(f"https://api.github.com{path}", headers=headers)
+
+
 def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
                         token: str | None = None) -> str:
     """Download the engine's SOURCE archive at the tagged release `ref`, extract it under `dest_dir`, and
@@ -352,17 +377,12 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
     branch (the supply-chain control)."""
     import tarfile                # local: only the real network path needs these
     import urllib.request
-    import boot                   # lazy: only the real fetch needs the repo slug + token
+    import boot                   # lazy: only the real fetch needs the repo slug
     slug = repo or boot.repo_slug()
     if not slug:
         raise RuntimeError("could not determine the engine repository to fetch the release from.")
-    tok = token if token is not None else boot.gh_token()
-    url = f"https://api.github.com/repos/{slug}/tarball/{ref}"
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-module-manager"}
-    if tok:
-        headers["Authorization"] = f"Bearer {tok}"
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
+    req = _release_api_request(f"/repos/{slug}/tarball/{ref}", token=token)
+    with urllib.request.urlopen(req, timeout=60) as resp:
         payload = resp.read()
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tf:
         tops = {n.split("/", 1)[0] for n in tf.getnames() if n}
@@ -410,13 +430,8 @@ def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | 
     slug = repo or boot.repo_slug()
     if not slug:
         raise RuntimeError("could not determine the engine repository to resolve the latest release.")
-    tok = token if token is not None else boot.gh_token()
-    url = f"https://api.github.com/repos/{slug}/releases/latest"
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-module-manager"}
-    if tok:
-        headers["Authorization"] = f"Bearer {tok}"
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
+    req = _release_api_request(f"/repos/{slug}/releases/latest", token=token)
+    with urllib.request.urlopen(req, timeout=60) as resp:
         tag = (_json.loads(resp.read()) or {}).get("tag_name")
     if not tag:
         raise _NoPublishedRelease("the engine repository has no published release to update to.")
@@ -459,14 +474,9 @@ def _release_tag_published(tag: str, repo: str | None = None, token: str | None 
     slug = repo or boot.repo_slug()
     if not slug:
         raise RuntimeError("could not determine the engine repository to resolve the release tag.")
-    tok = token if token is not None else boot.gh_token()
-    url = f"https://api.github.com/repos/{slug}/releases/tags/{tag}"
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-module-manager"}
-    if tok:
-        headers["Authorization"] = f"Bearer {tok}"
+    req = _release_api_request(f"/repos/{slug}/releases/tags/{tag}", token=token)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             resp.read()
         return True
     except urllib.error.HTTPError as exc:
