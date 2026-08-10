@@ -188,18 +188,24 @@ def rewrite_default_groups_text(text: str, new_groups: list) -> tuple:
 
 
 def _maybe_rewrite_default_groups(new_groups: list, pyproject_path: str | None = None) -> bool:
-    path = pyproject_path or _pyproject_path()
-    if not os.path.exists(path):
-        return False
+    # ONE discriminator for both the path and the guard base (a falsy-vs-None mismatch here would let an
+    # empty-string argument resolve to the REAL slot while downgrading its guard — the QA gate reproduced
+    # exactly that bypass): `is None` means the real engine-owned slot, anything else is caller-supplied.
+    use_default = pyproject_path is None
+    path = _pyproject_path() if use_default else pyproject_path
     # #923: .engine/pyproject.toml is engine-owned and rewritten IN PLACE on the same add/remove/upgrade
-    # paths as the manifest — never write it through a shortcut. Base per the engine_write doctrine: the
-    # repository root for the real slot, the target's own parent for an injected path (tests pass temp
-    # trees — an ambient-root base would refuse those legitimate writes). Every lifecycle caller wraps
-    # this in a fail-open except that discloses the refusal in its notes/left_in_place.
-    base = validate.ROOT if pyproject_path is None else os.path.dirname(os.path.abspath(path))
+    # paths as the manifest — never write it through a shortcut. The guard runs BEFORE the exists() check:
+    # exists() FOLLOWS a link and reads a DANGLING shortcut as "absent", which would silently skip the
+    # refusal (the #862 ordering lesson). Base per the engine_write doctrine: the repository root for the
+    # real slot, the target's own parent for an injected path (tests pass temp trees — an ambient-root
+    # base would refuse those legitimate writes). Every lifecycle caller wraps this in a fail-open except
+    # that discloses the refusal in its notes/left_in_place.
+    base = validate.ROOT if use_default else os.path.dirname(os.path.abspath(path))
     reason = engine_write.write_through_symlink_reason(path, base)
     if reason:
         raise engine_write.EngineWriteRefused(reason)
+    if not os.path.exists(path):
+        return False
     text = validate.read(path)
     new_text, changed = rewrite_default_groups_text(text, new_groups)
     if changed:
@@ -332,16 +338,17 @@ def remove(module_id: str, removal_notice: str | None = None) -> dict:
             except engine_write.EngineWriteRefused as exc:
                 # #923: the module's FILES are already deleted (steps 1-2), so this is a disclosed
                 # half-state, never a "nothing was changed" refusal — the one dishonest message here.
-                # The stale package entry also trips the coherence findings below, so the gate backstops.
-                result["left_in_place"].append(
-                    f"the module's entry in .engine/engine.json — the file could not be safely written: {exc}")
-                # Phase-aware remedy: the module's manifest folder is already gone, so a RE-RUN would
-                # refuse ("not installed") — the honest recourse is the hand-edit, not a retry.
+                # One authored note (not a `left_in_place` entry — that render heading says "on
+                # purpose", and a refused write is not a deliberate keep). Phase-aware remedy: the
+                # module's manifest folder is already gone, so a RE-RUN would refuse ("not
+                # installed"), and NOTHING catches the stale entry automatically (check_coherence
+                # never compares `packages` to the discovered manifests) — the hand-edit is the
+                # only recourse, and the note must not promise a safety net that does not exist.
                 result["notes"].append(
                     f"The module's files were removed, but its entry could not be dropped from "
-                    f".engine/engine.json. Delete or replace the shortcut, then remove the "
-                    f"'{module_id}' line from \"packages\" in .engine/engine.json by hand — the "
-                    f"coherence check will keep pointing at it until then.")
+                    f".engine/engine.json: {exc} Once the shortcut is gone, remove the "
+                    f"'{module_id}' line from \"packages\" in .engine/engine.json by hand — this "
+                    f"stale entry won't be caught automatically.")
     if not removal_notice:
         result["notes"].append(
             f"If this engine publishes releases, record what removing '{module_id}' takes away by adding it to "
@@ -724,7 +731,7 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
         # then refuse HONESTLY: name what was rolled back rather than claiming nothing was changed.
         residue = _cleanup_failed_install(module_id, release_tree)
         reason = (f"Refused to record '{module_id}' in the engine manifest: {exc} The module's copied "
-                  f"files and settings were removed again.")
+                  f"files and settings were rolled back.")
         for r in residue:
             reason += f" — {r} was left in place and may need your review"
         return {"module_id": module_id, "refused": True, "applied": False, "reason": reason}
@@ -2798,10 +2805,9 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
         # clean-refusal idiom with a purpose-written remedy instead. The upgrade() pre-flight refuses
         # this before any overlay on the normal path; this is the fail-closed backstop for a shortcut
         # planted mid-flight or a tail entered directly.
-        tail["reason"] = (f"The update was applied to the working copy, but the engine's own record "
-                          f"(.engine/engine.json) could not be safely written: {exc} So it was NOT "
-                          f"opened for review and nothing was merged. Delete or replace that shortcut, "
-                          f"then run the update again — or ask me to undo the update's changes.")
+        tail["reason"] = (f"The update was applied to the working copy but was NOT opened for review "
+                          f"and nothing was merged, because the engine's own record could not be safely "
+                          f"written: {exc} Or ask me to undo the update's changes instead.")
         return tail
     # (d0b) #759 INSTALL the net-new modules this release adds that the deployment needs, and record the rest as
     # OFFERS. A `required` module the release adds is installed mandatorily (the deployment needs it to be
@@ -3480,8 +3486,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         manifest_reason = engine_write.write_through_symlink_reason(_engine_manifest_path(), validate.ROOT)
         if manifest_reason:
             return {**result, "refused": True,
-                    "reason": f"Your engine's own record file (.engine/engine.json) can't be safely "
-                              f"written: {manifest_reason} The engine is unchanged."}
+                    "reason": f"Your engine's own record file can't be safely written: "
+                              f"{manifest_reason} The engine is unchanged."}
         # Capture the OLD engine-owned surface NOW — pre-overlay, with THIS (source) version's code: the old
         # `provides` globbed against the pristine deployed tree, UNIONED with the old FOUNDATION_INFRA (a code
         # constant only the pre-overlay process holds). The reconcile delete leg (in the tail) needs it to

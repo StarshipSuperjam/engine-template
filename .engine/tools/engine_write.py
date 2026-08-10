@@ -11,7 +11,8 @@ the #862 review found new unguarded writers four rounds running, which is what p
 What is unified here is the PREDICATE (and the one guarded JSON writer below); the enforcement idiom
 stays per-site on purpose, because the right failure mode differs by surface: the arrival flow and the
 standalone CLIs catch `EngineWriteRefused` into a clean disclosed stop, the upgrade tail converts it to
-its staged-refusal result, and best-effort writers (a cleanup, an index regen) skip and disclose. A
+its staged-refusal result, and best-effort writers (a cleanup, an index regen, bootstrap's
+finalize/posture markers) skip and disclose. A
 caller that writes IN PLACE to an engine-owned slot outside the overlay's realpath wall should route
 through `write_json` (or check `write_through_symlink_reason` first when it writes prose or must check
 before a read).
@@ -28,18 +29,28 @@ Deliberately NOT guarded (judged per surface, #923):
 - Generic JSON writers (`module_manager._write_json`, `instantiator._write_json`): part of their real
   job is writing release-tree and fixture files DELIBERATELY outside the repository root. The invariant
   belongs to destinations, not to writers — the guarded slots above route around them.
-- The `os.replace` writers (the boot slice cache, the standing-alarm ledger, memory capture's
-  cursor/status sidecars): `os.replace` never follows a symlink — it replaces the link itself with a
-  real file, in-tree. No out-of-tree write exists to refuse.
-- The memory ledger (`.engine/memory/ledger.ndjson`): it sits behind an engine-managed gitignore block,
-  so a symlink there cannot arrive via a clone, a pull request, or a release — only local write access
-  can plant one, and that access could write the target directly. It also deliberately lives OUTSIDE
-  the repository for worktrees (the shared clone root, or wherever ENGINE_MEMORY_DIR points), so
-  containment is meaningless there — and a refusal inside the append would be silent and sticky (the
-  capture cursor never advances). Guarding it would cost more than the hazard it closes.
-- Operator-owned root files (README.md, SECURITY.md, LICENSE, product-version.json,
-  `.claude/settings.json` via wiring): the operator symlinking their OWN files is their prerogative;
-  the engine only seeds them when absent.
+- The engine RUNTIME cache writers (the boot slice cache, the standing-alarm ledger, memory capture's
+  cursor/status/failure sidecars): their homes (`.engine/knowledge/.cache/`, `.engine/boot/.cache/`,
+  `.engine/telemetry/.cache/`, `.engine/memory/`) all sit behind engine-managed gitignore blocks, so
+  neither a leaf symlink nor a symlinked ancestor can arrive via a clone, a pull request, or a release
+  — only local write access can plant one, and that access could write any target directly. (Note the
+  weaker claim deliberately NOT made: `os.replace` protects only against a symlinked LEAF — it still
+  traverses a symlinked ancestor directory, and the status sidecar uses a plain open — so the
+  no-arrival-vector argument, not the replace mechanics, is what carries these.)
+- The memory ledger (`.engine/memory/ledger.ndjson`): the gitignore argument above, plus it
+  deliberately lives OUTSIDE the repository for worktrees (the shared clone root, or wherever
+  ENGINE_MEMORY_DIR points), so containment is meaningless there — and a refusal inside the append
+  would be silent and sticky (the capture cursor never advances). Guarding it would cost more than
+  the hazard it closes.
+- Operator-owned root/shared files (README.md, SECURITY.md, LICENSE, product-version.json,
+  `.claude/settings.json` and the fence files via wiring): a LIVE shortcut there is the operator's own
+  arrangement (a dotfiles-linked settings file) and writes through it are honored. What IS refused is
+  the DANGLING shortcut — it reads as "absent" to every exists() check, so a seed-if-absent or
+  create-through would drop a brand-new file outside the tree: the seeders skip it
+  (`instantiator._seed_security` / `_seed_product_version`), and wiring's write primitives raise a
+  WiringError finding (`wiring._dangling_shortcut_reason` — its own operator-file rule, deliberately
+  narrower than this module's). README's content-marker gate and LICENSE's remove-only path need no
+  guard (verified: a dangling link reads as unreadable content / os.remove unlinks the link itself).
 - `.engine/state/*.json`: the only in-place writer is the arrival's state reseed
   (`instantiator._seed_state`), guarded there since #862 (it must check BEFORE its register read, so a
   dangling symlink is refused rather than read-swallowed). Upgrade migrations that touch state run

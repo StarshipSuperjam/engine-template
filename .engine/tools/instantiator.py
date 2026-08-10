@@ -1048,7 +1048,11 @@ def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:
             say(copy["plan-mode-conflict"])
             return {"step": "plan-mode", "status": "kept-operator-default"}
     proj.setdefault("permissions", {})["defaultMode"] = "plan"  # adopt (no conflict, or operator chose to)
-    wiring._write_json(proj_path, proj)
+    try:
+        wiring._write_json(proj_path, proj)
+    except wiring.WiringError as exc:   # #923: a dangling-shortcut settings.json — skip, disclosed
+        say(str(exc))
+        return {"step": "plan-mode", "status": "skipped", "detail": str(exc)}
     say(copy["plan-mode-adopted"])
     return {"step": "plan-mode", "status": "adopted"}
 
@@ -1157,6 +1161,11 @@ def _seed_security(say, copy=None) -> str:
         return "present"                        # never overwrite a project's existing disclosure file
     seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "security-seed.md")
     target = os.path.join(validate.ROOT, "SECURITY.md")
+    if os.path.islink(target):
+        # #923: os.path.exists FOLLOWS a link, so a DANGLING shortcut at SECURITY.md reads as "absent"
+        # above — seeding would then write THROUGH it, outside the tree. A shortcut here is the
+        # operator's slot arrangement either way: hands off, never create through it.
+        return "skipped"
     try:
         content = ""
         if os.path.isfile(seed_path):
@@ -1394,6 +1403,10 @@ def _seed_product_version(say, copy=None) -> str:
     path = os.path.join(validate.ROOT, _PRODUCT_VERSION_REL)
     if os.path.exists(path):
         return "present"                          # already seeded / operator-owned -> idempotent no-op
+    if os.path.islink(path):
+        # #923: exists() FOLLOWS a link, so a DANGLING shortcut here reads as "absent" — seeding would
+        # write THROUGH it, outside the tree. Operator slot arrangement: hands off.
+        return "skipped"
     try:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"version": _PRODUCT_VERSION_SEED}, fh, indent=2)

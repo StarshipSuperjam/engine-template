@@ -1065,7 +1065,7 @@ class TestEngineManifestWriteBoundary(unittest.TestCase):
                 self.assertTrue(res["refused"])
                 self.assertFalse(res["applied"])
                 self.assertIn("Refused to record 'feat'", res["reason"])
-                self.assertIn("removed again", res["reason"], "the refusal names the rollback honestly")
+                self.assertIn("rolled back", res["reason"], "the refusal names the rollback honestly")
                 self.assertFalse(os.path.isdir(os.path.join(live, ".engine", "modules", "feat")),
                                  "the partial install was cleaned up")
                 self.assertFalse(os.path.exists(os.path.join(live, ".engine", "tools", "feat_tool.py")),
@@ -1087,10 +1087,12 @@ class TestEngineManifestWriteBoundary(unittest.TestCase):
                 self.assertFalse(res["refused"])
                 self.assertTrue(res["applied"])
                 self.assertIn(".engine/modules/optx/", res["deleted"], "the files really were removed")
-                self.assertTrue(any("engine.json" in line for line in res["left_in_place"]),
-                                "the stale manifest entry is disclosed")
-                self.assertTrue(any("by hand" in n for n in res["notes"]),
-                                "the remedy is the hand-edit, not a doomed re-run")
+                self.assertTrue(any("engine.json" in n and "by hand" in n for n in res["notes"]),
+                                "one authored note discloses the stale entry with the hand-edit remedy")
+                self.assertTrue(any("won't be caught automatically" in n for n in res["notes"]),
+                                "the note must not promise a safety net that does not exist")
+                self.assertFalse(any("engine.json" in line for line in res["left_in_place"]),
+                                 'a refused write is not a deliberate keep — never under "on purpose"')
                 with open(outside, encoding="utf-8") as fh:
                     self.assertEqual(fh.read(), before, "the out-of-tree file is untouched")
 
@@ -1147,6 +1149,33 @@ class TestEngineManifestWriteBoundary(unittest.TestCase):
                 module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=link)
             # the same content at a PLAIN out-of-tree path is written fine (the injection seam survives)
             self.assertTrue(module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=outside))
+
+    def test_pyproject_rewrite_refuses_a_dangling_shortcut_at_the_real_slot(self):
+        # exists() FOLLOWS a link and reads a dangling shortcut as "absent" — the guard must run FIRST
+        # (the #862 ordering lesson), or the refusal silently degrades to a no-op while the result
+        # still claims a groups selection that was never written
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine"))
+            with module_manager._redirect_root(live):
+                os.symlink(os.path.join(d, "never-created.toml"),
+                           os.path.join(live, ".engine", "pyproject.toml"))
+                with self.assertRaises(module_manager.engine_write.EngineWriteRefused):
+                    module_manager._maybe_rewrite_default_groups(["base"])
+
+    def test_pyproject_rewrite_treats_an_empty_string_path_as_caller_supplied_never_the_real_slot(self):
+        # one discriminator for both the path and the guard base: an empty-string argument must NOT
+        # resolve to the real slot with a downgraded (leaf-only) guard — the reproduced bypass shape
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine"))
+            with open(os.path.join(live, ".engine", "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[tool.uv]\ndefault-groups = []\n")
+            with module_manager._redirect_root(live):
+                self.assertFalse(module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=""),
+                                 "an empty-string path is a caller no-op, never a real-slot write")
+            with open(os.path.join(live, ".engine", "pyproject.toml"), encoding="utf-8") as fh:
+                self.assertNotIn("base", fh.read(), "the real slot was not written via the empty-string path")
 
     def test_sync_groups_cli_reports_a_refusal_plainly(self):
         # the standalone fixer CLI surfaces the refusal as a clean one-line stop, never the blanket

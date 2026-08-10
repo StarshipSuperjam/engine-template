@@ -392,8 +392,15 @@ def _write_sealed(path: str, fields: dict, body: str) -> None:
     closed (the seal path's callers surface errors loudly). Base per the engine_write doctrine: the
     repository root for the committed slot, the target's own parent for a caller-supplied path (tests
     and repairs seal throwaway copies outside the repo — an ambient-root base would refuse those)."""
-    base = (validate.ROOT if os.path.abspath(path) == os.path.abspath(AUDIT_DIGEST_PATH)
-            else os.path.dirname(os.path.abspath(path)))
+    # The committed-slot discriminator compares RESOLVED parent directories, never raw path strings —
+    # a string comparison silently downgrades the real slot to the weak leaf-only check whenever the
+    # caller reaches the same file by a differently-spelled but equivalent path (a symlinked checkout,
+    # an alias, a manual absolute path — the QA gate reproduced a full out-of-tree write that way).
+    # Under a symlinked-ancestor attack both sides resolve through the SAME planted link, so they still
+    # compare equal and the full root wall applies — which is exactly what makes the escape refuse.
+    committed_slot = (os.path.realpath(os.path.dirname(os.path.abspath(path)))
+                      == os.path.realpath(os.path.dirname(AUDIT_DIGEST_PATH)))
+    base = validate.ROOT if committed_slot else os.path.dirname(os.path.abspath(path))
     reason = engine_write.write_through_symlink_reason(path, base)
     if reason:
         raise engine_write.EngineWriteRefused(reason)
@@ -1030,6 +1037,11 @@ def main(argv: list) -> int:
             # over memory's pure backup-read, printed for the read-only self-review. Degrades in-band to a
             # plain disclosure (never raises, never non-zero) when the backup is absent/unreachable/unreadable.
             return _saved_memory_cli(argv[1:])
+    except engine_write.EngineWriteRefused as exc:
+        # #923: a deliberate safety refusal, not a crash — say so, and say nothing was written, so a
+        # workflow log reads "refused, state intact" rather than "state unknown".
+        print(f"Did not write the self-review file: {exc} Nothing was written.", file=sys.stderr)
+        return 2
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
