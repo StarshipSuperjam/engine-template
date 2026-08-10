@@ -1516,7 +1516,7 @@
       },
       "slug": "link-integrity",
       "source": {
-        "fingerprint": "sha256:d53d42614489feb8a1697532e5160a7bda05bfb4c5d68ae87d04220f52aafced",
+        "fingerprint": "sha256:82f635b5e1da17b0a5f4dabb9234aa5bc8fca487066f7dc6680855d5a1a14b6a",
         "path": ".engine/check/link-integrity.json"
       },
       "status": "active",
@@ -4467,7 +4467,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:802836f9e384e4fc65d0de8d270d985f86889f59b5ad2b7d64e0967a11f45234",
+        "fingerprint": "sha256:cbbd39c5c7de545344b6e6fe6bba6bbeb8df609ea98f0f33dbf3f985467da1b3",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4487,7 +4487,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c7419f214bb8b103a7d719b5b709470b9988c15fb47150803ccdba2ba3c669dc",
+        "fingerprint": "sha256:d97da8e7b7ca6d9e500eeb705b930dac47d37bc1185359ac767027c137453e4e",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6465,7 +6465,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:b1f5d4296a3e7bb922725b3c115809dfb7caac18f8f6543bcd3e21c5a3d23bfa",
+        "fingerprint": "sha256:f893093a4910d1784460465d997b4de0c6285a0d8208df1d364fff864814f92a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6662,7 +6662,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:62c649fadd3530ea41272da198a1a48b2f8d6b3bdc41c393fad5ebd1b6d80597",
+        "fingerprint": "sha256:e31eb7517ce12c9b7a0f9a68764a63adad6f50e23a9cbfbd665fad7164c29609",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -9360,11 +9360,11 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:f8f10a6d6797a84fe52bd733ebac03f2cc2db264a7bf91434a209229c9b05483",
+        "fingerprint": "sha256:14f7e85fa081b44b270f66b4c5df40a44a39685eed491d835485952a9c072887",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
-      "summary": "The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED preflight that authorizes a cross-repo build.",
+      "summary": "The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate behind an engine-mechanic's cross-repo build.",
       "type": "tool"
     },
     {
@@ -11121,7 +11121,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:7415736ba928a6935a6e13f6ef4cfdc18eeb9a18aaf5591f107815bfe92aa77e",
+        "fingerprint": "sha256:4bb90bf3c84898024f5e7f817882f210cf25ffe42b7bc814ffdbca0876507d10",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11301,7 +11301,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:12eeefe34f27018a19a9672a9f1cba3239f44ea74338981840880ee9b1706ca4",
+        "fingerprint": "sha256:339c07f8a6421650f1db14a1d9995c6774f4a7082ca1c926d0d33697610d09b7",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -12673,7 +12673,7 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:aab6e19d131228ee2ec66e7ee306018d562cc1a92f75a267fe1fc072c6cc5203",
+        "fingerprint": "sha256:3ec9d35fc94cd6123757174bd4912540a30988442b5e3ad20f259ac06de633b2",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",

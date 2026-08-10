@@ -477,10 +477,11 @@ class TestMechanicOrientation(unittest.TestCase):
 
     # -- AI grounding overlay (assemble_pack) --
 
-    def _pack(self, *, mechanic, home_workshop=None, first_run=None):
+    def _pack(self, *, mechanic, home_workshop=None, first_run=None, sprawl=None):
         patchers = _offline()
         try:
             with mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=mechanic), \
+                 mock.patch.object(boot.checkout_health, "detect_product_build_sprawl", return_value=sprawl), \
                  mock.patch.object(boot.first_run_health, "detect_home_workshop", return_value=home_workshop), \
                  mock.patch.object(boot.first_run_health, "detect_first_run_pending", return_value=first_run), \
                  mock.patch.object(boot.first_run_health, "forked_from_home", return_value=None), \
@@ -504,7 +505,7 @@ class TestMechanicOrientation(unittest.TestCase):
         pack = self._pack(mechanic=self._UNSET)
         self.assertIn("for you, not the operator", pack)
         self.assertIn("no path to that product's checkout is recorded", pack.lower())
-        self.assertNotIn("build-orchestration.md` (build in place", pack)   # no in-place build until it resolves
+        self.assertNotIn("mechanic_build.py worktree", pack)   # no build instruction until it resolves
 
     def test_ai_overlay_names_the_unreachable_path_so_it_can_be_corrected(self):
         pack = self._pack(mechanic=self._UNREACHABLE)
@@ -547,12 +548,33 @@ class TestMechanicOrientation(unittest.TestCase):
                 self.assertNotIn("separate checkout of its own", dash)
                 self.assertNotIn("clone my product for me", dash)
 
-    def test_resolved_overlay_sends_the_assistant_through_the_fail_closed_preflight(self):
-        # The orientation only checked that a folder is there. The grounding must say so and route the assistant
-        # through the belt, rather than handing it an unverified path with an imperative to run code there.
+    def test_resolved_overlay_routes_the_build_through_an_isolated_worktree_not_in_place(self):
+        # The orientation only checked that a folder is there. The grounding must say so, route the assistant
+        # through the fail-closed worktree verb, and forbid the two harms this replaces: building in (or
+        # branch-switching) the shared checkout, and cloning a sibling folder beside it.
         pack = self._pack(mechanic=self._RESOLVED)
         self.assertIn("UNVERIFIED", pack)
-        self.assertIn("mechanic_build.py preflight", pack)
+        self.assertIn("mechanic_build.py worktree", pack)          # route through the verified, isolating verb
+        self.assertIn("ENGINE_PRODUCT_WORKTREE", pack)             # build in the distinct emitted path
+        self.assertNotIn("build in it", pack.replace("do NOT build in it", ""))  # never in the shared checkout
+        self.assertIn("worktree of the MECHANIC", pack)            # the session worktree can't host the build
+
+    def test_resolved_grounding_appends_a_cleanup_offer_when_build_sprawl_is_found(self):
+        # The negative control surfaces AI-facing: found sprawl becomes a cleanup OFFER, never an auto-delete.
+        sprawl = {"state": "build-sprawl", "product": "/home/me/product",
+                  "stray_worktrees": ["/home/me/product/.claude/worktrees/old-635"],
+                  "sibling_clones": ["/home/me/product-656-labels"]}
+        pack = self._pack(mechanic=self._RESOLVED, sprawl=sprawl)
+        self.assertIn("BUILD-SPRAWL FOUND", pack)
+        self.assertIn("product-656-labels", pack)          # the sibling clone is named
+        self.assertIn("old-635", pack)                     # the stray worktree is named
+        self.assertIn("git -C /home/me/product worktree remove", pack)   # the real product path is filled in
+        self.assertNotIn("git -C <product>", pack)         # never a leftover literal placeholder
+        self.assertIn("--branches --not --remotes", pack)  # a CONCRETE unpushed-work check, not a vague ask
+        self.assertIn("NEVER delete unprompted", pack)     # but never unprompted (may hold unpushed work)
+
+    def test_resolved_grounding_has_no_sprawl_note_when_clean(self):
+        self.assertNotIn("BUILD-SPRAWL", self._pack(mechanic=self._RESOLVED, sprawl=None))
 
     def test_a_slug_carrying_a_newline_cannot_forge_a_line_on_either_surface(self):
         # The recorded slug TRAVELS with a fork, so a co-maintainer inherits whatever a fork's manifest holds.

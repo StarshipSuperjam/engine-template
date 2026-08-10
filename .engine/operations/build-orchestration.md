@@ -316,30 +316,52 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
 
   ```
   ~/code/my-engine-mechanic/     <- the Engine (this folder)
-  ~/code/engine-template/        <- the product it builds (a separate clone)
+  ~/code/engine-template/        <- the product it builds (ONE durable clone, the shared anchor)
   ```
 
   Then record the path: write it into **`.engine/mechanic/product-checkout-path`** — one line, gitignored, so it
   is durable AND stays on this machine. (`ENGINE_PRODUCT_CHECKOUT` also works and takes precedence, but an
   environment variable set inside a session does not survive it, so it suits a one-off override, not setup.) A
   `~`-relative path is fine — the reader expands it. Boot surfaces a setup offer whenever the target is recorded
-  but the path is missing or points at nothing.
-- **Preflight from the mechanic tree.** Run `mechanic_build.py preflight`. It REFUSES fail-closed — with a plain
-  reason + remedy — unless the checkout is genuinely that product on a real `github.com` origin and clean to
-  write into; on success it emits the verified `ENGINE_PRODUCT_CHECKOUT` and `GITHUB_REPOSITORY`.
-- **Build in-place.** `cd` into the emitted path and run every product step as a subprocess INSIDE the checkout —
-  `uv run --directory <checkout>/.engine …` with `GITHUB_REPOSITORY=<emitted slug>` exported — so the checkout's
-  own tools, its validator, and `gh` resolve engine-template natively. The mechanic's own hooks act on the
-  mechanic tree, so **run the product's index regeneration and validation EXPLICITLY as in-checkout subprocess
-  steps**, never assumed. Branch from the checkout's default, implement, and run the plan-review and
-  pre-submission passes above against the product diff in the checkout.
+  but the path is missing or points at nothing. That ONE clone is a durable anchor, never a build workspace:
+  every build gets its own isolated worktree of it (next bullet), homed INSIDE the mechanic — so "clone as a
+  sibling, never inside" is the setup rule for the single anchor, and is NOT licence to spin up more `~/code`
+  siblings per build. **The worker owns the workspace.**
+- **Cut an isolated worktree — the build never happens in the shared checkout.** The one clone above is a shared
+  anchor a peer session may be using right now, so building in it (or switching its branch) breaks peers, and a
+  per-build sibling clone is the sprawl this replaces (engine-template#902). Instead run
+  `mechanic_build.py worktree <name>` from the mechanic tree (`<name>` = the issue number + a short slug). It
+  REFUSES fail-closed — plain reason + remedy — unless the checkout is genuinely that product on a real
+  `github.com` origin; it fetches, cuts a fresh worktree from the product's default branch, homes it under the
+  mechanic's own **`.engine/mechanic/worktrees/<name>`** (gitignored, durable across the harness session's
+  teardown), and emits `ENGINE_PRODUCT_WORKTREE=<path>`, `ENGINE_PRODUCT_BASE=origin/<default>` (the ref to diff
+  a build against), and `GITHUB_REPOSITORY`. It never moves the shared
+  checkout's HEAD or touches its tree — so it does NOT require that checkout to be clean; a peer mid-build there
+  is fine. (`preflight` remains the read-only identity/health CHECK, emitting `ENGINE_PRODUCT_CHECKOUT` — the
+  durable anchor, a DIFFERENT variable — for when you want to verify without cutting a workspace.) Note: the
+  per-session worktree the harness gave you is a worktree of the MECHANIC, not the product — the product build
+  never happens there.
+- **Build in that worktree.** `cd "$ENGINE_PRODUCT_WORKTREE"` and run every product step as a subprocess INSIDE
+  it — `uv run --directory <worktree>/.engine …` with `GITHUB_REPOSITORY=<emitted slug>` exported — so the
+  product's own tools, its validator, and `gh` resolve engine-template natively. The mechanic's own hooks act on
+  the mechanic tree, so **run the product's index regeneration and validation EXPLICITLY as in-worktree
+  subprocess steps**, never assumed. The branch (`claude/<name>`) is already created off the default; implement,
+  and run the plan-review and pre-submission passes above against the product diff in the worktree. **When the
+  pull request is submitted and the build is done, remove the worktree** from the mechanic tree —
+  `git -C <shared checkout> worktree remove <path>` (never from inside it, and never while it holds a branch
+  with unpushed commits); `git -C <shared checkout> worktree prune` clears any registration a crashed session
+  left behind.
 - **Scan for this repo's OWN references before opening — run this one from the MECHANIC tree, not the
-  checkout.** Every other step above runs inside the product checkout; this one deliberately does not. Run
-  `uv run --directory .engine -- python tools/local_references.py scan --ref <the checkout's default branch>
-  --checkout <the emitted path>`. It reads the vocabulary from **here** — the repository whose shorthand
-  would dangle — and scans the diff **there**. Run it inside the checkout and it reads the product's own
-  declaration — which ships ABSENT — so it would report that nothing was checked, on the one path with
-  no merge gate behind it. If it names anything, rewrite each one to
+  worktree.** Every other step above runs inside the product worktree; this one deliberately does not. Run
+  `uv run --directory .engine -- python tools/local_references.py scan --ref "$ENGINE_PRODUCT_BASE"
+  --checkout "$ENGINE_PRODUCT_WORKTREE"`. It reads the vocabulary from **here** — the repository whose
+  shorthand would dangle — and scans the diff **there**. `ENGINE_PRODUCT_BASE` is the `origin/<default>` ref the
+  `worktree` verb emitted alongside the worktree path; diff against it, not the shared repo's local default,
+  because the worktree was cut from `origin/<default>`, which a plain fetch does not fast-forward the shared
+  checkout's local branch to — a local-default base would report unrelated upstream files as changed. Run this
+  scan from the PRODUCT side instead of the mechanic tree and it reads the product's own vocabulary declaration —
+  which ships ABSENT — so it would report that nothing was checked, on the one path with no merge gate behind it.
+  If it names anything, rewrite each one to
   say what it MEANS rather than what it refers to; the operator may wave one through, and that is their call.
   **This is a mandated step, not a wall:** the mechanic does not own the product's CI, so no merge gate is
   available on this path — the discipline is the instrument, and a skipped step is a real gap, not a caught one.

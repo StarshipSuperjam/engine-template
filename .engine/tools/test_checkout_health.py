@@ -1670,5 +1670,113 @@ class TestFirstRunStrandRegression(unittest.TestCase):
                              "setup\n")
 
 
+def _mechanic_with_target(tmp: str, name: str = "mechanic", target: str | None = "acme/product") -> str:
+    """A mechanic checkout whose manifest records (or omits) a product_build_target."""
+    root = _repo(tmp, name)
+    manifest = {"product_build_target": target} if target else {"engine_release": "1.0.0"}
+    with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return root
+
+
+def _product_with_origin(tmp: str, name: str = "product",
+                         origin: str = "git@github.com:acme/product.git") -> str:
+    root = _repo(tmp, name)
+    _git(root, "remote", "add", "origin", origin)
+    return root
+
+
+class TestProductBuildSprawl(unittest.TestCase):
+    """The negative control (engine-template#902): stray product worktrees and sibling clones are surfaced so a
+    regression to the old sprawl is CAUGHT, while the sanctioned .engine/mechanic/worktrees/ home reads clean."""
+
+    def test_clean_mechanic_reports_no_sprawl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_not_a_mechanic_reports_no_sprawl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp, target=None)
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("ENGINE_PRODUCT_CHECKOUT", None)
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_stray_worktree_outside_the_sanctioned_home_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "loose-wt")            # NOT under m/.engine/mechanic/worktrees
+            _git(p, "worktree", "add", "-q", "--detach", stray)
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(stray), got["stray_worktrees"])
+            self.assertEqual(got["sibling_clones"], [])
+
+    def test_sanctioned_worktree_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            ok = os.path.join(m, ".engine", "mechanic", "worktrees", "902-x")
+            _git(p, "worktree", "add", "-q", "--detach", ok)   # the sanctioned home — must read clean
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_sibling_clone_with_matching_origin_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)                      # basename "product"
+            sib = _product_with_origin(tmp, name="product-656-labels")   # same origin, sibling folder
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(sib), got["sibling_clones"])
+
+    def test_sibling_folder_with_a_different_origin_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            _product_with_origin(tmp, name="product-unrelated", origin="git@github.com:acme/other.git")
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+
+class TestEngineRootAndDefaultSeams(unittest.TestCase):
+    """The two public seams the mechanic build entry rides: the durable engine root (even from a linked
+    worktree) and the confident default branch (never a guess)."""
+
+    def test_engine_common_checkout_resolves_the_main_from_a_linked_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "eng")
+            wt = os.path.join(tmp, "wt")
+            _git(main, "worktree", "add", "-q", "--detach", wt)
+            self.assertEqual(os.path.realpath(checkout_health.engine_common_checkout(cwd=wt)),
+                             os.path.realpath(main))
+
+    def test_engine_common_checkout_is_none_outside_a_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(checkout_health.engine_common_checkout(cwd=tmp))
+
+    def test_confident_default_branch_reads_a_clone_origin_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = _repo(tmp, "seed")
+            bare = os.path.join(tmp, "remote.git")
+            subprocess.run(["git", "clone", "--quiet", "--bare", seed, bare], capture_output=True, text=True)
+            clone = os.path.join(tmp, "clone")
+            subprocess.run(["git", "clone", "--quiet", bare, clone], capture_output=True, text=True)
+            got = checkout_health.confident_default_branch(clone)
+            head = subprocess.run(["git", "-C", clone, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+            self.assertEqual(got, head.split("origin/", 1)[1])       # the default, without the origin/ prefix
+
+    def test_confident_default_branch_is_none_without_a_confident_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solo = _repo(tmp, "solo")                                # no origin/HEAD, no persisted default
+            self.assertIsNone(checkout_health.confident_default_branch(solo))
+
+
 if __name__ == "__main__":
     unittest.main()

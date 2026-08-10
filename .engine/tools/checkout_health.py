@@ -608,6 +608,79 @@ def resolve_product_checkout(cwd: str | None = None) -> tuple[str | None, str | 
     return (None, "path-unset")                 # loud: target recorded, local path missing
 
 
+def engine_common_checkout(cwd: str | None = None) -> str | None:
+    """OFFLINE, READ-ONLY: the absolute path to THIS engine's DURABLE main checkout (the shared clone root),
+    resolved even when the session runs from a linked (harness) worktree. It is the single answer to "where is
+    the engine root" — reusing `_resolve_state`'s resolver, never a second `--git-common-dir` parse that could
+    drift from it. Returns None (fail-soft QUIET) when it cannot be resolved (git absent, a bare repo, either
+    query fails). The mechanic homes its per-build product worktrees under this root's
+    `.engine/mechanic/worktrees/`, so a build workspace lives in the durable clone and survives the teardown of
+    the harness session worktree that created it."""
+    st = _resolve_state(cwd)
+    return st[0] if st else None
+
+
+def confident_default_branch(checkout_path: str) -> str | None:
+    """OFFLINE, READ-ONLY: the default branch of the checkout at `checkout_path`, ONLY when known with
+    confidence (persisted-and-validated, else `origin/HEAD`) — never a heuristic guess. None when it cannot be
+    confidently determined, so a caller that cuts from `origin/<default>` fails closed rather than build off a
+    guessed base. A thin public seam over `_confident_default_branch` for the mechanic build entry."""
+    return _confident_default_branch(checkout_path)
+
+
+def detect_product_build_sprawl(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY: the negative control for the worktree-isolated build model (engine-template#902).
+    Reports build workspaces of the product that are NOT the sanctioned kind — the sprawl the model exists to
+    end, so a regression is CAUGHT (boot surfaces it), not just prevented. Two shapes:
+      - `stray_worktrees` — worktrees of the product REGISTERED at a path OUTSIDE the mechanic's own
+        `.engine/mechanic/worktrees/` (a session that cut a worktree the old way, e.g. in the product's own
+        `.claude/worktrees/` or a `~/Developer` sibling);
+      - `sibling_clones` — separate CLONES of the product (same `origin`) sitting beside it as `<name>-*`
+        folders (the `engine-template-656-labels` sprawl the operator flagged).
+    Returns `{"state":"build-sprawl","product",<stray_worktrees>,<sibling_clones>}` with at least one list
+    non-empty, or None when this is not a mechanic, the product path is unset/absent, or nothing stray is found
+    (fail-soft QUIET). It never judges the shared checkout's BRANCH — under this model that no longer matters,
+    so flagging it would be noise. Read-only: it lists, it never removes; cleanup is a consented act."""
+    path, state = resolve_product_checkout(cwd)
+    if state is not None or not path or not os.path.isdir(path):
+        return None                              # not a mechanic / path unset / nothing there -> nothing to say
+    product = os.path.realpath(path)
+    root = engine_common_checkout(cwd)
+    sanctioned = os.path.realpath(os.path.join(root, ".engine", "mechanic", "worktrees")) if root else None
+    registered: set = set()
+    stray_worktrees: list = []
+    listing = _run(["git", "-C", product, "worktree", "list", "--porcelain"]) or ""
+    for line in listing.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        wt = os.path.realpath(line[len("worktree "):].strip())
+        registered.add(wt)
+        if wt == product:
+            continue                             # the main worktree is the product itself — expected
+        if sanctioned and (wt == sanctioned or wt.startswith(sanctioned + os.sep)):
+            continue                             # a sanctioned build worktree — the whole point of the model
+        stray_worktrees.append(wt)
+    sibling_clones: list = []
+    origin = _run(["git", "-C", product, "remote", "get-url", "origin"])
+    origin = origin.strip() if origin and origin.strip() else None
+    parent = os.path.dirname(product)
+    base = os.path.basename(product)
+    if origin and base and os.path.isdir(parent):
+        for entry in sorted(os.listdir(parent)):
+            cand = os.path.join(parent, entry)
+            if entry == base or not entry.startswith(base + "-") or not os.path.isdir(cand):
+                continue
+            if os.path.realpath(cand) in registered:
+                continue                         # a linked worktree, already counted above — not a clone
+            cand_origin = _run(["git", "-C", cand, "remote", "get-url", "origin"])
+            if cand_origin and cand_origin.strip() == origin:
+                sibling_clones.append(os.path.realpath(cand))
+    if not stray_worktrees and not sibling_clones:
+        return None
+    return {"state": "build-sprawl", "product": product,
+            "stray_worktrees": stray_worktrees, "sibling_clones": sibling_clones}
+
+
 def mechanic_orientation(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: the one value boot relays to orient a mechanic session — or None when this is NOT a
     mechanic (no `product_build_target` recorded), the normal self-building deployment. When it IS a mechanic:
