@@ -1,4 +1,4 @@
 {
   "severity": "hard",
-  "message_contains": "bare issue reference"
+  "message_contains": "resolves to THAT repository's own issue"
 }

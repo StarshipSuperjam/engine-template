@@ -274,7 +274,7 @@ _RELEASE_PR_RE = re.compile(r"^Release \d+\.\d+\.\d+")
 # `owner/repo#N`). A merged PR's author often writes "(Closes #N)" into the PR title; rendered VERBATIM into the
 # RELEASE pull-request body it makes GitHub attribute that close to the release — so on merge the release would
 # (re-)close it. We strip the KEYWORD and keep the reference (readable, inert). A keyword NOT directly adjacent
-# to the reference is not a GitHub close (e.g. "fail closed (StarshipSuperjam/engine-template#390)" — the `(` breaks the bond; "Fixed several
+# to the reference is not a GitHub close (e.g. "fail closed (#N)" — the `(` breaks the bond; "Fixed several
 # bugs, see #N") and is left untouched (confirmed empirically against GitHub). The bare-URL and `GH-N` forms are
 # out of scope: GitHub's documented auto-close grammar does not include them.
 _CLOSING_KEYWORD_RE = re.compile(

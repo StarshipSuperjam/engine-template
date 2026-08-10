@@ -90,6 +90,18 @@ class TestCarveOuts(unittest.TestCase):
         # only the linkage clause is carved; a genuine ref elsewhere on the line is caught
         self.assertEqual(check._find_refs("Part of #495 -- see also #862"), ["#862"])
 
+    def test_ordinal_nouns_are_carved(self):
+        # a numbered THING, never an issue reference — no real ref wears these nouns
+        for s in ("step #3 of the flow", "option #1", "item #4 in the list", "tier #2", "phase #5"):
+            self.assertEqual(check._find_refs(s), [], s)
+
+    def test_the_single_digit_ordinal_adjective_is_carved(self):
+        self.assertEqual(check._find_refs("the #2 priority here"), [])
+
+    def test_a_multi_digit_the_reference_is_still_flagged(self):
+        # "the #665 footgun" is a real reference — only SINGLE-digit "the #N <word>" is an ordinal
+        self.assertEqual(check._find_refs("the #665 footgun repair"), ["#665"])
+
 
 class TestBridge(unittest.TestCase):
     """A carve-out that wraps across a line boundary must still be recognised (the `concern` on line N, its
@@ -101,6 +113,11 @@ class TestBridge(unittest.TestCase):
 
     def test_a_real_reference_after_an_unrelated_prev_line_is_still_flagged(self):
         self.assertEqual(check._find_refs("see #495 here", "an ordinary previous line"), ["#495"])
+
+    def test_a_linkage_clause_is_not_bridged_across_lines(self):
+        # a genuine ref opening a line after a sentence merely ENDING in "resolve" must NOT be swallowed —
+        # linkage is current-line-only, unlike the ordinal carve-outs (else a real reference is missed)
+        self.assertEqual(check._find_refs("#623 is the timeout", "the retry loop will resolve"), ["#623"])
 
 
 class TestProseExtractionPython(unittest.TestCase):
@@ -227,7 +244,7 @@ class TestRealTreeAndFixture(unittest.TestCase):
     def test_the_committed_negative_fixture_bites(self):
         fixture = os.path.join(validate.ROOT, ".engine", "_fixtures", "shipped-issue-references")
         f = check.check(fixture)
-        self.assertTrue(any("bare issue reference" in x["message"] for x in f),
+        self.assertTrue(any("resolves to THAT repository's own issue" in x["message"] for x in f),
                         "the negative fixture no longer bites the check")
 
     def test_the_real_engine_tree_is_clean(self):
@@ -261,7 +278,10 @@ class TestRealTreeAndFixture(unittest.TestCase):
                     continue
                 frags = check._py_prose_fragments(text)
             else:
-                frags = check._text_fragments(text, is_json=rel.endswith(".json"))
+                # Independent of the check's line selection: scan EVERY raw line (not the JSON prose-key
+                # filter), so a bare ref in a JSON value on a key missing from _JSON_PROSE_KEYS surfaces here
+                # as an un-accounted hit — the drift canary that forces the allowlist to be completed.
+                frags = [(i, line) for i, line in enumerate(text.splitlines(), start=1)]
             pbl: dict = {}
             for ln, fr in frags:
                 pbl[ln] = (pbl.get(ln, "") + " " + check._prose(fr)).strip()
@@ -270,12 +290,13 @@ class TestRealTreeAndFixture(unittest.TestCase):
                 combined = (prev + " " + pbl[ln]) if prev else pbl[ln]
                 off = len(prev) + 1 if prev else 0
                 masked = qual.sub(lambda mm: " " * len(mm.group()), combined)
-                for pat in check._CARVEOUTS:
+                for pat in check._ORDINAL_CARVEOUTS:   # ordinals bridge; linkage does not (mirror the check)
                     masked = pat.sub(lambda mm: " " * len(mm.group()), masked)
-                masked = check._PARTIAL.sub(lambda mm: " " * len(mm.group()), masked)
-                if naive.search(masked[off:]) and (rel, ln) not in flagged:
+                cur = check._LINKAGE_CARVEOUT.sub(lambda mm: " " * len(mm.group()), masked[off:])
+                cur = check._PARTIAL.sub(lambda mm: " " * len(mm.group()), cur)
+                if naive.search(cur) and (rel, ln) not in flagged:
                     missed.append((rel, ln))
-        self.assertEqual(missed, [], f"a naive prose scan found references the check missed: {missed[:10]}")
+        self.assertEqual(missed, [], f"a naive scan found references the check missed: {missed[:10]}")
 
 
 def _loc(finding: dict):

@@ -52,16 +52,30 @@ drops the second reference in a chain like `#N/#M`):
 
 CARVE-OUTS (closed set — widening one turns a match into flagging the FIX as well as the defect, which trains
 an operator to click past findings; the same rationale local_references.py records for its marker set):
-  - Ordinals: `concern #N`, `required check #N`, and the ordinal-adjective form (the shipped copy
-    "the #1 trust dependency"). A bare `check #N` (not
-    "required check") is a REAL reference and stays flagged.
+  - Ordinals (a bare `#N` naming a numbered THING, never an issue): `concern #N`, `required check #N`, the
+    ordinal-adjective "the #1 trust dependency", and a closed set of ordinal nouns (`step #N`, `option #N`,
+    `item #N`, `tier #N`, …). A real reference never wears these nouns. A bare `check #N` (not "required
+    check") IS a reference and stays flagged; the `the #N <word>` carve-out stays SINGLE-digit because a
+    multi-digit "the #N footgun" is a real reference. These are BRIDGED across a line boundary so a wrapped
+    ordinal is recognised.
   - PR-linkage grammar: `(Closes|Fixes|Resolves|...|Part of) #N[, #M...]` — in a shipped file this is always
     grammar documentation or an instruction about the ADOPTER'S OWN issues; qualifying it would tell an
     adopter to close the engine's issues. Grammar-scoped (not line-scoped) so the comma-trap `Closes #1, #2`
-    is carved whole while a stray reference elsewhere on the line is still caught.
+    is carved whole while a stray reference elsewhere on the line is still caught — and NOT bridged, so a
+    genuine reference opening a line after a sentence ending in "resolve" is never swallowed.
   - Excluded paths: `.github/pull_request_template.md` (wholly adopter-facing), `.engine/_fixtures/**`,
     `.engine/tools/memory/semantic/**` (model vocabulary — a rewrite corrupts it), the derived/sealed
     `.engine/knowledge/graph.json` / `.engine/audits/audit-digest.md` / `.engine/state/**`.
+
+DISCLOSED LIMITATIONS:
+  - A `#N` glued directly to a preceding letter/digit with no separator (`PR#123`) is not matched — the bare
+    pass requires a non-word char before `#`. No such shape exists in the shipped tree today, and the one
+    glued cross-repo form present (`claude-code#20397`) is a genuine other-repo reference that correctly
+    stays bare. A future glued own-repo reference would ship unqualified; the reconciliation test shares this
+    lookbehind, so it would not catch it either.
+  - A file that cannot be read (OSError/decode error) is skipped without a finding. An unreadable committed
+    file is an anomaly other checks surface; this check's fail-closed guarantee is scoped to the retire
+    census, whose absence it DOES turn into a hard finding.
 
 HOME-SCOPED (StarshipSuperjam/engine-template#640): it acts only in the engine's own home repository (git
 origin == recorded `home_repository`, the shared `repo_identity.is_home_repo` seam over the REAL root, not
@@ -105,22 +119,35 @@ _EXCLUDED_EXACT = frozenset({
     ".engine/audits/audit-digest.md",   # sealed audit output — an edit breaks the seal
 })
 # JSON keys whose string value is human prose (the only place a bare ref is scanned in a .json file).
+# `justification` is the audit concern-list's prose field; the reconciliation test is the drift canary that
+# forces a new prose key to be added here rather than silently under-scanned.
 _JSON_PROSE_KEYS = ("description", "message", "why", "reason", "note", "detail",
-                    "comment", "$comment", "title")
+                    "comment", "$comment", "title", "justification")
 
 # --- the matcher -----------------------------------------------------------------------------------------
 # (1) a genuinely-qualified cross-repo reference: <slug>/<repo>#N — masked first so its number tail is never
 #     mistaken for a bare ref, and so the sweep's own StarshipSuperjam/engine-template#N output is not
 #     re-flagged. The slug/repo classes require a letter-led owner, which a bare `#N/#M` chain never satisfies.
 _QUALIFIED = re.compile(r"[A-Za-z][\w.-]*/[\w.-]+#\d+")
-# (2) carve-outs — closed set, masked before matching bare refs.
-_CARVEOUTS = (
-    re.compile(r"(?i)concern #\d+"),           # the audit self-review's numbered concerns (1-7)
-    re.compile(r"(?i)required check #\d+"),     # the two CI required checks — NOT a bare `check #N`, which
-    #                                            is a real reference and must stay flagged
-    re.compile(r"(?i)the #1 [A-Za-z]"),        # "the #1 trust dependency" — the sole ordinal-as-adjective
-    re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\s+#\d+(?:\s*,\s*#\d+)*"),
+# (2a) ORDINAL carve-outs — a bare #N naming a numbered THING (a concern, a step, a tier), never an issue
+#      reference: a real reference never wears one of these nouns ("step #495" is not a thing). Closed set,
+#      documented; extend it when a new ordinal noun over-fires. These are BRIDGED across a line boundary
+#      (a keyword ending line N, its #N opening line N+1) so a wrapped ordinal is still recognised.
+#      the `the #N <word>` carve-out stays SINGLE-digit on purpose: a multi-digit "the #N footgun" is a real
+#      reference, so a general multi-digit "the #N <word>" cannot be carved.
+_ORDINAL_CARVEOUTS = (
+    re.compile(r"(?i)concern #\d+"),
+    re.compile(r"(?i)required check #\d+"),     # the two CI required checks — a bare `check #N` stays flagged
+    re.compile(r"(?i)the #[1-9] [A-Za-z]"),    # "the #2 priority" — SINGLE-digit only: a multi-digit
+    #                                            "the #N footgun" is a real reference and must stay flagged
+    re.compile(r"(?i)\b(?:option|step|item|part|phase|round|tier|level|point|rung|slot|lane|bucket|"
+               r"scenario|figure|section|row|column|chapter|priority) #\d+"),
 )
+# (2b) PR-linkage grammar — a `Closes/Fixes/Resolves/Part of #N[, #M]` clause (incl. the comma-trap). NOT
+#      bridged: a genuine reference opening a line after an unrelated sentence that merely ends in "resolve"
+#      must not be swallowed, which would MISS a real reference — the worse failure for this gate.
+_LINKAGE_CARVEOUT = re.compile(
+    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\s+#\d+(?:\s*,\s*#\d+)*")
 # (3) what remains that is a defect: a bare `#N` (or slice `#Na`), or the partly-qualified engine-template
 #     forms (owner missing). The bare pass must NOT exclude a `/`-preceded `#` — a true qualified `owner/repo#N`
 #     is already masked away in pass 1, so a surviving `/#M` is a CHAIN TAIL (from `#N/#M`), a real bare ref.
@@ -151,9 +178,10 @@ def _find_refs(text: str, prefix: str = "") -> list:
     combined = (prefix + " " + text) if prefix else text
     off = len(prefix) + 1 if prefix else 0
     masked = _QUALIFIED.sub(_blank, combined)
-    for pat in _CARVEOUTS:
+    for pat in _ORDINAL_CARVEOUTS:          # ordinals bridge across the line boundary
         masked = pat.sub(_blank, masked)
     cur = masked[off:]
+    cur = _LINKAGE_CARVEOUT.sub(_blank, cur)  # linkage grammar: current line only, never bridged
     hits = [m.group() for m in _PARTIAL.finditer(cur)]
     # remove the partly-qualified spans before the bare pass so their number tail is not double-counted
     cur = _PARTIAL.sub(_blank, cur)
@@ -276,12 +304,15 @@ def _in_home_repo() -> bool:
 def _message(rel: str, lineno: int, hits: list) -> str:
     shown = ", ".join(sorted(set(hits)))
     return (
-        f"`{rel}` line {lineno} carries a bare issue reference ({shown}) in a file that ships into every "
-        f"generated repository. There it resolves to that repository's OWN issue of the same number — a real "
-        f"page about something else, so the note points somewhere confidently wrong. Name the repository: "
-        f"write it as `StarshipSuperjam/engine-template#N`. (An ordinal like \"concern #1\" or a PR-linkage "
-        f"line like \"Closes #1\" is fine and is not flagged; this is a plain issue reference. If the file "
-        f"does not actually ship, it belongs in the first-run retirement set.)")
+        f"`{rel}` line {lineno} carries a bare `#N` reference ({shown}) in a file that ships into every "
+        f"generated repository, where a bare `#N` resolves to THAT repository's own issue of the same number "
+        f"— a real page about something else. Two fixes, depending on what it is: (1) if it IS a reference to "
+        f"an engine issue, name the repository — write `StarshipSuperjam/engine-template#N`; (2) if it is NOT "
+        f"a reference — an ordinal (\"the 2nd step\"), a count, or a version — reword it so it is not a bare "
+        f"`#N`, because a shipped `#N` reads as an engine-issue reference. Ordinals like \"concern #1\", "
+        f"\"step #3\", \"the #1 trust\" and PR-linkage lines like \"Closes #1\" are already exempt and not "
+        f"flagged. If the file does not actually ship into a generated repository, it belongs in the "
+        f"first-run retirement set (`.engine/provisioning/first-run-assets.json`).")
 
 
 def _retire_fault_message() -> str:

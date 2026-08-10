@@ -6791,7 +6791,7 @@
       },
       "slug": "close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:8132bf8f497da77198bef9e7ba6ab76b8359ec579b1f7c0b31e4c3d35e33988b",
+        "fingerprint": "sha256:6cffceb3d60dd60ce20aafffba071e6502a0ab36193441d72a1d9cddbf573f24",
         "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
@@ -10210,7 +10210,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:2b26f2857f20f6f1ca9d57af1d4d9e032c65fbf17ba02dafbcffdfe5688b089a",
+        "fingerprint": "sha256:3ccb2a666f8e801dc03cbc669fca079207dfe486642e76f4e8cb92c1388ec48d",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -10667,7 +10667,7 @@
       },
       "slug": "shipped_issue_references_check",
       "source": {
-        "fingerprint": "sha256:524ac10fec9d949729b40bedb16c9c40d1987e4c5e6aff2dea2b278a17bff25f",
+        "fingerprint": "sha256:df61ef4e9ecba747d53f00df6e4c335b51036c02d2a6d040a9b3ce578e280297",
         "path": ".engine/tools/shipped_issue_references_check.py"
       },
       "status": "active",
@@ -12218,7 +12218,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:aab48e1329cfb725825848188c6f0440d7c2d965c702df5bea4898629a7ea030",
+        "fingerprint": "sha256:3a958af993066410b5ccebce051521a003ad40de98767d311fc8eaabe054dae3",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -14191,7 +14191,7 @@
       },
       "slug": "test_shipped_issue_references_check",
       "source": {
-        "fingerprint": "sha256:1b807d8d4c0a526d19a8a15152b431c40ef7ac3e20c003ab27f3c8c822349409",
+        "fingerprint": "sha256:d69ada8d91cafecd1299460eabb0d43069f9c1157d3ccd86d93fc56a773ba151",
         "path": ".engine/tools/test_shipped_issue_references_check.py"
       },
       "status": "active",

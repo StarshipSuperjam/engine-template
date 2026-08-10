@@ -220,7 +220,7 @@ def commit_will_close(messages: list) -> tuple:
 
 def defang_body(body: str, number: int) -> "str | None":
     """The body with the single accidental closing keyword for `#N` neutralized — the keyword+separator removed,
-    the `#N` reference KEPT (so `... builds on Closes #274 ...` -> `... builds on StarshipSuperjam/engine-template#274 ...`). Deterministic and
+    the `#N` reference KEPT (so `... builds on Closes #N ...` -> `... builds on #N ...`). Deterministic and
     BYTE-IDENTICAL everywhere else. Returns None (-> the caller surfaces instead) when the occurrence is not
     exactly one, so a defang never edits the wrong (e.g. code-fenced) occurrence or misreports what it removed."""
     spans = []
