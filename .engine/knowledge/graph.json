@@ -10106,7 +10106,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:f3fec431d49034de2ddc3eba2d5fd31f5e818a1db36fe8c0f79752569e332e7b",
+        "fingerprint": "sha256:6610858e2b6e4c9b94700bec66236f89d4cd0dd35ee855d6b06b83fece46a82c",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -12857,6 +12857,7 @@
           "tool:audit_digest",
           "tool:knowledge_gen",
           "tool:module_coherence",
+          "tool:release_cut",
           "tool:untracked_surface_check",
           "tool:validate",
           "tool:wiring"
@@ -12864,7 +12865,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b5ba7f7136a403e57c5331b692f07499de39c7bf327d652f465c28496ca3cc87",
+        "fingerprint": "sha256:8350c221e90781b3ea3e2939994734f703a20be957808a55f6957fbcb22087b0",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -13387,7 +13388,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:466a60d406e86c81a0b0e5d26fc4768b9221e5593e11bfc6f89af19a0bf1290c",
+        "fingerprint": "sha256:4f5560a815a517f73feda607f3450c68d067eec4bb4b84b58eea4534c0abd46b",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
