@@ -1527,6 +1527,34 @@
       "type": "check"
     },
     {
+      "id": "check:manifest-write-funnel",
+      "kind": "custom/script",
+      "name": ".engine/check/manifest-write-funnel.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:manifest_write_funnel_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "manifest-write-funnel",
+      "source": {
+        "fingerprint": "sha256:ec2f5d95fd2533b6dbd48b3ee8cf514e512d0639d2127830a45ed8a343a4a948",
+        "path": ".engine/check/manifest-write-funnel.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:memory-pointer-public-safety",
       "kind": "custom/script",
       "name": ".engine/check/memory-pointer-public-safety.json",
@@ -4446,7 +4474,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:99df9c3a3430c0bd74fbee1e1df00a9f97f46a18da1f7c13c78fe7e0578b395a",
+        "fingerprint": "sha256:456fe4ee9c15ca5d2ca8884853f4883572303f6d940438128444f6a481109441",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -9317,6 +9345,29 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:manifest_write_funnel_check",
+      "name": ".engine/tools/manifest_write_funnel_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "manifest_write_funnel_check",
+      "source": {
+        "fingerprint": "sha256:916da8cc3ec2434317660bca357968e2b7cefcdf9c0572d4b27dfd6ea4d456b9",
+        "path": ".engine/tools/manifest_write_funnel_check.py"
+      },
+      "status": "active",
+      "summary": "Manifest-write funnel floor (engine-template #923) — the custom/script entry for",
+      "type": "tool"
+    },
+    {
       "entrypoint": "mcp-server",
       "guarded": false,
       "id": "tool:mcp_server",
@@ -12672,6 +12723,30 @@
       },
       "status": "active",
       "summary": "Regression tests for the lock-integrity re-acceptance check (engine/check/product-lock-integrity).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_manifest_write_funnel_check",
+      "name": ".engine/tools/test_manifest_write_funnel_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:manifest_write_funnel_check",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_manifest_write_funnel_check",
+      "source": {
+        "fingerprint": "sha256:31cae1dde5ddb85267b63b078ae6b956a5407be70470b0ecc17db5e0f20bd372",
+        "path": ".engine/tools/test_manifest_write_funnel_check.py"
+      },
+      "status": "active",
+      "summary": "Tests for engine/check/manifest-write-funnel — the mechanical funnel floor (#923).",
       "type": "tool"
     },
     {

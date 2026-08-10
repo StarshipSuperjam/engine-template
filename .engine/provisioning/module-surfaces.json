@@ -300,6 +300,9 @@
   ".engine/check/link-integrity.json": [
    "validators-core"
   ],
+  ".engine/check/manifest-write-funnel.json": [
+   "validators-core"
+  ],
   ".engine/check/memory-pointer-public-safety.json": [
    "validators-core"
   ],
@@ -1227,6 +1230,9 @@
   ".engine/tools/local_references.py": [
    "core"
   ],
+  ".engine/tools/manifest_write_funnel_check.py": [
+   "core"
+  ],
   ".engine/tools/mcp_test_support.py": [
    "core"
   ],
@@ -1723,6 +1729,9 @@
    "core"
   ],
   ".engine/tools/test_local_references.py": [
+   "core"
+  ],
+  ".engine/tools/test_manifest_write_funnel_check.py": [
    "core"
   ],
   ".engine/tools/test_mechanic_build.py": [
