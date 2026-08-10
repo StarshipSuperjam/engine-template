@@ -44,6 +44,29 @@ class TestBitesBypasses(unittest.TestCase):
         f = _scan('def _evil():\n    with open(_engine_json_path(), "w") as fh:\n        fh.write("{}")\n')
         self.assertEqual(len(f), 1)
 
+    def test_an_aliased_local_destination_is_flagged(self):
+        f = _scan('def _evil():\n    p = _engine_manifest_path()\n    with open(p, "w") as fh:\n        fh.write("{}")\n')
+        self.assertEqual(len(f), 1)
+
+    def test_shutil_copyfile_onto_the_helper_is_flagged(self):
+        # a "stage to temp, copy over" pattern — no more exotic than os.replace, must be caught
+        f = _scan("def _evil(src):\n    shutil.copyfile(src, _engine_manifest_path())\n")
+        self.assertEqual(len(f), 1)
+
+    def test_os_rename_and_shutil_move_onto_the_helper_are_flagged(self):
+        self.assertEqual(len(_scan("def _a(t):\n    os.rename(t, _engine_manifest_path())\n")), 1)
+        self.assertEqual(len(_scan("def _b(s):\n    shutil.move(s, _engine_manifest_path())\n")), 1)
+
+    def test_pathlib_write_text_onto_the_helper_is_flagged(self):
+        f = _scan("from pathlib import Path\ndef _evil():\n    Path(_engine_manifest_path()).write_text('{}')\n")
+        self.assertEqual(len(f), 1)
+
+    def test_a_coincidental_variable_name_does_not_suppress_the_finding(self):
+        # a marker is recognised by EXACT identifier, not substring — a variable that merely CONTAINS
+        # "engine_write" must NOT be mistaken for the guard (the review's blocking finding)
+        f = _scan('def bump(engine):\n    engine_write_log = "x"\n    _write_json(_engine_manifest_path(), engine)\n')
+        self.assertEqual(len(f), 1, "a coincidental name suppressed the finding — the marker match is too loose")
+
 
 class TestPassesLegitimate(unittest.TestCase):
     """Guarded writers, reads, generic writers, and fixtures must all pass clean."""
@@ -63,6 +86,12 @@ class TestPassesLegitimate(unittest.TestCase):
 
     def test_a_read_of_the_manifest_passes(self):
         f = _scan('def _load():\n    with open(_engine_manifest_path(), encoding="utf-8") as fh:\n        return fh.read()\n')
+        self.assertEqual(f, [])
+
+    def test_reading_the_manifest_then_writing_an_unrelated_file_passes(self):
+        # per-write-call correlation: the write's destination is another file, not the manifest — the
+        # function must NOT be flagged just because it also READS the manifest (the review's false positive)
+        f = _scan('def sync(other):\n    with open(_engine_manifest_path()) as fh:\n        d = fh.read()\n    with open(other, "w") as fh:\n        fh.write(d)\n')
         self.assertEqual(f, [])
 
     def test_a_generic_writer_with_no_manifest_reference_passes(self):
