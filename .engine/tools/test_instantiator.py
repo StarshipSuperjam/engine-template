@@ -3219,6 +3219,173 @@ class TestArrive(unittest.TestCase):
             finally:
                 os.chmod(p, 0o644)                                      # restore so tempdir cleanup succeeds
 
+    # --- #862: a symlinked engine path surfaces AND is never written through ---
+
+    def test_resume_surfaces_a_symlinked_generated_engine_file(self):
+        # #862: a SYMLINK at a generated-unshipped .engine/ path (.engine/engine.json) is NEVER a resume — the
+        # #695 signal would otherwise drop it, and a later confirm() write would follow it OUT of the tree. It
+        # must surface as a class-1 overlap so the operator sees it before any write.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            real = os.path.join(d, "outside-engine.json")
+            with open(real, "w") as fh:
+                fh.write('{"engine": "elsewhere"}\n')
+            os.makedirs(os.path.join(target, ".engine"), exist_ok=True)
+            os.symlink(real, os.path.join(target, ".engine", "engine.json"))
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".engine/engine.json", paths,
+                          "a symlinked generated engine file must surface, not resume-drop")
+
+    def test_resume_still_drops_a_symlink_inside_a_pruned_runtime_dir(self):
+        # #862 / #669: the symlink guard runs AFTER the prune checks, so a symlink inside a gitignored runtime
+        # dir (.engine/.venv) still drops — surfacing every venv link is exactly the #669 flood this must avoid.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            venv_bin = os.path.join(target, ".engine", ".venv", "bin")
+            os.makedirs(venv_bin, exist_ok=True)
+            real = os.path.join(d, "python-real")
+            with open(real, "w") as fh:
+                fh.write("#!/bin/sh\n")
+            os.symlink(real, os.path.join(venv_bin, "python"))
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertFalse(any(p.startswith(".engine/.venv/") for p in paths),
+                             "a symlink inside a pruned runtime dir must stay dropped (no #669 flood)")
+
+    def test_write_through_symlink_reason_guards_leaf_ancestor_and_escape(self):
+        # #862 write-boundary helper: refuse a symlinked leaf, a symlinked ANCESTOR directory (the parent-dir
+        # escape the security lens cares about), and a path resolving outside the tree; allow a regular in-tree file.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine", "state"))
+            regular = os.path.join(root, ".engine", "engine.json")
+            with open(regular, "w") as fh:
+                fh.write("{}\n")
+            self.assertIsNone(inst._write_through_symlink_reason(regular, root), "a regular in-tree file is allowed")
+            leaf = os.path.join(root, ".engine", "state", "state.json")
+            os.symlink(os.path.join(d, "outside.json"), leaf)          # symlinked leaf pointing out of the tree
+            self.assertIsNotNone(inst._write_through_symlink_reason(leaf, root), "a symlinked leaf is refused")
+            outside_dir = os.path.join(d, "outside-dir")
+            os.makedirs(outside_dir)
+            os.symlink(outside_dir, os.path.join(root, ".engine", "linkdir"))   # symlinked ANCESTOR escaping the tree
+            through_ancestor = os.path.join(root, ".engine", "linkdir", "engine.json")
+            self.assertIsNotNone(inst._write_through_symlink_reason(through_ancestor, root),
+                                 "a write whose ancestor is a symlink escaping the tree is refused")
+
+    def test_confirm_refuses_to_write_the_manifest_through_a_symlink(self):
+        # #862 write-boundary: even on accept/leave-as-is (the recognizer only surfaces), confirm() must refuse to
+        # write .engine/engine.json when it is a symlink — the fail-closed guarantee the write never follows the
+        # link out of the repository.
+        manifests = [("core", {"id": "core", "status": "required", "version": "1.0.0", "depends": {}})]
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine"))
+            outside = os.path.join(d, "outside-engine.json")
+            os.symlink(outside, os.path.join(d, ".engine", "engine.json"))   # broken link OUT of the tree
+            with self.assertRaises(inst._EngineWriteRefused):
+                inst.confirm([], "solo", root=d, engine_release="1.0.0", manifests=manifests)
+            self.assertFalse(os.path.exists(outside), "nothing was written through the symlink, out of the tree")
+
+    def test_seed_state_skips_rather_than_reseed_through_a_symlink(self):
+        # #862 write-boundary: _seed_state must not reseed THROUGH a symlinked cursor (an out-of-tree write). It
+        # degrades to "skipped" — no write — rather than following the link. Home/slug are pinned so the
+        # foreign-register reseed branch is reached deterministically.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine", "state"))
+            link_target = os.path.join(d, "cursor.json")
+            with open(link_target, "w") as fh:
+                json.dump({"integration_debt": {"register": "https://github.com/someone/else/issues"}}, fh)
+            os.symlink(link_target, os.path.join(root, ".engine", "state", "state.json"))
+            with inst._redirect_root(root), \
+                    mock.patch.object(inst.repo_identity, "is_home_repo", return_value=False), \
+                    mock.patch.object(inst.boot, "repo_slug", return_value="acme/product"):
+                status = inst._seed_state(lambda _s: None, copy=None)
+            self.assertEqual(status, "skipped")
+            with open(link_target) as fh:
+                self.assertIn("someone/else", fh.read(),
+                              "the link target was left untouched — no GENESIS cursor written through the symlink")
+
+    # --- #861: cross-release .github/ files get an honest engine-owned-slot copy, never a silent overlay ---
+
+    def test_cross_release_github_file_gets_the_honest_engine_owned_copy(self):
+        # #861: a .github/ engine file byte-DIFFERENT from the current release (an older release's output, or the
+        # operator's own from before adoption) surfaces with the HONEST dual-framed copy — never "a file of yours
+        # you'd lose" — because nothing distinguishes the two and silently overlaying a genuine operator file
+        # (approach A) is the data loss this avoids.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            self._ship_github_engine_files(release)                          # the CURRENT release's bytes
+            p = os.path.join(target, ".github", "pull_request_template.md")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write("## Purpose\n\nan OLDER engine release's template\n")   # engine-owned slot, byte-different
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            c = next((c for c in check["collisions"] if ".github/pull_request_template.md" in c["paths"]), None)
+            self.assertIsNotNone(c, "the stale engine .github file must still surface")
+            self.assertEqual(c["klass"], 1)
+            cons = " ".join(c["consequence"].split())                     # wrap-robust: the template hard-wraps
+            self.assertIn("may be the engine's own file from an earlier version", cons)
+            self.assertNotIn("a spot the engine normally keeps to itself", cons)   # not the generic copy
+
+    def test_pristine_first_adoption_github_file_still_surfaces(self):
+        # #861 no-data-loss: a genuinely operator-authored .github/ file at an engine-owned slot is NOT silently
+        # recognized/overlaid — it still surfaces (approach A would have dropped it). Approach B never loses
+        # operator content; the honest copy simply names both readings.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            self._ship_github_engine_files(release)
+            p = os.path.join(target, ".github", "pull_request_template.md")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write("## Our team's own PR checklist\n")
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            paths = {pp for c in check["collisions"] if c["klass"] == 1 for pp in c["paths"]}
+            self.assertIn(".github/pull_request_template.md", paths,
+                          "an operator's own file must never be silently overlaid")
+
+    def test_non_release_github_slot_keeps_the_generic_exclusive_copy(self):
+        # #861: a .github/ occupant the release does NOT ship at that relpath (here an unshipped engine-*.yml) is
+        # not a recognized engine-owned slot — it keeps the generic collision-exclusive copy, not the new wording.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            self._ship_github_engine_files(release)                          # ships engine-ci.yml, NOT engine-extra.yml
+            wf = os.path.join(target, ".github", "workflows")
+            os.makedirs(wf, exist_ok=True)
+            with open(os.path.join(wf, "engine-extra.yml"), "w") as fh:
+                fh.write("name: mine\n")
+            engine_paths = self._release_engine_paths(release)
+            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
+                                         release_root=release)
+            c = next((c for c in check["collisions"] if ".github/workflows/engine-extra.yml" in c["paths"]), None)
+            self.assertIsNotNone(c)
+            cons = " ".join(c["consequence"].split())                     # wrap-robust: the template hard-wraps
+            self.assertIn("a spot the engine normally keeps to itself", cons)   # generic copy
+            self.assertNotIn("may be the engine's own file from an earlier version", cons)
+
+    def test_github_engine_copy_key_is_wired_in_every_copy_home(self):
+        # #861 / plan-review Finding 4: the new copy key must be present in the heading map, the fallback, AND the
+        # template surface — or template and fallback silently drift.
+        self.assertIn("collision-github-engine", inst.COPY_HEADINGS)
+        self.assertIn("collision-github-engine", inst.FALLBACK_COPY)
+        self.assertTrue(inst.load_copy().get("collision-github-engine"))
+        with open(inst.TEMPLATE_PATH, encoding="utf-8") as fh:
+            self.assertIn(inst.COPY_HEADINGS["collision-github-engine"], fh.read(),
+                          "the template surface must carry the new section heading")
+
     def test_resume_recognizes_agents_floor_like_claude(self):
         # #754b: an AGENTS.md already carrying the engine floor fence is a resume (not surfaced), exactly like
         # CLAUDE.md — previously it fell through to the wrong fence token and re-surfaced every resume.

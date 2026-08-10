@@ -209,6 +209,7 @@ COPY_HEADINGS = {
     "team-recommended": "Your project looks like it already has a team",
     "collision-intro": "Before I add the engine, here's what I found in your project",
     "collision-exclusive": "A file of yours sits where the engine keeps its own",
+    "collision-github-engine": "A file sits where the engine keeps one of its own control-plane files",
     "collision-shared": "The engine and your project both use the same file",
     "collision-codeowners": "One of your review rules also covers the engine's files",
     "collision-none": "Nothing of yours is in the way",
@@ -343,6 +344,13 @@ FALLBACK_COPY = {
         "choose that. Your choices: let the engine use this spot (your file here is replaced) · keep your file "
         "and have the engine skip it · stop, and decide later. Nothing is replaced until you choose."
     ),
+    "collision-github-engine": (
+        "You already have a file here: {paths}. This is where the engine keeps one of its own control-plane "
+        "files (a workflow, or a pull-request or issue template). What's here now may be the engine's own file "
+        "from an earlier version, or your own file from before you adopted the engine. Your choices: let the "
+        "engine put its current file here (what's here is replaced) · keep what's here and have the engine skip "
+        "it · stop, and decide later. Nothing is replaced until you choose."
+    ),
     "collision-shared": (
         "You already have your own entries in {paths}. The engine adds its own clearly-marked section here and "
         "leaves everything else of yours exactly as it is. Your choices: add the engine's section and keep all "
@@ -402,6 +410,29 @@ def load_copy(path: str = TEMPLATE_PATH) -> dict:
         by_heading = {}
     return {key: (by_heading.get(heading, "").strip() or FALLBACK_COPY[key])
             for key, heading in COPY_HEADINGS.items()}
+
+
+class _EngineWriteRefused(Exception):
+    """The engine refused to write one of its OWN generated files (the manifest, the state cursor) because the
+    destination is a symlink or resolves outside the repository — following it on write could place the file OUT
+    of the tree. The fail-closed backstop behind the resume recognizer's symlink surfacing (#862): the recognizer
+    warns the operator early, this guarantees the write never follows the link."""
+
+
+def _write_through_symlink_reason(path: str, base: str) -> str | None:
+    """A plain reason if writing `path` would follow a symlink or escape the repository tree, else None. Fail
+    closed like `_unsafe_retire_reason`: refuse when the final component is a symlink, OR the fully resolved path
+    (parent directories included — so a symlinked ancestor is caught too) lands outside `base`. This guards the
+    two engine-owned files written IN PLACE that sit OUTSIDE the overlay's realpath wall — the manifest
+    (`.engine/engine.json`) and the state cursor (`.engine/state/*.json`) — which the resume recognizer surfaces
+    but cannot itself protect once the operator chooses to proceed (#862)."""
+    root = os.path.realpath(base)
+    resolved = os.path.realpath(path)
+    if os.path.islink(path) or not (resolved == root or resolved.startswith(root + os.sep)):
+        rel = os.path.relpath(path, base)
+        return (f"{rel!r} is a symlink or resolves outside the repository; refusing to write through it, which "
+                f"could place the engine's own file out of the tree. Remove or replace it, then run again.")
+    return None
 
 
 def _write_json(path: str, data: dict) -> None:
@@ -661,6 +692,9 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     if product_repository and product_repository.strip():
         written["product_repository"] = product_repository.strip()
     path = _engine_manifest_path(root)
+    reason = _write_through_symlink_reason(path, root or validate.ROOT)   # #862: never write the manifest THROUGH a symlink
+    if reason:
+        raise _EngineWriteRefused(reason)
     _write_json(path, written)
     return {"path": path, "manifest": written}
 
@@ -1337,6 +1371,8 @@ def _seed_state(say, copy=None) -> str:
     # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak this match exists to prevent).
     if own and (f"/{own}/" in register or register.rstrip("/").endswith(f"/{own}")):
         return "present"                          # register names THIS repo -> operator's own cursor -> preserve
+    if _write_through_symlink_reason(path, validate.ROOT):
+        return "skipped"                          # #862: never reseed THROUGH a symlink (out-of-tree write hazard) -> no write
     try:                                          # foreign / traveled register (or unknown origin past the belt) -> reset
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(_GENESIS_CURSOR, fh, indent=2)
@@ -2759,7 +2795,8 @@ def _engine_relpaths(root: str) -> set:
     return out
 
 
-def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) -> bool:
+def _is_engine_resume(rel: str, owned: set, release_files: set | None = None,
+                      is_symlink: bool = False) -> bool:
     """Whether a found path inside the engine's OWN corner (.engine/) is the engine's own — a resume of a
     partial/aborted prior arrival — rather than an operator file. FOUR signals: a gitignored throwaway/runtime
     subtree (a prune-dir name at any depth, or under a PRUNE_PATHS path); a file the OVERLAY itself would place —
@@ -2776,12 +2813,21 @@ def _is_engine_resume(rel: str, owned: set, release_files: set | None = None) ->
     signals hold that line by RECOGNIZING only what the engine positively ships or generates — an operator's
     novel path is in none of them — and the generated-unshipped signal additionally defers to the
     operator/deployment carve-out (`is_engine_generated_unshipped`), so a resume never silently drops operator
-    content (#754/#695 plan review corrected the earlier "operator owns nothing under .engine/" premise)."""
+    content (#754/#695 plan review corrected the earlier "operator owns nothing under .engine/" premise).
+
+    A SYMLINK at a non-pruned .engine/ path is NEVER a resume, whatever the signals say (`is_symlink` -> surface
+    it): recognizing it would drop it from the collision surface and let a later apply/confirm write follow it
+    OUT of the tree — the same hazard the .github/ branch guards (#862). The prune checks below still win first,
+    so a gitignored runtime symlink (.venv/.uv/__pycache__/.engine/memory) stays dropped (no #669 flood). The
+    write boundary refuses to write through such a symlink too — surfacing is the operator's early warning, the
+    write-site guard is the guarantee."""
     segments = rel.split("/")
     if any(seg in _RESUME_PRUNE_DIRS for seg in segments):
         return True
     if any(rel == pp or rel.startswith(pp + "/") for pp in module_coherence.PRUNE_PATHS):
         return True
+    if is_symlink:                                  # #862: a symlink at a non-pruned engine path always surfaces
+        return False
     if release_files is not None and rel in release_files:
         return True
     if rel in owned:
@@ -2847,10 +2893,19 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
     filesystem can't fold an operator file onto an engine one (the case-fold trap of 47f237c). This NARROWS — never
     widens — what the operator is asked about: the same "surface, never silently overwrite" posture as before, now
     able to recognize the engine's own byte-identical file as the resume it is (this overturns the earlier
-    "those always surface" rule, deliberately and only for the provably-lossless byte-identical case)."""
+    "those always surface" rule, deliberately and only for the provably-lossless byte-identical case).
+
+    #861 (cross-release): a .github/ occupant that is byte-DIFFERENT but sits at a slot the release DOES ship an
+    engine file for (`rel in release_github`) is the engine's own file from an EARLIER release, or the operator's
+    own from before adoption — nothing here can tell those apart (there is no per-release output catalog to match
+    stale bytes against). Rather than guess (approach A — recognize-and-drop — would silently overlay a genuine
+    operator file), it still SURFACES, split onto its own honest `collision-github-engine` copy that names BOTH
+    readings, instead of the "a file of yours you'd lose" wording; nothing is ever silently dropped. A .github/
+    occupant the release does NOT ship at that relpath stays on the generic `collision-exclusive` copy."""
     import glob as _glob
     owned = set(engine_paths or ())
     found = set()
+    stale_github = set()                                 # #861: engine-owned .github/ slots present but byte-different
     eng = os.path.join(root, ".engine")
     if os.path.islink(eng):                             # a symlink standing in for the whole engine corner
         found.add(".engine")
@@ -2860,7 +2915,7 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
                 p = os.path.join(dirpath, name)
                 if os.path.isfile(p) or os.path.islink(p):   # files + symlinked dirs; real subdirs skipped
                     rel = os.path.relpath(p, root).replace(os.sep, "/")
-                    if not _is_engine_resume(rel, owned, release_files):  # #669/#695: skip the engine's own output
+                    if not _is_engine_resume(rel, owned, release_files, is_symlink=os.path.islink(p)):  # #669/#695: skip the engine's own output; #862: a symlink surfaces
                         found.add(rel)
     release_github = _release_github_engine_relpaths(release_root)
     for pattern in _GITHUB_ENGINE_GLOBS:
@@ -2874,9 +2929,17 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
             rb = _raw_bytes(os.path.join(release_root, rel)) if (release_root and rel in release_github) else None
             if rb is not None and _raw_bytes(p) == rb:  # read the target only when a release file exists to match
                 continue                                # #754a: byte-identical to the release engine file → resume
-            found.add(rel)                              # byte-different / not-shipped / unreadable → surface
-    found = sorted(found)
-    return [_collision(1, "collision-exclusive", found, copy)] if found else []
+            if rel in release_github:                   # #861: the release DOES ship an engine file at this slot, but the
+                stale_github.add(rel)                   #   bytes differ — the engine's own OLDER-release file, or the
+            else:                                       #   operator's own from before adoption. An honest dual-framed copy
+                found.add(rel)                          #   names both readings, never "a file of yours". A slot the release
+                                                        #   does NOT ship (or unreadable release) stays on the generic copy.
+    collisions = []
+    if found:
+        collisions.append(_collision(1, "collision-exclusive", sorted(found), copy))
+    if stale_github:                                    # #861: same class-1 choices, honest engine-owned-slot wording
+        collisions.append(_collision(1, "collision-github-engine", sorted(stale_github), copy))
+    return collisions
 
 
 def _json_has_engine_entry(rel: str, data: dict) -> bool:
@@ -3210,9 +3273,15 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         # `declined` names any default-on add-on the operator turned down (--decline); `home_repository` carries
         # the RELEASE manifest's update home, which the overlay can't deliver (engine.json is excluded) — the one
         # path by which a brownfield deployment learns where to fetch its own updates (#670).
-        confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
-                default_branch=default_branch or target_default_branch,
-                declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
+        try:
+            confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
+                    default_branch=default_branch or target_default_branch,
+                    declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
+        except _EngineWriteRefused as exc:          # #862: manifest path is a symlink (surfaced as an overlap) — stop clean
+            return {**result, "proceeded": True, "stopped_on": "engine-symlink",
+                    "reason": "the engine's files are in place, but setup was stopped before recording the engine "
+                              "manifest — " + str(exc) + " It was surfaced as an overlap at the start; the "
+                              "arrival resumes from here once it's resolved."}
         # control_checkless=True: brownfield arrival protects main but does NOT require the engine's own checks
         # yet — their workflows land in THIS arrival PR and aren't on the branch until it merges, so requiring
         # them now would deadlock the very PR that carries them. `bootstrap.py finalize` binds them post-merge
@@ -3773,8 +3842,12 @@ def main(argv: list) -> int:
         self_slug = (f"{ident['owner']}/{ident['name']}"
                      if ident.get("owner") and ident.get("name") else None)
         product = _external_product_or_none(_flag_value(argv, "--product-repository"), self_slug)
-        res = confirm(keep, tier, handle=handle, default_branch=default_branch, product_repository=product,
-                      declined_ids=decline)
+        try:
+            res = confirm(keep, tier, handle=handle, default_branch=default_branch, product_repository=product,
+                          declined_ids=decline)
+        except _EngineWriteRefused as exc:          # #862: refuse to write the manifest through a symlink, clean message
+            print(str(exc) + " Nothing was changed.")
+            return 2
         saved = (f"Saved your choices ({', '.join(sorted(res['manifest']['packages']))}; "
                  f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
         if res["manifest"].get("product_repository"):   # close the loop on the external path
