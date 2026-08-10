@@ -32,11 +32,11 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    path that is not really the session's own notebook — earns an honest memory line instead of the
    build-set "open a pull request" wording: it says plainly that nothing was saved by the blocked write
    and names the doors that do work — the pin verb for what the operator asked to keep, the assistant's
-   own notebook for its own notes — never a code-change refusal, and never a false "saved" (#257, #766).
+   own notebook for its own notes — never a code-change refusal, and never a false "saved" (StarshipSuperjam/engine-template#257, StarshipSuperjam/engine-template#766).
    It allows reading, running read-only commands and tests, greps, spawning subagents, and logging issues.
    It also allows Claude Code's own plan file — that is planning, not building — recognized by the
    platform's plan-mode marker, not a path, so it holds even if the plan folder is moved into the repo.
-   And it allows one path-anchored exception (#766): a Write/Edit whose every path resolves inside the
+   And it allows one path-anchored exception (StarshipSuperjam/engine-template#766): a Write/Edit whose every path resolves inside the
    harness's own auto-memory notebook for **this** project (`~/.claude/projects/<this project>/memory/`) —
    the session's own notebook, not the project — judged on the real filesystem (symlinks and `..`
    resolved, the project bound to the session's working directory, anything undecidable denied). A write

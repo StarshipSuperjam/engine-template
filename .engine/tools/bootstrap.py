@@ -64,7 +64,7 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 import boot  # noqa: E402  (repo_slug, gh_token — the shared GitHub-context helpers)
 import repo_identity  # noqa: E402  (resolve_default_branch — the authoritative branch the protection floor lands on)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
-import engine_write  # noqa: E402  (the engine-owned write boundary — the manifest markers below, #923)
+import engine_write  # noqa: E402  (the engine-owned write boundary — the manifest markers below, StarshipSuperjam/engine-template#923)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the minimal ensure this inherits)
 import weakening_guard  # noqa: E402  (ACK_LABEL — reuse the frozen guardrail-ack name, never re-decide it)
 
@@ -122,7 +122,7 @@ class ControlPlaneMisuse(Exception):
     whose whole job is to BIND the required checks a checkless instance would silently no-op. This is a
     CONSTRUCTION bug, not a GitHub transport failure, so it is deliberately NOT a BootstrapError subclass:
     the transport-error handlers that degrade a genuine network failure ("couldn't reach GitHub … back
-    online") must never swallow it and mislabel a bug as connectivity (#696)."""
+    online") must never swallow it and mislabel a bug as connectivity (StarshipSuperjam/engine-template#696)."""
 
 
 # ---- the protection-floor payload --------------------------------------------------------------
@@ -209,7 +209,7 @@ def remainder_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
 
 
 def checkless_floor_ruleset(name: str = ENGINE_RULESET_NAME, *, tier: str) -> dict:
-    """The brownfield-ARRIVAL bootstrap floor (#673): the full TIER floor MINUS the engine's
+    """The brownfield-ARRIVAL bootstrap floor (StarshipSuperjam/engine-template#673): the full TIER floor MINUS the engine's
     required-status-checks rule. On arrival the engine's own workflows (engine-ci / engine-guard) are not yet
     on the target's main — they land in the arrival PR itself — so requiring those checks would make that first
     PR impossible to merge (the deadlock). This keeps the tier's REAL pull_request shape (review requirement,
@@ -298,7 +298,7 @@ def augment_payload(product_full: dict, required_checks: list | None = None, *, 
     added_rules: list = []
 
     # 1. Union the engine's required checks into the required_status_checks rule (create it if absent).
-    #    Skipped ENTIRELY when required_checks is empty (the checkless brownfield bootstrap, #673): the engine
+    #    Skipped ENTIRELY when required_checks is empty (the checkless brownfield bootstrap, StarshipSuperjam/engine-template#673): the engine
     #    binds no checks until finalize, so it neither creates nor touches a checks rule here — never leaving a
     #    pointless empty required_status_checks rule on the operator's ruleset.
     if required_checks:
@@ -400,7 +400,7 @@ def _product_preserved(pre: dict, post: dict, added: dict) -> bool:
 
 # Built-in fallbacks. The plain-language SURFACE source is .engine/templates/control-plane-bootstrap.md;
 # a test asserts the template carries each of these so they cannot silently drift.
-# The #514 Actions-enablement reminder, re-emitted at FINALIZE (#673) — finalize is the moment the engine's
+# The StarshipSuperjam/engine-template#514 Actions-enablement reminder, re-emitted at FINALIZE (StarshipSuperjam/engine-template#673) — finalize is the moment the engine's
 # checks become required, so it is the moment Actions must be on for them to run. Inline (not a load_copy key),
 # so it needs no template-parity section.
 FINALIZE_ACTIONS_NOTE = (
@@ -631,7 +631,7 @@ class ControlPlane:
         # method as self.tier, so no method independently defaults it. Injectable for tests; resolved from the
         # committed manifest otherwise.
         self.tier = tier if tier is not None else protection_guard.resolve_tier()
-        # CHECKLESS is the brownfield-arrival bootstrap mode (#673): protect main WITHOUT requiring the engine's
+        # CHECKLESS is the brownfield-arrival bootstrap mode (StarshipSuperjam/engine-template#673): protect main WITHOUT requiring the engine's
         # own checks, whose workflows are not yet on the branch. Resolved ONCE here to instance state (like
         # self.tier) so floor_missing/_write_floor/_augment_ruleset all read self and no call site can thread it
         # inconsistently. self.required_checks is the effective set the whole instance evaluates and binds: the
@@ -900,7 +900,7 @@ class ControlPlane:
 
     def workflows_present_on(self, branch: str) -> bool:
         """Whether BOTH engine workflows that emit the required checks are actually on `branch` — the
-        precondition finalize checks before it makes those checks REQUIRED (#673). A required check whose
+        precondition finalize checks before it makes those checks REQUIRED (StarshipSuperjam/engine-template#673). A required check whose
         workflow file is absent on the branch would 'wait forever' and re-create the arrival deadlock, so
         finalize refuses until both are present. Fail-CLOSED: any non-200 (incl. an unreadable response) reads
         as absent — finalize would rather refuse than bind into a deadlock. The two filenames are the workflows
@@ -917,7 +917,7 @@ class ControlPlane:
         return True
 
     def finalize(self, branch: str | None = None, announce=None) -> Result:
-        """Post-merge second phase of the brownfield two-phase bootstrap (#673). The arrival applied the
+        """Post-merge second phase of the brownfield two-phase bootstrap (StarshipSuperjam/engine-template#673). The arrival applied the
         CHECKLESS floor so its own pull request could merge; now that it has, the engine's workflows are on the
         branch and their checks (engine-ci / engine-guard) can finally be made REQUIRED. Refuses fail-closed
         when the workflows are NOT yet on the branch — binding them then would re-create the deadlock (usually
@@ -1127,7 +1127,7 @@ def render(result: Result, copy: dict | None = None) -> str:
                "your protection. Nothing of yours should have changed — please check your repository's "
                "rules, and tell me if anything looks off.")
     elif result.cause == "workflows-absent":
-        # Finalize (#673) refused because the engine's workflows aren't on the branch yet — binding the checks
+        # Finalize (StarshipSuperjam/engine-template#673) refused because the engine's workflows aren't on the branch yet — binding the checks
         # now would deadlock every future pull request. Say so plainly, and name the likely cause.
         msg = ("I can't switch the engine's own checks on yet: I couldn't confirm the workflows that produce "
                "them (engine-ci and engine-guard) are on the '" + result.branch + "' branch. That usually "
@@ -1227,7 +1227,7 @@ def _engine_json_path() -> str:
 
 def _manifest_write_reason(path: str) -> str | None:
     """A plain reason when writing the manifest at `path` would follow a shortcut (symlink) or escape the
-    tree, else None (#923). The committed-slot discriminator compares RESOLVED parents (never raw path
+    tree, else None (StarshipSuperjam/engine-template#923). The committed-slot discriminator compares RESOLVED parents (never raw path
     strings — a mocked/injected `_engine_json_path` must get the leaf-only rule, not a spurious root-wall
     refusal; and a symlinked `.engine` resolves BOTH sides through the same link, so the real slot keeps
     the full wall even under the attack the wall exists for)."""
@@ -1239,7 +1239,7 @@ def _manifest_write_reason(path: str) -> str | None:
 
 def _union_added(prev_marker, cur_marker):
     """Merge the augment 'added' sets across arrival(checkless)+finalize so a later de_bootstrap reverses
-    EXACTLY the whole sequence's additions (#673): the arrival records the wholly-missing floor RULES it added
+    EXACTLY the whole sequence's additions (StarshipSuperjam/engine-template#673): the arrival records the wholly-missing floor RULES it added
     (no checks); finalize records the CHECKS it binds. Without the union, finalize's marker would overwrite the
     arrival's, and de_bootstrap would leave the engine-added floor rules orphaned on the operator's ruleset.
     Only carries when both markers augment the SAME product ruleset; the create/repair shape (added is None —
@@ -1259,14 +1259,14 @@ def _union_added(prev_marker, cur_marker):
 
 
 def _persist_finalize_marker(marker) -> None:
-    """Record finalize's control-plane marker in engine.json, UNIONed with the arrival's (#673). Best-effort:
+    """Record finalize's control-plane marker in engine.json, UNIONed with the arrival's (StarshipSuperjam/engine-template#673). Best-effort:
     a write failure never fails finalize — it only means de_bootstrap later falls back to a bounded, name-only
     strip. Temp-file + os.replace so a crashed write never leaves a truncated manifest."""
     if not marker:
         return
     path = _engine_json_path()
     if _manifest_write_reason(path):
-        return   # #923: never rewrite the manifest through a shortcut — best-effort skip, like every failure here
+        return   # StarshipSuperjam/engine-template#923: never rewrite the manifest through a shortcut — best-effort skip, like every failure here
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -1299,7 +1299,7 @@ def _write_manifest(mutate) -> bool:
     completed write. Best-effort: any read/write failure returns False without raising."""
     path = _engine_json_path()
     if _manifest_write_reason(path):
-        return False   # #923: never rewrite the manifest through a shortcut — the same best-effort False
+        return False   # StarshipSuperjam/engine-template#923: never rewrite the manifest through a shortcut — the same best-effort False
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -1408,7 +1408,7 @@ def cmd_accept_unprotected(args) -> int:
 
 
 def cmd_finalize(args) -> int:
-    """Post-merge: bind the engine's required checks that a brownfield arrival deliberately left off (#673) —
+    """Post-merge: bind the engine's required checks that a brownfield arrival deliberately left off (StarshipSuperjam/engine-template#673) —
     now that the arrival pull request has merged and the engine's workflows are on the branch. Idempotent;
     refuses (exit 1) if those workflows aren't on the branch yet (the arrival PR hasn't merged)."""
     repo = _resolve_repo(args.repo)

@@ -44,9 +44,9 @@ now answers in one of **two tiers**, and the acknowledgment ceremony survives on
 This supersedes the **blocking clause** of eADR-0011 ("a weakening change … hard-blocks the merge until the
 operator performs one deliberate affirmative act") for ordinary modifications, and adopts — deliberately, on
 evidence — a scoped form of the alternative eADR-0011's anti-choice rejected. The audit that decided it
-(2026-08-08, method: direction-classification of every acknowledged pull request merged after the #370
+(2026-08-08, method: direction-classification of every acknowledged pull request merged after the StarshipSuperjam/engine-template#370
 narrowing, from title, body, and diff): **307 of 455 merged pull requests (67%) carried the label**; after
-#370's property narrowing the rate stayed at **92 of 182 (51%)**; of those 92, **8 genuinely weakened** a
+StarshipSuperjam/engine-template#370's property narrowing the rate stayed at **92 of 182 (51%)**; of those 92, **8 genuinely weakened** a
 protection (9%), 8 were mixed, 33 strengthened one, 43 were neutral. Every genuine weakening was already
 self-disclosed in its pull-request body; project memory records **no instance** of the red check changing a
 merge outcome; and the ceremony measurably deformed builds (sessions dropping or relocating correct fixes to
@@ -73,7 +73,7 @@ prior posture for any deployment that wants it.
 ## Rationale
 
 The label was built to make genuine weakening deliberate; at a 51% fire rate it made nothing deliberate.
-Narrowing the guarded set was already tried (#370, D-268) and did not cure it, because in this repository the
+Narrowing the guarded set was already tried (StarshipSuperjam/engine-template#370, D-268) and did not cure it, because in this repository the
 enforcement machinery is the product — any file-set version of "blocking" re-creates the noise. Only
 splitting *what happens on a match* changes the outcome. The tier criterion is a property, not a roster:
 **hard where no mechanical correlate or readable diff would catch the weakening — and for the guard's own
@@ -83,7 +83,7 @@ guard-file modification, the fail-closed paths) — each confirmed with the oper
 
 ## Anti-choice
 
-A second guarded-set narrowing (keep the always-blocking ceremony, trim the set again) — refused because #370
+A second guarded-set narrowing (keep the always-blocking ceremony, trim the set again) — refused because StarshipSuperjam/engine-template#370
 executed exactly that cure and the fire rate stayed at half of all merges. Full retirement of the ack
 (disclosure everywhere, no blocking tier) — refused because the killswitch class (supply-chain repoints,
 one-token check demotions, ruleset gutting) is precisely where a diff read fails and a mechanical stop still
@@ -104,7 +104,7 @@ consent act (it now blocks only at the killswitch floor).
 
 Accepted — operator decision, 2026-08-08, following a four-lens plan review of the audit and the design.
 Backtest, recorded honestly: replaying this floor over the audited corpus (the 92 acknowledged pull requests
-merged after #370), **40 would still block** — 22% of that window's merges, down from 51%, catching 5 of the
+merged after StarshipSuperjam/engine-template#370), **40 would still block** — 22% of that window's merges, down from 51%, catching 5 of the
 8 genuine weakenings mechanically. The residue concentrates in the guard's own file and check-rule structural
 edits — the two killswitch classes this record refuses to demote — and is specific to this workshop, where
 the enforcement machinery is the product; a deployed repository, whose operators rarely touch `.engine`,

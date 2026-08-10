@@ -16,14 +16,14 @@
 # official MCP SDK the engine's two live-helper servers (knowledge, memory) are
 # built on so protocol conformance is maintained upstream rather than hand-written.
 # `mcp` is floor-only, NO upper ceiling — a deliberate operator decision (2026-08-03,
-# mcp 1->2; the reasoning lives in PR #852): an uncapped floor is what lets Dependabot
+# mcp 1->2; the reasoning lives in PR StarshipSuperjam/engine-template#852): an uncapped floor is what lets Dependabot
 # surface a new major the moment it exists as a LOUD, red, safely-blocked pull request
 # downstream — a ceiling would trade that discovery signal for silence, with the
 # operator learning of the next major only by chance. What fixes the bytes that run is
 # the committed uv.lock plus the `--frozen` flag on CI, the hooks, and the MCP server
 # launches — NOT this specifier. The two engine paths that once ran a plain `uv sync`
 # able to re-resolve past the lock — module add / update / rollback re-sync and first-run
-# provisioning — now pass `--frozen` too (issue #853), so no engine path re-resolves past
+# provisioning — now pass `--frozen` too (issue StarshipSuperjam/engine-template#853), so no engine path re-resolves past
 # the committed lock.
 # `default-groups` lists it so
 # every `uv sync`/`uv run` (CI and local) resolves it with no per-command flag.

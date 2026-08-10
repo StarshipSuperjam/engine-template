@@ -4,7 +4,7 @@ Two consumers read this: the **first-run clear** in `instantiator.py` (which ret
 **standing foreign-`LICENSE`-seed detector** in `license_health.py` (which is permanent and runs every boot in a
 provisioned repo). Because the detector outlives the retiring first-run clear, the seed set and recognizer live
 here, in a permanent module both import — never in `instantiator.py`, which the standing detector could not depend
-on after first-run retirement (issue #471).
+on after first-run retirement (issue StarshipSuperjam/engine-template#471).
 
 **Recognition is self-seed, never operator-identity.** The engine matches only its *own* shipped template-license
 seed — a build constant — never "a copyright that isn't the operator's" (the engine holds no notion of the

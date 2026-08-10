@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reconcile a pull request stranded on the engine's derived-committed index files (#136).
+"""Reconcile a pull request stranded on the engine's derived-committed index files (StarshipSuperjam/engine-template#136).
 
 When two pieces of work are in flight at once they can both rewrite the engine's two internal index files —
 the knowledge graph (`.engine/knowledge/graph.json`) and the self-map (`.engine/self-map.md`) — and a sibling
@@ -49,7 +49,7 @@ MEMBERS = (".engine/knowledge/graph.json", ".engine/self-map.md")
 # An inline identity so a merge/commit never fails for lack of a configured git user on the operator's machine.
 _IDENT = ["-c", "user.email=engine@local", "-c", "user.name=engine"]
 
-# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# Bounded retry through a transient missing-origin / shared-config blip (StarshipSuperjam/engine-template#704): under heavy parallel-worktree
 # use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
 # self-heal. A few fast retries ride out that window. This inline retry is copied — not shared — across the
 # five tools that carry it (scope_profile, close_linkage_preflight, pr_reconcile, module_manager, tune),
@@ -61,7 +61,7 @@ _ORIGIN_RETRY_ATTEMPTS = 3
 _ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 _FETCH_FAST_FAIL = 5.0        # a fetch that FAILS in under this many seconds is a transient blip worth
                               # retrying; a slower failure is a genuine remote hang, so it is NOT retried and
-                              # assess degrades at ~one timeout, never attempts×timeout (#704).
+                              # assess degrades at ~one timeout, never attempts×timeout (StarshipSuperjam/engine-template#704).
 
 
 # ---- the git boundary (best-effort; a mutation reports success, never raises) ----------------
@@ -88,7 +88,7 @@ def _ok(args: list, root: str, timeout: int = 120) -> bool:
 
 def _fetch_with_retry(default: str, root: str) -> bool:
     """`git fetch origin <default>` with a bounded retry through a transient missing-origin / shared-config
-    blip (#704). Retries ONLY a FAST failure (the blip); a slower failure is a genuine remote hang, so it is
+    blip (StarshipSuperjam/engine-template#704). Retries ONLY a FAST failure (the blip); a slower failure is a genuine remote hang, so it is
     not retried and `assess` degrades at ~one timeout rather than attempts×timeout. Calls `_ok` — leaving that
     helper (the executor's own mutation primitive) byte-unchanged — so the retry is confined to the read-side
     fetch and never touches the executor's push-rejection signal. The common (first-try) path makes exactly

@@ -61,6 +61,7 @@
       ".engine/check/provisioning-catalog.json",
       ".engine/check/release-integrity.json",
       ".engine/check/self-map-drift.json",
+      ".engine/check/shipped-issue-references.json",
       ".engine/check/skill-coherence.json",
       ".engine/check/skill-frontmatter.json",
       ".engine/check/skill-shape.json",

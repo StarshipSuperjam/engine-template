@@ -12,7 +12,7 @@ that GitHub-facing plumbing lives in the terminal cut (`release_terminal.py`, dr
 
 Two subcommands, split so consent attaches to a proposal the writer cannot silently drift from:
 
-  propose  — read-only. Resolve the last release baseline from the engine's HOME repo (the #369
+  propose  — read-only. Resolve the last release baseline from the engine's HOME repo (the StarshipSuperjam/engine-template#369
              `home_repository` coordinate — the same source the updater fetches from, so producer
              and consumer agree on what "a release" is), diff since it, and author:
                * the mechanical bump FLOOR: a module ADDED => engine >= minor;
@@ -78,7 +78,7 @@ import jsonschema
 import validate
 import module_coherence
 import module_manager
-import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (#923)
+import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (StarshipSuperjam/engine-template#923)
 
 SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
@@ -94,7 +94,7 @@ _NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no new migration s
 
 # --------------------------------------------------------------------------- version ordering
 # Strict MAJOR.MINOR.PATCH with an optional pre-release suffix — the SAME grammar the module.v1 schema
-# now enforces on the manifest `version` field (#402 U07a), so the writer here and the schema gate at CI
+# now enforces on the manifest `version` field (StarshipSuperjam/engine-template#402 U07a), so the writer here and the schema gate at CI
 # cannot bless different shapes. Kept in sync deliberately: the schema is the harder gate, and this writer
 # check catches a nonsense version before it ever reaches a release manifest.
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
@@ -132,7 +132,7 @@ def _strictly_greater(new: str, cur: str) -> bool:
     return _is_prerelease(cur) and not _is_prerelease(new)
 
 
-# --------------------------------------------------------------------------- product-release mode (#516)
+# --------------------------------------------------------------------------- product-release mode (StarshipSuperjam/engine-template#516)
 # Once the engine is DEPLOYED, this same machinery cuts the deployed repo's OWN product release instead of the
 # engine's version: the version is read from (and written to) a product-owned `product-version.json` at the
 # repository ROOT (product territory, eADR-0007 — so it survives an engine uninstall), the baseline is the
@@ -217,8 +217,8 @@ def _product_baseline(slug: str | None) -> Baseline:
 
 def resolve_baseline(slug: str | None = None) -> Baseline:
     """The last released tag to diff against, or a first-cut baseline when there is no release yet. `slug`
-    defaults to the engine's HOME repo (#369 `home_repository` — the engine's own release stream); in
-    PRODUCT-mode (#516) the caller passes the DEPLOYED repo's own slug, so a product cut resolves the product's
+    defaults to the engine's HOME repo (StarshipSuperjam/engine-template#369 `home_repository` — the engine's own release stream); in
+    PRODUCT-mode (StarshipSuperjam/engine-template#516) the caller passes the DEPLOYED repo's own slug, so a product cut resolves the product's
     own last release, never the engine's home. A TRANSPORT failure (offline/DNS) is not a first cut — it is
     unknowable, and we say so rather than guess an empty baseline."""
     home = slug if slug is not None else module_manager._home_repository()
@@ -274,8 +274,8 @@ _RELEASE_PR_RE = re.compile(r"^Release \d+\.\d+\.\d+")
 # `owner/repo#N`). A merged PR's author often writes "(Closes #N)" into the PR title; rendered VERBATIM into the
 # RELEASE pull-request body it makes GitHub attribute that close to the release — so on merge the release would
 # (re-)close it. We strip the KEYWORD and keep the reference (readable, inert). A keyword NOT directly adjacent
-# to the reference is not a GitHub close (e.g. "fail closed (#390)" — the `(` breaks the bond; "Fixed several
-# bugs, see #5") and is left untouched (confirmed empirically against GitHub). The bare-URL and `GH-N` forms are
+# to the reference is not a GitHub close (e.g. "fail closed (#N)" — the `(` breaks the bond; "Fixed several
+# bugs, see #N") and is left untouched (confirmed empirically against GitHub). The bare-URL and `GH-N` forms are
 # out of scope: GitHub's documented auto-close grammar does not include them.
 _CLOSING_KEYWORD_RE = re.compile(
     r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+((?:[\w.-]+/[\w.-]+)?#\d+)")
@@ -469,7 +469,7 @@ def _accumulation_violations(was: dict, present: dict, block: str, message) -> l
     """Every version-key a RETAINED module shipped in the previous release but the candidate no longer declares,
     for the named version-keyed `block` (`migrations` or `retired_capabilities`). Both are replayed by version
     RANGE at upgrade (from < ver <= target), so a key silently removed from a manifest is SKIPPED on a
-    multi-version jump — the #599 silent-skip class. Keys are compared on NORMALIZED tuples (`_norm_ver`). A
+    multi-version jump — the StarshipSuperjam/engine-template#599 silent-skip class. Keys are compared on NORMALIZED tuples (`_norm_ver`). A
     whole REMOVED module is NOT checked here — its still-unseen entries for a lagging upgrader are a KNOWN BOUND
     handled with the min-upgradeable-from floor. `message(mid, ver)` builds the block-specific refusal line.
 
@@ -585,9 +585,9 @@ def _dependency_integrity_violations(present: dict, removed_modules: list) -> li
     return out
 
 
-# A default-on module is installed on every deployment unless the operator opts out (#759). It may therefore
+# A default-on module is installed on every deployment unless the operator opts out (StarshipSuperjam/engine-template#759). It may therefore
 # depend only on capabilities that are ALSO guaranteed present — required (always) or other default-on (unless
-# opted out, and #759 keeps a default-on's own deps satisfied). Everything else is not guaranteed there.
+# opted out, and StarshipSuperjam/engine-template#759 keeps a default-on's own deps satisfied). Everything else is not guaranteed there.
 _DEFAULT_ON_ALLOWED_DEP_TIERS = frozenset({"required", "default-on"})
 
 
@@ -595,7 +595,7 @@ def _default_on_dependency_violations(present: dict) -> list:
     """A `default-on` module that `depends` on a capability NOT guaranteed to be present — anything outside
     {required, default-on}: an `optional`/`experimental` module a deployment may never have chosen, or a `retired`
     one kept only for migration history. Such a module cannot be coherently installed where the dependency is
-    absent. #759 already handles this at runtime by DEMOTING the default-on module to an offer rather than pulling
+    absent. StarshipSuperjam/engine-template#759 already handles this at runtime by DEMOTING the default-on module to an offer rather than pulling
     the unchosen dependency in; this guard catches the same contradiction once, at the author's release cut, so a
     release is never cut needing that per-deployment safety net (and so the FIRST cut, which has no runtime
     predecessor to lean on, is covered too — this field is set in both classify() modes).
@@ -744,12 +744,12 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # dead-end every holder's upgrade at the coherence gate; refused at the cut (belt-and-suspenders).
         "dependency_violations": _dependency_integrity_violations(present, removed),
         # A default-on module depending on a capability outside {required, default-on} — one a deployment may lack,
-        # so it cannot be coherently installed everywhere; refused at the cut so the author fixes it once (#891).
+        # so it cannot be coherently installed everywhere; refused at the cut so the author fixes it once (StarshipSuperjam/engine-template#891).
         "default_on_dependency_violations": _default_on_dependency_violations(present),
     }
 
 
-# --------------------------------------------------------------------------- product proposal (#516)
+# --------------------------------------------------------------------------- product proposal (StarshipSuperjam/engine-template#516)
 def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list) -> dict:
     """The release proposal for a PRODUCT cut — the SAME mode-neutral shape the workflow shell and the
     renderers consume, with product semantics. A product has no engine packages to diff, so there is no
@@ -1006,7 +1006,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
             return {"applied": False, "reason": "dry-run", "targets": changed, "engine": engine_ver,
                     "from_engine": engine_cur}
 
-        # #923: never stage/swap an engine-owned manifest through a shortcut (symlink) or out of the
+        # StarshipSuperjam/engine-template#923: never stage/swap an engine-owned manifest through a shortcut (symlink) or out of the
         # tree. The swap's os.replace defeats only a symlinked LEAF — it still lands out-of-tree
         # through a symlinked ANCESTOR directory — so check every destination BEFORE any temp file is
         # created. Path and base both derive from validate.ROOT (the same source, per the engine_write
@@ -1063,7 +1063,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
             "proposed_floor": (proposal or {}).get("package_floor", {})}
 
 
-# --------------------------------------------------------------------------- apply (product writer, #516)
+# --------------------------------------------------------------------------- apply (product writer, StarshipSuperjam/engine-template#516)
 def apply_product(version: str, dry_run: bool, root: str | None = None) -> dict:
     """Record the product version into `product-version.json` — the product analogue of `apply`. A product has
     no engine packages, so there is no per-package/floor/split-brain machinery: one root file, one version.
@@ -1321,12 +1321,12 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
                            "(the release was refused or the result is malformed).")
     # the construction sentinel `0.0.0-dev` is internal — never surface it to the maintainer (see _version_lines)
     from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
-    # PRODUCT cut (#516): a deployed repo cutting its OWN product release — speak of the product, not the engine.
+    # PRODUCT cut (StarshipSuperjam/engine-template#516): a deployed repo cutting its OWN product release — speak of the product, not the engine.
     product = bool(applied.get("product") or proposal.get("product"))
     thing = "product" if product else "engine"
 
     # The consent preamble every pull request carries at the top — lifted from the template so the release
-    # body reads the same and satisfies the pull-request-completeness gate's preamble anchors (#589). Emitted in
+    # body reads the same and satisfies the pull-request-completeness gate's preamble anchors (StarshipSuperjam/engine-template#589). Emitted in
     # BOTH modes, so a product release PR clears the same gate an engine one does.
     out = [f"# A new {'release of your product' if product else 'engine version'}: "
            f"{from_shown} → {engine}", "", template_preamble(), ""]
@@ -1503,7 +1503,7 @@ def _cmd_propose(args) -> int:
               f"release again. Nothing was changed.", file=sys.stderr)
         return 2
     if mode == "product":
-        # PRODUCT cut (#516): baseline is the DEPLOYED repo's own last release; no capability tree to diff.
+        # PRODUCT cut (StarshipSuperjam/engine-template#516): baseline is the DEPLOYED repo's own last release; no capability tree to diff.
         # A None slug (unresolved origin) forces a first cut — never the engine-home fallback (see _product_baseline).
         baseline = _product_baseline(ctx["slug"])
         merged = ([] if args.baseline_tree
@@ -1588,7 +1588,7 @@ def _cmd_apply(args) -> int:
               f"again. Nothing was changed.", file=sys.stderr)
         return 2
     if mode == "product":
-        # PRODUCT cut (#516): write the one root product-version.json; --all/--package/--proposal (engine
+        # PRODUCT cut (StarshipSuperjam/engine-template#516): write the one root product-version.json; --all/--package/--proposal (engine
         # package machinery) do not apply to a product and are ignored.
         result = apply_product(args.engine, args.dry_run)
     else:

@@ -3,24 +3,24 @@
 A deployed repo runs a projected shape of this engine (the first-run-only setup files retired, the optional
 modules a deployment declined absent). Two failure classes ride on that shape and never show up in the home
 repo's own per-PR suite: a self-test that asserts a construction-only invariant with no deployed-skip guard
-(the #599 class — it *operates* wrong when deployed), and a wiring-map regeneration that fails closed on an
-optional module's absent subtree (the #663 class — the upgrade *reconcile* reds and stalls half-applied). This
+(the StarshipSuperjam/engine-template#599 class — it *operates* wrong when deployed), and a wiring-map regeneration that fails closed on an
+optional module's absent subtree (the StarshipSuperjam/engine-template#663 class — the upgrade *reconcile* reds and stalls half-applied). This
 gate catches both at CONSTRUCTION cut time, before a release pull request is ever opened:
 
 - **Arm A — operates when deployed.** Project the release candidate to the deployed shape and run the
   validator + the whole self-test suite against it, in two configurations: the default install (every shipped
   module) and an optional-modules-declined install (each `default-on` module and the files it owns removed —
-  the exact shape #663 broke on). A red here means the release would not operate on a real deployment.
+  the exact shape StarshipSuperjam/engine-template#663 broke on). A red here means the release would not operate on a real deployment.
 - **Arm B — upgrades when deployed.** For each released baseline at or above the clean-upgrade floor, project
   that past release to its deployed shape and run a REAL practice upgrade to the candidate — the same child
-  tail, the same six-check structural gate (including the wiring-map coverage check #663 failed), no pull
+  tail, the same six-check structural gate (including the wiring-map coverage check StarshipSuperjam/engine-template#663 failed), no pull
   request opened. A red means a deployed engine could not reconcile cleanly onto this release.
 
 **Where deployed-shape protection now lives.** This gate REPLACES the inline `test_deployed_selftests.py` belt,
 which ran Arm A's default configuration on every home-repo pull request (~44% of the suite's wall time). That
 protection now runs at each release cut (and on demand via the `release-gate` workflow), NOT per pull request —
 so a deployment-shape regression that lands on the default branch is caught at the next cut or manual run, not
-on the pull request that introduced it. This is the deliberate #664 trade (the reopened #649 decision).
+on the pull request that introduced it. This is the deliberate StarshipSuperjam/engine-template#664 trade (the reopened StarshipSuperjam/engine-template#649 decision).
 
 **Fail CLOSED.** A gate that cannot even build its projection, or that hits any unexpected error, BLOCKS the
 cut — it never waves a release through unverified. The only clean pass is "ran, both arms green". The tool is
@@ -69,7 +69,7 @@ def _nested_env(**extra) -> dict:
     run — never carrying this release workflow's GitHub-Actions identity. Leaking the ambient CI/PR env
     (`GITHUB_EVENT_PATH`, `GITHUB_ACTIONS`, `CI`, `GITHUB_TOKEN`, …) makes the PR-context checks fire against a
     projection that has no PR: `pr-body-completeness` reads a no-PR event's empty body as "sections missing" —
-    the false red that blocked the first live cut (#676's first exercise). Strip the Actions/CI harness vars BY PREFIX (so a future GITHUB_*/RUNNER_*
+    the false red that blocked the first live cut (StarshipSuperjam/engine-template#676's first exercise). Strip the Actions/CI harness vars BY PREFIX (so a future GITHUB_*/RUNNER_*
     -keyed check stays neutralised too) and keep everything else (PATH, HOME, UV_*, locale — none of which the
     nested `git`/`sys.executable` runs need from Actions). This silences ONLY the no-PR context checks: gating is
     static suite config and the structural operate/upgrade checks red off the file tree, not the environment, so
@@ -135,8 +135,8 @@ def _decline_optional_modules(tree: str) -> list:
     the `engine.json` packages entry, the tool-runtime dependency groups, the wiring, and coherence are all
     reconciled exactly as a real decline leaves them, never a hand-rolled deletion that drifts (e.g. a stale
     `default-groups` the uv-group-drift check would then red on). The required substrate that lazily imports an
-    optional subtree stays — so this still contains the exact #663 shape (a declined default-on module) — and
-    declining the `optional` add-ons on top is the #646 shape (a deployment whose self-test suite must stay
+    optional subtree stays — so this still contains the exact StarshipSuperjam/engine-template#663 shape (a declined default-on module) — and
+    declining the `optional` add-ons on top is the StarshipSuperjam/engine-template#646 shape (a deployment whose self-test suite must stay
     green when an add-on is absent). Returns the declined module ids. Raises GateError on any failure."""
     modules_dir = os.path.join(tree, ".engine", "modules")
     if not os.path.isdir(modules_dir):
@@ -153,7 +153,7 @@ def _decline_optional_modules(tree: str) -> list:
         if status in ("default-on", "optional"):          # every add-on the operator may decline at setup
             declinable.append(mid)
     if not declinable:
-        # A declined projection that declined NOTHING is identical to the default one — the #663/#646 shapes
+        # A declined projection that declined NOTHING is identical to the default one — the StarshipSuperjam/engine-template#663/StarshipSuperjam/engine-template#646 shapes
         # would silently stop being tested (e.g. if the status vocabulary were renamed). Fail closed, loudly,
         # rather than let the gate keep reporting green while the declined arm covers nothing.
         raise GateError("could not project a module-declined deployment: found no installed declinable "
@@ -199,7 +199,7 @@ def _project_to_deployed(dest: str, *, decline_optional: bool = False) -> list:
         r = _run([sys.executable, os.path.join("tools", gen), "generate"],
                  cwd=os.path.join(dest, ".engine"), env=env, timeout=300)
         if r.returncode != 0:
-            # On a declined projection this regen IS the #663 operation — a failure here is the real defect.
+            # On a declined projection this regen IS the StarshipSuperjam/engine-template#663 operation — a failure here is the real defect.
             raise GateError(f"the deployed projection could not regenerate its wiring map "
                             f"({gen} on {'a module-declined' if decline_optional else 'the default'} shape: "
                             f"{_tail(r.stderr)})")
@@ -265,8 +265,8 @@ def _suite_in(tree: str, label: str) -> dict:
 def _arm_operates() -> dict:
     """Arm A. Project the candidate to the deployed shape (default and add-on-declined) and assert it operates.
     Default: validator + full suite (subsumes the retired belt). Declined: validator (whose knowledge-coverage
-    check is the #663 detector, exercised by the declined projection's own regen) AND the full self-test suite
-    (the #646 detector — a shipped test that assumes an optional add-on is installed reds the declined
+    check is the StarshipSuperjam/engine-template#663 detector, exercised by the declined projection's own regen) AND the full self-test suite
+    (the StarshipSuperjam/engine-template#646 detector — a shipped test that assumes an optional add-on is installed reds the declined
     projection's own suite, which a deployment that declined that add-on would hit). Each projection needs its
     OWN mutable copy (projecting/declining rewrites the tree in place), so each arm captures a fresh candidate
     archive from the (unchanged) working tree rather than sharing one."""

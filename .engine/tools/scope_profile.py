@@ -28,7 +28,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GRAPH = os.path.join(ROOT, ".engine", "knowledge", "graph.json")
 
-# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# Bounded retry through a transient missing-origin / shared-config blip (StarshipSuperjam/engine-template#704): under heavy parallel-worktree
 # use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
 # self-heal. A few fast retries ride out that window; the blip fails FAST, so the common path pays nothing and
 # a genuine failure still degrades honestly. This inline retry is copied — not shared — across the five tools
@@ -42,7 +42,7 @@ def _git(args: list, *, run=subprocess.run) -> "str | None":
     """Run a read-only git command from the repo root. Returns stdout on success, or None on ANY
     failure (non-zero exit, missing binary, timeout) — never '' — so a caller can tell a genuine empty
     result from a git that could not run, and never render a fabricated zero. `run` is injectable for
-    tests. A transient missing-origin / shared-config blip (#704) is ridden out by a few bounded fast
+    tests. A transient missing-origin / shared-config blip (StarshipSuperjam/engine-template#704) is ridden out by a few bounded fast
     retries — both callers read against `origin/main`; the common (first-try) path makes exactly one call
     and never sleeps, and a persistent failure still degrades to None."""
     for attempt in range(_ORIGIN_RETRY_ATTEMPTS):

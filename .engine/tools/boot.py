@@ -13,7 +13,7 @@ Boot's laws, all load-bearing here:
     (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
     The one durable FINDING boot emits — a refused state cursor — is handed to
     telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
-    (NEVER a GitHub write), and the #412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
+    (NEVER a GitHub write), and the StarshipSuperjam/engine-template#412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
   - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION. A standing governance alarm renders every
     session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
     to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
@@ -77,8 +77,8 @@ import moment            # noqa: E402  (the trailing-Z time seam; pure stdlib le
 import repo_identity     # noqa: E402  (default_branch / resolve_default_branch — the shared default-branch reader)
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
-import work_record       # noqa: E402  (#394: the merged-PR titles behind the ranked recent-decisions digest)
-import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
+import work_record       # noqa: E402  (StarshipSuperjam/engine-template#394: the merged-PR titles behind the ranked recent-decisions digest)
+import boot_slice        # noqa: E402  (StarshipSuperjam/engine-template#37: boot's rung-1 knowledge cache; read() fail-opens to None)
 import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
 import boot_alarm_ledger  # noqa: E402  (the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
@@ -88,16 +88,16 @@ import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
-import hooks_path_health  # noqa: E402  (#707/#708: the broken-core.hooksPath detector + repair; boot relays its detection)
-import first_run_health  # noqa: E402  (#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
+import hooks_path_health  # noqa: E402  (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708: the broken-core.hooksPath detector + repair; boot relays its detection)
+import first_run_health  # noqa: E402  (StarshipSuperjam/engine-template#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
 import greenfield_intake  # noqa: E402  (the first-engagement "no description yet" detector; boot relays + offers)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 import execution_environment  # noqa: E402  (which runtime/environment is qualified; the posture the engine runs itself under)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
-import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
+import pr_reconcile       # noqa: E402  (StarshipSuperjam/engine-template#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names in the
-# root CLAUDE.md floor fence (the committed adopter floor since #323). The byte-identity is locked by
+# root CLAUDE.md floor fence (the committed adopter floor since StarshipSuperjam/engine-template#323). The byte-identity is locked by
 # test_boot.py; renaming it here without the floor (or vice-versa) breaks the double-fault check, so the two
 # move together.
 PRESENT_MARKER = "Project status"
@@ -106,7 +106,7 @@ PRESENT_MARKER = "Project status"
 # recognition slice used to live here as always-loaded orientation blocks. They are STATIC content — the same
 # every session — and the capped boot pack is for DYNAMIC, session-specific content (eADR-0033); static
 # content that can shed is content the session sometimes never sees. Both moved to the always-loaded, uncapped
-# CLAUDE.md / AGENTS.md floor (#787 / #899): the wiring-map advert beside the `engine-parts` readout, and a
+# CLAUDE.md / AGENTS.md floor (StarshipSuperjam/engine-template#787 / StarshipSuperjam/engine-template#899): the wiring-map advert beside the `engine-parts` readout, and a
 # one-line pointer to the surface catalog (the recognition detail is pulled from the catalog / knowledge graph
 # on demand, not re-rendered every session). Retiring the per-session recognition RENDER required loosening
 # eADR-0016's boot-read leg — amended there; its catalog COVERAGE gate is unchanged.
@@ -120,7 +120,7 @@ SESSION_START_SOURCES = ("startup", "resume", "clear")
 # Per-OS hook interpreter: the committed `.claude/settings.json` + core-manifest hook `wires` carry the
 # POSIX form (`.engine/.venv/bin/python`), and `hook-runner.sh` resolves the actual layout at fire time
 # (POSIX bin/python or Windows Scripts/python.exe under the same venv root) — so one committed repo boots
-# on every OS, including a mixed-OS team (#407 build-spec leaf). No per-OS re-render at generation.
+# on every OS, including a mixed-OS team (StarshipSuperjam/engine-template#407 build-spec leaf). No per-OS re-render at generation.
 
 # The DISPLAY/fallback default branch, resolved cheaply at import (env override -> recorded manifest -> "main")
 # with NO git call, so importing boot — which nearly every tool does — stays a pure, non-crashing read even on
@@ -142,7 +142,7 @@ REFUSED_CURSOR_SOURCE_ID = "boot/refused-cursor"
 
 # (The "what just happened" digest was sized here by a buried RECENTLY_SHIPPED_COUNT constant — the
 # magic-number pattern attention exists to retire. It is now the attention policy's reviewable, tunable
-# `budget_recent_decisions` slice over the ranked recent_decisions partition: see _shipped_lines. #394.)
+# `budget_recent_decisions` slice over the ranked recent_decisions partition: see _shipped_lines. StarshipSuperjam/engine-template#394.)
 
 # The cold-start orientation event's budget total. Boot owns the event's cost budget; attention owns how it
 # splits across the kinds and flexes (boot owns the event model; attention
@@ -190,7 +190,7 @@ def repo_slug() -> str | None:
     # substring of a look-alike (notgithub.com, github.com.evil.com) — a mis-parsed slug would target the wrong repo.
     # IGNORECASE: host names are case-insensitive by spec (`GitHub.com` == `github.com`). ASCII keeps the fold
     # ASCII-only, so a Unicode homograph (`gİthub.com`, U+0130 folds to `i`) cannot satisfy the host literal. The
-    # flags fold only the literal host, not the structural anchors, so no look-alike is newly accepted (#625).
+    # flags fold only the literal host, not the structural anchors, so no look-alike is newly accepted (StarshipSuperjam/engine-template#625).
     m = re.search(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
                   url.strip(), re.IGNORECASE | re.ASCII)
     return m.group(1) if m else None
@@ -238,7 +238,7 @@ def read_state() -> tuple[dict | None, bool]:
     dashboard/marker renders. The DURABLE half — the telemetry finding on a refused cursor — is emitted
     on the REAL SessionStart path only (assemble_pack, use_ledger), as a benign inbox-spool append via
     emit_refused_cursor_finding(): a GitHub write here would break boot's read-only posture, so the benign
-    spool carries it and the #412 drain promotes it. Keeping the emit out of this read leaves the status
+    spool carries it and the StarshipSuperjam/engine-template#412 drain promotes it. Keeping the emit out of this read leaves the status
     verb / `pack` debug view side-effect-free and this predicate cheaply unit-testable."""
     try:
         state = validate.load_json(STATE_PATH)
@@ -268,7 +268,7 @@ def _refused_cursor_message() -> str:
 def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
     """Emit ONE benign refused-cursor finding to the telemetry inbox spool (its durable half).
     PERSISTENT_BENIGN routes emit_finding to a LOCAL gitignored spool append — boot never writes GitHub
-    (read-only posture); the #412 drain promotes it once it persists across sessions, and the immediate
+    (read-only posture); the StarshipSuperjam/engine-template#412 drain promotes it once it persists across sessions, and the immediate
     operator surfacing is the existing in-band notice. Best-effort / fail-open (emit_finding swallows every
     fault). `spool_path` defaults to telemetry's inbox spool, resolved at CALL time (not frozen in the
     signature) so a test can redirect it at telemetry.INBOX_SPOOL_PATH. Returns emit_finding's result (falsy
@@ -449,19 +449,19 @@ def _and_list(items: list) -> str:
 
 
 # How many open milestones the card names before it switches to a named sample plus an honest count — a
-# build-spec-leaf cap decided with the maintainer (engine-template #558). It bounds only how many titles fit on
+# build-spec-leaf cap decided with the maintainer (StarshipSuperjam/engine-template#558). It bounds only how many titles fit on
 # one glanceable card line; the full open set is never dropped (derive_milestone stays uncapped, and the count
 # discloses the true total). Independent of attention.FOCUS_CAP — the equal value is coincidental, not a coupling.
 _MILESTONE_NAME_CAP = 5
 
 
 def _milestone_line(value) -> str:
-    """The 'Milestone' card line, rendering the open milestones as they are (engine-template #496, #558): none
+    """The 'Milestone' card line, rendering the open milestones as they are (StarshipSuperjam/engine-template#496, StarshipSuperjam/engine-template#558): none
     open reads as the honest-normal "No milestone is open"; a single open one is named plainly; several are named
     under a plural label, still electing none. When more than a glanceable few are open the line names the first
     `_MILESTONE_NAME_CAP` and moves the true total into the engine's own label — "Milestones (showing 5 of 21
-    open):" — a disclosed sample, never a silent truncation and never an election of a current one (#558). `value`
-    is the list of open titles (the current shape); a bare string (a cursor written by a pre-#496 engine) is read
+    open):" — a disclosed sample, never a silent truncation and never an election of a current one (StarshipSuperjam/engine-template#558). `value`
+    is the list of open titles (the current shape); a bare string (a cursor written by a pre-StarshipSuperjam/engine-template#496 engine) is read
     as that one, and None/empty as none. This cap is a RENDER concern only: `derive_milestone` still returns every
     open title, so the same capping applies honestly to the cached/offline list too (the count is the cached
     total, and the staleness caveat still follows the line).
@@ -508,7 +508,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     separately from the rendered action lines: a blocking finding keeps a never-shed session-start relay
     (routine findings do not), and its identity set keys that relay's anti-habituation collapse.
 
-    The focus is DERIVED here from the in-flight work record (#37): the files the work touches -> their owning
+    The focus is DERIVED here from the in-flight work record (StarshipSuperjam/engine-template#37): the files the work touches -> their owning
     entities -> a focused knowledge read. `gh` is the GitHub reader boot built from the live repo/token;
     attention reads the work record (open PRs + the working branch) through it, and the focus from the local
     git floor (no token needed). `live_findings` is the live debt register's PER-ISSUE rows boot already read
@@ -516,7 +516,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     header reads the SAME read's count (`len(live_findings)`) — one read, so they cannot disagree, and no second
     GitHub call. When it is None (no reader / a failed read) telemetry degrades and the committed count stands
     in, so degraded_inputs carries `telemetry` and boot raises the loud 'couldn't reach' notice."""
-    # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
+    # Boot's RUNG-1 knowledge read (StarshipSuperjam/engine-template#37): a fresh boot slice is read once and threaded into every knowledge
     # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
     # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
     # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot. The caller
@@ -525,7 +525,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     if source is None:
         source = boot_slice.read()
     try:
-        # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (#165).
+        # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (StarshipSuperjam/engine-template#165).
         focus, focus_total = attention.derive_focus(gh=gh, with_total=True, source=source)
     except Exception:  # noqa: BLE001 — focus derivation is best-effort; the rest of the pack stands
         focus, focus_total = [], 0
@@ -582,7 +582,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
             line = _resolve_member(member.get("id", ""), state, finding_titles)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
-    # The focused knowledge read's render channel (#37): a per-(member, relationship) summary that
+    # The focused knowledge read's render channel (StarshipSuperjam/engine-template#37): a per-(member, relationship) summary that
     # PRESERVES the full neighbour counts the ranked partition strips, so render_neighborhood discloses
     # truncation honestly ("core provides 147, showing 4") instead of an arbitrary capped few passed off as
     # the whole. Best-effort — a failure degrades to no block, never breaks the rest of the pack.
@@ -591,7 +591,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     except Exception:  # noqa: BLE001 — the neighbourhood is orientation context; its loss never breaks the pack
         neighborhood = None
     if neighborhood is not None:
-        neighborhood["focus_total"] = focus_total   # the true count behind FOCUS_CAP, for honest disclosure (#165)
+        neighborhood["focus_total"] = focus_total   # the true count behind FOCUS_CAP, for honest disclosure (StarshipSuperjam/engine-template#165)
     return (lines, list(result.get("degraded_inputs") or []), neighborhood,
             _shipped_lines(result, read=(lambda: shipped_rows) if shipped_rows is not None else None),
             blocking_findings)
@@ -659,7 +659,7 @@ def tilde_path(path: str) -> str:
 
 def _mechanic_sprawl_note(sprawl: dict | None) -> str:
     """The AI-facing cleanup note appended to a RESOLVED mechanic's grounding when the build-sprawl detector
-    (engine-template#902) found stray product worktrees or sibling clones. Lists what was found and tells the
+    (StarshipSuperjam/engine-template#902) found stray product worktrees or sibling clones. Lists what was found and tells the
     session to OFFER the operator cleanup — never to delete anything unprompted (a worktree or clone may hold
     unpushed work). "" when nothing stray, so a clean mechanic's grounding is unchanged."""
     if not sprawl or sprawl.get("state") != "build-sprawl":
@@ -744,7 +744,7 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
 def render_neighborhood(nb: dict | None, max_groups: int | None = None) -> list:
     """The AI-facing "knowledge neighborhood of your current work" orientation block, from the per-(member,
     relationship) summary `attention.neighborhood_of` derived — or [] when there is no work in hand. This is
-    orientation CONTEXT for the model (the focused knowledge read, #37), NOT an operator alarm and NOT an
+    orientation CONTEXT for the model (the focused knowledge read, StarshipSuperjam/engine-template#37), NOT an operator alarm and NOT an
     action item; it carries no RELAY_MARKER.
 
     The walk is bidirectional: a connective focus surfaces its reverse tissue — its governing rule, its
@@ -756,7 +756,7 @@ def render_neighborhood(nb: dict | None, max_groups: int | None = None) -> list:
     verbs + slugs, never raw ids or internal type nouns.
 
     When the focus itself was truncated (more files were changed than `FOCUS_CAP` shows), the header discloses
-    the true count too ("touching: a, b, c, d, e (showing 5 of 7 you've changed)", #165) — the same honesty as
+    the true count too ("touching: a, b, c, d, e (showing 5 of 7 you've changed)", StarshipSuperjam/engine-template#165) — the same honesty as
     the per-relationship counts, one level up, so the shown focus is never passed off as the whole change."""
     if not nb or not nb.get("focus"):
         return []
@@ -840,7 +840,7 @@ _BRIEFING_BUDGET_DEFAULTS = {
 # HARD code minimums on the dials. The `.engine/policies/` prefix is NOT guarded and the policy schema permits
 # any number, so a dial edited alone triggers no guardrail-ack — without these floors a one-line edit could
 # silently defeat a guarantee. The load-bearing ones: `margin_floor_chars` (the number that defines "eroded",
-# #899) and — safety-critical — `posture_chars_max`/`posture_lines_max`, which bound the NEVER-SHED
+# StarshipSuperjam/engine-template#899) and — safety-critical — `posture_chars_max`/`posture_lines_max`, which bound the NEVER-SHED
 # EXECUTION-POSTURE block ("run your full, careful ceremony"); flooring them above the real posture size keeps
 # that safety text from being gutted (e.g. `posture_chars_max: 5`) while a genuine runaway is still clipped.
 # The rest gate sheddable orientation content (lower consequence) but carry a modest floor for robustness. The
@@ -1199,7 +1199,7 @@ def _shipped_lines(result: dict, *, read=None) -> list[str]:
     partition.
 
     Which decisions surface, and how many, is now the policy's reviewable `budget_recent_decisions` slice and
-    the partition's own recency ordering — retiring the buried RECENTLY_SHIPPED_COUNT constant (#394).
+    the partition's own recency ordering — retiring the buried RECENTLY_SHIPPED_COUNT constant (StarshipSuperjam/engine-template#394).
     This needs its own render channel for the same reason the knowledge neighbourhood does: `rank()` reduces
     every member to {id, rank}, so the PR titles are stripped. The partition supplies WHICH and IN WHAT ORDER;
     this read supplies their titles. Shipped work is not an operator ACTION item, so it is routed here and
@@ -1245,7 +1245,7 @@ def _shipped_lines(result: dict, *, read=None) -> list[str]:
 # relay never becomes a firehose — routine status carries no marker and is pulled via the status verb.
 RELAY_MARKER = "INFORM THE USER THAT"
 
-# #400 — the engine's live-helper (MCP substrate) availability notice. CONSENT-CRITICAL: when a server is
+# StarshipSuperjam/engine-template#400 — the engine's live-helper (MCP substrate) availability notice. CONSENT-CRITICAL: when a server is
 # not live this session the operator runs on the committed-file fallback and, unable to read code, has no other
 # way to know. Boot CANNOT detect MCP tool routing — it reads committed files only, so RELAY-NOT-DETECT is
 # preserved (boot computes nothing here); the check is one the MODEL runs against its own tool list. It is
@@ -1400,7 +1400,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     # number off the SAME read — `finding_count == len(findings)`, so they cannot disagree — and the SessionStart
     # path makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
-    # Boot's rung-1 knowledge slice (#37), read ONCE here and threaded into needs_attention — the SAME read also
+    # Boot's rung-1 knowledge slice (StarshipSuperjam/engine-template#37), read ONCE here and threaded into needs_attention — the SAME read also
     # carries `from_live`: True when the committed graph.json was absent and orientation ran on a LIVE rebuild
     # (rung 3, "loudly degraded"). That drives the rebuilt-map heads-up, NOT the att_degraded "couldn't reach"
     # notice — the map IS reachable, only the committed file is missing. read() fail-opens to None (never raises
@@ -1467,7 +1467,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
                      "branch": checkout_snapshot.get("current"),
                      "main_branch": checkout_snapshot.get("branch")})
     try:
-        # The absent-update-home signal (#367), RELAYED from checkout_health's own OFFLINE
+        # The absent-update-home signal (StarshipSuperjam/engine-template#367), RELAYED from checkout_health's own OFFLINE
         # detection (boot computes no new state). A repo generated before the home coordinate shipped has an
         # installed engine that cannot fetch its own updates; boot OFFERS recording the home. Low-stakes and
         # the normal state for any repo with a home recorded, so it degrades QUIETLY to None — never a nag.
@@ -1475,7 +1475,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         absent_home = None
     try:
-        # The broken-core.hooksPath signal (#707/#708; part of #690), RELAYED from hooks_path_health's OFFLINE,
+        # The broken-core.hooksPath signal (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708; part of #690), RELAYED from hooks_path_health's OFFLINE,
         # READ-ONLY detection (boot computes no new state): git's `core.hooksPath` is SET to a directory that no
         # longer exists, so a git hook the operator relies on is silently disabled. Fires on the current worktree,
         # so a new worktree self-heals on its own first boot; degrades QUIETLY to None otherwise. boot OFFERS a
@@ -1492,7 +1492,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
         product_repository = None
     try:
-        # The leftover-template-LICENSE signal (#471), RELAYED from license_health's OFFLINE, READ-ONLY detection
+        # The leftover-template-LICENSE signal (StarshipSuperjam/engine-template#471), RELAYED from license_health's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the operator's main checkout still carries the engine's OWN template
         # LICENSE at its committed root (a repo generated before the first-run clear shipped, or drifted back to
         # the seed). No-op in the engine's own template repo; degrades QUIETLY to None otherwise. boot OFFERS a
@@ -1501,7 +1501,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # offline detector's critical path; a network miss (pr_open None) just re-offers normally.
         foreign_license = license_health.detect_foreign_license()
         if foreign_license and foreign_license.get("present"):
-            # #810 boot-signal coherence: the detector reads the STALE committed HEAD, so a checkout that is
+            # StarshipSuperjam/engine-template#810 boot-signal coherence: the detector reads the STALE committed HEAD, so a checkout that is
             # behind a freshly-verified target which already dropped LICENSE would re-offer a removal for an
             # artifact upstream no longer carries. Correlate with the SAME verified snapshot that drives the
             # behind-origin signal (the local `checkout_snapshot` var — `behind_origin` is None'd when current,
@@ -1519,7 +1519,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         foreign_license = None
     try:
-        # The un-finished-first-run signal (#353), RELAYED from first_run_health's OFFLINE, READ-ONLY detection
+        # The un-finished-first-run signal (StarshipSuperjam/engine-template#353), RELAYED from first_run_health's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the operator's main checkout is still an un-set-up copy of the
         # template whose one-time setup hasn't finished, so it silently reports itself "already set up." boot
         # OFFERS to walk /engine-setup; the assistant runs setup on the operator's consent — never a boot-time
@@ -1536,13 +1536,13 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
     try:
-        # The post-landing "setup is now complete" confirmation (#810), RELAYED from first_run_health's OFFLINE,
+        # The post-landing "setup is now complete" confirmation (StarshipSuperjam/engine-template#810), RELAYED from first_run_health's OFFLINE,
         # READ-ONLY detection: first-run APPLIED setup here (a local awaiting-landing marker exists) AND the
         # transformation is now durable (setup tool retired, tree clean, on the default branch) — i.e. the setup
         # changes landed through review. boot surfaces a one-time confirmation and CLEARS the marker in _relay_lines
         # (show-once), so an established repo (no marker) never sees it. Degrades QUIETLY to None on any failure.
         setup_landed = first_run_health.detect_setup_landed()
-        # #810 (spec-conformance + usability): the offline detector only confirms clean + on-default. Require the
+        # StarshipSuperjam/engine-template#810 (spec-conformance + usability): the offline detector only confirms clean + on-default. Require the
         # checkout to be VERIFIED-CURRENT against the freshly-fetched target too — so a local commit straight to
         # `main` that was never landed through review does NOT read as "complete". The verified snapshot lives in
         # boot's signals, not the offline detector, so correlate it here (the gate-on requirement is applied at
@@ -1553,7 +1553,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         setup_landed = None
     try:
-        # The home-workshop signal (#323): the examined main checkout IS the engine's own home (git origin ==
+        # The home-workshop signal (StarshipSuperjam/engine-template#323): the examined main checkout IS the engine's own home (git origin ==
         # recorded home). OFFLINE, READ-ONLY. Strict-positive (fires only on a confirmed origin==home match),
         # the complement of the first-run copy signal above — the two are mutually exclusive. Assemble_pack
         # renders it as an AI-facing grounding line pointing the session at the engine-development runbook;
@@ -1575,7 +1575,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
         mechanic = None
     try:
-        # The build-sprawl negative control (engine-template#902), RELAYED from checkout_health's OFFLINE,
+        # The build-sprawl negative control (StarshipSuperjam/engine-template#902), RELAYED from checkout_health's OFFLINE,
         # READ-ONLY detector: stray product worktrees (outside the sanctioned .engine/mechanic/worktrees/) and
         # sibling clones beside the product — the old-pattern sprawl. None when clean / not a mechanic. Surfaced
         # AI-facing on the mechanic grounding so a session OFFERS the operator cleanup; degrades QUIETLY to None.
@@ -1583,7 +1583,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         mechanic_sprawl = None
     try:
-        # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
+        # The first-engagement nudge (StarshipSuperjam/engine-template#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the project has the engine-design intake installed but no product
         # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
         # is installed (never offers a command that isn't there) and no `docs/spec/` description exists (self-
@@ -1600,7 +1600,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any failure degrades this one signal, never the pack
         audit_stale = None
     try:
-        # The stranded-PR conflict detector (#136), RELAYED from pr_reconcile's own detection (boot computes no
+        # The stranded-PR conflict detector (StarshipSuperjam/engine-template#136), RELAYED from pr_reconcile's own detection (boot computes no
         # new state). A pull request stuck on the engine's two derived index files cannot reach the protected
         # branch (GitHub blocks the merge), so it degrades QUIETLY to None on no-PR / no-GitHub / an unknown
         # (async-uncomputed) merge state — never a false "all clear". boot OFFERS the fix; the assistant runs it
@@ -1639,7 +1639,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         staged_update = None
     try:
-        # The memory-health signal (#396), RELAYED from memory's own LOCAL read (no network; boot computes
+        # The memory-health signal (StarshipSuperjam/engine-template#396), RELAYED from memory's own LOCAL read (no network; boot computes
         # no new state). Reads the live ledger and reports how many lines are unreadable — a rotting store that
         # would otherwise lose recall line by line with no signal. Lazy import (memory off the cold-start path).
         # Degrades QUIETLY to None on any read fault, and to 0 on a clean/torn-only ledger — the normal state.
@@ -1648,7 +1648,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         ledger_malformed = None
     try:
-        # The stalled-migration signal (#396): a memory migration didn't finish and left an orphaned in-flight
+        # The stalled-migration signal (StarshipSuperjam/engine-template#396): a memory migration didn't finish and left an orphaned in-flight
         # marker, so automatic tidying (compaction) is paused until it clears. Read-only relay from memory's own
         # detector; the clear itself is compaction's self-heal. Quietly False on a clean/live state or any fault.
         from memory import ledger_health as _lh
@@ -1656,7 +1656,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_stalled = False
     try:
-        # The memory-availability signal (#397), RELAYED from memory's own LOCAL read: True iff the saved
+        # The memory-availability signal (StarshipSuperjam/engine-template#397), RELAYED from memory's own LOCAL read: True iff the saved
         # ledger is present-but-unreadable, so recall genuinely can't answer (the availability floor — distinct
         # from the malformed-LINES rot below, which the file still opens, and from the slower-search latency
         # signal gathered just below). Read-only; degrades quietly to False on any fault. The dead-MCP-SERVER case is the model's own
@@ -1674,7 +1674,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         fast_search_unavailable = _lh_fast.detect_fast_search_unavailable()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         fast_search_unavailable = False
-    # The set-aside readout (#413), RELAYED from memory's own read: the notes a summary was written over —
+    # The set-aside readout (StarshipSuperjam/engine-template#413), RELAYED from memory's own read: the notes a summary was written over —
     # the one class recall drops that the operator has a handle on. None means "not read"
     # (an unreadable store — surfaced by recall_offline above, never as a false "nothing set aside"); a report
     # means "read". Read-only; boot owns the wording, memory owns the mechanism.
@@ -1743,43 +1743,43 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is present but DAMAGED
         # (a distinct heads-up from the absent case above — same live rebuild, different repair for the operator)
         "map_corrupt": map_corrupt,
-        # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
+        # the knowledge neighborhood of the work in hand (focused read, StarshipSuperjam/engine-template#37) -> the AI pack block, or None
         "neighborhood": neighborhood,
         # The "recently shipped" digest, now the attention policy's budget_recent_decisions slice over the
-        # ranked partition rather than a buried constant's fixed 5 (#394).
+        # ranked partition rather than a buried constant's fixed 5 (StarshipSuperjam/engine-template#394).
         "shipped": shipped,
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
-        # the checkout snapshot (#335; branch-agnostic for #342): any missing upstream commit (calm or firm),
+        # the checkout snapshot (StarshipSuperjam/engine-template#335; branch-agnostic for StarshipSuperjam/engine-template#342): any missing upstream commit (calm or firm),
         # an explicit unavailable state, or None only when freshly current. The firm presentation is the
         # Stage-2 escalation of the off-main signal below.
         "behind_origin": behind_origin,
-        # the off-main Stage-1 signal (#342): the top-level checkout is parked on a non-default branch (offline,
+        # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
-        # the absent-update-home signal (#367): the engine's manifest records no home to fetch updates from, or None
+        # the absent-update-home signal (StarshipSuperjam/engine-template#367): the engine's manifest records no home to fetch updates from, or None
         "absent_home": absent_home,
-        # the broken-core.hooksPath signal (#707/#708): git's core.hooksPath is set to a directory that no longer
+        # the broken-core.hooksPath signal (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708): git's core.hooksPath is set to a directory that no longer
         # exists (a git hook silently disabled), or None (unset / resolves / unresolvable). Rendered at the top of
         # the offer tier below the governance alarms; collapse decided hook-side, never retire-eligible.
         "hooks_path": hooks_path,
         # the PRODUCT signal (eADR-0026): the repo this engine builds when it differs from the deployed-into
         # repo, or None for the common self-building case (the dashboard then shows no product line)
         "product_repository": product_repository,
-        # the leftover-template-LICENSE signal (#471): the main checkout's committed root LICENSE is still the
+        # the leftover-template-LICENSE signal (StarshipSuperjam/engine-template#471): the main checkout's committed root LICENSE is still the
         # engine's own template seed (with a best-effort `pr_open` dedupe flag), or None (healthy / the engine's
         # own template repo / unresolvable). Rendered below the governance alarms; retire/collapse decided hook-side.
         "foreign_license": foreign_license,
-        # the un-finished-first-run signal (#353): the main checkout is still an un-set-up template copy
+        # the un-finished-first-run signal (StarshipSuperjam/engine-template#353): the main checkout is still an un-set-up template copy
         # whose one-time setup hasn't finished (origin != recorded home, setup tool still present), with the
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
         "first_run": first_run,
-        # the post-landing "setup is now complete" confirmation (#810): first-run applied here and the changes
+        # the post-landing "setup is now complete" confirmation (StarshipSuperjam/engine-template#810): first-run applied here and the changes
         # have since landed durably (marker present + clean + on default), or None. Surfaced ONCE, then the marker
         # is cleared in _relay_lines so it never repeats and an established repo never shows it.
         "setup_landed": setup_landed,
-        # the home-workshop signal (#323): this checkout IS the engine's own home (origin == recorded home), or
+        # the home-workshop signal (StarshipSuperjam/engine-template#323): this checkout IS the engine's own home (origin == recorded home), or
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
         "home_workshop": home_workshop,
@@ -1789,30 +1789,30 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # the setup offer — which fires on EITHER broken state, so a mistyped path can never leave the offer
         # silent while the card claims readiness — and the AI grounding overlay.
         "mechanic": mechanic,
-        # the build-sprawl negative control (engine-template#902): stray product worktrees / sibling clones the
+        # the build-sprawl negative control (StarshipSuperjam/engine-template#902): stray product worktrees / sibling clones the
         # worktree-isolated model exists to end, or None (clean / not a mechanic). AI-facing — appended to the
         # mechanic grounding so a session offers cleanup; never an operator-card element.
         "mechanic_sprawl": mechanic_sprawl,
         "greenfield_intake": greenfield,
-        # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
+        # a pull request stuck in a conflicting merge state on the two derived index files (StarshipSuperjam/engine-template#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer: local memory is empty + a backup is configured, or None
         "restore_offer": restore_offer,
-        # the code-older-than-data offer (#303): the store is ahead of the engine after a reverted update, or None
+        # the code-older-than-data offer (StarshipSuperjam/engine-template#303): the store is ahead of the engine after a reverted update, or None
         "migration_revert": migration_revert,
         "staged_update": staged_update,
-        # the memory-health count (#396): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
+        # the memory-health count (StarshipSuperjam/engine-template#396): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
         "ledger_malformed": ledger_malformed,
-        # the stalled-migration signal (#396): True iff a memory migration didn't finish (orphaned marker) and
+        # the stalled-migration signal (StarshipSuperjam/engine-template#396): True iff a memory migration didn't finish (orphaned marker) and
         # tidying is paused until it clears; False on a clean/live state (a live migration is normal, not a stall)
         "migration_stalled": migration_stalled,
-        # the memory-availability signal (#397): True iff the saved ledger is present-but-unreadable so recall
+        # the memory-availability signal (StarshipSuperjam/engine-template#397): True iff the saved ledger is present-but-unreadable so recall
         # can't answer (the "memory offline" floor); False on a healthy, empty, or unreadable-to-detect state
         "recall_offline": recall_offline,
         # the slower-search signal: True iff there is saved memory AND this machine has no full-text search,
         # so every search reads the whole store (recall still answers — the latency axis, not availability)
         "fast_search_unavailable": fast_search_unavailable,
-        # the set-aside readout (#413): what recall has set aside (a note a summary was written
+        # the set-aside readout (StarshipSuperjam/engine-template#413): what recall has set aside (a note a summary was written
         # over — the only class left, now that nothing is set aside by age) with the
         # full count + id set, or None when the store was not read (never a false "nothing set aside")
         "set_aside": set_aside,
@@ -1830,7 +1830,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     }
 
 
-# #416: the degraded inputs a Claude Desktop restart actually reconnects — the MCP/GitHub background
+# StarshipSuperjam/engine-template#416: the degraded inputs a Claude Desktop restart actually reconnects — the MCP/GitHub background
 # reads (the knowledge map service, the GitHub-backed open-problems read). NOT git (a subprocess, not a
 # service), state (a committed file), or the ranker (in-process logic): a restart does not fix those, so the
 # self-serve restart line is scoped to this set ("Degradation is loud and consented" —
@@ -1868,7 +1868,7 @@ def render_dashboard(s: dict) -> str:
     pinned: list[str] = []        # governance-critical alarms, loudest first
     degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
 
-    # The un-finished-first-run OFFER (#353), pinned FIRST — on a brand-new copy of the template it is the
+    # The un-finished-first-run OFFER (StarshipSuperjam/engine-template#353), pinned FIRST — on a brand-new copy of the template it is the
     # root onboarding action, and it FRAMES every other signal (an un-set-up repo hasn't turned its own safety
     # gate on yet, hasn't swapped in its own project floor). READ-ONLY: boot offers, the assistant runs
     # `/engine-setup` on the operator's consent, never a boot-time transform. Provenance-framed (a copied-in
@@ -1887,12 +1887,12 @@ def render_dashboard(s: dict) -> str:
             "until you approve each step. If setup was interrupted partway, running it again just picks up "
             "where it left off.")
 
-    # The post-landing "Setup is now complete" confirmation (#810), shown ONCE after the setup changes land
+    # The post-landing "Setup is now complete" confirmation (StarshipSuperjam/engine-template#810), shown ONCE after the setup changes land
     # durably (a local awaiting-landing marker plus a clean checkout on the default branch). Mutually exclusive
     # with the first_run offer above — that requires the one-time setup tool present, this requires it retired —
     # so the two never both fire. A calm, positive confirmation, not an alarm and not an offer; the marker is
     # cleared hook-side (_relay_lines) so it shows exactly once and an established repo never sees it.
-    # Gated on the safety gate being ON (#810 usability): "complete" must never appear beside a "your gate is off"
+    # Gated on the safety gate being ON (StarshipSuperjam/engine-template#810 usability): "complete" must never appear beside a "your gate is off"
     # alarm — an un-gated repo has NOT finished setup. When the gate is off the confirmation is held back (and the
     # marker is NOT cleared, in _relay_lines), so it fires on a later start once the gate is on.
     # "unsupported" (this plan can't host protection, accepted by the operator) is ALSO a completed-setup state:
@@ -1967,7 +1967,7 @@ def render_dashboard(s: dict) -> str:
         # `bootstrap.py finalize` (bootstrap.ControlPlane.finalize) on the operator's consent — the shared
         # repair-offer contract (boot-session-start.md), which resolves the same authoritative default branch
         # this line names. finalize, NOT the raw apply, is the deployed remediation: it is apply plus a
-        # workflows-present guard, so on a freshly-arrived repo whose engine checks aren't yet bound (the #673
+        # workflows-present guard, so on a freshly-arrived repo whose engine checks aren't yet bound (the StarshipSuperjam/engine-template#673
         # checkless window) it binds them safely — and refuses rather than deadlock if the workflows aren't on
         # the branch yet. boot never imports bootstrap (bootstrap imports boot -> a cycle) and never applies the
         # fix itself: read-only of canonical state.
@@ -2009,7 +2009,7 @@ def render_dashboard(s: dict) -> str:
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
 
-    # The widened "fifth" folder-health surfacing (#342): off-main Stage-1 + behind-the-main-line drift,
+    # The widened "fifth" folder-health surfacing (StarshipSuperjam/engine-template#342): off-main Stage-1 + behind-the-main-line drift,
     # pinned read-only at the strand tier (below the governance alarms — an off-main/behind checkout cannot reach
     # protected `main`). COUNT-FREE ("never a count"), NO git verbs, ONE consent handle
     # ("bring it up to date") across both stages. boot OFFERS only; the assistant runs the correction on consent
@@ -2024,7 +2024,7 @@ def render_dashboard(s: dict) -> str:
     behind_unavailable = bool(behind and behind.get("state") == "unavailable")
     when = (f"most recently on {behind.get('latest')}" if behind_live and behind.get("latest") else "recently")
     if behind_warning and behind.get("on_default"):
-        # Stage-2 on the DEFAULT branch (#335): behind your own merged main line — the original consequence copy.
+        # Stage-2 on the DEFAULT branch (StarshipSuperjam/engine-template#335): behind your own merged main line — the original consequence copy.
         if behind.get("collapsed"):
             pinned.append("📦 **Newer shared work is still waiting for this project folder** _(unchanged since "
                           "last session)_ — say **bring it up to date** when you're ready.")
@@ -2115,7 +2115,7 @@ def render_dashboard(s: dict) -> str:
             "📦 **I couldn't check whether your project folder has the newest shared work** — the shared-project "
             f"setup wasn't freshly verifiable, so I won't call this folder up to date and I changed nothing. {remedy}")
 
-    # The absent-update-home OFFER (#367), surfaced read-only at the strand/offer tier — the engine's
+    # The absent-update-home OFFER (StarshipSuperjam/engine-template#367), surfaced read-only at the strand/offer tier — the engine's
     # manifest records no home to fetch updates from (a repo generated before that coordinate shipped), so the
     # update path can't run and refuses rather than guess. NOT a governance alarm (it cannot let anything reach
     # protected `main`), so it pins below them. boot OFFERS recording the home; the assistant records it on the
@@ -2130,7 +2130,7 @@ def render_dashboard(s: dict) -> str:
             "engine, so you may "
             "be seeing this for a long-standing setup for the first time, not something that just broke.)")
 
-    # The broken-core.hooksPath OFFER (#707/#708; part of #690), surfaced read-only at the TOP of the offer tier
+    # The broken-core.hooksPath OFFER (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708; part of #690), surfaced read-only at the TOP of the offer tier
     # (above the tidy-ups — a silently disabled safety hook outranks a leftover license), but still BELOW the
     # governance alarms: a stale hooksPath cannot let anything reach protected `main` (git just runs no hook), so
     # it is NOT a governance alarm (eADR-0033: a new operator alarm arrives ranked behind the governance-critical
@@ -2174,7 +2174,7 @@ def render_dashboard(s: dict) -> str:
                 "your project's files, so say **fix my hook path** and I'll clear it (it goes back to git's normal "
                 "default).")
 
-    # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
+    # A pull request stranded on the two derived index files (StarshipSuperjam/engine-template#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
     # alarm). boot OFFERS the one-step fix; the assistant runs pr_reconcile.reconcile only on the operator's
     # consent (the strand model; boot-session-start.md). Leads with "no work is lost" so it reconciles with
@@ -2195,7 +2195,7 @@ def render_dashboard(s: dict) -> str:
             "↩️ **Your saved memory looks empty, and this project has a backup.** Say **restore my memory** and "
             "I'll try to bring it back from the backup. Nothing on this computer changes until you say so.")
 
-    # The code-older-than-data restore OFFER (#303), surfaced read-only at the recovery tier. Memory's
+    # The code-older-than-data restore OFFER (StarshipSuperjam/engine-template#303), surfaced read-only at the recovery tier. Memory's
     # offline detector found the saved memory was reshaped by an engine update that is no longer in place, so the store
     # is ahead of the code. Exactly ONE action, by plain handle ("the copy saved before that update"), never
     # a tag/ref — the snapshot-vs-latest choice is the engine's. Worded to cover BOTH an operator-undone update and a
@@ -2224,7 +2224,7 @@ def render_dashboard(s: dict) -> str:
             "show you the choice: finish the update, or undo it and put your engine back the way it was — if you "
             "undo, I save a recovery point of your current state first, so nothing is lost.")
 
-    # The leftover-template-LICENSE OFFER (#471), surfaced read-only at the strand/offer tier — the LOWEST-urgency
+    # The leftover-template-LICENSE OFFER (StarshipSuperjam/engine-template#471), surfaced read-only at the strand/offer tier — the LOWEST-urgency
     # offer, BELOW the governance alarms (a foreign copyright is a bounded, operator-correctable residual, never
     # guardrail-critical). Provenance-framed (a file copied in from the template, not a defect in their project);
     # LEADS with the private-by-default reassurance, kept accurate for a PUBLIC repo ("until you choose to share
@@ -2258,7 +2258,7 @@ def render_dashboard(s: dict) -> str:
                 "the one you pick, or point you to a person to talk to if the legal terms really matter to you. If "
                 "it's one you meant to keep, just say so and I'll stop bringing it up.")
 
-    # The first-engagement nudge (#553), below governance: the project has the engine-design intake but no
+    # The first-engagement nudge (StarshipSuperjam/engine-template#553), below governance: the project has the engine-design intake but no
     # description yet, so OFFER it so a non-engineer discovers it. A RETIRED offer (the operator said "I'm not
     # describing a spec") renders NOTHING — the retire/collapse decision is HOOK-SIDE (_relay_lines), so the pure
     # status-verb path (no ledger) shows the full offer (fail-toward-showing). boot OFFERS only; the operator
@@ -2299,7 +2299,7 @@ def render_dashboard(s: dict) -> str:
         # self-explanatory lines, from ONE source — live-or-cached, never both. When the live GitHub derive
         # succeeded, render it (always current); otherwise fall back to the committed offline cache, named with
         # WHEN it was cached and that it may be stale (the debt-count staleness voice). The engine names the
-        # open milestones as they are and elects none (#496): none open is the honest normal "No milestone is
+        # open milestones as they are and elects none (StarshipSuperjam/engine-template#496): none open is the honest normal "No milestone is
         # open" on its own line, one is named, several are all named — never an error.
         live = s["live_standing"]
         source = live if live is not None else ((s["state"] or {}).get("standing_situation") or {})
@@ -2447,7 +2447,7 @@ def render_dashboard(s: dict) -> str:
             "and commit the result to replace the damaged file.")
 
     if s.get("recall_offline"):
-        # #397: the spec's "running degraded (memory offline)" notice — the saved-memory store is present but
+        # StarshipSuperjam/engine-template#397: the spec's "running degraded (memory offline)" notice — the saved-memory store is present but
         # couldn't be OPENED at all, so recall can't work this session. Distinct from and mutually exclusive with
         # the "N unreadable lines" rot below (there the file DID open and was read past line-by-line; an unopenable
         # file yields no line count — detect_ledger_malformed returns None). Boot RELAYS memory's own read result
@@ -2482,7 +2482,7 @@ def render_dashboard(s: dict) -> str:
 
     malformed = s.get("ledger_malformed")
     if malformed:
-        # #396: one or more unreadable lines in the saved-memory ledger — a genuine rot signal. Fires ONLY
+        # StarshipSuperjam/engine-template#396: one or more unreadable lines in the saved-memory ledger — a genuine rot signal. Fires ONLY
         # on a positive count (a torn trailing line is the normal, self-healing post-crash state and is NOT
         # surfaced). Peer voice with reassurance + a remedy: a non-engineer can't hand-fix a gitignored store, so
         # name that the rest of recall is intact and point at the backup, not a raw alarm. .get() so a
@@ -2494,7 +2494,7 @@ def render_dashboard(s: dict) -> str:
             "memory from your backup.")
 
     if s.get("migration_stalled"):
-        # #396: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
+        # StarshipSuperjam/engine-template#396: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
         # for the orphaned case, which does NOT block anything — so it says "didn't finish", not "paused" (the
         # marker no longer holds tidying off; the next tidy clears it). LEAD with the reassurance (the failure
         # direction here is "nothing lost" — content is untouched), mirroring the memory-health
@@ -2506,7 +2506,7 @@ def render_dashboard(s: dict) -> str:
             "readable. I clean up the leftover automatically the next time I tidy your memory; if you keep "
             "seeing this across sessions, tell me and I'll clear it right away.")
 
-    # #416: name the single self-serve fix the spec's loud notice owes ("usually a Claude Desktop
+    # StarshipSuperjam/engine-template#416: name the single self-serve fix the spec's loud notice owes ("usually a Claude Desktop
     # restart away from full capability"). SCOPED — fires
     # only when a restart-fixable substrate outage is present (a dropped MCP/GitHub connection, or the
     # gate-unknown no-GitHub-access case), never for the regenerate-a-file or self-healing lines above (a
@@ -2543,7 +2543,7 @@ def render_dashboard(s: dict) -> str:
     # merges or whether it simply is not showing them, and this render must not guess between the two.
     out.extend(f"- {line}" for line in s["shipped"])
 
-    # The set-aside readout (#413): what memory has set aside from recall, with a handle per note.
+    # The set-aside readout (StarshipSuperjam/engine-template#413): what memory has set aside from recall, with a handle per note.
     # render_set_aside returns [] when there is nothing set aside or the store was not read — no block then.
     set_aside_block = render_set_aside(s.get("set_aside"))
     if set_aside_block:
@@ -2591,7 +2591,7 @@ def present_marker_line(s: dict) -> str:
     behind_warning = bool(behind_live and behind.get("presentation", "warning") == "warning")
     behind_notice = bool(behind_live and behind.get("presentation") == "notice")
     if behind_warning and behind.get("on_default"):
-        # Stage-2 on the DEFAULT branch (#335): the folder IS on its main line, only behind — the headline must
+        # Stage-2 on the DEFAULT branch (StarshipSuperjam/engine-template#335): the folder IS on its main line, only behind — the headline must
         # not say it's "off" the main line (that would contradict the dashboard's "fallen behind" line).
         return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind your recent work — say 'bring it "
                 "up to date' and I'll bring it current")
@@ -2831,13 +2831,13 @@ def _relay_lines(s: dict) -> list:
     behind_value = _behind_value(s)
     if behind_value is not None:
         eligible.append({"key": "checkout_drift", "value": behind_value})
-    # The set-aside readout rides this SAME decide() call (#413), exactly like off_main: it is not a
+    # The set-aside readout rides this SAME decide() call (StarshipSuperjam/engine-template#413), exactly like off_main: it is not a
     # pushed governance alarm (it has no relay line here — it renders only in the dashboard), but its collapse
     # must use the same ledger pass. A second decide() would clobber the keys this one writes.
     set_aside_value = _set_aside_value(s)
     if set_aside_value is not None:
         eligible.append({"key": "set_aside", "value": set_aside_value})
-    # The leftover-license offer rides this SAME single decide() call (#471), like off_main/set_aside — it is not a
+    # The leftover-license offer rides this SAME single decide() call (StarshipSuperjam/engine-template#471), like off_main/set_aside — it is not a
     # pushed governance alarm (it renders only in the dashboard, below governance). But FIRST the hook-side RETIRE
     # honor: if this finding-class is retire-eligible AND a retired marker for its fingerprint is
     # recorded, the offer is SUPPRESSED entirely (stamped `retired` -> the renderer shows nothing) and does NOT
@@ -2852,7 +2852,7 @@ def _relay_lines(s: dict) -> list:
             s["foreign_license"] = {**fl, "retired": True}
         else:
             eligible.append({"key": "foreign_license", "value": fl_fp})
-    # The first-engagement nudge (#553) rides this SAME decide() call, exactly like the leftover-license offer:
+    # The first-engagement nudge (StarshipSuperjam/engine-template#553) rides this SAME decide() call, exactly like the leftover-license offer:
     # it renders only in the dashboard (no relay line, below governance), and FIRST the hook-side RETIRE honor —
     # if the operator has said "I'm not describing a spec" (a retired marker for its fingerprint), the offer is
     # SUPPRESSED (stamped `retired`) and never joins the ledger pass. Retire-eligibility is the ledger's code
@@ -2864,7 +2864,7 @@ def _relay_lines(s: dict) -> list:
             s["greenfield_intake"] = {**gf, "retired": True}
         else:
             eligible.append({"key": "greenfield_intake", "value": gf_fp})
-    # The post-landing "Setup is now complete" confirmation (#810) is SHOW-ONCE: it renders in the dashboard
+    # The post-landing "Setup is now complete" confirmation (StarshipSuperjam/engine-template#810) is SHOW-ONCE: it renders in the dashboard
     # (below), but the marker CLEAR is a hook-side side effect here (like the ledger stamps in this pass), so the
     # next start sees no marker and never repeats it, and an established repo never shows it. It is a one-time
     # positive confirmation — not a pushed alarm and not ledger-collapsed — so it joins no eligible set.
@@ -2876,7 +2876,7 @@ def _relay_lines(s: dict) -> list:
         # this same condition (render_dashboard), so an accepted plan-limitation deployment finishes onboarding
         # once and never loops the "setup landed, awaiting the gate" state.
         first_run_health.clear_first_run_marker(sl["main"])
-    # The broken-hooksPath offer rides this SAME single decide() call (#707/#708), like off_main/foreign_license —
+    # The broken-hooksPath offer rides this SAME single decide() call (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708), like off_main/foreign_license —
     # it is NOT a pushed governance alarm (it renders only in the dashboard, at the top of the offer tier). It is
     # deliberately NOT retire-eligible (a silently disabled safety hook must never be silenceable), so there is NO
     # retire honor here — it always joins the ledger pass and, when unchanged, collapses to a terse reminder that
@@ -2988,7 +2988,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     push = _relay_lines(s) if use_ledger else must_push(s)
     # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
     # (use_ledger — never the `pack` debug view or the read-only status verb, both use_ledger=False), a
-    # refused cursor spools ONE benign finding the #412 drain later promotes. A local gitignored append only,
+    # refused cursor spools ONE benign finding the StarshipSuperjam/engine-template#412 drain later promotes. A local gitignored append only,
     # so boot's read-only-against-GitHub posture holds; best-effort (emit_finding swallows every fault), so it
     # never perturbs the pack. Consistent with the one other use_ledger-gated side effect (the alarm ledger).
     if use_ledger and s["refused"]:
@@ -3038,7 +3038,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     out.append(modes.describe_explore_scope())
     out.append("")
 
-    # The home-workshop grounding (#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
+    # The home-workshop grounding (StarshipSuperjam/engine-template#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
     # own home repo (origin == recorded home); a deployed project never sees it. It carries the operative
     # development discipline inline — not merely a pointer — so a home session grounds on it even before opening
     # the runbook, and it names the engine-development runbook for the full record. Self-labelled AI-facing so it

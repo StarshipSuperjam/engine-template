@@ -88,7 +88,7 @@ go-ahead** and never runs a repair un-asked. Every repair is **lossless-or-it-do
 anything at risk first, or refuses/blocks rather than guess, and the assistant relays the plain-language result
 and never forces. What differs is *what* each protects and *how* it declines:
 
-- **A fresh copy still needing setup — walk `/engine-setup` (`instantiator`, #353).** The operator's main
+- **A fresh copy still needing setup — walk `/engine-setup` (`instantiator`, StarshipSuperjam/engine-template#353).** The operator's main
   checkout is a copy of the template whose one-time setup hasn't finished — its origin
   differs from the recorded update home and the one-time setup tool is still present — so it would otherwise
   silently report itself "already set up." Provisioning's `first_run_health` detects it OFFLINE and boot pins
@@ -119,7 +119,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
   If it cannot safely tell where to re-attach the folder, it refuses rather than guess.
-- **A folder with newer shared work — catch-up (`checkout_health.catch_up`, #335).** One fresh remote snapshot
+- **A folder with newer shared work — catch-up (`checkout_health.catch_up`, StarshipSuperjam/engine-template#335).** One fresh remote snapshot
   reports any upstream commit the default branch lacks, including direct or squash/rebase-shaped work. Ordinary
   drift gets a calm, count-free notice; missing merges beyond the project-relative velocity bar get the existing
   firm warning. If refresh, remote identity, or the remote default cannot be confirmed, boot says the check is
@@ -130,7 +130,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   After the operator says "bring it up to date," the assistant runs the machine-readable `snapshot` command,
   takes its exact `target_oid`, and supplies that value to `catchup --apply --target <OID>` (or the return arm
   below). Apply refuses without that consent-time target and also refuses if a newly refreshed target differs.
-- **A folder parked off its main line — return (`checkout_health.return_to_default`, #342).** The behind
+- **A folder parked off its main line — return (`checkout_health.return_to_default`, StarshipSuperjam/engine-template#342).** The behind
   signal is two-stage: **Stage 1 (off-main)** surfaces gently — caught offline, every session, on day one — that
   the folder points at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer
   once its missing work crosses the firm velocity bar; below it, the ordinary drift notice remains calm. One
@@ -142,7 +142,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   because the consent target changed, local/shared main lines diverged, or work is unsaved/paused. Spotting an
   off-main park is a newer check — a folder healthy before it existed isn't freshly broken, and the assistant
   says so the first time it surfaces.
-- **A broken git hook path — clear it (`hooks_path_health.repair`, #707/#708).** Git's `core.hooksPath` is set to
+- **A broken git hook path — clear it (`hooks_path_health.repair`, StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708).** Git's `core.hooksPath` is set to
   a directory that no longer exists (often left behind after a project folder was moved), so a git hook the
   operator relies on — the deployed `pre-push` guardrail is the motivating case — is silently disabled;
   `hooks_path_health` detects it OFFLINE and content-free (a directory-existence check that reads no hook
@@ -159,13 +159,13 @@ and never forces. What differs is *what* each protects and *how* it declines:
   rewrite of a value another copy of their project may rely on. If a repair clears what it safely can but a
   residual `needs-manual` value remains, it reports that honestly (never a false "fixed"). The alarm is
   un-silenceable (never retire-eligible); an unchanged one collapses to a terse reminder that still carries the handle.
-- **A stranded pull request — reconcile (`pr_reconcile.reconcile`, #136).** A pull request that can't be merged:
+- **A stranded pull request — reconcile (`pr_reconcile.reconcile`, StarshipSuperjam/engine-template#136).** A pull request that can't be merged:
   the reconcile acts only when the clash is confined to the engine's two internal index files — the knowledge
   graph and the self-map, the one clash that is *spurious* (both sides regenerate from one source tree) —
   reconciling against the latest default branch, regenerating those two files, and keeping both pieces of work. If
   anything else clashed it changes nothing, restores the branch exactly, and routes the operator to a
   plain-language decision. It never claims the merge is now guaranteed — a later change can still land first.
-- **A half-finished engine update — finish it or undo it (`/engine-upgrade` → `module_manager.rollback`, #594).**
+- **A half-finished engine update — finish it or undo it (`/engine-upgrade` → `module_manager.rollback`, StarshipSuperjam/engine-template#594).**
   An update was started but not completed, so the tree sits part-way between versions — detected offline by
   `module_manager._staged_upgrade_dirty` (overlay-code differs from the last commit — a non-engineer's ordinary
   edits don't touch engine code, and no coherence pass is needed). Nothing was merged, so it's safe — a
@@ -176,18 +176,18 @@ and never forces. What differs is *what* each protects and *how* it declines:
   doesn't touch, resets the update's own files and the shared setup files it changes (keeping the operator's
   version of those on the recovery point, disclosed in the result), and puts back any saved memory the update
   changed (keeping the guard that an older copy never overwrites newer memory).
-- **A safety gate that's off — re-enable branch protection (`bootstrap.py finalize`, #392/#673).** On the
+- **A safety gate that's off — re-enable branch protection (`bootstrap.py finalize`, StarshipSuperjam/engine-template#392/StarshipSuperjam/engine-template#673).** On the
   operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.finalize` (the
   `bootstrap.py finalize` verb) instead of a manual settings walk-through: it re-enables the protection floor on
   the default branch — idempotent and additive, repairing or augmenting the ruleset in place, preserving any
   protection already there, and reporting "already protected" with no change when it is already in force.
   **finalize, NOT the raw `apply`, is the deployed remediation:** it is `apply` plus a check that the engine's
-  own workflows are on the branch, so on a freshly-arrived repo whose engine checks aren't bound yet (the #673
+  own workflows are on the branch, so on a freshly-arrived repo whose engine checks aren't bound yet (the StarshipSuperjam/engine-template#673
   checkless window) it binds them safely — and refuses, rather than deadlock, if those workflows are not on the
   branch yet (usually a sign the arrival pull request has not merged). It runs the operator's OWN `gh` behind a
   one-time GitHub administration approval (never a typed command); if the token can't carry that admin it
   discloses why and changes nothing.
-- **A leftover template license — clear it (a reviewed pull request) or keep it (`boot_alarm_ledger.retire`, #471).**
+- **A leftover template license — clear it (a reviewed pull request) or keep it (`boot_alarm_ledger.retire`, StarshipSuperjam/engine-template#471).**
   The operator's checkout still carries the engine's own template `LICENSE` at its committed root (a repo generated
   before the first-run clear shipped, or drifted back to it); provisioning's `license_health` detects it and boot
   offers. Unlike the repairs above the fix is **not** a write to the checkout: on the operator's "yes, clear it" the
@@ -198,7 +198,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   seeds no replacement (the license is the adopter's choice). On the operator's "I meant to keep this" the assistant
   runs `boot_alarm_ledger.retire` (`python tools/boot_alarm_ledger.py retire`, an Explore-permitted tool call) so the
   offer stops surfacing from this checkout; a plain decline instead collapses it to a terse reminder, never fully silent.
-- **No description yet — offer the intake, or dismiss it (`boot_alarm_ledger.retire`, #553).** When the project has
+- **No description yet — offer the intake, or dismiss it (`boot_alarm_ledger.retire`, StarshipSuperjam/engine-template#553).** When the project has
   the `engine-design` intake installed but no product description under `docs/spec/` yet, `greenfield_intake` detects
   the greenfield state and boot **offers** the intake at first engagement so a non-engineer discovers it — a pure
   offer, never an action (the operator starts the intake themselves). It fires only when the intake is actually

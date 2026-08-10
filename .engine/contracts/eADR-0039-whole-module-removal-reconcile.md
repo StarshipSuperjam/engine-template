@@ -52,7 +52,7 @@ Before this, a release that dropped a whole module refused every holder's update
 "the release does not contain the installed module 'X'" message and no path forward — the *largest* capability
 loss got the *rawest* treatment and blocked the operator, who could not self-diagnose that the dropped module was
 the cause. This makes a whole-module removal a first-class, clean, disclosed upgrade outcome, closing that gap
-(#688) and completing the removal-notice family whose within-module half shipped earlier. Any later reader
+(StarshipSuperjam/engine-template#688) and completing the removal-notice family whose within-module half shipped earlier. Any later reader
 touching the update must keep the single `dropped_ids` set driving both the reconcile and the disclosure, and keep
 the removal record in `engine.json` rather than inventing a second store.
 

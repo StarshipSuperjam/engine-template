@@ -2,7 +2,7 @@
 """engine/check/catalog-completeness — every engine MODULE whose manifest `status` is `default-on` or
 `optional` must have a matching entry in the optional-module catalog (.engine/provisioning/module-catalog.json).
 
-Why it is load-bearing (#759). An engine UPDATE decides whether to auto-install a `default-on` module the
+Why it is load-bearing (StarshipSuperjam/engine-template#759). An engine UPDATE decides whether to auto-install a `default-on` module the
 deployment lacks by asking whether that module was ever KNOWN here — and once a module is declined at first-run
 its files and manifest are DELETED, so the catalog is the only durable record it ever existed. If a `default-on`
 module shipped WITHOUT a catalog entry and an operator declined it, a later update would misread it as brand-new

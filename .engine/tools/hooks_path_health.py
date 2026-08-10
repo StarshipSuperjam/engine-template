@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""hooks_path_health — the standing broken-`core.hooksPath` detector + repair (issues #707, #708; part of #690).
+"""hooks_path_health — the standing broken-`core.hooksPath` detector + repair (issues StarshipSuperjam/engine-template#707, StarshipSuperjam/engine-template#708; part of #690).
 
 Catches when git's `core.hooksPath` is SET to a directory that NO LONGER EXISTS, so a git hook the operator
 relies on (the engine-mechanic `pre-push` ADR-containment guardrail is the motivating case) is silently
 disabled — git runs no hooks and says nothing. A folder move that leaves `hooksPath` pointing at the old,
-now-gone location is exactly how #690 happened: `git worktree repair` fixes worktree PATHS but never touches
+now-gone location is exactly how StarshipSuperjam/engine-template#690 happened: `git worktree repair` fixes worktree PATHS but never touches
 `hooksPath`, and the value lives only in LOCAL git config (never a tracked file), so no commit can fix it. The
 detect / surface / consent split mirrors the sibling health detectors (`license_health`, `checkout_health`):
 provisioning/boot detects, boot surfaces the plain-language line, the operator consents to the repair.
@@ -13,7 +13,7 @@ OFFLINE + READ-ONLY at the core. `detect_broken_hooks_path()` reads `core.hooksP
 worktree (`git -C <top> ...`) at each git config scope it can reason about, resolves the value the way git
 itself does, and fires ONLY when a set value resolves to a directory that does not exist. The verdict depends
 solely on git-config values and directory existence (`os.path.isdir`) — it reads NO hook file contents, no
-network, no clock — so it is DETERMINISTIC and CONTENT-FREE (#708). It emits NO operator prose (the leaf law
+network, no clock — so it is DETERMINISTIC and CONTENT-FREE (StarshipSuperjam/engine-template#708). It emits NO operator prose (the leaf law
 keeps git verbs off the operator surface); boot renders the plain-language offer.
 
 RESOLUTION (faithful to how git locates a client-side hook):
@@ -36,7 +36,7 @@ REPAIR — conservative-complete (operator-confirmed), removal-only, lossless-or
   - NEVER sweep peer worktrees' own overrides (that is cross-session interference — each peer self-heals on its
     OWN next boot); NEVER auto-touch a RELATIVE shared value (it could resolve to a real dir in a peer worktree)
     or a `global`/`system` value the removal-only repair cannot address — those route to `needs-manual`, which
-    boot surfaces with a safe operator-guided path, never a dead-end (#708 "safe repair path, no silent bypass").
+    boot surfaces with a safe operator-guided path, never a dead-end (StarshipSuperjam/engine-template#708 "safe repair path, no silent bypass").
   - The `isdir` guard is RE-CHECKED per scope immediately before each `--unset` (not cached from detection), so
     a directory that reappears in the window is never unset — the one path by which this repair could disable a
     WORKING hook is closed. Unsetting reverts git to its built-in default (`.git/hooks`, always present), so the
@@ -258,7 +258,7 @@ def repair(cwd: str | None = None, apply: bool = False) -> dict:
     return {"status": status, "applied": True, "did": did, "skipped": skipped, "top": top}
 
 
-# ---- in-tool demo: a self-checking falsification (issues #707, #708) --------------------------
+# ---- in-tool demo: a self-checking falsification (issues StarshipSuperjam/engine-template#707, StarshipSuperjam/engine-template#708) --------------------------
 
 def _git(root: str, *args: str) -> None:
     subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
