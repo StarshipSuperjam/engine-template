@@ -957,6 +957,243 @@ class TestEngineReleaseNormalization(unittest.TestCase):
         self.assertEqual((engine or {}).get("engine_release"), "0.2.0")
 
 
+class TestEngineManifestWriteBoundary(unittest.TestCase):
+    """#923: every lifecycle writer of the deployed .engine/engine.json funnels through the guarded
+    `_write_engine_manifest`, so a symlinked (or tree-escaping) manifest is never written THROUGH — the
+    upgrade pre-flights it before any overlay, the tail backstops it, add rolls back and refuses
+    honestly, remove discloses its half-state, and the failed-install cleanup authors its residue."""
+
+    @staticmethod
+    def _symlink_manifest_out(live: str, d: str) -> str:
+        """Replace the fixture's engine.json with a symlink to an out-of-tree copy of the SAME content
+        (reads through the link keep working; only a write-through must refuse). Returns the outside path."""
+        real = os.path.join(live, ".engine", "engine.json")
+        outside = os.path.join(d, "outside-engine.json")
+        with open(real, encoding="utf-8") as fh:
+            content = fh.read()
+        with open(outside, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.remove(real)
+        os.symlink(outside, real)
+        return outside
+
+    def test_bump_refuses_to_write_the_manifest_through_a_symlink(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                outside = self._symlink_manifest_out(live, d)
+                with open(outside, encoding="utf-8") as fh:
+                    before = fh.read()
+                with self.assertRaises(module_manager.engine_write.EngineWriteRefused):
+                    module_manager._bump_engine_manifest({"base": "0.2.0"}, "v0.2.0")
+                with open(outside, encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), before,
+                                     "nothing was written through the symlink, out of the tree")
+
+    def test_upgrade_preflights_a_symlinked_manifest_before_any_overlay(self):
+        # the warn-early half of the pairing: the WHOLE upgrade refuses before any overlay, seams, or
+        # migrations — the operator never pays for an applied half-state on a statically-knowable condition
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                outside = self._symlink_manifest_out(live, d)
+                with open(outside, encoding="utf-8") as fh:
+                    before = fh.read()
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 7},
+                                             backup=lambda *a, **k: {"ok": 1})
+                self.assertTrue(res["refused"])
+                self.assertIn("can't be safely written", res["reason"])
+                self.assertIn("The engine is unchanged", res["reason"])
+                # nothing was applied: the live base module still carries the OLD version (no overlay ran)
+                base_man = validate.load_json(
+                    os.path.join(live, ".engine", "modules", "base", "manifest.json"))
+                self.assertEqual(base_man.get("version"), "0.0.0", "the overlay must not have run")
+                with open(outside, encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), before, "the out-of-tree file is untouched")
+
+    def test_upgrade_tail_backstops_a_refused_bump_as_a_staged_refusal(self):
+        # the guarantee half: a shortcut the pre-flight could not see (planted mid-flight, or a tail
+        # entered directly by the child re-exec) still never writes through — the tail converts the
+        # refusal into its staged-refusal reason instead of the generic "run it again" loop
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                saved = module_manager._bump_engine_manifest
+                module_manager._bump_engine_manifest = lambda *a, **k: (_ for _ in ()).throw(
+                    module_manager.engine_write.EngineWriteRefused("planted mid-flight"))
+                try:
+                    res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                                 opener=lambda **k: {"number": 7},
+                                                 backup=lambda *a, **k: {"ok": 1})
+                finally:
+                    module_manager._bump_engine_manifest = saved
+                self.assertIn("could not be safely written", res.get("reason") or "")
+                self.assertIn("NOT opened for review", res.get("reason") or "")
+                self.assertIsNone(res.get("pr"), "no pull request opens on a refused bump")
+
+    def test_add_rolls_back_and_refuses_honestly_through_a_symlinked_manifest(self):
+        # the manifest write refuses AFTER files were copied — add must undo the partial install and
+        # say what was rolled back, never "nothing was changed"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            os.makedirs(os.path.join(release, ".engine", "modules", "feat"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "feat", "manifest.json"),
+                {"id": "feat", "version": "0.1.0", "status": "optional",
+                 "provides": {"tool": [".engine/tools/feat_tool.py"]}, "depends": {"base": ""}})
+            os.makedirs(os.path.join(release, ".engine", "tools"), exist_ok=True)
+            with open(os.path.join(release, ".engine", "tools", "feat_tool.py"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("# the module's tool\n")
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)
+                outside = self._symlink_manifest_out(live, d)
+                with open(outside, encoding="utf-8") as fh:
+                    before = fh.read()
+                res = module_manager.add("feat", release_tree=release)
+                self.assertTrue(res["refused"])
+                self.assertFalse(res["applied"])
+                self.assertIn("Refused to record 'feat'", res["reason"])
+                self.assertIn("rolled back", res["reason"], "the refusal names the rollback honestly")
+                self.assertFalse(os.path.isdir(os.path.join(live, ".engine", "modules", "feat")),
+                                 "the partial install was cleaned up")
+                self.assertFalse(os.path.exists(os.path.join(live, ".engine", "tools", "feat_tool.py")),
+                                 "the copied provide was cleaned up")
+                with open(outside, encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), before, "the out-of-tree file is untouched")
+
+    def test_remove_discloses_the_half_state_through_a_symlinked_manifest(self):
+        # remove deletes files BEFORE the manifest write, so a refusal there is a DISCLOSED half-state
+        # (applied, with the stale entry named and a phase-aware hand-edit remedy) — never a "nothing
+        # was changed" refusal after files are already gone
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)
+                outside = self._symlink_manifest_out(d, d)
+                with open(outside, encoding="utf-8") as fh:
+                    before = fh.read()
+                res = module_manager.remove("optx")
+                self.assertFalse(res["refused"])
+                self.assertTrue(res["applied"])
+                self.assertIn(".engine/modules/optx/", res["deleted"], "the files really were removed")
+                self.assertTrue(any("engine.json" in n and "by hand" in n for n in res["notes"]),
+                                "one authored note discloses the stale entry with the hand-edit remedy")
+                self.assertTrue(any("won't be caught automatically" in n for n in res["notes"]),
+                                "the note must not promise a safety net that does not exist")
+                self.assertFalse(any("engine.json" in line for line in res["left_in_place"]),
+                                 'a refused write is not a deliberate keep — never under "on purpose"')
+                with open(outside, encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), before, "the out-of-tree file is untouched")
+
+    def test_cleanup_failed_install_authors_its_residue_through_a_symlinked_manifest(self):
+        # "Never raises" holds, and the un-prunable package entry is an AUTHORED residue line rather
+        # than a silent skip left for the structural gate to notice
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            os.makedirs(os.path.join(release, ".engine", "modules", "feat"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "feat", "manifest.json"),
+                {"id": "feat", "version": "0.1.0", "status": "optional",
+                 "provides": {}, "depends": {}})
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)
+                engine = module_manager.module_coherence.load_engine_manifest()
+                engine.setdefault("packages", {})["feat"] = "0.1.0"   # the entry cleanup must prune
+                module_manager._write_engine_manifest(engine)
+                outside = self._symlink_manifest_out(live, d)
+                residue = module_manager._cleanup_failed_install("feat", release)
+                self.assertTrue(any("engine.json" in r for r in residue),
+                                "the stale entry is authored residue, not a silent skip")
+                with open(outside, encoding="utf-8") as fh:
+                    self.assertIn('"feat"', fh.read(), "the out-of-tree file is untouched (entry still there)")
+
+    def test_pyproject_rewrite_refuses_a_symlinked_real_slot(self):
+        # .engine/pyproject.toml is engine-owned on the same lifecycle paths — the real slot gets the
+        # full root wall; the raise is caught fail-open (disclosed) by every lifecycle caller
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine"))
+            outside = os.path.join(d, "outside-pyproject.toml")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write("[tool.uv]\ndefault-groups = []\n")
+            with module_manager._redirect_root(live):
+                os.symlink(outside, os.path.join(live, ".engine", "pyproject.toml"))
+                with self.assertRaises(module_manager.engine_write.EngineWriteRefused):
+                    module_manager._maybe_rewrite_default_groups(["base"])
+            with open(outside, encoding="utf-8") as fh:
+                self.assertNotIn("base", fh.read(), "nothing was written through the symlink")
+
+    def test_pyproject_rewrite_refuses_a_symlinked_injected_path_but_allows_a_plain_one(self):
+        # an injected path is guarded against its OWN parent (the leaf rule): a plain temp file outside
+        # the repo is legitimate (tests/fixtures), a symlinked one still refuses
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "real-pyproject.toml")
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write("[tool.uv]\ndefault-groups = []\n")
+            link = os.path.join(d, "linked-pyproject.toml")
+            os.symlink(outside, link)
+            with self.assertRaises(module_manager.engine_write.EngineWriteRefused):
+                module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=link)
+            # the same content at a PLAIN out-of-tree path is written fine (the injection seam survives)
+            self.assertTrue(module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=outside))
+
+    def test_pyproject_rewrite_refuses_a_dangling_shortcut_at_the_real_slot(self):
+        # exists() FOLLOWS a link and reads a dangling shortcut as "absent" — the guard must run FIRST
+        # (the #862 ordering lesson), or the refusal silently degrades to a no-op while the result
+        # still claims a groups selection that was never written
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine"))
+            with module_manager._redirect_root(live):
+                os.symlink(os.path.join(d, "never-created.toml"),
+                           os.path.join(live, ".engine", "pyproject.toml"))
+                with self.assertRaises(module_manager.engine_write.EngineWriteRefused):
+                    module_manager._maybe_rewrite_default_groups(["base"])
+
+    def test_pyproject_rewrite_treats_an_empty_string_path_as_caller_supplied_never_the_real_slot(self):
+        # one discriminator for both the path and the guard base: an empty-string argument must NOT
+        # resolve to the real slot with a downgraded (leaf-only) guard — the reproduced bypass shape
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(os.path.join(live, ".engine"))
+            with open(os.path.join(live, ".engine", "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[tool.uv]\ndefault-groups = []\n")
+            with module_manager._redirect_root(live):
+                self.assertFalse(module_manager._maybe_rewrite_default_groups(["base"], pyproject_path=""),
+                                 "an empty-string path is a caller no-op, never a real-slot write")
+            with open(os.path.join(live, ".engine", "pyproject.toml"), encoding="utf-8") as fh:
+                self.assertNotIn("base", fh.read(), "the real slot was not written via the empty-string path")
+
+    def test_sync_groups_cli_reports_a_refusal_plainly(self):
+        # the standalone fixer CLI surfaces the refusal as a clean one-line stop, never the blanket
+        # CONFIG ERROR channel
+        saved = module_manager.sync_groups
+        module_manager.sync_groups = lambda *a, **k: (_ for _ in ()).throw(
+            module_manager.engine_write.EngineWriteRefused("a planted shortcut"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = module_manager.main(["sync-groups"])
+        finally:
+            module_manager.sync_groups = saved
+        self.assertEqual(code, 1)
+        self.assertIn("a planted shortcut", buf.getvalue())
+        self.assertIn("Nothing was changed", buf.getvalue())
+
+
 class TestMigrationsSchema(unittest.TestCase):
     """The tightened module.v1.json `migrations` shape: a well-formed entry passes, a malformed one fails
     the same schema the hard/CI module-manifest check enforces."""

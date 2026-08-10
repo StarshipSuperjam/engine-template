@@ -78,6 +78,7 @@ import jsonschema
 import validate
 import module_coherence
 import module_manager
+import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (#923)
 
 SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
@@ -1004,6 +1005,20 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         if dry_run:
             return {"applied": False, "reason": "dry-run", "targets": changed, "engine": engine_ver,
                     "from_engine": engine_cur}
+
+        # #923: never stage/swap an engine-owned manifest through a shortcut (symlink) or out of the
+        # tree. The swap's os.replace defeats only a symlinked LEAF — it still lands out-of-tree
+        # through a symlinked ANCESTOR directory — so check every destination BEFORE any temp file is
+        # created. Path and base both derive from validate.ROOT (the same source, per the engine_write
+        # doctrine), so fixture trees that repoint ROOT stay legitimate.
+        unsafe = [reason for path in
+                  [module_manager._engine_manifest_path()]
+                  + [os.path.join(validate.ROOT, _rel) for _rel in module_new]
+                  if (reason := engine_write.write_through_symlink_reason(path, validate.ROOT))]
+        if unsafe:
+            return {"applied": False, "reason": "unsafe-destination", "violations": unsafe,
+                    "recovery": "delete or replace the shortcut(s) named above, then run the cut "
+                                "again; nothing was written."}
 
         # write temps
         def _stage(path, data):

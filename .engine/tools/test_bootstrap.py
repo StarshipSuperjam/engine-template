@@ -1221,5 +1221,46 @@ class TestAcceptUnprotected(unittest.TestCase):
             jsonschema.validate(manifest, schema)
 
 
+class TestManifestWriteBoundary(unittest.TestCase):
+    """#923: bootstrap's manifest markers (the finalize control-plane marker, the protection-posture
+    record) rewrite .engine/engine.json in place — the same slot the module lifecycle guards. A
+    symlinked destination is skipped best-effort (this module's documented posture for every write
+    failure), never written through, out of the tree."""
+
+    def test_finalize_marker_skips_a_symlinked_manifest(self):
+        import json as _json
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = os.path.join(tmp, "outside-engine.json")
+            with open(outside, "w", encoding="utf-8") as fh:
+                _json.dump({"engine_release": "1.0.0", "packages": {}}, fh)
+            link = os.path.join(tmp, "engine.json")
+            os.symlink(outside, link)
+            with mock.patch.object(bootstrap, "_engine_json_path", return_value=link):
+                bootstrap._persist_finalize_marker({"added": ["x"]})
+            with open(outside, encoding="utf-8") as fh:
+                self.assertNotIn("control_plane", fh.read(),
+                                 "the marker must never be written through the symlink, out of the tree")
+
+    def test_posture_write_refuses_a_symlinked_manifest(self):
+        import json as _json
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = os.path.join(tmp, "outside-engine.json")
+            with open(outside, "w", encoding="utf-8") as fh:
+                _json.dump({"engine_release": "1.0.0", "packages": {}}, fh)
+            link = os.path.join(tmp, "engine.json")
+            os.symlink(outside, link)
+            with mock.patch.object(bootstrap, "_engine_json_path", return_value=link):
+                ok = bootstrap._persist_protection_posture(
+                    {"status": "unsupported-platform", "reason": "x", "operator_login": "me",
+                     "recorded_on": "2026-08-08"})
+            self.assertFalse(ok, "a symlinked manifest is a best-effort False, never a write-through")
+            with open(outside, encoding="utf-8") as fh:
+                self.assertNotIn("protection_posture", fh.read())
+
+
 if __name__ == "__main__":
     unittest.main()

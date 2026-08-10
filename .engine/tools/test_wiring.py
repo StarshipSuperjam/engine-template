@@ -1143,5 +1143,51 @@ class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
         self.assertIn("GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}", wf)
 
 
+class TestDanglingShortcutRefusal(_Redirected):
+    """#923: the wiring surfaces are OPERATOR-SHARED files — a LIVE shortcut (a dotfiles-linked
+    settings.json) is the operator's own arrangement and writes through it are honored, but a DANGLING
+    one reads as "absent" to every exists() check, so a blind create-through would drop a brand-new
+    file OUTSIDE the tree. Refuse exactly that case, as a finding, never a crash."""
+
+    def test_a_dangling_settings_shortcut_is_a_finding_and_nothing_is_created(self):
+        target = wiring.SETTINGS_PATH + ".nowhere"          # never created — the link stays dangling
+        os.makedirs(os.path.dirname(wiring.SETTINGS_PATH), exist_ok=True)
+        os.symlink(target, wiring.SETTINGS_PATH)
+        finding = wiring.apply(HOOK)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("broken shortcut", finding["message"])
+        self.assertFalse(os.path.exists(target), "nothing was created through the dangling shortcut")
+
+    def test_a_live_settings_shortcut_is_the_operators_arrangement_and_is_honored(self):
+        real = wiring.SETTINGS_PATH + ".dotfiles"           # the operator's real file, elsewhere
+        os.makedirs(os.path.dirname(wiring.SETTINGS_PATH), exist_ok=True)
+        with open(real, "w", encoding="utf-8") as fh:
+            fh.write("{}\n")
+        os.symlink(real, wiring.SETTINGS_PATH)
+        finding = wiring.apply(HOOK)
+        self.assertEqual(finding["severity"], "note", finding["message"])
+        with open(real, encoding="utf-8") as fh:
+            self.assertIn("hooks", fh.read(), "the write goes through the operator's own live link")
+
+    def test_a_dangling_gitignore_shortcut_degrades_foundation_ignores(self):
+        os.symlink(wiring.GITIGNORE_PATH + ".nowhere", wiring.GITIGNORE_PATH)
+        out = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
+        self.assertEqual(out["status"], "degraded")
+        self.assertFalse(os.path.exists(wiring.GITIGNORE_PATH + ".nowhere"))
+
+    def test_the_cli_reports_a_dangling_shortcut_as_a_config_error_not_a_traceback(self):
+        # the CLI reaches _write_text through _text_fence_apply, whose except only wraps the read —
+        # the write's WiringError must be a clean CONFIG ERROR, not an unhandled crash
+        with tempfile.TemporaryDirectory() as d:
+            link = os.path.join(d, "mine.gitignore")
+            os.symlink(os.path.join(d, "nowhere"), link)
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = wiring.main(["gitignore-apply", link, "build/"])
+            self.assertEqual(code, 2)
+            self.assertIn("CONFIG ERROR", buf.getvalue())
+            self.assertIn("broken shortcut", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

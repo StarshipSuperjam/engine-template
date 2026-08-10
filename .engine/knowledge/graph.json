@@ -1527,6 +1527,34 @@
       "type": "check"
     },
     {
+      "id": "check:manifest-write-funnel",
+      "kind": "custom/script",
+      "name": ".engine/check/manifest-write-funnel.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:manifest_write_funnel_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "manifest-write-funnel",
+      "source": {
+        "fingerprint": "sha256:ec2f5d95fd2533b6dbd48b3ee8cf514e512d0639d2127830a45ed8a343a4a948",
+        "path": ".engine/check/manifest-write-funnel.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:memory-pointer-public-safety",
       "kind": "custom/script",
       "name": ".engine/check/memory-pointer-public-safety.json",
@@ -4446,7 +4474,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:99df9c3a3430c0bd74fbee1e1df00a9f97f46a18da1f7c13c78fe7e0578b395a",
+        "fingerprint": "sha256:456fe4ee9c15ca5d2ca8884853f4883572303f6d940438128444f6a481109441",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -6227,6 +6255,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:engine_write",
           "tool:github_client",
           "tool:moment",
           "tool:repo_identity",
@@ -6239,7 +6268,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:96eb83eb28cd0f09947dd6f44bdae9d354358a115e652343cb3de60dc362396f",
+        "fingerprint": "sha256:5cfbc16ed8c7cbe1f9588f16e115d03f071671fb90128a8de1b33f4c183b2d0e",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -6529,6 +6558,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:engine_write",
           "tool:github_client",
           "tool:moment",
           "tool:protection_guard",
@@ -6543,7 +6573,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:a84ed2e2ba23c6031ffab48169ee778f9a11efcf43fe2060de9144622b9dce4e",
+        "fingerprint": "sha256:617022d84e786bee481a00354b9cf3c5c6d448db2d0dad8c701fc98453ad442c",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -8408,6 +8438,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:engine_write",
+      "name": ".engine/tools/engine_write.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_write",
+      "source": {
+        "fingerprint": "sha256:0349a140a0e1ca33f2b356164b0c0ce814c3919a28e1adc13a8ef1846c4049fd",
+        "path": ".engine/tools/engine_write.py"
+      },
+      "status": "active",
+      "summary": "The write boundary for the engine's OWN files — one predicate, homed once (#923).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:erase",
@@ -8801,6 +8851,7 @@
         "imports": [
           "tool:boot",
           "tool:bootstrap",
+          "tool:engine_write",
           "tool:first_run_health",
           "tool:knowledge_gen",
           "tool:license_seeds",
@@ -8820,7 +8871,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:4d38a04530daaa227f7546c753d3a2540e8b047b2f53d03b3c5e9cb4c26d39b9",
+        "fingerprint": "sha256:da762f202aa14a5be46223296cb56ed7a4eae7a64c07aa875b23c079bf5c0083",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9294,6 +9345,29 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:manifest_write_funnel_check",
+      "name": ".engine/tools/manifest_write_funnel_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "manifest_write_funnel_check",
+      "source": {
+        "fingerprint": "sha256:8a046ad62c6c468543873c56f08aedf9c0ea5cf41537472996242804e4202572",
+        "path": ".engine/tools/manifest_write_funnel_check.py"
+      },
+      "status": "active",
+      "summary": "Manifest-write funnel floor (engine-template #923) — the custom/script entry for",
+      "type": "tool"
+    },
+    {
       "entrypoint": "mcp-server",
       "guarded": false,
       "id": "tool:mcp_server",
@@ -9549,6 +9623,7 @@
           "tool:capture",
           "tool:checkout_health",
           "tool:close",
+          "tool:engine_write",
           "tool:github_client",
           "tool:knowledge_gen",
           "tool:ledger",
@@ -9570,7 +9645,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:c6979d94cc080a0e5f25d6d27a0b49414b9bb2f2021b2e73e54f68f67e81e94f",
+        "fingerprint": "sha256:d9c0dac732323ae806a7c7c5527709e949b6bb0489e4f42ddf98e310eac0c067",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -10096,6 +10171,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:engine_write",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:validate"
@@ -10106,7 +10182,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:c2dac5319d6e1b1e5b07703fd9fc5252208a8b44b2982b6d3d8d2776f6c7829d",
+        "fingerprint": "sha256:5269a81facd57b885ee50a3c6b41230fd41128ef5e7e85241e8dd01791e61784",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -10942,7 +11018,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:ab71253fbe910ca8afed37a4044e1fdf310af4e96e1d6139b9341b33defb8bd9",
+        "fingerprint": "sha256:e32f7b21532cce4d56de1f1613d69cd33d39557ddc7cc60e1665ba63ee18689f",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -11202,7 +11278,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:bcd26ffc51c7690174c75972de868a6a278490724383b8aabfe688557dbea7c0",
+        "fingerprint": "sha256:f7537d410308a5d627a12f8da2736fb7fbbf35d58d476abc3fb10a265758bf72",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -11790,6 +11866,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_engine_write",
+      "name": ".engine/tools/test_engine_write.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:engine_write"
+        ]
+      },
+      "slug": "test_engine_write",
+      "source": {
+        "fingerprint": "sha256:655d9475a4ed4285d684556689e0518ba68e94b9198da01f4743f1b6fe04b7ab",
+        "path": ".engine/tools/test_engine_write.py"
+      },
+      "status": "active",
+      "summary": "Tests for engine_write — the engine-owned write boundary, homed once (#862/#923).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_erase",
       "name": ".engine/tools/memory/test_erase.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -12195,7 +12294,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:a0f65a4ea02849148ba3b85dcf3a6740adb07f045fe6acb055647f18a67aa717",
+        "fingerprint": "sha256:6609e364ef9a64f96c17e96469b59c99b279a25ae2d005d7fcaad8fd5de6e1b2",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -12629,6 +12728,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_manifest_write_funnel_check",
+      "name": ".engine/tools/test_manifest_write_funnel_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:manifest_write_funnel_check",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_manifest_write_funnel_check",
+      "source": {
+        "fingerprint": "sha256:58f1946ec4cf1e58fefabe618dcbecaf9fece8f48f7bc5465a41d05afd00cf05",
+        "path": ".engine/tools/test_manifest_write_funnel_check.py"
+      },
+      "status": "active",
+      "summary": "Tests for engine/check/manifest-write-funnel — the mechanical funnel floor (#923).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_mcp_server",
       "name": ".engine/tools/memory/test_mcp_server.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -12811,7 +12934,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:4369ba2b4612c5fce8e1ced22e7459c367363138e364e246695a9f0ce258e1fe",
+        "fingerprint": "sha256:da52ffdf1a5d710467da34a491e598ba441cc7441b1642a2575321e093fbea61",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -12865,7 +12988,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:8350c221e90781b3ea3e2939994734f703a20be957808a55f6957fbcb22087b0",
+        "fingerprint": "sha256:fd1454045084a5fcd24004fdcc8020eca1c2544f29b9d8e81f402cf027f75fe0",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -13388,7 +13511,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:39750219e0891ff9f2c474756fdf093279e637b377a5636e3b1cfff9fcb7854b",
+        "fingerprint": "sha256:2e91de52950f36bb3095d6e99e099886eb1c87242835f3ce434adb1f11c6528f",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -14355,7 +14478,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:a269ea017486e52ac89d1f1b0d899d59c42b56df9e0eb6683dca7e907c847bf2",
+        "fingerprint": "sha256:f45a6521cd73ae4d6cdb1e1e87b425f198ee83e6ba3706060e3b0aca1aac2dd5",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -14591,7 +14714,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:5f5d52a943b66c2ae7fd5912abb99d4b9d442c7598bc1cd747a4a5a88ba95e58",
+        "fingerprint": "sha256:fd2861ad505ee2d309239bd59709c1dcd1f5bcf7660f9247137a3aad5a57fa09",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

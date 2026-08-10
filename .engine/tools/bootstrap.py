@@ -64,6 +64,7 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 import boot  # noqa: E402  (repo_slug, gh_token — the shared GitHub-context helpers)
 import repo_identity  # noqa: E402  (resolve_default_branch — the authoritative branch the protection floor lands on)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
+import engine_write  # noqa: E402  (the engine-owned write boundary — the manifest markers below, #923)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the minimal ensure this inherits)
 import weakening_guard  # noqa: E402  (ACK_LABEL — reuse the frozen guardrail-ack name, never re-decide it)
 
@@ -1224,6 +1225,18 @@ def _engine_json_path() -> str:
     return os.path.join(validate.ROOT, ".engine", "engine.json")
 
 
+def _manifest_write_reason(path: str) -> str | None:
+    """A plain reason when writing the manifest at `path` would follow a shortcut (symlink) or escape the
+    tree, else None (#923). The committed-slot discriminator compares RESOLVED parents (never raw path
+    strings — a mocked/injected `_engine_json_path` must get the leaf-only rule, not a spurious root-wall
+    refusal; and a symlinked `.engine` resolves BOTH sides through the same link, so the real slot keeps
+    the full wall even under the attack the wall exists for)."""
+    committed = (os.path.realpath(os.path.dirname(os.path.abspath(path)))
+                 == os.path.realpath(validate.ENGINE_DIR))
+    base = validate.ROOT if committed else os.path.dirname(os.path.abspath(path))
+    return engine_write.write_through_symlink_reason(path, base)
+
+
 def _union_added(prev_marker, cur_marker):
     """Merge the augment 'added' sets across arrival(checkless)+finalize so a later de_bootstrap reverses
     EXACTLY the whole sequence's additions (#673): the arrival records the wholly-missing floor RULES it added
@@ -1252,6 +1265,8 @@ def _persist_finalize_marker(marker) -> None:
     if not marker:
         return
     path = _engine_json_path()
+    if _manifest_write_reason(path):
+        return   # #923: never rewrite the manifest through a shortcut — best-effort skip, like every failure here
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -1283,6 +1298,8 @@ def _write_manifest(mutate) -> bool:
     atomically (temp-file + os.replace, so a crashed write never truncates the manifest). Returns True on a
     completed write. Best-effort: any read/write failure returns False without raising."""
     path = _engine_json_path()
+    if _manifest_write_reason(path):
+        return False   # #923: never rewrite the manifest through a shortcut — the same best-effort False
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)

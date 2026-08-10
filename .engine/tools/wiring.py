@@ -64,6 +64,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 
 
+def _dangling_shortcut_reason(path: str) -> str | None:
+    """A plain reason when `path` is a DANGLING symlink (a shortcut whose target does not exist), else
+    None (#923). The wiring surfaces are OPERATOR-SHARED files (.claude/settings.json, .mcp.json, the
+    fence files): a LIVE shortcut there is the operator's own arrangement (a dotfiles link) and a write
+    through it is honored — but a dangling one reads as "absent" to every exists() check, so a blind
+    create-through would drop a brand-new file OUTSIDE the operator's tree. Refuse just that case."""
+    if os.path.islink(path) and not os.path.exists(path):
+        rel = _rel(path)
+        return (f"cannot apply: {rel} is a broken shortcut (a symlink whose target does not exist), so "
+                f"writing would create a file somewhere outside your project. Delete or fix the shortcut "
+                f"at {rel}, then re-run. The engine made no change.")
+    return None
+
+
 # ---- engine-identity constants (one declared convention; module-system 105-115) ------------
 # The fence marker (build-spec leaf b, decided with the maintainer): the conventional BEGIN/END
 # form plus a plain-language cue, so a non-engineer who opens the file is never confused. `{id}`
@@ -331,11 +345,11 @@ def apply_foundation_ignores(path: str) -> dict:
     try:
         existing = _read_text(path)
         new_text = fence_apply(existing, FOUNDATION_IGNORES_FENCE, FOUNDATION_IGNORE_LINES)
+        if new_text == existing:
+            return {"status": "already"}
+        _write_text(path, new_text)   # inside the swallow: a dangling-shortcut refusal degrades too (#923)
     except WiringError as exc:
         return {"status": "degraded", "detail": str(exc)}
-    if new_text == existing:
-        return {"status": "already"}
-    _write_text(path, new_text)
     return {"status": "written"}
 
 
@@ -369,6 +383,9 @@ def _read_json_tolerant(path: str, create: bool):
 
 
 def _write_json(path: str, data) -> None:
+    reason = _dangling_shortcut_reason(path)   # #923: never blind-create through a broken shortcut
+    if reason:
+        raise WiringError(reason)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
@@ -380,6 +397,9 @@ def _read_text(path: str) -> str:
 
 
 def _write_text(path: str, text: str) -> None:
+    reason = _dangling_shortcut_reason(path)   # #923: never blind-create through a broken shortcut
+    if reason:
+        raise WiringError(reason)
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -1163,6 +1183,9 @@ def main(argv: list) -> int:
         return 2
     except IndexError:
         print("CONFIG ERROR: missing the <file> argument.", file=sys.stderr)
+        return 2
+    except WiringError as exc:   # #923: a dangling-shortcut refusal is a clean stop here too, not a traceback
+        print(f"CONFIG ERROR: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         print(f"CONFIG ERROR: {exc}", file=sys.stderr)

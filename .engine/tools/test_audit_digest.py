@@ -141,6 +141,77 @@ class TestSeal(unittest.TestCase):
                              "re-quoting/re-ordering the header must not break the seal")
 
 
+class TestSealWriteBoundary(unittest.TestCase):
+    """#923: the committed digest is TRACKED, so a symlink at its slot can arrive in a clone or a pull
+    request — the seal must refuse to write THROUGH it, out of the tree. A caller-supplied path (the
+    whole rest of this suite) keeps working: it is guarded against its own parent (the leaf rule)."""
+
+    def test_seal_refuses_a_symlinked_digest_and_writes_nothing_through(self):
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "outside-digest.md")
+            link = os.path.join(d, "audit-digest.md")
+            os.symlink(outside, link)   # dangling on purpose: exists() would say absent, islink still bites
+            with self.assertRaises(audit_digest.engine_write.EngineWriteRefused):
+                audit_digest.seal(link, reviewed_at=JUNE, body=BODY)
+            self.assertFalse(os.path.exists(outside),
+                             "nothing was written through the symlink, out of the tree")
+
+    def test_the_committed_slot_gets_the_full_root_wall(self):
+        # a symlinked ANCESTOR (.engine/audits -> elsewhere) leaves the leaf a plain name — only the
+        # root-containment wall catches it, and the committed slot is where that wall applies
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine"))
+            outside_dir = os.path.join(d, "outside-audits")
+            os.makedirs(outside_dir)
+            os.symlink(outside_dir, os.path.join(root, ".engine", "audits"))
+            slot = os.path.join(root, ".engine", "audits", "audit-digest.md")
+            with mock.patch.object(audit_digest, "AUDIT_DIGEST_PATH", slot), \
+                    mock.patch.object(audit_digest.validate, "ROOT", root):
+                with self.assertRaises(audit_digest.engine_write.EngineWriteRefused):
+                    audit_digest.seal(slot, reviewed_at=JUNE, body=BODY)
+            self.assertEqual(os.listdir(outside_dir), [],
+                             "nothing was written through the symlinked audits directory")
+
+    def test_an_aliased_path_to_the_committed_slot_still_gets_the_full_root_wall(self):
+        # the discriminator compares RESOLVED parents, never raw strings: reaching the committed slot
+        # through a differently-spelled path (a symlinked alias of the checkout — a symlinked worktree,
+        # a manual absolute path) must NOT silently downgrade to the leaf-only rule, which is blind to
+        # a symlinked ancestor. This bites: with a string-equality discriminator the write escapes.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine"))
+            outside_dir = os.path.join(d, "outside-audits")
+            os.makedirs(outside_dir)
+            os.symlink(outside_dir, os.path.join(root, ".engine", "audits"))   # the planted ancestor
+            alias = os.path.join(d, "alias-of-repo")
+            os.symlink(root, alias)                                            # a second spelling of root
+            slot = os.path.join(root, ".engine", "audits", "audit-digest.md")
+            aliased = os.path.join(alias, ".engine", "audits", "audit-digest.md")
+            with mock.patch.object(audit_digest, "AUDIT_DIGEST_PATH", slot), \
+                    mock.patch.object(audit_digest.validate, "ROOT", root):
+                with self.assertRaises(audit_digest.engine_write.EngineWriteRefused):
+                    audit_digest.seal(aliased, reviewed_at=JUNE, body=BODY)
+            self.assertEqual(os.listdir(outside_dir), [],
+                             "nothing was written through the aliased spelling of the committed slot")
+
+    def test_the_cli_reports_a_seal_refusal_as_a_refusal_not_a_crash(self):
+        # the refusal must read "refused, nothing was written" in a workflow log — never the generic
+        # ERROR channel where it is indistinguishable from a crash with unknown state
+        with tempfile.TemporaryDirectory() as d:
+            link = os.path.join(d, "audit-digest.md")
+            os.symlink(os.path.join(d, "outside-digest.md"), link)
+            body_file = os.path.join(d, "body.md")
+            with open(body_file, "w", encoding="utf-8") as fh:
+                fh.write(BODY)
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = audit_digest.main(["seal", link, "--body-file", body_file])
+            self.assertEqual(code, 2)
+            self.assertIn("Nothing was written", buf.getvalue())
+            self.assertNotIn("ERROR:", buf.getvalue(), "a deliberate refusal is not the crash channel")
+
+
 class TestSealRequiresBodyAndRecordsRun(unittest.TestCase):
     """`seal` is the ONLY writer of the run-date, and it structurally cannot run without fresh prose — the
     anti-#665 guarantee — and it records the workflow run identity from the environment when present."""

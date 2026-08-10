@@ -547,6 +547,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/knowledge-vocabulary.json",
             ".engine/check/lens-consumption.json",
             ".engine/check/link-integrity.json",
+            ".engine/check/manifest-write-funnel.json",
             ".engine/check/memory-pointer-public-safety.json",
             ".engine/check/model-bindings-schema.json",
             ".engine/check/module-manifest.json",

@@ -46,6 +46,12 @@ import license_seeds      # noqa: E402  (the permanent seed set + recognizer, sh
 import bootstrap          # noqa: E402  (ControlPlane + render — the control-plane bootstrap; _parse_sections)
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
 import repo_behavior      # noqa: E402  (the repository-behavior settings leg, #541 — same transport reuse)
+import engine_write       # noqa: E402  (the engine-owned write boundary — homed once, #862/#923)
+
+# The #862 guard's definitions moved to engine_write (#923); aliased so every call site — and the shipped
+# #862 tests — stay verbatim. The aliases ARE the relocation proof: nothing else changed.
+_EngineWriteRefused = engine_write.EngineWriteRefused
+_write_through_symlink_reason = engine_write.write_through_symlink_reason
 
 # These sibling tools import only the Python standard library plus each other (validate binds its two
 # third-party packages LAZILY), and every one carries `from __future__ import annotations`
@@ -412,28 +418,8 @@ def load_copy(path: str = TEMPLATE_PATH) -> dict:
             for key, heading in COPY_HEADINGS.items()}
 
 
-class _EngineWriteRefused(Exception):
-    """The engine refused to write one of its OWN generated files (the manifest, the state cursor) because the
-    destination is a symlink or resolves outside the repository — following it on write could place the file OUT
-    of the tree. The fail-closed backstop behind the resume recognizer's symlink surfacing (#862): the recognizer
-    warns the operator early, this guarantees the write never follows the link."""
-
-
-def _write_through_symlink_reason(path: str, base: str) -> str | None:
-    """A plain reason if writing `path` would follow a symlink or escape the repository tree, else None. Fail
-    closed like `_unsafe_retire_reason`: refuse when the final component is a symlink, OR the fully resolved path
-    (parent directories included — so a symlinked ancestor is caught too) lands outside `base`. This guards the
-    two engine-owned files written IN PLACE that sit OUTSIDE the overlay's realpath wall — the manifest
-    (`.engine/engine.json`) and the state cursor (`.engine/state/*.json`) — which the resume recognizer surfaces
-    but cannot itself protect once the operator chooses to proceed (#862)."""
-    root = os.path.realpath(base)
-    resolved = os.path.realpath(path)
-    if os.path.islink(path) or not (resolved == root or resolved.startswith(root + os.sep)):
-        rel = os.path.relpath(path, base)
-        return (f"{rel!r} is a shortcut (a symlink), or sits under one, that points outside your project — writing "
-                f"through it could put the engine's own file outside your project. Delete or replace the shortcut "
-                f"at {rel!r}, then run again.")
-    return None
+# The #862 write-boundary guard now lives in engine_write (homed once for every lifecycle writer, #923);
+# the aliases at the import block keep this module's call sites and its shipped tests verbatim.
 
 
 def _write_json(path: str, data: dict) -> None:
@@ -693,10 +679,8 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     if product_repository and product_repository.strip():
         written["product_repository"] = product_repository.strip()
     path = _engine_manifest_path(root)
-    reason = _write_through_symlink_reason(path, root or validate.ROOT)   # #862: never write the manifest THROUGH a symlink
-    if reason:
-        raise _EngineWriteRefused(reason)
-    _write_json(path, written)
+    # #862: never write the manifest THROUGH a symlink — the guarded writer checks then raises (#923 homing)
+    engine_write.write_json(path, written, base=root or validate.ROOT)
     return {"path": path, "manifest": written}
 
 
@@ -1064,7 +1048,11 @@ def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:
             say(copy["plan-mode-conflict"])
             return {"step": "plan-mode", "status": "kept-operator-default"}
     proj.setdefault("permissions", {})["defaultMode"] = "plan"  # adopt (no conflict, or operator chose to)
-    wiring._write_json(proj_path, proj)
+    try:
+        wiring._write_json(proj_path, proj)
+    except wiring.WiringError as exc:   # #923: a dangling-shortcut settings.json — skip, disclosed
+        say(str(exc))
+        return {"step": "plan-mode", "status": "skipped", "detail": str(exc)}
     say(copy["plan-mode-adopted"])
     return {"step": "plan-mode", "status": "adopted"}
 
@@ -1173,6 +1161,11 @@ def _seed_security(say, copy=None) -> str:
         return "present"                        # never overwrite a project's existing disclosure file
     seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "security-seed.md")
     target = os.path.join(validate.ROOT, "SECURITY.md")
+    if os.path.islink(target):
+        # #923: os.path.exists FOLLOWS a link, so a DANGLING shortcut at SECURITY.md reads as "absent"
+        # above — seeding would then write THROUGH it, outside the tree. A shortcut here is the
+        # operator's slot arrangement either way: hands off, never create through it.
+        return "skipped"
     try:
         content = ""
         if os.path.isfile(seed_path):
@@ -1410,6 +1403,10 @@ def _seed_product_version(say, copy=None) -> str:
     path = os.path.join(validate.ROOT, _PRODUCT_VERSION_REL)
     if os.path.exists(path):
         return "present"                          # already seeded / operator-owned -> idempotent no-op
+    if os.path.islink(path):
+        # #923: exists() FOLLOWS a link, so a DANGLING shortcut here reads as "absent" — seeding would
+        # write THROUGH it, outside the tree. Operator slot arrangement: hands off.
+        return "skipped"
     try:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"version": _PRODUCT_VERSION_SEED}, fh, indent=2)

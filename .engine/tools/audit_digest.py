@@ -73,6 +73,7 @@ import validate  # noqa: E402
 import moment  # noqa: E402  (the time seam — today_utc: the UTC calendar day the digest must date by)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
 import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
+import engine_write  # noqa: E402  (the engine-owned write boundary — the sealed digest is tracked, #923)
 
 
 # The committed digest's home: a file under .engine/audits/ (already a registered infra dir, beside the
@@ -384,7 +385,25 @@ def _render_v2(fields: dict, fingerprint: str, body: str) -> str:
 
 def _write_sealed(path: str, fields: dict, body: str) -> None:
     """Seal (over the header-minus-fingerprint + body) and write the committed v2 file. The write's exact
-    bytes are what check() later verifies."""
+    bytes are what check() later verifies.
+
+    #923: the committed digest is TRACKED, so a symlink at its slot can arrive in a clone or a pull
+    request and the scheduled seal run would write through it, out of the tree — refuse instead, fail
+    closed (the seal path's callers surface errors loudly). Base per the engine_write doctrine: the
+    repository root for the committed slot, the target's own parent for a caller-supplied path (tests
+    and repairs seal throwaway copies outside the repo — an ambient-root base would refuse those)."""
+    # The committed-slot discriminator compares RESOLVED parent directories, never raw path strings —
+    # a string comparison silently downgrades the real slot to the weak leaf-only check whenever the
+    # caller reaches the same file by a differently-spelled but equivalent path (a symlinked checkout,
+    # an alias, a manual absolute path — the QA gate reproduced a full out-of-tree write that way).
+    # Under a symlinked-ancestor attack both sides resolve through the SAME planted link, so they still
+    # compare equal and the full root wall applies — which is exactly what makes the escape refuse.
+    committed_slot = (os.path.realpath(os.path.dirname(os.path.abspath(path)))
+                      == os.path.realpath(os.path.dirname(AUDIT_DIGEST_PATH)))
+    base = validate.ROOT if committed_slot else os.path.dirname(os.path.abspath(path))
+    reason = engine_write.write_through_symlink_reason(path, base)
+    if reason:
+        raise engine_write.EngineWriteRefused(reason)
     fingerprint = compute_seal_v2(fields, body)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as fh:
@@ -1018,6 +1037,11 @@ def main(argv: list) -> int:
             # over memory's pure backup-read, printed for the read-only self-review. Degrades in-band to a
             # plain disclosure (never raises, never non-zero) when the backup is absent/unreachable/unreadable.
             return _saved_memory_cli(argv[1:])
+    except engine_write.EngineWriteRefused as exc:
+        # #923: a deliberate safety refusal, not a crash — say so, and say nothing was written, so a
+        # workflow log reads "refused, state intact" rather than "state unknown".
+        print(f"Did not write the self-review file: {exc} Nothing was written.", file=sys.stderr)
+        return 2
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

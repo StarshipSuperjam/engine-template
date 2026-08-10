@@ -3993,6 +3993,26 @@ class TestSeedProductVersion(unittest.TestCase):
             self.assertEqual(self._pv(d), {"version": "1.4.2"}, "an operator's own version is never overwritten")
         self.assertEqual(said, [], "no disclosure on a no-op")
 
+    def test_a_dangling_shortcut_at_the_slot_is_skipped_never_seeded_through(self):
+        # #923: exists() FOLLOWS a link, so a DANGLING shortcut reads as "absent" — seeding would then
+        # write the version file THROUGH the link, outside the tree. Skip, and touch nothing.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
+            os.symlink(os.path.join(d, "never-created.json"), os.path.join(d, "product-version.json"))
+            outcome = inst._seed_product_version(lambda t: None, inst.load_copy())
+            self.assertEqual(outcome, "skipped")
+            self.assertFalse(os.path.exists(os.path.join(d, "never-created.json")),
+                             "nothing was written through the dangling shortcut")
+
+    def test_a_dangling_security_shortcut_is_skipped_never_seeded_through(self):
+        # same #923 rule for the SECURITY.md seeder — the other seed-if-absent writer that gated only
+        # on exists() and would create the policy text through a dangling link, outside the tree
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
+            os.symlink(os.path.join(d, "never-created.md"), os.path.join(d, "SECURITY.md"))
+            outcome = inst._seed_security(lambda t: None, inst.load_copy())
+            self.assertEqual(outcome, "skipped")
+            self.assertFalse(os.path.exists(os.path.join(d, "never-created.md")),
+                             "nothing was written through the dangling shortcut")
+
 
 class TestUvSyncFrozen(unittest.TestCase):
     """#853: first-run provisioning must install exactly the committed lock, never re-resolve past it — so
