@@ -684,6 +684,28 @@ class Apply(unittest.TestCase):
             self.assertEqual(t.engine()["engine_release"], "0.0.0-dev")
             self.assertEqual(t.module_version("core"), "0.0.0-dev")
 
+    def test_apply_refuses_to_stage_through_a_symlinked_manifest(self):
+        # #923: the cut's stage/swap must never write the deployed engine.json through a shortcut —
+        # os.replace defeats only a symlinked leaf, not a symlinked ancestor, so every destination is
+        # pre-flighted before any temp file is created. Plant a symlinked engine.json (content intact
+        # through the link so the reads still work) and assert the cut refuses, writing nothing.
+        with _Tree({"core": _module("core")}) as t:
+            real = os.path.join(t.root, ".engine", "engine.json")
+            outside = os.path.join(tempfile.mkdtemp(), "outside-engine.json")
+            with open(real, encoding="utf-8") as fh:
+                content = fh.read()
+            with open(outside, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            os.remove(real)
+            os.symlink(outside, real)
+            r = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+            self.assertFalse(r["applied"])
+            self.assertEqual(r["reason"], "unsafe-destination")
+            self.assertTrue(any("shortcut" in v for v in r["violations"]))
+            with open(outside, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), content,
+                                 "nothing was written through the symlink, out of the tree")
+
     def test_apply_records_upgrade_floor_and_carries_it_forward(self):
         # #599 Slice 4: --min-upgradeable-from records the clean-upgrade floor into engine.json; a later cut
         # that does not pass one carries the prior floor forward unchanged (engine.json is copied byte-preserved).

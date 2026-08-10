@@ -11,8 +11,10 @@ the #862 review found new unguarded writers four rounds running, which is what p
 What is unified here is the PREDICATE (and the one guarded JSON writer below); the enforcement idiom
 stays per-site on purpose, because the right failure mode differs by surface: the arrival flow and the
 standalone CLIs catch `EngineWriteRefused` into a clean disclosed stop, the upgrade tail converts it to
-its staged-refusal result, and best-effort writers (a cleanup, an index regen, bootstrap's
-finalize/posture markers) skip and disclose. A
+its staged-refusal result, the release cut pre-flights its stage/swap destinations, and best-effort
+writers skip — disclosed where their surface already discloses (a cleanup's residue line, the drift
+gate behind an index regen), silently where the surface's own documented posture is
+every-failure-is-silent (bootstrap's finalize marker). A
 caller that writes IN PLACE to an engine-owned slot outside the overlay's realpath wall should route
 through `write_json` (or check `write_through_symlink_reason` first when it writes prose or must check
 before a read).
@@ -37,11 +39,11 @@ Deliberately NOT guarded (judged per surface, #923):
   weaker claim deliberately NOT made: `os.replace` protects only against a symlinked LEAF — it still
   traverses a symlinked ancestor directory, and the status sidecar uses a plain open — so the
   no-arrival-vector argument, not the replace mechanics, is what carries these.)
-- The memory ledger (`.engine/memory/ledger.ndjson`): the gitignore argument above, plus it
-  deliberately lives OUTSIDE the repository for worktrees (the shared clone root, or wherever
-  ENGINE_MEMORY_DIR points), so containment is meaningless there — and a refusal inside the append
-  would be silent and sticky (the capture cursor never advances). Guarding it would cost more than
-  the hazard it closes.
+- The memory ledger (`.engine/memory/ledger.ndjson`) — including the close-turn transcript captures,
+  which write by APPENDING to this same ledger: the gitignore argument above, plus it deliberately
+  lives OUTSIDE the repository for worktrees (the shared clone root, or wherever ENGINE_MEMORY_DIR
+  points), so containment is meaningless there — and a refusal inside the append would be silent and
+  sticky (the capture cursor never advances). Guarding it would cost more than the hazard it closes.
 - Operator-owned root/shared files (README.md, SECURITY.md, LICENSE, product-version.json,
   `.claude/settings.json` and the fence files via wiring): a LIVE shortcut there is the operator's own
   arrangement (a dotfiles-linked settings file) and writes through it are honored. What IS refused is
