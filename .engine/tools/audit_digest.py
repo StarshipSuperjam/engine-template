@@ -73,6 +73,7 @@ import validate  # noqa: E402
 import moment  # noqa: E402  (the time seam — today_utc: the UTC calendar day the digest must date by)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
 import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
+import engine_write  # noqa: E402  (the engine-owned write boundary — the sealed digest is tracked, #923)
 
 
 # The committed digest's home: a file under .engine/audits/ (already a registered infra dir, beside the
@@ -384,7 +385,18 @@ def _render_v2(fields: dict, fingerprint: str, body: str) -> str:
 
 def _write_sealed(path: str, fields: dict, body: str) -> None:
     """Seal (over the header-minus-fingerprint + body) and write the committed v2 file. The write's exact
-    bytes are what check() later verifies."""
+    bytes are what check() later verifies.
+
+    #923: the committed digest is TRACKED, so a symlink at its slot can arrive in a clone or a pull
+    request and the scheduled seal run would write through it, out of the tree — refuse instead, fail
+    closed (the seal path's callers surface errors loudly). Base per the engine_write doctrine: the
+    repository root for the committed slot, the target's own parent for a caller-supplied path (tests
+    and repairs seal throwaway copies outside the repo — an ambient-root base would refuse those)."""
+    base = (validate.ROOT if os.path.abspath(path) == os.path.abspath(AUDIT_DIGEST_PATH)
+            else os.path.dirname(os.path.abspath(path)))
+    reason = engine_write.write_through_symlink_reason(path, base)
+    if reason:
+        raise engine_write.EngineWriteRefused(reason)
     fingerprint = compute_seal_v2(fields, body)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as fh:

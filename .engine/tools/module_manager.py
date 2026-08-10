@@ -87,12 +87,22 @@ import wiring            # noqa: E402  (the wiring library: reverse_all, apply, 
 import module_coherence  # noqa: E402  (the present-set reader + the coherence legs)
 import module_catalog    # noqa: E402  (the degrade-safe optional-module catalog reader — offer text + the decline discriminator)
 import bootstrap         # noqa: E402  (ControlPlane.de_bootstrap — the clean-removal control-plane leg; one-way)
+import engine_write      # noqa: E402  (the engine-owned write boundary — homed once, #862/#923)
 
 
 # ---- paths (computed from validate.ROOT at CALL time so a test/demo can redirect ROOT) --------
 
 def _engine_manifest_path() -> str:
     return os.path.join(validate.ROOT, module_coherence.ENGINE_MANIFEST_REL)
+
+
+def _write_engine_manifest(engine: dict) -> None:
+    """The ONLY writer of the deployed `.engine/engine.json` (#923): every lifecycle path — remove, add,
+    the failed-install cleanup, the upgrade tail's bump — funnels here, so the write-boundary guard is
+    inherited rather than re-remembered per site. Raises `engine_write.EngineWriteRefused` when the
+    manifest is a symlink or resolves outside the tree; each caller owns its failure mode (a refusal
+    result, a disclosed residue line, the tail's staged-refusal reason)."""
+    engine_write.write_json(_engine_manifest_path(), engine, base=validate.ROOT)
 
 
 def _pyproject_path() -> str:
@@ -105,7 +115,11 @@ def _modules_dir(module_id: str) -> str:
 
 def _write_json(path: str, data) -> None:
     """2-space-indent + trailing-newline JSON writer (mirrors wiring._write_json) so an
-    operator's later diff of engine.json stays minimal."""
+    operator's later diff of engine.json stays minimal. Deliberately UNGUARDED (#923): part of its real
+    job is writing release-tree and fixture files OUTSIDE the repository root (the demo builders write
+    throwaway release trees before `_redirect_root` engages), so a root-containment rule here would
+    refuse legitimate writes. The deployed manifest routes through `_write_engine_manifest` instead —
+    guard destinations, not this writer."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
@@ -177,6 +191,15 @@ def _maybe_rewrite_default_groups(new_groups: list, pyproject_path: str | None =
     path = pyproject_path or _pyproject_path()
     if not os.path.exists(path):
         return False
+    # #923: .engine/pyproject.toml is engine-owned and rewritten IN PLACE on the same add/remove/upgrade
+    # paths as the manifest — never write it through a shortcut. Base per the engine_write doctrine: the
+    # repository root for the real slot, the target's own parent for an injected path (tests pass temp
+    # trees — an ambient-root base would refuse those legitimate writes). Every lifecycle caller wraps
+    # this in a fail-open except that discloses the refusal in its notes/left_in_place.
+    base = validate.ROOT if pyproject_path is None else os.path.dirname(os.path.abspath(path))
+    reason = engine_write.write_through_symlink_reason(path, base)
+    if reason:
+        raise engine_write.EngineWriteRefused(reason)
     text = validate.read(path)
     new_text, changed = rewrite_default_groups_text(text, new_groups)
     if changed:
@@ -304,7 +327,21 @@ def remove(module_id: str, removal_notice: str | None = None) -> dict:
             engine.setdefault("removed_capabilities", {})[module_id] = {"description": removal_notice}
             changed_engine = True
         if changed_engine:
-            _write_json(_engine_manifest_path(), engine)
+            try:
+                _write_engine_manifest(engine)
+            except engine_write.EngineWriteRefused as exc:
+                # #923: the module's FILES are already deleted (steps 1-2), so this is a disclosed
+                # half-state, never a "nothing was changed" refusal — the one dishonest message here.
+                # The stale package entry also trips the coherence findings below, so the gate backstops.
+                result["left_in_place"].append(
+                    f"the module's entry in .engine/engine.json — the file could not be safely written: {exc}")
+                # Phase-aware remedy: the module's manifest folder is already gone, so a RE-RUN would
+                # refuse ("not installed") — the honest recourse is the hand-edit, not a retry.
+                result["notes"].append(
+                    f"The module's files were removed, but its entry could not be dropped from "
+                    f".engine/engine.json. Delete or replace the shortcut, then remove the "
+                    f"'{module_id}' line from \"packages\" in .engine/engine.json by hand — the "
+                    f"coherence check will keep pointing at it until then.")
     if not removal_notice:
         result["notes"].append(
             f"If this engine publishes releases, record what removing '{module_id}' takes away by adding it to "
@@ -664,10 +701,10 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
         # (3) apply the module's wiring (the real appliers)
         for f in wiring.apply_all(candidate.get("wires") or []):
             result["applied_wires"].append(validate.fmt(f))
-        # (4) record it in the engine manifest at its version
+        # (4) record it in the engine manifest at its version (the guarded writer — #923)
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
         engine.setdefault("packages", {})[module_id] = candidate.get("version")
-        _write_json(_engine_manifest_path(), engine)
+        _write_engine_manifest(engine)
         # (5) re-derive + rewrite the dependency-group selection now that module_id is present. (The
         #     module's [dependency-groups] declaration + its uv.lock entries ship with the engine, so add
         #     flips only the SELECTION; an engine upgrade is what introduces a wholly new declaration.)
@@ -681,6 +718,16 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
         result["applied"] = True
         result["findings"] = module_coherence.check_coherence()
         return result
+    except engine_write.EngineWriteRefused as exc:
+        # #923: the manifest write refused (a symlinked/escaping engine.json) AFTER files were copied and
+        # wires applied — undo the partial install (the same best-effort cleanup the upgrade tail uses),
+        # then refuse HONESTLY: name what was rolled back rather than claiming nothing was changed.
+        residue = _cleanup_failed_install(module_id, release_tree)
+        reason = (f"Refused to record '{module_id}' in the engine manifest: {exc} The module's copied "
+                  f"files and settings were removed again.")
+        for r in residue:
+            reason += f" — {r} was left in place and may need your review"
+        return {"module_id": module_id, "refused": True, "applied": False, "reason": reason}
     finally:
         if tmp and os.path.isdir(tmp):
             shutil.rmtree(tmp, ignore_errors=True)
@@ -1069,7 +1116,13 @@ def _cleanup_failed_install(module_id: str, release_tree: str) -> list:
         engine = module_coherence.load_engine_manifest()
         if engine and module_id in (engine.get("packages") or {}):
             del engine["packages"][module_id]
-            _write_json(_engine_manifest_path(), engine)
+            try:
+                _write_engine_manifest(engine)
+            except engine_write.EngineWriteRefused:
+                # #923: honor "Never raises", but AUTHOR the disclosure instead of leaving the stale
+                # package entry to surface only incidentally at the structural gate.
+                residue.append(f"the stale '{module_id}' entry in .engine/engine.json (the file could "
+                               f"not be safely written — it is, or sits under, a shortcut)")
     except Exception:   # noqa: BLE001 — cleanup is best-effort; the structural gate is the real backstop
         pass
     return residue
@@ -1616,7 +1669,7 @@ def _bump_engine_manifest(target_versions: dict, engine_release: str, dropped_id
             pkgs[mid] = ver
     for mid in dropped_ids:
         pkgs.pop(mid, None)
-    _write_json(_engine_manifest_path(), engine)
+    _write_engine_manifest(engine)   # the guarded writer (#923) — raises EngineWriteRefused on a symlink
     return engine
 
 
@@ -2634,16 +2687,16 @@ def _regen_indexes() -> None:
         # rebuilds. Fail LOUD (this runs outside the regen swallow below), never a silent skip.
         raise KeyError(f"REGENERATED_DERIVED member {rel!r} has no generator in _regen_indexes — add one")
 
-    root = os.path.realpath(validate.ROOT)
     for rel in REGENERATED_DERIVED:
         target = os.path.join(validate.ENGINE_DIR, *rel.split("/")[1:])
         if not os.path.isfile(target):
             continue   # the tree does not carry this index (a minimal fixture / no settled spec) — never fabricate
         # #862: os.path.isfile FOLLOWS a symlink, so a live symlink at an engine index would be regenerated
-        # THROUGH it — an out-of-tree write (self-map/matrix use a plain open('w')). Refuse: skip the regen so no
-        # write ever follows the link; the drift gate (arrival's index gate / the upgrade reconcile) then surfaces
-        # the un-regenerated index as a hard finding, so the skip is disclosed, never silent.
-        if os.path.islink(target) or not os.path.realpath(target).startswith(root + os.sep):
+        # THROUGH it — an out-of-tree write (self-map/matrix use a plain open('w')). Refuse via the shared
+        # predicate (#923): SKIP the regen — keep this a `continue`, never a raise, even if the isfile check
+        # above is ever reordered — so no write follows the link; the drift gate (arrival's index gate / the
+        # upgrade reconcile) then surfaces the un-regenerated index as a hard finding, disclosed never silent.
+        if engine_write.write_through_symlink_reason(target, validate.ROOT):
             continue
         gen = _generator(rel)          # OUTSIDE the swallow: an unmapped member is a loud maintenance bug
         if gen is None:
@@ -2737,7 +2790,19 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # below — is recovered by UNDO, which restores the module and lets a fresh update re-detect and re-announce
     # it; a plain re-run would complete with the module already pruned and never disclose it. See the reconcile
     # KNOWN BOUND on undo-as-recovery in upgrade().)
-    _bump_engine_manifest(target_versions, target_ref, dropped_ids=dropped_ids)
+    try:
+        _bump_engine_manifest(target_versions, target_ref, dropped_ids=dropped_ids)
+    except engine_write.EngineWriteRefused as exc:
+        # #923: a symlinked/escaping engine.json is a PERSISTENT condition — the generic "run it again
+        # with --confirm" copy would loop (re-running the migrations each attempt). Join the tail's
+        # clean-refusal idiom with a purpose-written remedy instead. The upgrade() pre-flight refuses
+        # this before any overlay on the normal path; this is the fail-closed backstop for a shortcut
+        # planted mid-flight or a tail entered directly.
+        tail["reason"] = (f"The update was applied to the working copy, but the engine's own record "
+                          f"(.engine/engine.json) could not be safely written: {exc} So it was NOT "
+                          f"opened for review and nothing was merged. Delete or replace that shortcut, "
+                          f"then run the update again — or ask me to undo the update's changes.")
+        return tail
     # (d0b) #759 INSTALL the net-new modules this release adds that the deployment needs, and record the rest as
     # OFFERS. A `required` module the release adds is installed mandatorily (the deployment needs it to be
     # coherent); a NET-NEW `default-on` module is turned on opt-out; `optional`/`experimental`/previously-declined
@@ -3407,6 +3472,16 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         below = _below_floor_refusal(engine.get("engine_release"), release_tree)
         if below:
             return {**result, "refused": True, "reason": below}
+        # #923 MANIFEST PRE-FLIGHT: the tail's bump (step d) rewrites .engine/engine.json IN PLACE, and a
+        # symlinked/escaping manifest is statically knowable RIGHT NOW — refuse before any overlay, so the
+        # operator never pays for an overlay + seams + data migrations only to stop at the bump. The
+        # at-write guard in _bump_engine_manifest stays the fail-closed backstop; this is the cheap early
+        # warning — the same warn-early + guarantee pairing #862 built for arrival.
+        manifest_reason = engine_write.write_through_symlink_reason(_engine_manifest_path(), validate.ROOT)
+        if manifest_reason:
+            return {**result, "refused": True,
+                    "reason": f"Your engine's own record file (.engine/engine.json) can't be safely "
+                              f"written: {manifest_reason} The engine is unchanged."}
         # Capture the OLD engine-owned surface NOW — pre-overlay, with THIS (source) version's code: the old
         # `provides` globbed against the pristine deployed tree, UNIONED with the old FOUNDATION_INFRA (a code
         # constant only the pre-overlay process holds). The reconcile delete leg (in the tail) needs it to
@@ -4917,7 +4992,12 @@ def main(argv: list) -> int:
         if cmd == "status":
             return _status()
         if cmd == "sync-groups":
-            res = sync_groups()
+            try:
+                res = sync_groups()
+            except engine_write.EngineWriteRefused as exc:   # #923: a clean stop, not a CONFIG ERROR
+                print(f"Did not update the tool-runtime dependency groups: {exc} Nothing was changed.",
+                      file=sys.stderr)
+                return 1
             tail = f"{res['groups'] or '(none)'}."
             print((f"Updated the tool-runtime dependency groups to match the installed modules: {tail}")
                   if res["changed"] else
