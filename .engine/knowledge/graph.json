@@ -3937,7 +3937,7 @@
       },
       "slug": "eADR-0033-boot-refresh-family",
       "source": {
-        "fingerprint": "sha256:7ba3671ae8ebb8e12869c1e9d48c2d89456e0070eca0992f799c60968d1bdfd6",
+        "fingerprint": "sha256:cc54dfc9a47d61938219e94a20c617d12b2089ccf63c1c96e6fe8641fcfa6af9",
         "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
       },
       "status": "accepted",
@@ -11121,7 +11121,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:8c3029983bdb83eaf385c545b3cb893f3187c2f05fd523b2684092da2d328652",
+        "fingerprint": "sha256:7415736ba928a6935a6e13f6ef4cfdc18eeb9a18aaf5591f107815bfe92aa77e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

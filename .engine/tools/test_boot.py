@@ -2736,6 +2736,9 @@ class TestStanceLine(unittest.TestCase):
                 text = " ".join(fh.read().split())            # wrap-insensitive: prose lines wrap freely
             self.assertIn("wiring map", text.lower(), f"{path}: floor must advertise the wiring map")
             self.assertIn("knowledge-impact-check.md", text, f"{path}: advert must point at the runbook")
+            # the surface-catalog pointer relocated here too (eADR-0016 retired the per-session recognition
+            # render); guard it did not silently drop from either floor.
+            self.assertIn("surface-catalog.json", text, f"{path}: floor must point at the surface catalog")
 
     def test_pack_carries_the_status_pull_cue(self):
         # The status verb is operator-typed (non-resident), so the AI's standing cue to run engine_status.py
@@ -3022,6 +3025,16 @@ class PinAndWithholdReadoutTests(unittest.TestCase):
         line = "\n".join(boot.render_pins(long_pin, 80))
         self.assertIn("…", line)
         self.assertNotIn("A" * 200, line)
+
+    def test_a_pin_title_clips_at_a_word_boundary_not_mid_word(self):
+        # the clip snaps back to the last whole word before the budget — a title read by the operator should
+        # not end mid-word. (Text whose clip point lands inside a word; assert no partial word before the "…".)
+        pin = [{"text": "always run the complete regression suite including the slow integration tests before merge"}]
+        title = boot._pin_title(pin[0]["text"], 40)
+        self.assertTrue(title.endswith("…"))
+        self.assertNotIn(" ", title[-2:])                        # ends "<word>…", not "<partial "
+        self.assertTrue(all(w in pin[0]["text"].split() for w in title[:-1].split()),
+                        "every shown word must be a whole word from the pin, never a mid-word fragment")
 
     def test_no_block_is_rendered_when_nothing_is_pinned(self):
         self.assertEqual(boot.render_pins([]), [])
@@ -3448,11 +3461,15 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertLess(pack.find("did not fit in this session's briefing"), divider,
                         "the loud pin disclosure must precede (sit above, in the never-shed block) the dashboard")
 
-    def test_dashboard_stays_within_its_growth_budget(self):
-        # #787 growth alarm: the ACTUAL rendered dashboard must stay within dashboard_chars_max, or the margin
-        # canary's budgeted-core assumption is void. Checked against a heavy realistic fixture AND the real
-        # offline-assembled dashboard the canary budgets against — a dashboard grown past its budget fails
-        # HERE, naming itself, rather than silently eroding the margin.
+    def test_dashboard_routine_body_stays_within_its_growth_budget(self):
+        # #787 growth alarm: the ROUTINE dashboard body (the facts/counts/shipped/attention block, plus the
+        # degraded-substrate notices) must stay within dashboard_chars_max, so the margin canary's budgeted-core
+        # assumption holds for an ordinary session and structural growth of that body fails HERE, naming itself.
+        # SCOPE (honest): the dashboard's conditional pinned ALERTS (gate-off, stranded checkout, hooks-path,
+        # behind-origin, migration-revert, foreign-license, greenfield-intake, …) are NOT budgeted here — like
+        # governance alarms they are consent-relevant and, when several fire at once, the dashboard legitimately
+        # exceeds this routine budget and is set aside with a disclosed notice (the correct priority; see the
+        # policy's Rule). This test therefore fixes the routine body, the part a clean session actually carries.
         budget = boot._briefing_values()["dashboard_chars_max"]
         heavy = _signals(finding_count=40, unrated_count=12, operator_backlog_count=40,
                          shipped=[f"#{i} — a fairly wordy recently-shipped pull request title {i}" for i in range(15)],
