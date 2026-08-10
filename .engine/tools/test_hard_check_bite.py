@@ -584,6 +584,7 @@ class TestDeclarationCensus(unittest.TestCase):
             ".engine/_fixtures/memory-pointer-public-safety/construction-scoped.json",
             ".engine/_fixtures/product-lock-integrity/not-applicable.json",
             ".engine/_fixtures/protection/not-applicable.json",
+            ".engine/_fixtures/shipped-issue-references/construction-scoped.json",
         ])
 
 
