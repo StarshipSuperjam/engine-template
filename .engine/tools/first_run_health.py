@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""first_run_health — the standing "this copy hasn't finished first-run setup" detector (issue #353).
+"""first_run_health — the standing "this copy hasn't finished first-run setup" detector (issue StarshipSuperjam/engine-template#353).
 
 Catches when a repo created from the engine template ("Use this template", or a clone-and-push of it) is
 still sitting in its un-transformed, as-copied shape — so [boot] can OFFER to walk the operator
@@ -23,7 +23,7 @@ OBSERVABLE installed shape instead, using two grounded signals:
      done yet" signal (the same `os.path.isfile(...instantiator.py)` check the instantiator's arrival/finish
      demos already use). Keying on the TOOL — not on whether the floor CLAUDE.md was swapped — covers BOTH
      an untouched fresh copy and a setup INTERRUPTED partway (before or after the floor swap): the remedy is
-     identical, since `/engine-setup` resumes idempotently (#519 §1).
+     identical, since `/engine-setup` resumes idempotently (StarshipSuperjam/engine-template#519 §1).
 
 A FORK of the engine's own home (a contributor's fork: origin != home, and the one-time setup tool still
 present, because a fork of the engine's repo carries it) is the one offline false-positive the two signals
@@ -56,7 +56,7 @@ _MANIFEST_REL = os.path.join(".engine", "engine.json")
 # github.com.evil.com) — consistent with mechanic_build/boot's belts (defense-in-depth; this parser only
 # decides whether to OFFER first-run setup, but a mis-parse should never treat a look-alike as the home).
 # IGNORECASE reads a mixed-case host (`GitHub.com`); ASCII keeps that fold ASCII-only so a Unicode homograph
-# (`gİthub.com`, where U+0130 folds to `i`) cannot satisfy the host literal (#625).
+# (`gİthub.com`, where U+0130 folds to `i`) cannot satisfy the host literal (StarshipSuperjam/engine-template#625).
 _GITHUB_SLUG_RE = re.compile(
     r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE | re.ASCII)
 
@@ -175,7 +175,7 @@ def detect_home_workshop(cwd: str | None = None) -> dict | None:
 
 
 # The LOCAL awaiting-landing marker instantiator.retire drops when first-run setup is APPLIED but not yet landed
-# through review (#810). It lives under the boot presentation cache — an engine-managed GITIGNORED path (the
+# through review (StarshipSuperjam/engine-template#810). It lives under the boot presentation cache — an engine-managed GITIGNORED path (the
 # `.engine/boot/.cache/` block ships in the template), so it is LOCAL: never committed, so it does not travel
 # through the landing commit, and it survives the operator's own branch->PR->merge->pull. Its presence is what
 # lets the post-landing "Setup is now complete" confirmation fire EXACTLY ONCE in the operator's own checkout;
@@ -222,7 +222,7 @@ def _default_branch(main: str) -> str | None:
 
 
 def detect_setup_landed(cwd: str | None = None) -> dict | None:
-    """OFFLINE, READ-ONLY (#810). Returns {"present": True, "main": <path>} when first-run setup was APPLIED in
+    """OFFLINE, READ-ONLY (StarshipSuperjam/engine-template#810). Returns {"present": True, "main": <path>} when first-run setup was APPLIED in
     this checkout (the local awaiting-landing marker exists) AND the transformation is now DURABLE: the one-time
     setup tool is retired, the working tree is CLEAN, and the checkout sits on its DEFAULT branch (so the setup
     was committed and landed through review, not left uncommitted or parked on a setup branch). This is the
@@ -258,7 +258,7 @@ def forked_from_home(repo: str | None, token: str | None, home: str | None, tran
     path. Only a fork OF THE HOME suppresses: a template-generated copy and a clone-and-push copy are both
     `fork == false`, so neither is silenced and the dead-on-arrival case they represent is still caught.
     `transport(method, path, body) -> (status, json)` is injectable (the `GitHubIssues` seam) so a test drives
-    the real fork/parent decision logic without a network round-trip. NOTE (issue #353): this deliberately
+    the real fork/parent decision logic without a network round-trip. NOTE (issue StarshipSuperjam/engine-template#353): this deliberately
     silences a FORK-based *adopter* too (indistinguishable from a contributor's fork through this one signal);
     a fork-adopter is still rescued via `/engine-setup show`, which does not apply this suppressor. Revisit
     when the project's contribution model is defined (see README 'Contributing')."""
@@ -278,7 +278,7 @@ def forked_from_home(repo: str | None, token: str | None, home: str | None, tran
         return None
 
 
-# ---- in-tool demo: a self-checking falsification (issue #353) --------------------------------
+# ---- in-tool demo: a self-checking falsification (issue StarshipSuperjam/engine-template#353) --------------------------------
 
 def _git(root: str, *args: str) -> None:
     subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
@@ -290,7 +290,7 @@ def _fixture(tmp: str, name: str, *, origin: str, home: str,
     optionally the one-time setup tool, and a placeholder root CLAUDE.md. The CLAUDE.md content is incidental —
     detect_first_run_pending keys on the origin vs recorded home and the setup tool's presence, never the file's
     text — so `floor_swapped` only varies a cosmetic label (a fresh copy inherits the committed floor either way
-    since #323)."""
+    since StarshipSuperjam/engine-template#323)."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".engine", "tools"), exist_ok=True)
     _git(root, "init", "-q")

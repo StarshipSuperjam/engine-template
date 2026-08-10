@@ -326,7 +326,7 @@ def _validate_transcript_path(path_str: str, cwd=None):
     """Reject traversal / wrong-suffix / out-of-scope / missing / oversized. Returns
     `(resolved_path, None)` on success, `(None, reason)` on refusal — the reason is a fixed code
     (`traversal` / `suffix` / `out-of-scope` / `missing` / `oversized` / `size-unreadable`), never
-    path or content text, so the capture-status marker can record WHY a path was refused (#774:
+    path or content text, so the capture-status marker can record WHY a path was refused (StarshipSuperjam/engine-template#774:
     `invalid-path` alone collapsed five distinct causes into one undiagnosable word)."""
     raw = os.path.expanduser(path_str)
     if ".." in raw.replace("\\", "/").split("/"):
@@ -575,7 +575,7 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
     stable, content-free record id minted at capture — kept out of the search body too
     (index._NON_BODY_KEYS). `injected` adds `records.INJECTED_TAG` so the consolidation sweep skips a
-    harness-injected pseudo-turn as fuel (issue #274) — the record still lands and stays fully recoverable;
+    harness-injected pseudo-turn as fuel (issue StarshipSuperjam/engine-template#274) — the record still lands and stays fully recoverable;
     the tag (like every tag) is kept out of the search body. That tag now also keeps the pseudo-turn out of
     RECALL: genuine turns are recall content, so this tag is what separates the operator's words from the
     harness's."""
@@ -601,13 +601,13 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
 # captured / no-transcript / invalid-path / unparseable — which boot renders as one plain dashboard
 # line when the previous session's conversation could not be saved, and telemetry's inbox drain
 # promotes a persistently failing marker to one tracked finding. EVERY failing state records a
-# CONTENT-FREE structural `detail` (#774): `unparseable` keeps its Codex shape fingerprint; the Claude
+# CONTENT-FREE structural `detail` (StarshipSuperjam/engine-template#774): `unparseable` keeps its Codex shape fingerprint; the Claude
 # states carry which field was absent, the path-validation reason code, or the exception class name
 # only — never any message text, path text, or exception message. Best-effort: a marker write failure
 # never disturbs the capture or the turn.
 #
 # The marker keeps only the LAST outcome, so a success overwrites the failure that preceded it — which
-# made an INTERMITTENT failure undiagnosable after the fact (#774). Every failing write therefore also
+# made an INTERMITTENT failure undiagnosable after the fact (StarshipSuperjam/engine-template#774). Every failing write therefore also
 # appends to a small rolling history file beside the marker (newest MAX_FAILURE_HISTORY kept), swapped
 # in atomically (write-temp + os.replace) so a reader never sees a torn file. Concurrent failing
 # writers can still last-writer-win a just-appended line (the marker itself has the same posture);
@@ -653,7 +653,7 @@ def _write_capture_status(state: str, session_id=None, *, detail=None) -> None:
         with open(CAPTURE_STATUS_PATH, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(record))
         if state != "captured":
-            _append_failure_history(record)   # a failure survives the next success (#774)
+            _append_failure_history(record)   # a failure survives the next success (StarshipSuperjam/engine-template#774)
     except OSError:
         pass
 
@@ -693,7 +693,7 @@ def capture_turn_delta(payload, *, cwd=None) -> int:
         return _capture(payload, cwd=cwd)
     except Exception as exc:  # noqa: BLE001 — ambient capture never gates close; any failure is a no-op
         # …but never a SILENT one: the crash path is loud too, and it carries the exception CLASS
-        # NAME only (#774) — never the message, which can embed paths or transcript content.
+        # NAME only (StarshipSuperjam/engine-template#774) — never the message, which can embed paths or transcript content.
         _write_capture_status("failed", None,
                               detail={"reason": "exception", "exception_class": type(exc).__name__})
         return 0
@@ -754,7 +754,7 @@ def _capture(payload, *, cwd) -> int:
             speaker = _speaker(rec)
             # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
             # multi-chunk block (e.g. the >4 KB /compact continuation summary) is tagged — not just the first
-            # (issue #274). The record still lands + stays recoverable; consolidation skips it as fuel.
+            # (issue StarshipSuperjam/engine-template#274). The record still lands + stays recoverable; consolidation skips it as fuel.
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
                 record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)

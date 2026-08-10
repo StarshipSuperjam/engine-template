@@ -6,7 +6,7 @@ do that again" — that has no canonical artifact to live in and would otherwise
 conversation nobody thinks to search for. eADR-0038 puts it in the one substrate as a record-type rather than a
 sixth store, and that is exactly what this is: an ordinary ledger record that ordinary recall surfaces.
 
-WHAT A PIN IS NOT FOR (#650, #766). An assistant's own material is different in kind and does not belong
+WHAT A PIN IS NOT FOR (StarshipSuperjam/engine-template#650, StarshipSuperjam/engine-template#766). An assistant's own material is different in kind and does not belong
 here, however durable it feels: an operating note (a navigation map, a tool quirk, a build lesson) goes in the
 assistant's own harness memory notebook, and a project conclusion gets stated plainly in the session, where
 capture makes it recallable. Pinning either forces it into every future boot briefing — the operator's

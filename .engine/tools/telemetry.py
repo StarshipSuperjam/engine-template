@@ -233,7 +233,7 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
     if open_low_severity_count > threshold:
         # The trailing sentence is the reactive retune offer: the threshold that decides when this
         # reminder fires is itself tunable, so the command is offered at the moment it surfaces. Boot renders
-        # this line live from the complete open low-severity count (#403), so the offer fires on a real backlog.
+        # this line live from the complete open low-severity count (StarshipSuperjam/engine-template#403), so the offer fires on a real backlog.
         return ("The engine's self-monitoring backlog is growing — there are several low-priority "
                 "engine items open. Nothing here is urgent; you can review them when convenient. "
                 "You can also change when this reminder appears — type /engine-tune.")
@@ -448,7 +448,7 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     its body (open_issues[*].source_id), and the cache's remembered issue number is the fast path /
     cross-check. When a create/create race (GitHub has no atomic create-if-absent) has left MORE THAN
     ONE open Issue for one sid — both markers intact — this pass CONSOLIDATES them: the lowest-numbered
-    survivor is kept and the rest are closed, UNCONDITIONALLY of authority scope (#518 — authority governs
+    survivor is kept and the rest are closed, UNCONDITIONALLY of authority scope (StarshipSuperjam/engine-template#518 — authority governs
     auto-resolve, never duplicate-folding; see _consolidate), so a keyable duplicate is
     healed, never silently dropped. The one residual worst case is a marker stripped AND the cache wiped:
     that Issue is unkeyable by any pass, so a single duplicate can persist (never a missed signal) — it
@@ -503,7 +503,7 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
 
     def _consolidate(sid: str, survivor_number: int) -> None:
         # Fold every same-signal duplicate into the survivor and close it — UNCONDITIONALLY, independent of
-        # this pass's authority scope (#518). Authority governs auto-RESOLVE — deciding a signal cleared and
+        # this pass's authority scope (StarshipSuperjam/engine-template#518). Authority governs auto-RESOLVE — deciding a signal cleared and
         # retiring it — where a claim-all pass could silently close another source's live alarm. Folding two
         # copies of ONE signal into one decides nothing about the signal: the survivor stays open with the
         # earliest first-noticed, the duplicate is keyed by its own intact marker, and the consolidation
@@ -544,7 +544,7 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
         prev = counts.get(sid) or {}
         if not _claims(authoritative, sid):
             # No authority to RESOLVE this source's signal — carry it forward untouched — but its keyable
-            # duplicates are still folded into the survivor (#518): consolidation is authority-free, and
+            # duplicates are still folded into the survivor (StarshipSuperjam/engine-template#518): consolidation is authority-free, and
             # this carry-forward branch was the chicken-and-egg leg (the tool-runtime signal's own passes
             # land here, so its race duplicates were never healed by anyone).
             _consolidate(sid, issue["number"])
@@ -955,7 +955,7 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 
     Open-or-update-and-CONVERGE, deduped by `source_id` (the same source-keyed dedup `run` uses, via
     list_open_engine_issues + the body sentinel). GitHub has no atomic create-if-absent, so two rapid
-    firings of ONE signal can each open an Issue (a create/create race — this is how #433/#434 arose);
+    firings of ONE signal can each open an Issue (a create/create race — this is how StarshipSuperjam/engine-template#433/StarshipSuperjam/engine-template#434 arose);
     this heals that by keeping the LOWEST-numbered match as the canonical survivor, folding every
     same-signal duplicate into it and closing them, and PRESERVING the earliest first-noticed across the
     group (never resetting it to `now`). It still does **no auto-resolve** of OTHER signals: unlike
@@ -1023,7 +1023,7 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 # synchronously — telemetry resolving the boundary itself, the un-inversion of today's producer-held
 # reach-in; a benign/degraded signal defers, spooled into a telemetry-owned gitignored inbox that a later
 # drain pass promotes. This step stands up the channel and migrates the hooks emitter onto it; the PRODUCTION
-# drain cadence is #412 and boot's own emission is #398 (both build ON this seam — see drain_inbox).
+# drain cadence is StarshipSuperjam/engine-template#412 and boot's own emission is StarshipSuperjam/engine-template#398 (both build ON this seam — see drain_inbox).
 # Build-spec leaf (recorded with the maintainer, PR body + memory): the spool is a gitignored NDJSON at the
 # path below, beside telemetry's other .cache siblings (ambient.ndjson / *-streams.json).
 INBOX_SPOOL_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "findings-inbox.ndjson")
@@ -1056,7 +1056,7 @@ def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: 
       - TRUST_CRITICAL (a gate/check that could not run) → promote IMMEDIATELY; returns the tracked Issue
         number (truthy) on success, or **False** when there is no local GitHub context or the write could not
         land. It is NEVER spooled: a could-not-run signal must surface at once, and a no-token trust-critical
-        returns False = surfaced-but-not-durably-recorded — never a false "tracked" claim (the #391 honesty
+        returns False = surfaced-but-not-durably-recorded — never a false "tracked" claim (the StarshipSuperjam/engine-template#391 honesty
         law the fail-open copy depends on).
       - anything else (benign / degraded) → APPEND to the telemetry-owned gitignored inbox spool and return
         **False** (a spool append is capture, NOT durable tracking — the caller must not claim tracked). It is
@@ -1067,7 +1067,7 @@ def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: 
     resolves the LOCAL GitHub context (boot.repo_slug/gh_token) itself — the credential resolution the producer
     used to hold (hooks), now telemetry's (the un-inversion). SAFETY BACKSTOP: under a test harness (`unittest`
     in sys.modules) the default (un-injected) trust-critical path refuses to reach live GitHub and returns False
-    — boot.gh_token()'s `gh auth token` fallback can resolve a real token even locally (#416-F5), so a direct
+    — boot.gh_token()'s `gh auth token` fallback can resolve a real token even locally (StarshipSuperjam/engine-template#416-F5), so a direct
     emit_finding test must never open a real Issue. FAIL-OPEN: any error degrades to a no-op (False), never
     raises — emitting a finding must never break the caller (a fail-open hook, a read-only boot)."""
     try:
@@ -1108,9 +1108,9 @@ def _take_inbox(spool_path: str):
     records (a corrupt line skipped, per-line tolerant) and the aside file to dispose of; `([], None)` when the
     spool is absent (nothing to drain).
 
-    Residual bound (handed to #412, the production-drain owner): a HARD crash between the claim and the drain's
+    Residual bound (handed to StarshipSuperjam/engine-template#412, the production-drain owner): a HARD crash between the claim and the drain's
     dispose strands that batch in its per-process aside — recoverable (the data is on disk, not overwritten),
-    but nothing re-reads it until a sweep runs. The production drain cadence (#412) must sweep stale
+    but nothing re-reads it until a sweep runs. The production drain cadence (StarshipSuperjam/engine-template#412) must sweep stale
     `*.draining` asides on start-up; this fixture-exercised builder does not, and never claims it does."""
     aside = f"{spool_path}.{os.getpid()}.draining"   # per-process: concurrent drains never clobber each other
     try:
@@ -1137,16 +1137,16 @@ def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: st
                 spool_path: str = INBOX_SPOOL_PATH):
     """Drain the findings-inbox spool: read the spooled emit-and-done findings, run ONE triage pass over them,
     and dispose of the drained batch. The benign counterpart to emit_finding's immediate trust-critical path —
-    what promotes a spooled degraded finding (a boot degradation, #398) to a tracked Issue. The PRODUCTION
-    cadence that calls this is #412; this step builds and fixture-exercises it. Returns the run Report, or
+    what promotes a spooled degraded finding (a boot degradation, StarshipSuperjam/engine-template#398) to a tracked Issue. The PRODUCTION
+    cadence that calls this is StarshipSuperjam/engine-template#412; this step builds and fixture-exercises it. Returns the run Report, or
     None when there was nothing promotable to drain.
 
     live=FALSE: a spooled batch is a set of one-shot emissions, NOT a complete current-state snapshot, so it
     carries NO clearance events. Persistence accrues across drains in the cache (like ambient), and
     `authoritative` is scoped to the drained source-ids ONLY — so a drain never auto-closes another source's
-    Issue, AND a spooled finding never auto-resolves THROUGH THIS DRAIN (a safe asymmetry #412 must not
+    Issue, AND a spooled finding never auto-resolves THROUGH THIS DRAIN (a safe asymmetry StarshipSuperjam/engine-template#412 must not
     "fix" by widening authority here). The ONE positive-clearance path lives outside this function by
-    design: resolve_capture_marker (#774), a dedicated live-derived pass for exactly the
+    design: resolve_capture_marker (StarshipSuperjam/engine-template#774), a dedicated live-derived pass for exactly the
     memory/capture-degraded sid, which reads the durable marker state — never this batch — and closes
     without touching this drain's authority.
 
@@ -1157,7 +1157,7 @@ def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: st
     re-spooled (promotion is idempotent, so it re-drains cleanly next pass) — nothing promotable is lost.
     CONCURRENCY: the claim is a per-process atomic rename (see _take_inbox), so a concurrent emit or a
     concurrent drain never clobbers this batch; a hard crash mid-drain strands (never overwrites) the batch —
-    #412's cadence owns sweeping a stranded aside. Fail-open: an absent/unreadable spool drains nothing."""
+    StarshipSuperjam/engine-template#412's cadence owns sweeping a stranded aside. Fail-open: an absent/unreadable spool drains nothing."""
     records, aside = _take_inbox(spool_path)
     if aside is None:
         return None
@@ -1244,11 +1244,11 @@ def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
         return False
 
 
-# ---- the capture-recovery resolve pass (#774) -------------------------------------------------
+# ---- the capture-recovery resolve pass (StarshipSuperjam/engine-template#774) -------------------------------------------------
 # The positive-clearance half the drain deliberately lacks. spool_capture_marker (above) feeds a
 # FAILING marker into the inbox; nothing ever fed the RECOVERY, so a capture-degraded Issue latched
 # open forever — the drain's own docstring records the asymmetry ("a spooled finding never
-# auto-resolves") and the reason widening its authority was refused (#412). This pass is the fix #774
+# auto-resolves") and the reason widening its authority was refused (StarshipSuperjam/engine-template#412). This pass is the fix #774
 # prescribes instead: source-scoped and LIVE-DERIVED, authoritative for ONLY memory/capture-degraded,
 # run from the SessionStart drain driver, mirroring how CI / soft-budget findings clear on a positive
 # observation. It touches neither drain_inbox's authority nor the persistence-gated promotion path.
@@ -1263,7 +1263,7 @@ def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
 # `git worktree add` outside `.claude/worktrees/`, is beyond any filesystem walk from here — if such
 # a tree is still failing, its next session re-promotes and the Issue reopens, so the harm is bounded
 # to close/reopen churn, and the operator-facing wording below claims only what the sweep covers.
-# Captured and absent both clear (#774's live-derived semantics: the durable state shows "not
+# Captured and absent both clear (StarshipSuperjam/engine-template#774's live-derived semantics: the durable state shows "not
 # failing"); ANY marker that records an outcome other than `captured` — including a state this module
 # has never heard of — blocks, so a future new failing state fails toward keeping the Issue open,
 # never toward closing it. A marker that is absent or unreadable is NO EVIDENCE — and no evidence
@@ -1419,7 +1419,7 @@ def promote_runtime_marker(github: GitHubIssues, *, marker_path: str = RUNTIME_H
 
 
 def _sweep_stranded_asides(spool_path: str = INBOX_SPOOL_PATH, *, min_age_seconds: float = _ASIDE_STALE_SECONDS) -> int:
-    """Recover a crashed drain's stranded batch (the residual _take_inbox hands to #412): re-append any
+    """Recover a crashed drain's stranded batch (the residual _take_inbox hands to StarshipSuperjam/engine-template#412): re-append any
     mtime-STALE `<spool>.<pid>.draining` aside back to the LIVE spool, so the next drain_inbox picks it up
     through the SINGLE validation + authoritative-scoping path (never a second run() that could widen
     authority). AGE-GATED: only asides older than `min_age_seconds` — far beyond any real drain — are swept,
@@ -1668,7 +1668,7 @@ def derive_ambient_records(path: str = DEFAULT_AMBIENT_CACHE_PATH, watermark: st
         rid = f.get("rule_id")
         # observed_at is compared below as a RAW STRING (>=, >). That is a correct chronological comparison
         # only because ambient-capture.v1 pins it to the fixed-width trailing-Z shape (moment.Z_PATTERN, no
-        # fractional-seconds group) — '...05Z' vs '...05.5Z' would sort wrong. #631 removed that group.
+        # fractional-seconds group) — '...05Z' vs '...05.5Z' would sort wrong. StarshipSuperjam/engine-template#631 removed that group.
         ts = str(f.get("observed_at") or "")
         if not rid or f.get("outcome") not in ("pass", "fail"):
             continue
@@ -2256,12 +2256,12 @@ def _run_ambient_cli(argv: list) -> int:
 def _run_drain_cli(argv: list) -> int:
     """The findings-inbox drain verb — the LOCAL SessionStart driver (a sibling of run-ambient and
     the memory/backup SessionStart writers) that stands the emit-and-done seam's drain up in PRODUCTION (the
-    cadence #412 owns). Three fail-open jobs:
+    cadence StarshipSuperjam/engine-template#412 owns). Three fail-open jobs:
       1) promote the broken-runtime marker → ONE TRUST_CRITICAL could-not-run finding, immediately (the live
          producer this step delivers; the hook launcher drops the marker when the engine's Python is absent);
       2) sweep mtime-stale `*.draining` asides (a crashed drain's stranded batch) back through the drain;
       3) drain the findings-inbox spool → promote the benign/degraded findings a producer emitted out-of-band
-         (boot's refused-cursor emitter (#398) is a live producer that appends benign findings to this spool
+         (boot's refused-cursor emitter (StarshipSuperjam/engine-template#398) is a live producer that appends benign findings to this spool
          out-of-band; tests and fixtures also feed it).
     Runs on the LOCAL machine (the spool + marker are per-machine, gitignored), resolving the GitHub context the
     LOCAL way (boot's repo_slug/gh_token). SAFETY: drain_inbox scopes auto-resolve to the drained source-ids
@@ -2276,7 +2276,7 @@ def _run_drain_cli(argv: list) -> int:
     gh = GitHubIssues(repo, token)
     runtime_alert = promote_runtime_marker(gh)
     spool_capture_marker()   # a failing memory-capture marker joins the drain (persistence-gated)
-    capture_resolved = resolve_capture_marker(gh)   # a RECOVERED marker closes its Issue (#774, live-derived)
+    capture_resolved = resolve_capture_marker(gh)   # a RECOVERED marker closes its Issue (StarshipSuperjam/engine-template#774, live-derived)
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=moment.utc_now())
@@ -2301,7 +2301,7 @@ def _run_drain_cli(argv: list) -> int:
 
 
 def _serialize_session_passes():
-    """A cross-process lock serializing the SessionStart triage passes (#518). The platform launches the
+    """A cross-process lock serializing the SessionStart triage passes (StarshipSuperjam/engine-template#518). The platform launches the
     three SessionStart hooks concurrently, and GitHub has no atomic create-if-absent — so two passes
     promoting the same inbox signal in the same instant each created an Issue (the recorded duplicate
     pair; a just-created Issue is not immediately visible to a sibling's search either). One blocking

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""license_health — the standing foreign-template-`LICENSE` detector (issue #471).
+"""license_health — the standing foreign-template-`LICENSE` detector (issue StarshipSuperjam/engine-template#471).
 
 Catches when the operator's main checkout still carries the engine's OWN template LICENSE at its committed root
 — a repo generated before the first-run clear shipped, or one that drifted the seed back into the slot — so
@@ -29,7 +29,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import license_seeds  # noqa: E402
-import repo_identity  # noqa: E402  (is_home_repo — the home-repo identity seam; #323)
+import repo_identity  # noqa: E402  (is_home_repo — the home-repo identity seam; StarshipSuperjam/engine-template#323)
 
 # The fixed title of the reviewed removal PR — the SHARED CONTRACT between the fix author and this dedupe. The
 # boot-session-start repair-offer wiring instructs the assistant to title the cleanup PR EXACTLY this, and
@@ -98,7 +98,7 @@ def _blob_present_at(main: str, oid: str, rel: str) -> bool | None:
 
 def license_absent_upstream(main: str, target_oid: str | None) -> bool:
     """OFFLINE, READ-ONLY. True ONLY when the root LICENSE is PROVABLY absent at the verified remote target
-    commit `target_oid` (#810) — the signal boot uses to suppress a redundant removal offer for an artifact the
+    commit `target_oid` (StarshipSuperjam/engine-template#810) — the signal boot uses to suppress a redundant removal offer for an artifact the
     reviewed upstream has already dropped. FAILS TOWARD RE-OFFER: any unreadable/inconclusive read (no target,
     unresolvable commit, git error) returns False, so a real leftover is NEVER silently suppressed — the same
     fail-safe posture `detect_foreign_license` takes toward home. The caller supplies the target OID from the
@@ -153,7 +153,7 @@ def removal_pr_open(repo: str | None, token: str | None) -> bool | None:
         return None
 
 
-# ---- in-tool demo: a self-checking falsification (issue #471) --------------------------------
+# ---- in-tool demo: a self-checking falsification (issue StarshipSuperjam/engine-template#471) --------------------------------
 
 def _git(root: str, *args: str) -> None:
     subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)

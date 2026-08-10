@@ -1,12 +1,12 @@
-"""The write boundary for the engine's OWN files — one predicate, homed once (#923).
+"""The write boundary for the engine's OWN files — one predicate, homed once (StarshipSuperjam/engine-template#923).
 
 The invariant: the engine never writes one of its own generated files THROUGH a symlink, or to a
 destination that resolves outside the tree it belongs to. A planted shortcut at an engine-owned path
 (`.engine/engine.json` above all — it is tracked, so it can arrive in a clone, a pull request, or a
 release) would otherwise be silently followed on write, placing the engine's file OUTSIDE the repository.
-#862 built this guard for the arrival path's writers; #923 homes the predicate here so the module
+StarshipSuperjam/engine-template#862 built this guard for the arrival path's writers; StarshipSuperjam/engine-template#923 homes the predicate here so the module
 lifecycle's writers (upgrade, add, remove) inherit the same rule instead of re-remembering it per site —
-the #862 review found new unguarded writers four rounds running, which is what per-site guarding buys.
+the StarshipSuperjam/engine-template#862 review found new unguarded writers four rounds running, which is what per-site guarding buys.
 
 What is unified here is the PREDICATE (and the one guarded JSON writer below); the enforcement idiom
 stays per-site on purpose, because the right failure mode differs by surface: the arrival flow and the
@@ -19,7 +19,7 @@ caller that writes IN PLACE to an engine-owned slot outside the overlay's realpa
 through `write_json` (or check `write_through_symlink_reason` first when it writes prose or must check
 before a read).
 
-Choosing `base` (the #923 review's central lesson): base and target must come from the SAME source.
+Choosing `base` (the StarshipSuperjam/engine-template#923 review's central lesson): base and target must come from the SAME source.
 - A fixed engine-owned slot (`.engine/engine.json`, `.engine/pyproject.toml`, the committed audit
   digest) is guarded against the repository root — the full wall: symlinked leaf, symlinked ancestor,
   or any escape refuses.
@@ -27,7 +27,7 @@ Choosing `base` (the #923 review's central lesson): base and target must come fr
   against its OWN parent directory, which reduces the rule to "the leaf must not be a symlink" — never
   against an ambient root the caller did not choose, which would refuse legitimate out-of-tree fixtures.
 
-Deliberately NOT guarded (judged per surface, #923):
+Deliberately NOT guarded (judged per surface, StarshipSuperjam/engine-template#923):
 - Generic JSON writers (`module_manager._write_json`, `instantiator._write_json`): part of their real
   job is writing release-tree and fixture files DELIBERATELY outside the repository root. The invariant
   belongs to destinations, not to writers — the guarded slots above route around them.
@@ -54,11 +54,11 @@ Deliberately NOT guarded (judged per surface, #923):
   narrower than this module's). README's content-marker gate and LICENSE's remove-only path need no
   guard (verified: a dangling link reads as unreadable content / os.remove unlinks the link itself).
 - `.engine/state/*.json`: the only in-place writer is the arrival's state reseed
-  (`instantiator._seed_state`), guarded there since #862 (it must check BEFORE its register read, so a
+  (`instantiator._seed_state`), guarded there since StarshipSuperjam/engine-template#862 (it must check BEFORE its register read, so a
   dangling symlink is refused rather than read-swallowed). Upgrade migrations that touch state run
   behind the data-backup pre-flight, not through this module.
 
-Check-then-write is accepted here on #862's own precedent: the race window is microseconds, and an
+Check-then-write is accepted here on StarshipSuperjam/engine-template#862's own precedent: the race window is microseconds, and an
 attacker who can flip the destination inside it already has local write access — with which they could
 write the target directly. The guard closes the ARRIVAL vector, not local compromise.
 
@@ -74,7 +74,7 @@ import os
 class EngineWriteRefused(Exception):
     """The engine refused to write one of its OWN generated files because the destination is a symlink
     or resolves outside the tree it belongs to — following it on write could place the file OUT of the
-    repository. The fail-closed backstop behind the early warnings (#862's resume recognizer, #923's
+    repository. The fail-closed backstop behind the early warnings (StarshipSuperjam/engine-template#862's resume recognizer, StarshipSuperjam/engine-template#923's
     upgrade pre-flight): the warnings tell the operator early, this guarantees the write never follows
     the link."""
 

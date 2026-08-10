@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator-checkout health — detect a stranded operator checkout AND offer a lossless un-stranding fix (#80).
+"""Operator-checkout health — detect a stranded operator checkout AND offer a lossless un-stranding fix (StarshipSuperjam/engine-template#80).
 
 The operator checkout — the top-level project folder the operator opens — is meant to sit on
 its branch with the engine files present; build runs in per-session worktrees, never in it (the
@@ -15,12 +15,12 @@ Design — the operator-checkout strand:
     `--git-common-dir` as a fallback) and read its state LOCALLY (one shared `_resolve_state`).
   - **Two binary BROKEN states, checked every boot, OFFLINE:** a detached `HEAD`; missing engine files
     (`.claude/settings.json`, `.engine/`) — `detect_strand`. These two stay TWO.
-  - **Off-main is the OFFLINE Stage-1 signal** — `detect_off_main` (#342). A healthy checkout PARKED on a
+  - **Off-main is the OFFLINE Stage-1 signal** — `detect_off_main` (StarshipSuperjam/engine-template#342). A healthy checkout PARKED on a
     non-default branch (the wrong-branch park) is caught on day one, before anything is even missing — the
     cheap-to-fix window. It fires only when the default branch is KNOWN with confidence (the persisted name or
     `origin/HEAD`), never on a heuristic guess, so a pre-persistence checkout raises no false standing nag.
-  - **Behind-the-main-line is one ONLINE snapshot** — `detect_behind_origin` (#335, widened branch-agnostic for
-    #342). Any upstream commit the checkout lacks is real drift, including squash/rebase/direct commits, and is
+  - **Behind-the-main-line is one ONLINE snapshot** — `detect_behind_origin` (StarshipSuperjam/engine-template#335, widened branch-agnostic for
+    StarshipSuperjam/engine-template#342). Any upstream commit the checkout lacks is real drift, including squash/rebase/direct commits, and is
     surfaced whether the checkout is on the default branch OR parked on a side branch. Merge velocity controls
     only presentation: ordinary drift is a calm notice; more than roughly one active day's missing merges is a
     firm warning. A tightly bounded refresh is mandatory before claiming current or offering a write. If the
@@ -49,7 +49,7 @@ Design — the operator-checkout strand:
     source-scan for them, and behavioral tests
     pin that `catch_up` refuses divergence and `return_to_default` blocks on a paused operation).
   - **Both corrections share a third, rescue-first arm for the first-run-strand case (`_rescue_then_reconcile`,
-    #810).** When the ONLY obstruction is uncommitted work whose every change is ALREADY present at the verified
+    StarshipSuperjam/engine-template#810).** When the ONLY obstruction is uncommitted work whose every change is ALREADY present at the verified
     target — a first-run transformation the reviewed upstream absorbed, which the plain lossless gate would
     otherwise refuse forever — the arm commits the dirty tree to a RETAINED rescue branch FIRST, re-checks
     subsumption on that commit, then advances the default and lands the target. Unlike the two gates above it
@@ -257,7 +257,7 @@ def detect_strand(cwd: str | None = None) -> dict | None:
     return {"states": states, "main": main}
 
 
-# ---- the un-stranding fix: lossless-or-it-does-not-run (issue #80) ------------------
+# ---- the un-stranding fix: lossless-or-it-does-not-run (issue StarshipSuperjam/engine-template#80) ------------------
 
 # Git operation-in-progress sentinels: a PAUSED merge / cherry-pick / revert / (interactive) rebase. Probed
 # via `git rev-parse --git-path` so a worktree's own git dir is honored. A paused `rebase -i` leaves
@@ -303,11 +303,11 @@ def _is_lossless(main: str) -> tuple[bool, list[str]]:
 
 def _persisted_default_branch(main: str) -> str | None:
     """The default-branch name the instantiator derived at first run and persisted as operator config in the
-    engine manifest (`<main>/.engine/engine.json`, key `default_branch` — #342). Read OFFLINE via the single
+    engine manifest (`<main>/.engine/engine.json`, key `default_branch` — StarshipSuperjam/engine-template#342). Read OFFLINE via the single
     recorded reader `repo_identity.default_branch`. None when absent/unreadable/malformed — the construction
     repo and any pre-persistence checkout have no such key, so the caller falls back to live resolution. The
     try/except keeps this read fail-SOFT (never raises) so the off-main classifier that anchors on it
-    degrades rather than crashes on an unreadable manifest (#567)."""
+    degrades rather than crashes on an unreadable manifest (StarshipSuperjam/engine-template#567)."""
     try:
         return repo_identity.default_branch(main)
     except Exception:  # noqa: BLE001 — preserve the swallow-all contract the off-main classifier relies on
@@ -319,7 +319,7 @@ def _confident_default_branch(main: str) -> str | None:
     (validated as an existing local branch, so a stale name can never mislead), else `origin/HEAD`'s target.
     None for the heuristic last resorts (a local main/master, or the sole branch) that `_default_branch` adds —
     off-main detection uses THIS so a pre-persistence checkout with no `origin/HEAD` raises no false standing
-    nag on a GUESSED default (#342 risk-S2)."""
+    nag on a GUESSED default (StarshipSuperjam/engine-template#342 risk-S2)."""
     persisted = _persisted_default_branch(main)
     if persisted and _run(["git", "-C", main, "rev-parse", "--verify", "--quiet", f"refs/heads/{persisted}"]):
         return persisted   # validated: an existing local branch — safe to anchor on (gate S3)
@@ -444,11 +444,11 @@ def unstrand(cwd: str | None = None, apply: bool = False) -> dict:
     return {"status": "fixed", "main": main, "rescue": rescue, "did": did, "applied": True}
 
 
-# ---- the off-main signal: offline Stage-1 wrong-branch park (#342) -------------------
+# ---- the off-main signal: offline Stage-1 wrong-branch park (StarshipSuperjam/engine-template#342) -------------------
 
 def detect_off_main(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: is the operator's main checkout PARKED on a non-default branch (the wrong-branch
-    park — #342, the Stage-1 signal)? Returns {"state":"off-main","main","branch","main_branch"} when the
+    park — StarshipSuperjam/engine-template#342, the Stage-1 signal)? Returns {"state":"off-main","main","branch","main_branch"} when the
     checkout is on a branch that is NOT the default, is not detached, and is not a broken strand, AND the
     default branch is KNOWN with confidence (persisted / origin-HEAD) — else None. The confidence gate keeps a
     pre-persistence checkout with no `origin/HEAD` from raising a standing nag on a GUESSED default (risk-S2).
@@ -466,13 +466,13 @@ def detect_off_main(cwd: str | None = None) -> dict | None:
     return {"state": "off-main", "main": main, "branch": current, "main_branch": default}
 
 
-# ---- the absent update-home signal: the engine can't fetch its own updates (#367) ----
+# ---- the absent update-home signal: the engine can't fetch its own updates (StarshipSuperjam/engine-template#367) ----
 
 def detect_absent_home(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: does this engine's manifest record NO update home (`home_repository`)? A repo
     generated before that coordinate shipped carries an installed engine that cannot fetch its own updates —
     the update path refuses rather than guess a home, and never falls back to this repo's own origin
-    (#367). Returns {"state":"absent-home","main"} when the manifest is present and readable but
+    (StarshipSuperjam/engine-template#367). Returns {"state":"absent-home","main"} when the manifest is present and readable but
     records no home, else None (no manifest / a broken strand / a home already recorded is the normal state).
     Offline by nature — telling that an update cannot be reached needs no network. boot OFFERS recording the
     home; the assistant records it on the operator's consent (the strand model)."""
@@ -629,7 +629,7 @@ def confident_default_branch(checkout_path: str) -> str | None:
 
 
 def detect_product_build_sprawl(cwd: str | None = None) -> dict | None:
-    """OFFLINE, READ-ONLY: the negative control for the worktree-isolated build model (engine-template#902).
+    """OFFLINE, READ-ONLY: the negative control for the worktree-isolated build model (StarshipSuperjam/engine-template#902).
     Reports build workspaces of the product that are NOT the sanctioned kind — the sprawl the model exists to
     end, so a regression is CAUGHT (boot surfaces it), not just prevented. Two shapes:
       - `stray_worktrees` — worktrees of the product REGISTERED at a path OUTSIDE the mechanic's own
@@ -730,7 +730,7 @@ def checkout_lossless(checkout_path: str) -> tuple[bool, list[str]] | None:
     return (not reasons, reasons)
 
 
-# ---- the behind-the-main-line snapshot + fast-forward corrections (#335; #342) ----
+# ---- the behind-the-main-line snapshot + fast-forward corrections (StarshipSuperjam/engine-template#335; StarshipSuperjam/engine-template#342) ----
 
 def _days_between(a: str, b: str) -> int:
     """Whole days between two `YYYY-MM-DD` dates (git `%cs`), or 1 if either is unparseable. Data-relative —
@@ -890,7 +890,7 @@ def _materialize_target(main: str, before: str, target: str) -> bool:
     return _ok(["git", "-C", main, "read-tree", "-u", "-m", before, target])
 
 
-# The reconcile arm's rescue message (#810): a first-run transformation the reviewed upstream already absorbed.
+# The reconcile arm's rescue message (StarshipSuperjam/engine-template#810): a first-run transformation the reviewed upstream already absorbed.
 _RECONCILE_MSG = "engine: saved your uncommitted setup changes before bringing the folder current"
 
 
@@ -906,7 +906,7 @@ def _on_branch(main: str, branch: str) -> bool:
 
 
 def _dirty_subsumed(main: str, target_oid: str) -> bool:
-    """OFFLINE, READ-ONLY pre-check (#810): are ALL of the checkout's uncommitted changes ALREADY present at the
+    """OFFLINE, READ-ONLY pre-check (StarshipSuperjam/engine-template#810): are ALL of the checkout's uncommitted changes ALREADY present at the
     verified target? True only when every dirty path — tracked edits/deletes AND untracked non-ignored files —
     already matches the target's content, so bringing the folder to the target would drop nothing that is not
     already upstream. This is what tells a first-run transformation the reviewed upstream has absorbed (reconcile
@@ -936,7 +936,7 @@ def _dirty_subsumed(main: str, target_oid: str) -> bool:
 
 
 def _commit_subsumed(main: str, base_oid: str, rescue_ref: str, target_oid: str) -> bool:
-    """OFFLINE, READ-ONLY AUTHORITATIVE gate (#810), evaluated on the rescue COMMIT (post `add -A`, so
+    """OFFLINE, READ-ONLY AUTHORITATIVE gate (StarshipSuperjam/engine-template#810), evaluated on the rescue COMMIT (post `add -A`, so
     formerly-untracked files are captured with no blind spot). The transformation is the set of paths the rescue
     commit changed over the pre-rescue HEAD (`base_oid`); it is subsumed when the target already agrees on every
     one of those paths (an empty change set counts as subsumed). CONSERVATIVE on any git error (returns False):
@@ -952,7 +952,7 @@ def _commit_subsumed(main: str, base_oid: str, rescue_ref: str, target_oid: str)
 
 def _rescue_then_reconcile(snapshot: dict, *, original_branch: str) -> dict:
     """LOSSLESS, CONSENT-BOUND reconcile of a behind checkout whose uncommitted changes are already SUBSUMED by
-    the verified target (#810 — a first-run transformation the reviewed upstream absorbed, which the plain
+    the verified target (StarshipSuperjam/engine-template#810 — a first-run transformation the reviewed upstream absorbed, which the plain
     lossless gate would otherwise refuse). RESCUE-FIRST: the dirty tree is committed onto a RETAINED
     `engine-rescue/<sha>` branch BEFORE anything else, so losslessness rests on that branch, NEVER on the
     subsumption judgment — a wrong 'subsumed' call can only adopt the target while the working tree (all tracked
@@ -1028,7 +1028,7 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
     """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. Two cases, each
     lossless. CLEAN case (lossless gate clean): lossless BY CONSTRUCTION — proves strict ancestry, atomically
     advances the NAMED default from its exact assessed OID, then materializes the exact target WITHOUT ever
-    leaving the default branch. DIRTY-SUBSUMED case (#810): when the ONLY obstruction is uncommitted work whose
+    leaving the default branch. DIRTY-SUBSUMED case (StarshipSuperjam/engine-template#810): when the ONLY obstruction is uncommitted work whose
     every change is already present at the verified target (a first-run transformation the reviewed upstream
     absorbed), it DELEGATES to the rescue-first `_rescue_then_reconcile` arm — which does switch branches while
     it saves the dirty tree to a retained rescue branch, so here losslessness rests on that rescue branch, not on
@@ -1062,7 +1062,7 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
         return {**behind, "status": "blocked", "reason": "diverged", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
-        # #810: the only obstruction being uncommitted work already SUBSUMED by the verified target is the
+        # StarshipSuperjam/engine-template#810: the only obstruction being uncommitted work already SUBSUMED by the verified target is the
         # first-run-strand case — reconcile it losslessly (rescue-first). Any other obstruction (stash,
         # off-branch commit, paused op, or dirty work that is NOT subsumed) still blocks with no mutation.
         if reasons == ["uncommitted"] and _dirty_subsumed(main, behind["target_oid"]):
@@ -1093,7 +1093,7 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
 def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
                       expected_target: str | None = None) -> dict:
     """Point an operator checkout PARKED ON A NON-DEFAULT BRANCH back at its default branch (and bring it
-    current), on the operator's consent — the correction for the off-main state (#342). LOSSLESS: returning to a
+    current), on the operator's consent — the correction for the off-main state (StarshipSuperjam/engine-template#342). LOSSLESS: returning to a
     NAMED branch never orphans commits (the side branch ref keeps them — no rescue needed, unlike unstrand's
     detached arm), and the switch runs ONLY when the lossless gate is clean (no uncommitted edits, no stash, no
     paused git operation); otherwise it BLOCKS with no mutation, nothing lost. The `git checkout <default>` is
@@ -1119,7 +1119,7 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
         return {**snapshot, "status": "blocked", "reason": "target-changed", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
-        # #810 off-main sibling of catch_up's arm: when the ONLY obstruction is uncommitted work already
+        # StarshipSuperjam/engine-template#810 off-main sibling of catch_up's arm: when the ONLY obstruction is uncommitted work already
         # SUBSUMED by the verified target, reconcile it losslessly (rescue-first), then land on the default at
         # the target. `_rescue_then_reconcile` returns HEAD to the side branch (`current`) on any block.
         if reasons == ["uncommitted"] and _dirty_subsumed(main, snapshot["target_oid"]):
@@ -1229,7 +1229,7 @@ def _behind_fixture(tmp: str) -> str:
 
 def _off_main_fixture(tmp: str) -> str:
     """A `work` clone (so `origin/HEAD` -> main: the default is KNOWN with confidence) left checked out on a
-    side branch carrying its own unmerged commit — the wrong-branch park (#342). Returns the `work` path."""
+    side branch carrying its own unmerged commit — the wrong-branch park (StarshipSuperjam/engine-template#342). Returns the `work` path."""
     work = _behind_fixture(tmp)                  # a clone on main, behind origin by several merged PRs
     _run(["git", "-C", work, "checkout", "-q", "-b", "my-feature"])
     with open(os.path.join(work, "my-feature-note.txt"), "w") as fh:

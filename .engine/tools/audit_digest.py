@@ -10,7 +10,7 @@ actually WRITES one lands later (the audit persona writes the prose; this tool s
 digest exists, and the two rules below handle that honestly.
 
 AUDIT IDENTITY (schema v2): the header separates WHEN THE AUDIT RAN from WHEN ITS PROSE WAS LAST REPAIRED,
-so a wording correction can never make an old review look freshly run (the #665 defect, where a single
+so a wording correction can never make an old review look freshly run (the StarshipSuperjam/engine-template#665 defect, where a single
 `generated:` field meant both and a prose re-seal advanced it). v2 carries an IMMUTABLE `reviewed_at` (the
 run-date the freshness signal reads), a `content_modified_at` (bumped only by a prose repair), and — when
 a real workflow run produced the review — the `audited_sha` it assessed and the `run_id` that produced it.
@@ -73,7 +73,7 @@ import validate  # noqa: E402
 import moment  # noqa: E402  (the time seam — today_utc: the UTC calendar day the digest must date by)
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
 import repo_identity  # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
-import engine_write  # noqa: E402  (the engine-owned write boundary — the sealed digest is tracked, #923)
+import engine_write  # noqa: E402  (the engine-owned write boundary — the sealed digest is tracked, StarshipSuperjam/engine-template#923)
 
 
 # The committed digest's home: a file under .engine/audits/ (already a registered infra dir, beside the
@@ -127,7 +127,7 @@ def compute_seal(generated: str, body: str) -> str:
 # ---- schema v2: reviewed_at / content_modified_at / audited_sha / run_id ---------------------
 #
 # v1 collapsed the audit RUN-date and the prose MODIFICATION-date into one `generated:` field, so a prose
-# re-seal advanced the run-date and made an old review look freshly run (#665). v2 separates them: an
+# re-seal advanced the run-date and made an old review look freshly run (StarshipSuperjam/engine-template#665). v2 separates them: an
 # immutable `reviewed_at` (the run-date staleness reads) from a `content_modified_at` (bumped by a prose
 # correction), plus optional `audited_sha` (the committed tree the audit assessed) and `run_id` (the
 # workflow run identity). Only a real run (`seal`, which requires fresh prose) writes `reviewed_at`.
@@ -387,7 +387,7 @@ def _write_sealed(path: str, fields: dict, body: str) -> None:
     """Seal (over the header-minus-fingerprint + body) and write the committed v2 file. The write's exact
     bytes are what check() later verifies.
 
-    #923: the committed digest is TRACKED, so a symlink at its slot can arrive in a clone or a pull
+    StarshipSuperjam/engine-template#923: the committed digest is TRACKED, so a symlink at its slot can arrive in a clone or a pull
     request and the scheduled seal run would write through it, out of the tree — refuse instead, fail
     closed (the seal path's callers surface errors loudly). Base per the engine_write doctrine: the
     repository root for the committed slot, the target's own parent for a caller-supplied path (tests
@@ -452,7 +452,7 @@ def seal(path: str, reviewed_at=None, body: str | None = None, audited_sha=None,
 def correct(path: str, body: str | None = None, content_modified_at=None) -> dict:
     """Repair the digest's PROSE without a new audit run: preserve the immutable `reviewed_at` (and any
     recorded `audited_sha`/`run_id`) and advance only `content_modified_at`, so a wording fix can never
-    postpone the staleness warning (#665). `body=None` keeps the existing prose verbatim; a new body
+    postpone the staleness warning (StarshipSuperjam/engine-template#665). `body=None` keeps the existing prose verbatim; a new body
     replaces it. Operates on a v2 digest only — migrate a legacy v1 file first."""
     if body is not None and not body.strip():
         raise ValueError(
@@ -462,7 +462,7 @@ def correct(path: str, body: str | None = None, content_modified_at=None) -> dic
         raise ValueError("correct operates on a v2 self-review; migrate a legacy file first with `migrate`")
     # Verify the source's OWN seal before re-sealing it — otherwise correcting a digest that was tampered
     # between reviews would silently bake the tamper into a fresh valid seal, erasing the very evidence the
-    # seal exists to preserve (the sibling of the #665 laundering hole closed in migrate). A tampered or
+    # seal exists to preserve (the sibling of the StarshipSuperjam/engine-template#665 laundering hole closed in migrate). A tampered or
     # malformed digest is refused; re-run the audit instead of correcting it.
     verdict = check(path)
     if verdict["severity"] == "hard":
@@ -502,7 +502,7 @@ def migrate(path: str, reviewed_at, content_modified_at=None) -> dict:
         raise ValueError("this self-review is already v2; use `correct` for a prose repair")
     # Verify the source's OWN seal before re-sealing it as v2 — otherwise a tampered v1 digest (its body
     # altered since it was sealed) could be laundered into a valid v2 record with an operator-supplied
-    # run-date, reopening #665 through a different door. A tampered or malformed source is refused; re-run
+    # run-date, reopening StarshipSuperjam/engine-template#665 through a different door. A tampered or malformed source is refused; re-run
     # the audit instead of migrating it.
     verdict = check(path)
     if verdict["severity"] == "hard":
@@ -763,7 +763,7 @@ _SAVED_MEMORY_HEADER = (
     "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
     "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-recorded first.")
 
-# fetch error code -> the disclosure marker (the corrected two-part split, #224). not-configured = no backup
+# fetch error code -> the disclosure marker (the corrected two-part split, StarshipSuperjam/engine-template#224). not-configured = no backup
 # for this run; no-token = set up but THIS RUN wasn't granted access (a standing credential gap → re-arm the vault
 # token); unreachable = set up + access exists but the connection failed (transient); the rest = reachable but no
 # usable copy could be read. no-token is named DISTINCTLY from unreachable because `fetch_snapshot` returns no-token
@@ -797,7 +797,7 @@ def _belief_plain_role(kind, role) -> str:
 
 
 def _project_repo_is_private() -> bool:
-    """Selects the committed-digest OUTPUT MODE for the saved-memory review (#224). Read from the
+    """Selects the committed-digest OUTPUT MODE for the saved-memory review (StarshipSuperjam/engine-template#224). Read from the
     workflow env `MEMORY_AUDIT_REPO_VISIBILITY`, set by audit-prep's own-repo-token detection step (the vault
     token is scoped to the vault and cannot read the project repo; the `schedule` trigger's event payload omits
     visibility — so the value is detected on a dedicated step, never inferred here).
@@ -866,7 +866,7 @@ def render_saved_memory(transport=None) -> str:
     as_of = _saved_memory_as_of(snap.get("as_of"))
     if not beliefs:
         return _SAVED_MEMORY_NONE_YET.format(as_of=as_of)
-    # Visibility gate (#224): the SAME belief lines feed the persona in both modes — it needs to SEE
+    # Visibility gate (StarshipSuperjam/engine-template#224): the SAME belief lines feed the persona in both modes — it needs to SEE
     # the notes to judge which look stale (a semantic call, not a stored field). The gate selects only the
     # instruction header, i.e. what the persona may COMMIT: on a confirmed-private repo it may name specifics; on a
     # public/unconfirmed repo it reports only the stale count + the two safe levers (never a specific). Default-safe.
@@ -976,7 +976,7 @@ def main(argv: list) -> int:
                 return 2
             if body is None:
                 # A fresh run requires prose. Advancing the run-date without a new review is exactly the
-                # #665 footgun; a prose-only repair goes through `correct`.
+                # StarshipSuperjam/engine-template#665 footgun; a prose-only repair goes through `correct`.
                 print("ERROR: seal needs a fresh review body (--body-file); to repair prose without a new "
                       "audit run, use `correct`.", file=sys.stderr)
                 return 2
@@ -1038,7 +1038,7 @@ def main(argv: list) -> int:
             # plain disclosure (never raises, never non-zero) when the backup is absent/unreachable/unreadable.
             return _saved_memory_cli(argv[1:])
     except engine_write.EngineWriteRefused as exc:
-        # #923: a deliberate safety refusal, not a crash — say so, and say nothing was written, so a
+        # StarshipSuperjam/engine-template#923: a deliberate safety refusal, not a crash — say so, and say nothing was written, so a
         # workflow log reads "refused, state intact" rather than "state unknown".
         print(f"Did not write the self-review file: {exc} Nothing was written.", file=sys.stderr)
         return 2

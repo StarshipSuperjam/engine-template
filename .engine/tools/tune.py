@@ -185,14 +185,14 @@ def _pr_body(policy_id: str, key: str, value) -> str:
         "saved in a place engine updates do not touch, so an update will not undo it.\n")
 
 
-# Bounded retry through a transient missing-origin / shared-config blip (#704): under heavy parallel-worktree
+# Bounded retry through a transient missing-origin / shared-config blip (StarshipSuperjam/engine-template#704): under heavy parallel-worktree
 # use, a concurrent write to the one shared .git/config makes an arbitrary git command fail for a moment, then
 # self-heal. A few fast retries ride out that window. This inline retry is copied — not shared — across the
 # five tools that carry it (scope_profile, close_linkage_preflight, pr_reconcile, module_manager, tune),
 # matching the codebase's per-module retry convention (e.g. memory/capture.py's lock retry); keep the copies
 # identical. Applied ONLY to the `push` step — checkout/add/commit are local and deterministic (retrying
 # `checkout -b` would collide on the leftover branch it already created); a persistent failure raises a
-# diagnosable, phase-aware message (the handler in `_open_tune_pr`, #874), not a bare non-zero exit.
+# diagnosable, phase-aware message (the handler in `_open_tune_pr`, StarshipSuperjam/engine-template#874), not a bare non-zero exit.
 _ORIGIN_RETRY_ATTEMPTS = 3
 _ORIGIN_RETRY_DELAY = 0.3      # seconds between attempts
 
@@ -210,8 +210,8 @@ def _redact_credentials(text: str) -> str:
 def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY: stage the saved override on a new branch, commit, push, and open a pull request so
     the change is reviewed + reversible like any change. Mirrors the module-manager upgrade opener — git via
-    subprocess (with the bounded #704 push retry), the PR via POST /pulls, slug/token via boot — INCLUDING its
-    diagnosable failure contract (#874): a git-step or POST failure raises a RuntimeError that names the failed
+    subprocess (with the bounded StarshipSuperjam/engine-template#704 push retry), the PR via POST /pulls, slug/token via boot — INCLUDING its
+    diagnosable failure contract (StarshipSuperjam/engine-template#874): a git-step or POST failure raises a RuntimeError that names the failed
     step, surfaces git's/GitHub's own reason (never the token), and gives the concrete finish-by-hand recourse —
     so `set_value` shows the operator a reason and a way forward, never an opaque `exit status 1`.
     INJECTED for tests + the demo (`set_value(opener=…)`), so this real path NEVER runs in the construction
@@ -253,7 +253,7 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
         return "; ".join(str(p) for p in parts if p)
 
     def _run_step(step):
-        # Run one staged git step. The push is the only step that can hit a transient missing origin (#704), so
+        # Run one staged git step. The push is the only step that can hit a transient missing origin (StarshipSuperjam/engine-template#704), so
         # retry it a bounded number of times; checkout/add/commit run once. On a persistent failure the final
         # CalledProcessError propagates unchanged, so the phase-aware recovery message below is reached.
         is_push = step[1] == "push"
@@ -267,8 +267,8 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
                     continue
                 raise
 
-    # STAGE-AND-PUSH. A git step failing here raises a DIAGNOSABLE RuntimeError (#874, mirroring module_manager's
-    # #672 opener): it names the failed step, surfaces git's own stderr (never the token), and on a POST failure
+    # STAGE-AND-PUSH. A git step failing here raises a DIAGNOSABLE RuntimeError (StarshipSuperjam/engine-template#874, mirroring module_manager's
+    # StarshipSuperjam/engine-template#672 opener): it names the failed step, surfaces git's own stderr (never the token), and on a POST failure
     # surfaces GitHub's own reason. On failure the operator is LEFT on the branch — exactly as after a SUCCESSFUL
     # open — where their saved change is committed and in effect, so `set_value`'s "Saved, …" stays true and the
     # recourse is a working `git push` / `gh pr create` by hand. It deliberately does NOT return to the base branch
@@ -277,7 +277,7 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     # run repeatedly, and the branch is throwaway staging of an already-saved override, so a leftover branch from an
     # earlier failed attempt is reset rather than colliding — closing the collide-then-can't-delete dead-end. The
     # module_manager mirror cannot use `-B` (its branch holds the arrival's committed, non-re-derivable work, which
-    # a reset would discard), so it handles the same collision at the message level instead — see #877.
+    # a reset would discard), so it handles the same collision at the message level instead — see StarshipSuperjam/engine-template#877.
     for args in (["git", "checkout", "-B", branch], ["git", "add", *paths],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:

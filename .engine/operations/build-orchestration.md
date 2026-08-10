@@ -282,8 +282,7 @@ request **will** close — GitHub's computed linkage (`gh pr view --json closing
 graphql` beneath it) **plus** the closing keywords in the integrated commit messages, which that field does
 not reflect — against what the pull request **declares**: a deliberate `Closes #N` line versus a `Part of #N`
 dependency in its own Scope/Out-of-scope. Two contradictions are decidable without guessing intent: an issue
-the change will close while declaring itself only *part of* it, and the comma-trap (`Closes #1, #2` links only
-`#1`). **Detect-and-surface, never silent-and-unilateral:** the default is a plain Review line the operator
+the change will close while declaring itself only *part of* it, and the comma-trap (`Closes #1, #2` links only the first). **Detect-and-surface, never silent-and-unilateral:** the default is a plain Review line the operator
 reads at the merge; only an **unambiguously-accidental, body-sourced** keyword (declared *part of*, no
 deliberate close line, uniquely locatable) is **neutralized** — a minimal keyword-only edit of the engine's
 own PR body, never a narrative rewrite, never product scope — and the removal is **disclosed** in Review. A
@@ -329,7 +328,7 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   siblings per build. **The worker owns the workspace.**
 - **Cut an isolated worktree — the build never happens in the shared checkout.** The one clone above is a shared
   anchor a peer session may be using right now, so building in it (or switching its branch) breaks peers, and a
-  per-build sibling clone is the sprawl this replaces (engine-template#902). Instead run
+  per-build sibling clone is the sprawl this replaces (StarshipSuperjam/engine-template#902). Instead run
   `mechanic_build.py worktree <name>` from the mechanic tree (`<name>` = the issue number + a short slug). It
   REFUSES fail-closed — plain reason + remedy — unless the checkout is genuinely that product on a real
   `github.com` origin; it fetches, cuts a fresh worktree from the product's default branch, homes it under the
@@ -383,7 +382,7 @@ built-in gate linkage. So **run the plan-review and pre-submission passes above 
 submit tool records on the prepared pull request and in its body whether that review ran — an honest
 disclosure, never a substitute for it. **When the target gates body completeness (engine-template does), author
 the full body to its template (as you would an in-repo PR's) and pass it via `submit(authored_body=...)`**
-(#557) — submit won't open an unfilled template against the engine's home, and only advises it elsewhere.
+(StarshipSuperjam/engine-template#557) — submit won't open an unfilled template against the engine's home, and only advises it elsewhere.
 
 **A recognized automation's pull request carries a disclosed not-applicable check — relay both decisions
 plainly.** Walking the operator to merge a dependency-update pull request from a recognized automation

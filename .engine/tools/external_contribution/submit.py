@@ -219,7 +219,7 @@ def detect_contributing(root: str | None = None) -> str | None:
 # hard gate (that contract governs the operator's own repo, never a contribution to someone else's — the engine/product wall).
 _FALLBACK_SECTIONS = ("Summary", "What changed", "Why", "How it was checked")
 
-# The review-disclosure notes (issue #562). The engine's second, independent review runs on an in-repo change
+# The review-disclosure notes (issue StarshipSuperjam/engine-template#562). The engine's second, independent review runs on an in-repo change
 # (build-orchestration) but NOT on a contribution to another repo — that path has no gate linkage. The primary
 # fix is the runbook, which routes a cross-repo contribution through the same review; `reviewed` records
 # whether that happened, so the PR states the TRUTH about THIS contribution rather than an always-on warning a
@@ -239,20 +239,20 @@ _COLD_REVIEW_RAN = (
 
 # A leftover template PROMPT — the angle-bracket placeholders a pull-request template ships for the author to
 # replace, "<one-line summary of why this change exists>" and the like. A body still carrying one is a template
-# left unfilled, the #557 signal the submit flow keys on to avoid opening a raw template blind. This detects a
+# left unfilled, the StarshipSuperjam/engine-template#557 signal the submit flow keys on to avoid opening a raw template blind. This detects a
 # leftover PROMPT, not full section completeness: it does NOT judge a blank section or an empty Impact line — an
 # authored body's fuller completeness is the author's job, and for the home target the home's own CI is the
 # backstop (submit never invokes the owner-repo completeness check — the engine/product wall). The pattern is
 # deliberately narrow: a single-line angle span, lowercase-led, containing a space, and free of `=`/`"` — so it
 # matches a template's prose prompt but NOT an HTML comment (`<!-- -->`, `!`-led), a bare tag (`<div>`, no inner
 # space), or an inline HTML tag WITH attributes (`<img width="...">`, `<a href="...">`) an author legitimately
-# puts in a real body (the false-hold #557's review caught).
+# puts in a real body (the false-hold StarshipSuperjam/engine-template#557's review caught).
 _PLACEHOLDER_RE = re.compile(r'<[a-z][^>\n"=]*[ \t][^>\n"=]*>')
 
 
 def _has_unfilled_placeholders(body: str) -> bool:
     """True when the assembled body still carries a leftover template placeholder PROMPT — the mechanical signal
-    that a pull-request template was left unfilled (#557). It detects a leftover prompt, not full section
+    that a pull-request template was left unfilled (StarshipSuperjam/engine-template#557). It detects a leftover prompt, not full section
     completeness, and never invokes the owner-repo completeness check (the engine/product wall)."""
     return _PLACEHOLDER_RE.search(body) is not None
 
@@ -260,12 +260,12 @@ def _has_unfilled_placeholders(body: str) -> bool:
 def build_pr_body(*, summary: str, template_text: str | None = None, authored_body: str | None = None,
                   reviewed: bool = False) -> str:
     """The cross-fork pull-request body. Precedence: an AUTHORED body (a session wrote the full body to the
-    host's form — the mergeable path for a host with a completeness gate, #557) is used as given; else the
+    host's form — the mergeable path for a host with a completeness gate, StarshipSuperjam/engine-template#557) is used as given; else the
     host's TEMPLATE is carried after a one-line summary for completion; else the Engine's own fallback shape
     (`_FALLBACK_SECTIONS`). EVERY path LEADS with the review-disclosure note stating the TRUTH about this
-    contribution — that the engine's second review ran (`reviewed=True`) or did not (#562). The note is a
-    leading blockquote that rides any body without corrupting it, so an authored body keeps the #562 disclosure
-    too (dropping it there would reopen the gap #562 closed). Never invokes the owner-repo completeness check
+    contribution — that the engine's second review ran (`reviewed=True`) or did not (StarshipSuperjam/engine-template#562). The note is a
+    leading blockquote that rides any body without corrupting it, so an authored body keeps the StarshipSuperjam/engine-template#562 disclosure
+    too (dropping it there would reopen the gap StarshipSuperjam/engine-template#562 closed). Never invokes the owner-repo completeness check
     (the engine/product wall)."""
     note = _COLD_REVIEW_RAN if reviewed else _COLD_REVIEW_BACKSTOP
     if authored_body is not None and authored_body.strip():
@@ -321,7 +321,7 @@ def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
 
 
 def _body_incomplete_narration(upstream_repo: str) -> str:
-    """The HOLD narration when a contribution to the engine's OWN home would open with an unfilled body (#557).
+    """The HOLD narration when a contribution to the engine's OWN home would open with an unfilled body (StarshipSuperjam/engine-template#557).
     The home enforces the pull-request-completeness gate THIS engine ships, so a body with sections still to
     fill would come back red — the flow holds before the one-way open rather than send a body its own CI will
     bounce. The remedy is always available and is the engine's own job (author the body to the home's form), so
@@ -380,7 +380,7 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
     else:
         lr_line = ""
     # The review line states the TRUTH about this contribution (reviewed or not) and, when NOT reviewed, names
-    # WHY it matters at the actual decision moment — not a vague "if this matters". (#562)
+    # WHY it matters at the actual decision moment — not a vague "if this matters". (StarshipSuperjam/engine-template#562)
     review_line = (
         " I've also run the engine's second, independent review on it — the same check it runs on changes to "
         "its own project."
@@ -390,7 +390,7 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         "doesn't run by itself on a contribution to another project. Unless this is trivial, ask me to run it "
         "before you send it; a real mistake can otherwise reach the merge looking fully checked."
     )
-    # #557: when the body is the host's template with sections still to fill (only reached here for a NON-home
+    # StarshipSuperjam/engine-template#557: when the body is the host's template with sections still to fill (only reached here for a NON-home
     # host — the home case is HELD earlier), advise it plainly. Carrying a host's template for completion is a
     # normal contribution flow, so this is an advisory, not a block; the engine can't know whether that host
     # gates completeness, so it names the gap and offers to fill it rather than assert the text is ready.
@@ -403,7 +403,7 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
     ready = "the pull-request text is ready" if not body_unfilled else "I've assembled the pull-request text"
     # When the body is unfilled, the closing must LEAD to the fill-first path (the recommended one) and make
     # open-as-is the explicit, qualified fallback — never end on a bare "say the word and I'll submit it" that a
-    # skimming reader would act on (the #557 review's usability catch).
+    # skimming reader would act on (the StarshipSuperjam/engine-template#557 review's usability catch).
     closing = (
         "Tell me to fill in the text first — that's what I'd do — or, if you know this project doesn't need "
         "every section, say the word and I'll open it as it is."
@@ -641,7 +641,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
            reviewed: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
-    `base` and `remote` are TWO roles that were once conflated into one value (issue #561), which made a live
+    `base` and `remote` are TWO roles that were once conflated into one value (issue StarshipSuperjam/engine-template#561), which made a live
     `gh pr create` impossible — a value that resolves the diff locally (`origin/main`) is not a value `gh`
     accepts as a base (`main`), and vice-versa. They are now distinct:
       - `base`   is the upstream's default branch NAME (e.g. `main`) — passed verbatim to `gh pr create --base`,
@@ -689,7 +689,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
         prepared `narration`, which states which of the three local-reference outcomes applies rather than
         collapsing "nothing declared" into "checked and clean".
       - `"body-incomplete"` — clean, but the assembled body is the engine home's own template with sections
-        still to fill (#557), and the target IS the engine's home — whose completeness gate this engine
+        still to fill (StarshipSuperjam/engine-template#557), and the target IS the engine's home — whose completeness gate this engine
         enforces would reject it. HELD before the one-way open regardless of `confirm`, so the consent-critical
         disclosure can't be routed past by a direct `confirm=True`. Carries the assembled `pr` (with
         `body_unfilled=True`) and a remedy-naming `narration`. A NON-home host with an unfilled body is not
@@ -700,7 +700,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
       - `"degraded-draft"` — clean and `confirm=True`, but the upstream was unreachable; the submission is
         DRAFTED for the operator to file. Carries `draft` (the issue body), `promoted`, and the `narration`.
 
-    CONTRIBUTING TO THE ENGINE'S OWN HOME (issue #556). When the contribution TARGET is the engine's own home
+    CONTRIBUTING TO THE ENGINE'S OWN HOME (issue StarshipSuperjam/engine-template#556). When the contribution TARGET is the engine's own home
     repository — `slug_eq(upstream_repo, home)`, where `home` is the manifest's `home_repository` — the engine's
     own SOURCE legitimately rides upstream (it IS the contribution: a fork-native deployment escalating an engine
     fix to engine-template — the engine-mechanic's OWNED engine-template takes the direct-PR path instead, not
@@ -720,12 +720,12 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     outward act: `proceed_despite_leak` acknowledges a hygiene leak, and `confirm` authorizes opening the pull
     request — the real `gh pr create` is reached only when `confirm=True` (and never while a leak is
     unacknowledged). `reviewed` records whether the caller ran the engine's second independent review before
-    submitting (issue #562): it selects the truthful review note in the prepared narration and the PR body — a
+    submitting (issue StarshipSuperjam/engine-template#562): it selects the truthful review note in the prepared narration and the PR body — a
     contribution that WAS reviewed says so; one that was not carries the "no cold review ran" backstop. It
     changes only disclosure, never the gate.
 
-    `authored_body` is the pull-request body a session wrote to the host's own form (#557). When given, it is
-    used AS THE BODY (after the leading #562 review note) instead of the host's raw template — the mergeable
+    `authored_body` is the pull-request body a session wrote to the host's own form (StarshipSuperjam/engine-template#557). When given, it is
+    used AS THE BODY (after the leading StarshipSuperjam/engine-template#562 review note) instead of the host's raw template — the mergeable
     path for a host that gates body completeness (engine-template itself). When it is absent and the host has a
     template, the assembled body carries that template with its sections still to fill: for the engine-HOME
     target the flow HOLDS (`body-incomplete`) rather than open a body the home's own gate will bounce; for any
@@ -734,7 +734,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     now = now or moment.utc_now()
 
     # The diff ref is the UPSTREAM tip as seen locally — `{remote}/{base}`, never the plain `base` (`gh`'s job)
-    # and never the fork's own default (which would under-flag; see the docstring). This is the whole #561 fix:
+    # and never the fork's own default (which would under-flag; see the docstring). This is the whole StarshipSuperjam/engine-template#561 fix:
     # one composed ref for the diff, the plain `base` for `gh pr create --base`.
     diff_ref = f"{remote}/{base}"
 
@@ -765,7 +765,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     contributing_to_engine_home = module_coherence.slug_eq(upstream_repo, home)
     owned_resolved = _resolve_owned(owned)
     # The effective flag set. When contributing to the engine's OWN home, the engine's source + CI-required
-    # indexes legitimately travel, so narrow to the deployment's accreted state (#556); otherwise keep the full
+    # indexes legitimately travel, so narrow to the deployment's accreted state (StarshipSuperjam/engine-template#556); otherwise keep the full
     # owned set (a stranger's repo must never receive engine files). In BOTH modes, union the deployment-private
     # carve-outs (operator tuning + the deployment's own decision records) — they sit outside `engine_owned_paths`
     # yet must never ride upstream. Default-flag is safe: a path the home-travel classifier doesn't positively
@@ -796,7 +796,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
         # proceed_despite_leak: the operator has acknowledged the leak — fall through to the human confirm gate.
 
     # 2. Follow the host's conventions: use an authored body when the session wrote one to the host's form
-    #    (#557); else carry the upstream's template for completion; else the fallback shape. `body_unfilled` is
+    #    (StarshipSuperjam/engine-template#557); else carry the upstream's template for completion; else the fallback shape. `body_unfilled` is
     #    derived from the FINAL assembled body (a single source of truth — it catches a raw template AND an
     #    authored body a session left with placeholders), mirroring the host completeness gate's own rule.
     template_text = detect_upstream_pr_template(root)
@@ -808,7 +808,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
           "followed_template": template_text is not None, "body_unfilled": body_unfilled,
           "contributing": contributing}
 
-    # 2a-bis. The deployment's OWN local references (#639). A repository's decision ids, spec sections and
+    # 2a-bis. The deployment's OWN local references (StarshipSuperjam/engine-template#639). A repository's decision ids, spec sections and
     #    ticket prefixes read as ordinary shorthand at home and name nothing a reader of the target can
     #    reach. Scanned over three surfaces, because a contribution carries its references in three places:
     #    the lines it ADDS (never whole files — the target's own existing content is not this contribution's
@@ -849,11 +849,11 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
             }
         # proceed_despite_local_references: acknowledged — fall through to the human confirm gate.
 
-    # 2b. #557 — don't open the engine's OWN home a pull-request body that is still its unfilled template. When
+    # 2b. StarshipSuperjam/engine-template#557 — don't open the engine's OWN home a pull-request body that is still its unfilled template. When
     #     the target is the engine's home (whose completeness gate this engine ships) and the assembled body
     #     still carries a leftover template prompt, HOLD before the one-way open — regardless of `confirm`, so a
     #     direct confirm=True cannot route past this consent-critical surface. (This catches the raw-template
-    #     case #557 is about; an authored body incomplete in other ways is the author's job, backstopped by the
+    #     case StarshipSuperjam/engine-template#557 is about; an authored body incomplete in other ways is the author's job, backstopped by the
     #     home's own CI.) A NON-home host is only ADVISED (in the
     #     prepared narration below): carrying a host's template for completion is a normal contribution flow,
     #     and the engine cannot know whether that host gates completeness. The remedy — author the body — is
@@ -957,7 +957,7 @@ def demo() -> int:
     with open(os.path.join(root_with, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
         fh.write(template_marker)
     # A GATED template — one that carries angle-bracket placeholder PROMPTS, like engine-template's own — used
-    # to exercise #557: an unfilled body must not silently open, and an authored body opens verbatim.
+    # to exercise StarshipSuperjam/engine-template#557: an unfilled body must not silently open, and an authored body opens verbatim.
     root_gated = tempfile.mkdtemp(prefix="engine-submit-demo-gated-")
     os.makedirs(os.path.join(root_gated, ".github"), exist_ok=True)
     gated_template = ("## Purpose\n\n**<one-line summary of why this change exists>**\n\n"
@@ -1042,7 +1042,7 @@ def demo() -> int:
             failures.append(f"submit case: expected submitted with a url, got {r3['status']} / {r3.get('url')}")
         if recorded.get("args", [])[:2] != ["pr", "create"]:
             failures.append("submit case: gh pr create was not invoked with the expected verb")
-        # #561 regression guard: gh's `--base` must be the PLAIN branch name, never a remote-qualified ref
+        # StarshipSuperjam/engine-template#561 regression guard: gh's `--base` must be the PLAIN branch name, never a remote-qualified ref
         # (`upstream/main`), which is what made a real `gh pr create` fail. Assert no slash — the old code
         # passed `upstream/main` here and gh rejected it.
         _args = recorded.get("args", [])
@@ -1088,7 +1088,7 @@ def demo() -> int:
         if s_unknown["status"] != "unknown" or "couldn't reach" not in s_unknown["narration"]:
             failures.append(f"status case: expected an honest unknown, got {s_unknown['status']}")
 
-        # Case 7 — contributing back to the ENGINE'S OWN HOME (#556). The engine's product code travels (it IS
+        # Case 7 — contributing back to the ENGINE'S OWN HOME (StarshipSuperjam/engine-template#556). The engine's product code travels (it IS
         #          the contribution), but this deployment's OWN accreted state stays flagged. The very same diff
         #          to a STRANGER's repo flags every engine file — the safety case that must never regress.
         home = "StarshipSuperjam/engine-template"
@@ -1157,8 +1157,8 @@ def demo() -> int:
         if "haven't listed any references" not in r7d["narration"]:
             failures.append("no-declaration case: the narration did not say the check could not run")
 
-        # Case 8 — #557: an AUTHORED body is carried VERBATIM (the mergeable path against a gated host), no raw
-        #          <placeholder> survives, and the #562 review note still leads it.
+        # Case 8 — StarshipSuperjam/engine-template#557: an AUTHORED body is carried VERBATIM (the mergeable path against a gated host), no raw
+        #          <placeholder> survives, and the StarshipSuperjam/engine-template#562 review note still leads it.
         authored = ("## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n\n"
                     "## Validation\n\n**Tests pass.**\n\n*Impact: green.*\n")
         r8 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
@@ -1175,7 +1175,7 @@ def demo() -> int:
         if _PLACEHOLDER_RE.search(r8["pr"]["body"]):
             failures.append("authored case: a raw <placeholder> survived into the body")
 
-        # Case 9 — #557: NO authored body against the engine's OWN home (whose completeness gate we KNOW rejects
+        # Case 9 — StarshipSuperjam/engine-template#557: NO authored body against the engine's OWN home (whose completeness gate we KNOW rejects
         #          an unfilled body): HELD before the open even with confirm=True, remedy named. The SAME
         #          unfilled template to a stranger's repo is only ADVISED (opening a template for completion is
         #          normal there).

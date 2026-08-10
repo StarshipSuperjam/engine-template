@@ -5,11 +5,11 @@
 can boot a genuine engine and let the structural/coherence gates pass — isolating the behaviour under
 test, not a broken fixture. It clones **git-tracked content only**, which is the whole point: an UNTRACKED
 file (a macOS `.DS_Store` dropped by Finder, an editor swap file, a scratch dir) is never copied into the
-fixture, so it can never be hard-flagged as a module-ownership orphan and fail the self-test suite (#850).
+fixture, so it can never be hard-flagged as a module-ownership orphan and fail the self-test suite (StarshipSuperjam/engine-template#850).
 
 Why tracked-only rather than a name denylist: the real ownership gate already scopes itself to git-tracked
 files — `module_coherence.engine_file_inventory()` intersects the file walk with `git ls-files` precisely so
-an untracked file is not read as a committed-ownership concern (#281). A demo fixture is a temp dir with no
+an untracked file is not read as a committed-ownership concern (StarshipSuperjam/engine-template#281). A demo fixture is a temp dir with no
 `.git`, so inside it that intersection fails soft to a raw walk; cloning tracked-only is exactly what keeps
 that fallback's answer identical to the real gate's — a genuine committed orphan is still copied and still
 caught, only the untracked noise disappears.
@@ -34,7 +34,7 @@ COPY_FILES = (".mcp.json", ".gitignore", "CLAUDE.md", "AGENTS.md")
 
 class FixtureCloneError(RuntimeError):
     """The tracked-only clone could not be built faithfully. Raised — never silently degraded to a raw copy,
-    which would copy untracked files back into the fixture and re-open #850 while passing green."""
+    which would copy untracked files back into the fixture and re-open StarshipSuperjam/engine-template#850 while passing green."""
 
 
 def _tracked_under(real_root: str, roots) -> list | None:
@@ -66,7 +66,7 @@ def clone_engine(real_root: str, dest: str) -> str:
     these demos is one (local, `selftest.py`, the CI `actions/checkout`, the release-cut git-init'd
     projection, a deployed repo). If git is unavailable (so tracked-vs-untracked cannot be told apart) or the
     enumeration is empty (a populated surface that produced nothing), it raises `FixtureCloneError` rather
-    than falling back to a raw copy — a silent fallback would re-open #850 and, worse, pass green.
+    than falling back to a raw copy — a silent fallback would re-open StarshipSuperjam/engine-template#850 and, worse, pass green.
     """
     tracked = _tracked_under(real_root, (*COPY_DIRS, *COPY_FILES))
     if tracked is None:
