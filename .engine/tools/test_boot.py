@@ -568,7 +568,9 @@ class TestMechanicOrientation(unittest.TestCase):
         self.assertIn("BUILD-SPRAWL FOUND", pack)
         self.assertIn("product-656-labels", pack)          # the sibling clone is named
         self.assertIn("old-635", pack)                     # the stray worktree is named
-        self.assertIn("worktree remove", pack)             # the cleanup mechanism is offered
+        self.assertIn("git -C /home/me/product worktree remove", pack)   # the real product path is filled in
+        self.assertNotIn("git -C <product>", pack)         # never a leftover literal placeholder
+        self.assertIn("--branches --not --remotes", pack)  # a CONCRETE unpushed-work check, not a vague ask
         self.assertIn("NEVER delete unprompted", pack)     # but never unprompted (may hold unpushed work)
 
     def test_resolved_grounding_has_no_sprawl_note_when_clean(self):

@@ -1853,6 +1853,7 @@
         ],
         "targets": [
           "policy:attention",
+          "policy:briefing-budget",
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
@@ -1918,6 +1919,7 @@
         ],
         "targets": [
           "policy:attention",
+          "policy:briefing-budget",
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
@@ -3595,7 +3597,7 @@
       },
       "slug": "eADR-0016-ontology-surfaces-catalogued-ranked",
       "source": {
-        "fingerprint": "sha256:63163a6ce90cdbc79e56822843c5692ffdf9a8d260918cc21775e208090f6221",
+        "fingerprint": "sha256:4b8c1fdb9c58ba8b1e1b47a43d11a753e5c439f0b2ec342ce56e006d870dada7",
         "path": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md"
       },
       "status": "accepted",
@@ -3935,7 +3937,7 @@
       },
       "slug": "eADR-0033-boot-refresh-family",
       "source": {
-        "fingerprint": "sha256:95c19d8e9bab72d94d2f423c9f0ff7afaf0665d9ba98424e7c2cc29d2e1c6841",
+        "fingerprint": "sha256:cc54dfc9a47d61938219e94a20c617d12b2089ccf63c1c96e6fe8641fcfa6af9",
         "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
       },
       "status": "accepted",
@@ -4234,7 +4236,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:fd6b733896e35f10b64021c64ec02bd95db4fea4d13ba011fb9e9ee6bb764d39",
+        "fingerprint": "sha256:4e1186c0cea130a969ebd37e16abb406bba0fbb84c66c686e896c3fea9e3ee0d",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4485,7 +4487,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:1deab310ee270827a4fd5842bf7805d68d6024010c2e7ce00c79afa408dbb0a3",
+        "fingerprint": "sha256:d97da8e7b7ca6d9e500eeb705b930dac47d37bc1185359ac767027c137453e4e",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4950,6 +4952,27 @@
       },
       "status": "active",
       "title": "Attention",
+      "type": "policy"
+    },
+    {
+      "id": "policy:briefing-budget",
+      "name": ".engine/policies/briefing-budget.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "briefing-budget",
+      "source": {
+        "fingerprint": "sha256:d75664c0c933a8dd72d2679fbd546e990fa3648546bb151e8486c72fd75931ab",
+        "path": ".engine/policies/briefing-budget.md"
+      },
+      "status": "active",
+      "title": "Briefing budget",
       "type": "policy"
     },
     {
@@ -6442,7 +6465,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:f2ca0aedcac834a1d111902e194eeb2bdb0d7e0a23cbbcc7ad5f8c717842f8d5",
+        "fingerprint": "sha256:f893093a4910d1784460465d997b4de0c6285a0d8208df1d364fff864814f92a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9455,7 +9478,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:5beffb1760cc8389a6ced633bf0eaf6d41d255b40271599de6ac918b38049024",
+        "fingerprint": "sha256:0c77502f0414f0ed3178c3acacd88b4fec89f759e2be51cd6980c29fdb7c4354",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -9547,7 +9570,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:7481fd28b49bcbcb7bbeda9248f614b14c9762de83e1c49572cf3de912ffce0d",
+        "fingerprint": "sha256:21af3adb815c887ad3040f136f5616b27a01540ff2f88f860cf5a69ecda8d026",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11098,7 +11121,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:8baaf19fb4c8482dfe84b02cae0e2ac4ffbd9ce697ea6c22bc032dda0eb0c884",
+        "fingerprint": "sha256:4bb90bf3c84898024f5e7f817882f210cf25ffe42b7bc814ffdbca0876507d10",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -12765,6 +12788,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:boot",
           "tool:bootstrap",
           "tool:capture",
           "tool:demo_594_rollback_discard",
@@ -12787,7 +12811,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:f525e7902646db4a3f924a77ebeed91ad172488c8cf8a3104762814e30b2ad8e",
+        "fingerprint": "sha256:847f76bdf87544c640870499464cff1f684b17be81b3b2b64773b0b525bf482e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -13111,7 +13135,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:15cf13cb8c38e503cd1d51189e36c636c8464c8d2564f18f9a529429147b6345",
+        "fingerprint": "sha256:aa33ddaec1f9b944a8d548ec8aecf652481af0065622f88f23375b8b7e20ebb2",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -14210,7 +14234,7 @@
       },
       "slug": "test_tune",
       "source": {
-        "fingerprint": "sha256:e758d2a5d02ff8d8534b043d1d11c3886537e385999ca8424db000a683db9a01",
+        "fingerprint": "sha256:5d2c00de7a463b6582a5888f8484f202c65e12f0e83a1963f9968ddd87cd951d",
         "path": ".engine/tools/test_tune.py"
       },
       "status": "active",
@@ -14383,7 +14407,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:62b543878e0522cf3f8cef766975d116106e6ce776c579829397ed9e26e68cd3",
+        "fingerprint": "sha256:a4e070b4dd5af42e589e614cdb349184a86c9165eb64b221489bcd1751193701",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",

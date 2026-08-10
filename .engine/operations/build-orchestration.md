@@ -334,7 +334,8 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   REFUSES fail-closed — plain reason + remedy — unless the checkout is genuinely that product on a real
   `github.com` origin; it fetches, cuts a fresh worktree from the product's default branch, homes it under the
   mechanic's own **`.engine/mechanic/worktrees/<name>`** (gitignored, durable across the harness session's
-  teardown), and emits `ENGINE_PRODUCT_WORKTREE=<path>` + `GITHUB_REPOSITORY`. It never moves the shared
+  teardown), and emits `ENGINE_PRODUCT_WORKTREE=<path>`, `ENGINE_PRODUCT_BASE=origin/<default>` (the ref to diff
+  a build against), and `GITHUB_REPOSITORY`. It never moves the shared
   checkout's HEAD or touches its tree — so it does NOT require that checkout to be clean; a peer mid-build there
   is fine. (`preflight` remains the read-only identity/health CHECK, emitting `ENGINE_PRODUCT_CHECKOUT` — the
   durable anchor, a DIFFERENT variable — for when you want to verify without cutting a workspace.) Note: the
