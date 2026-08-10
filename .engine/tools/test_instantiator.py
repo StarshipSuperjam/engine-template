@@ -3292,10 +3292,11 @@ class TestArrive(unittest.TestCase):
                 inst.confirm([], "solo", root=d, engine_release="1.0.0", manifests=manifests)
             self.assertFalse(os.path.exists(outside), "nothing was written through the symlink, out of the tree")
 
-    def test_seed_state_skips_rather_than_reseed_through_a_symlink(self):
+    def test_seed_state_refuses_to_reseed_through_a_symlink(self):
         # #862 write-boundary: _seed_state must not reseed THROUGH a symlinked cursor (an out-of-tree write). It
-        # degrades to "skipped" — no write — rather than following the link. Home/slug are pinned so the
-        # foreign-register reseed branch is reached deterministically.
+        # RAISES (a clean, disclosed stop) rather than silently skipping — a silent skip would break the choice the
+        # operator's accept implied and still let the arrival report success (the spec-conformance finding). Home/slug
+        # are pinned so the foreign-register reseed branch is reached deterministically.
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "repo")
             os.makedirs(os.path.join(root, ".engine", "state"))
@@ -3306,11 +3307,54 @@ class TestArrive(unittest.TestCase):
             with inst._redirect_root(root), \
                     mock.patch.object(inst.repo_identity, "is_home_repo", return_value=False), \
                     mock.patch.object(inst.boot, "repo_slug", return_value="acme/product"):
-                status = inst._seed_state(lambda _s: None, copy=None)
-            self.assertEqual(status, "skipped")
+                with self.assertRaises(inst._EngineWriteRefused):
+                    inst._seed_state(lambda _s: None, copy=None)
             with open(link_target) as fh:
                 self.assertIn("someone/else", fh.read(),
                               "the link target was left untouched — no GENESIS cursor written through the symlink")
+
+    def test_seed_conduct_refuses_to_write_through_a_symlink_including_dangling(self):
+        # #862 write-boundary: .engine/conduct/operator.md is engine-owned, written in place, OUTSIDE the overlay
+        # wall. Its os.path.exists() "already seeded" guard returns False for a DANGLING symlink, so without the
+        # write-guard a broken symlink there would be followed and written out of the tree. It must RAISE instead.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine", "conduct"))
+            outside = os.path.join(d, "outside-conduct.md")            # does NOT exist -> a dangling symlink
+            os.symlink(outside, os.path.join(root, ".engine", "conduct", "operator.md"))
+            with inst._redirect_root(root):
+                with self.assertRaises(inst._EngineWriteRefused):
+                    inst._seed_conduct(lambda _s: None, copy=None)
+            self.assertFalse(os.path.exists(outside), "no conduct seed was written through the dangling symlink")
+
+    def test_persist_control_plane_marker_skips_a_symlinked_manifest(self):
+        # #862 write-boundary: the best-effort control-plane marker is a SECOND writer of .engine/engine.json
+        # (a read-modify-write). On a symlinked manifest it must skip (its contract: a write failure never fails the
+        # gate) rather than follow the link out of the tree.
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "repo")
+            os.makedirs(os.path.join(root, ".engine"))
+            outside = os.path.join(d, "outside-engine.json")
+            os.symlink(outside, os.path.join(root, ".engine", "engine.json"))
+            inst._persist_control_plane_marker(root, {"created": True, "ruleset_id": "x"})
+            self.assertFalse(os.path.exists(outside), "the marker was never written through the symlink, out of the tree")
+
+    def test_arrive_stops_cleanly_when_an_engine_generated_file_is_a_symlink(self):
+        # #862 integration (the accept path — covers arrive()'s _EngineWriteRefused catch end to end): with
+        # .engine/engine.json a symlink pointing OUT of the target, a full arrival that ACCEPTS the overlap must
+        # STOP with a disclosed reason and never write through the link — not silently skip and report success.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            outside = os.path.join(d, "outside-engine.json")
+            os.makedirs(os.path.join(target, ".engine"), exist_ok=True)
+            os.symlink(outside, os.path.join(target, ".engine", "engine.json"))
+            res = inst.arrive(target_root=target, release_tree=release, tier="solo", handle="you",
+                              decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                              opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertEqual(res["stopped_on"], "engine-symlink")
+            self.assertFalse(os.path.exists(outside),
+                             "the manifest was never written through the symlink, out of the tree")
 
     # --- #861: cross-release .github/ files get an honest engine-owned-slot copy, never a silent overlay ---
 

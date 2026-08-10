@@ -209,7 +209,7 @@ COPY_HEADINGS = {
     "team-recommended": "Your project looks like it already has a team",
     "collision-intro": "Before I add the engine, here's what I found in your project",
     "collision-exclusive": "A file of yours sits where the engine keeps its own",
-    "collision-github-engine": "A file sits where the engine keeps one of its own control-plane files",
+    "collision-github-engine": "A file sits where the engine keeps one of its own GitHub files",
     "collision-shared": "The engine and your project both use the same file",
     "collision-codeowners": "One of your review rules also covers the engine's files",
     "collision-none": "Nothing of yours is in the way",
@@ -345,8 +345,8 @@ FALLBACK_COPY = {
         "and have the engine skip it · stop, and decide later. Nothing is replaced until you choose."
     ),
     "collision-github-engine": (
-        "You already have a file here: {paths}. This is where the engine keeps one of its own control-plane "
-        "files (a workflow, or a pull-request or issue template). What's here now may be the engine's own file "
+        "You already have a file here: {paths}. This is where the engine keeps one of its own GitHub files "
+        "(a workflow, or a pull-request or issue template). What's here now may be the engine's own file "
         "from an earlier version, or your own file from before you adopted the engine. Your choices: let the "
         "engine put its current file here (what's here is replaced) · keep what's here and have the engine skip "
         "it · stop, and decide later. Nothing is replaced until you choose."
@@ -430,8 +430,9 @@ def _write_through_symlink_reason(path: str, base: str) -> str | None:
     resolved = os.path.realpath(path)
     if os.path.islink(path) or not (resolved == root or resolved.startswith(root + os.sep)):
         rel = os.path.relpath(path, base)
-        return (f"{rel!r} is a symlink or resolves outside the repository; refusing to write through it, which "
-                f"could place the engine's own file out of the tree. Remove or replace it, then run again.")
+        return (f"{rel!r} is a shortcut (a symlink), or sits under one, that points outside your project — writing "
+                f"through it could put the engine's own file outside your project. Delete or replace the shortcut "
+                f"at {rel!r}, then run again.")
     return None
 
 
@@ -1118,6 +1119,9 @@ def _seed_conduct(say, copy=None) -> str:
     redirected demo/test seeds only the fixture, never the real tree."""
     seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "conduct-seed.md")
     target = os.path.join(validate.ROOT, ".engine", "conduct", "operator.md")
+    reason = _write_through_symlink_reason(target, validate.ROOT)   # #862: operator.md is engine-owned, written in place,
+    if reason:                                  #   OUTSIDE the overlay wall — never write through a symlink (dangling or not,
+        raise _EngineWriteRefused(reason)       #   which os.path.exists below would MISS). RAISE for a clean disclosed stop.
     if os.path.exists(target):
         return "present"                        # once seeded, operator.md is operator config — never overwrite it
     try:
@@ -1371,8 +1375,9 @@ def _seed_state(say, copy=None) -> str:
     # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak this match exists to prevent).
     if own and (f"/{own}/" in register or register.rstrip("/").endswith(f"/{own}")):
         return "present"                          # register names THIS repo -> operator's own cursor -> preserve
-    if _write_through_symlink_reason(path, validate.ROOT):
-        return "skipped"                          # #862: never reseed THROUGH a symlink (out-of-tree write hazard) -> no write
+    reason = _write_through_symlink_reason(path, validate.ROOT)
+    if reason:                                    # #862: never reseed THROUGH a symlink — RAISE (a clean, disclosed stop),
+        raise _EngineWriteRefused(reason)         #   never a SILENT skip that would break the operator's implied choice
     try:                                          # foreign / traveled register (or unknown origin past the belt) -> reset
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(_GENESIS_CURSOR, fh, indent=2)
@@ -1477,6 +1482,9 @@ def _persist_control_plane_marker(root, marker) -> None:
     if not marker:
         return
     path = _engine_manifest_path(root)
+    if _write_through_symlink_reason(path, root or validate.ROOT):
+        return                                  # #862: best-effort marker — never read-modify-WRITE engine.json through a
+                                                # symlink (out-of-tree hazard); its absence degrades to a name-only strip
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -2818,9 +2826,9 @@ def _is_engine_resume(rel: str, owned: set, release_files: set | None = None,
     A SYMLINK at a non-pruned .engine/ path is NEVER a resume, whatever the signals say (`is_symlink` -> surface
     it): recognizing it would drop it from the collision surface and let a later apply/confirm write follow it
     OUT of the tree — the same hazard the .github/ branch guards (#862). The prune checks below still win first,
-    so a gitignored runtime symlink (.venv/.uv/__pycache__/.engine/memory) stays dropped (no #669 flood). The
-    write boundary refuses to write through such a symlink too — surfacing is the operator's early warning, the
-    write-site guard is the guarantee."""
+    so a gitignored runtime symlink (.venv/.uv/__pycache__/.engine/memory) stays dropped (no #669 flood).
+    Surfacing keeps the symlink from being silently dropped and lets the operator stop; the paired write-boundary
+    guard (`_write_through_symlink_reason`) is the actual guarantee that no write ever follows the link."""
     segments = rel.split("/")
     if any(seg in _RESUME_PRUNE_DIRS for seg in segments):
         return True
@@ -2913,9 +2921,10 @@ def _class1_exclusive(root: str, copy: dict, engine_paths=None, release_files=No
         for dirpath, dirs, files in os.walk(eng):       # followlinks=False → no symlink-loop recursion/escape
             for name in list(dirs) + files:
                 p = os.path.join(dirpath, name)
-                if os.path.isfile(p) or os.path.islink(p):   # files + symlinked dirs; real subdirs skipped
+                link = os.path.islink(p)
+                if os.path.isfile(p) or link:                # files + symlinked dirs; real subdirs skipped
                     rel = os.path.relpath(p, root).replace(os.sep, "/")
-                    if not _is_engine_resume(rel, owned, release_files, is_symlink=os.path.islink(p)):  # #669/#695: skip the engine's own output; #862: a symlink surfaces
+                    if not _is_engine_resume(rel, owned, release_files, is_symlink=link):  # #669/#695: skip the engine's own output; #862: a symlink surfaces
                         found.add(rel)
     release_github = _release_github_engine_relpaths(release_root)
     for pattern in _GITHUB_ENGINE_GLOBS:
@@ -3273,24 +3282,27 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         # `declined` names any default-on add-on the operator turned down (--decline); `home_repository` carries
         # the RELEASE manifest's update home, which the overlay can't deliver (engine.json is excluded) — the one
         # path by which a brownfield deployment learns where to fetch its own updates (#670).
+        # control_checkless=True: brownfield arrival protects main but does NOT require the engine's own checks
+        # yet — their workflows land in THIS arrival PR and aren't on the branch until it merges, so requiring
+        # them now would deadlock the very PR that carries them. `bootstrap.py finalize` binds them post-merge (#673).
+        # #862: confirm AND apply both write engine-owned .engine/ files in place (the manifest; the state cursor and
+        # conduct seed via apply's substrates). If any is a symlink (surfaced as an overlap above), the write-boundary
+        # guard raises — caught here so the arrival STOPS and DISCLOSES rather than silently skipping a write the
+        # operator's choice implied, then reporting success (the resume resumes once the symlink is removed).
         try:
             confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
                     default_branch=default_branch or target_default_branch,
                     declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
-        except _EngineWriteRefused as exc:          # #862: manifest path is a symlink (surfaced as an overlap) — stop clean
+            applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
+                            uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
+                            consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
+                            control_issues=control_issues, control_repo=slug,
+                            control_token=control_token, handle=handle, brownfield=True, control_checkless=True)
+        except _EngineWriteRefused as exc:
             return {**result, "proceeded": True, "stopped_on": "engine-symlink",
-                    "reason": "the engine's files are in place, but setup was stopped before recording the engine "
-                              "manifest — " + str(exc) + " It was surfaced as an overlap at the start; the "
-                              "arrival resumes from here once it's resolved."}
-        # control_checkless=True: brownfield arrival protects main but does NOT require the engine's own checks
-        # yet — their workflows land in THIS arrival PR and aren't on the branch until it merges, so requiring
-        # them now would deadlock the very PR that carries them. `bootstrap.py finalize` binds them post-merge
-        # (#673).
-        applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
-                        uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
-                        consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
-                        control_issues=control_issues, control_repo=slug,
-                        control_token=control_token, handle=handle, brownfield=True, control_checkless=True)
+                    "reason": "the engine's files are in place, but setup was stopped before it could safely finish — "
+                              + str(exc) + " That path was surfaced as an overlap at the start; the arrival resumes "
+                              "from here once it's resolved."}
         result["steps"] = applied.get("steps", [])
         result["tier"] = tier or "solo"
         if applied.get("refused") or applied.get("halted"):
@@ -3864,7 +3876,11 @@ def main(argv: list) -> int:
             print(_APPLY_NOT_FIRST_RUN)
             return 0
         decisions = _parse_apply_flags(argv)
-        res = apply(consent=lambda kind: decisions.get(kind, False))
+        try:
+            res = apply(consent=lambda kind: decisions.get(kind, False))
+        except _EngineWriteRefused as exc:          # #862: a seed hit a symlinked engine-owned file — clean message, not a traceback
+            print(str(exc) + " Nothing was changed.")
+            return 2
         _print_ledger_plain(res)
         return 1 if res.get("refused") else 0
     if argv and argv[0] == "verify":
