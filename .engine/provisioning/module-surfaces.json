@@ -654,6 +654,9 @@
   ".engine/policies/attention.md": [
    "core"
   ],
+  ".engine/policies/briefing-budget.md": [
+   "core"
+  ],
   ".engine/policies/contract-threshold.md": [
    "core"
   ],

@@ -63,7 +63,12 @@ decision isn't quietly undone.
 
 **What your Engine is made of.** Type **`$engine-parts`**, or just ask "what is my engine made of?" — a
 plain-language readout of its version, the kinds of files it governs, and the modules installed. It only
-reads. `$engine-help` lists every command you can type here.
+reads. `$engine-help` lists every command you can type here. I can also query the project's live **wiring
+map** any session — for any part, what it is part of, what depends on it, and what checks or governs it — to
+run an impact check before I change something or to trace how two parts connect (the knowledge tools load
+every session; the how is in `.engine/operations/knowledge-impact-check.md`). The surface catalog
+(`.engine/schemas/surface-catalog.json`) is the register of every kind of file the Engine governs and where
+each lives — I read it on demand rather than reciting it each session.
 
 **If you ask for something an add-on would do, I'll offer to add it — never install it behind your back.**
 Your Engine ships with some capabilities turned off — optional add-ons you can include or leave out. If you
