@@ -584,6 +584,46 @@ def _dependency_integrity_violations(present: dict, removed_modules: list) -> li
     return out
 
 
+# A default-on module is installed on every deployment unless the operator opts out (#759). It may therefore
+# depend only on capabilities that are ALSO guaranteed present — required (always) or other default-on (unless
+# opted out, and #759 keeps a default-on's own deps satisfied). Everything else is not guaranteed there.
+_DEFAULT_ON_ALLOWED_DEP_TIERS = frozenset({"required", "default-on"})
+
+
+def _default_on_dependency_violations(present: dict) -> list:
+    """A `default-on` module that `depends` on a capability NOT guaranteed to be present — anything outside
+    {required, default-on}: an `optional`/`experimental` module a deployment may never have chosen, or a `retired`
+    one kept only for migration history. Such a module cannot be coherently installed where the dependency is
+    absent. #759 already handles this at runtime by DEMOTING the default-on module to an offer rather than pulling
+    the unchosen dependency in; this guard catches the same contradiction once, at the author's release cut, so a
+    release is never cut needing that per-deployment safety net (and so the FIRST cut, which has no runtime
+    predecessor to lean on, is covered too — this field is set in both classify() modes).
+
+    An ALLOWLIST: only {required, default-on} deps are sound; every other tier — and a missing/unknown status
+    (already a schema defect, flagged fail-closed) — is refused. Judges only the STATUS of a dep PRESENT in this
+    set; a dep absent for any reason is a dependency-presence concern the branch coherence gate owns, not this
+    guard, so the two never double-report. Direct dependencies only: applied to every default-on module the rule
+    covers default-on chains inductively (a default-on link's own bad dep is flagged when that link is checked). A
+    `default-on -> required -> optional` reach is a distinct required-depends-on-optional smell, out of scope."""
+    out = []
+    for mid, man in sorted(present.items()):
+        if (man or {}).get("status") != "default-on":
+            continue
+        for dep in sorted((man or {}).get("depends") or {}):
+            dep_man = present.get(dep)
+            if dep_man is None:
+                continue   # a missing dependency is the branch coherence gate's concern, not this status guard
+            tier = dep_man.get("status")
+            if tier in _DEFAULT_ON_ALLOWED_DEP_TIERS:
+                continue
+            shown = f"'{tier}'" if tier else "of an unset/unknown tier"
+            out.append(f"the default-on '{mid}' capability depends on '{dep}', which is {shown} — not "
+                       f"guaranteed present on every deployment; a default-on module may depend only on "
+                       f"required or default-on capabilities, so make '{dep}' required or default-on, or make "
+                       f"'{mid}' optional")
+    return out
+
+
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     """The proposal: the floor per package + engine, the change inventory, and the impact statements.
     In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
@@ -610,6 +650,9 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             "package_floor": {},
             "change_inventory": inventory,
             "impacts": impacts,
+            # A default-on module depending on a not-guaranteed-present capability — baseline-independent, so it is
+            # refused on the FIRST cut too (the diff siblings above need a baseline and so are absent here).
+            "default_on_dependency_violations": _default_on_dependency_violations(present),
         }
 
     # diff mode — compare the present set against the baseline release tree
@@ -699,6 +742,9 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # A surviving module that still depends on a module this cut removes — a dangling dependency that would
         # dead-end every holder's upgrade at the coherence gate; refused at the cut (belt-and-suspenders).
         "dependency_violations": _dependency_integrity_violations(present, removed),
+        # A default-on module depending on a capability outside {required, default-on} — one a deployment may lack,
+        # so it cannot be coherently installed everywhere; refused at the cut so the author fixes it once (#891).
+        "default_on_dependency_violations": _default_on_dependency_violations(present),
     }
 
 
@@ -1463,8 +1509,9 @@ def _cmd_propose(args) -> int:
                               else merged_pr_titles(baseline.ref, _current_sha()))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
     # A dropped migration key, a dropped retired-capability notice, a whole-module removal with no plain-language
-    # notice, or a survivor that still depends on a removed module — each would break a deployer's upgrade (the
-    # first three silently, the last as a dead-end). REFUSE the cut here, before `apply` writes anything. All are
+    # notice, a survivor that still depends on a removed module, or a default-on module depending on a capability
+    # not guaranteed present everywhere — each would break a deployer's upgrade (the first three silently, the last
+    # two as a dead-end / an uninstallable default). REFUSE the cut here, before `apply` writes anything. All are
     # reported together in ONE refusal so a maintainer fixing one isn't ambushed by another on a re-run (design-
     # review). `propose` runs under `set -euo pipefail` in release.yml, so this non-zero exit fails the release
     # job at this step; apply and pr-body never run, so there is no PR body to carry the fact — the refusal
@@ -1473,7 +1520,8 @@ def _cmd_propose(args) -> int:
     ret_viol = proposal.get("retired_capability_violations") or []
     rem_viol = proposal.get("removed_capability_violations") or []
     dep_viol = proposal.get("dependency_violations") or []
-    if mig_viol or ret_viol or rem_viol or dep_viol:
+    don_viol = proposal.get("default_on_dependency_violations") or []
+    if mig_viol or ret_viol or rem_viol or dep_viol or don_viol:
         recovery = ["nothing was written and no release was opened."]
         if mig_viol:
             recovery.append("Restore each dropped upgrade step to the capability's settings file; to retire a "
@@ -1488,8 +1536,14 @@ def _cmd_propose(args) -> int:
                             "required.")
         if dep_viol:
             recovery.append("Keep each still-depended-on capability, or remove its dependents too.")
-        _print_refusal({"reason": "a required release record is missing, dropped, or inconsistent",
-                        "violations": mig_viol + ret_viol + rem_viol + dep_viol, "recovery": " ".join(recovery)})
+        if don_viol:
+            recovery.append("Make each such dependency required or default-on, or lower the dependent to optional "
+                            "so it is not installed by default — a default-on module may depend only on "
+                            "capabilities guaranteed present on every deployment.")
+        _print_refusal({"reason": "a required release record or module dependency is missing, dropped, or "
+                                  "inconsistent",
+                        "violations": mig_viol + ret_viol + rem_viol + dep_viol + don_viol,
+                        "recovery": " ".join(recovery)})
         return 2
     return 0
 

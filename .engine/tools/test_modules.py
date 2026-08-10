@@ -804,6 +804,16 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         hard = [f for f in findings if f["severity"] == "hard"]
         self.assertEqual(hard, [], f"unexpected coherence findings: {[f['message'] for f in hard]}")
 
+    def test_no_default_on_module_depends_on_a_capability_not_guaranteed_present(self):
+        # #891: the committed tree must satisfy the release-cut author guard — no default-on module may depend on
+        # an optional / experimental / retired capability a deployment might lack. Runs the SAME guard the cut
+        # uses, over the REAL present set, on every PR (unittest discovery in engine-ci) — so a future bad manifest
+        # is caught at its introducing PR (and in first-cut mode), WITHOUT a check_coherence leg that would re-fire
+        # tree-wide at operator upgrade and wedge #759's graceful default-on -> offer demotion.
+        import release_cut
+        violations = release_cut._default_on_dependency_violations(release_cut._present_modules())
+        self.assertEqual(violations, [], f"default-on dependency violations in the committed tree: {violations}")
+
     def test_inventory_prunes_gitignored_memory_runtime_but_keeps_the_memory_code_package(self):
         # #180: the ownership inventory must skip the gitignored RUNTIME store `.engine/memory/` (the live
         # NDJSON ledger / index / capture-state / lock, created when the memory hooks run, never committed)
