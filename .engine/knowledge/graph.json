@@ -10667,7 +10667,7 @@
       },
       "slug": "shipped_issue_references_check",
       "source": {
-        "fingerprint": "sha256:df61ef4e9ecba747d53f00df6e4c335b51036c02d2a6d040a9b3ce578e280297",
+        "fingerprint": "sha256:debd46c190ec77a6114233c01fa2bf8b3db843326c90d0a4527fbe7d6b091469",
         "path": ".engine/tools/shipped_issue_references_check.py"
       },
       "status": "active",

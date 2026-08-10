@@ -130,7 +130,7 @@ _JSON_PROSE_KEYS = ("description", "message", "why", "reason", "note", "detail",
 #     re-flagged. The slug/repo classes require a letter-led owner, which a bare `#N/#M` chain never satisfies.
 _QUALIFIED = re.compile(r"[A-Za-z][\w.-]*/[\w.-]+#\d+")
 # (2a) ORDINAL carve-outs — a bare #N naming a numbered THING (a concern, a step, a tier), never an issue
-#      reference: a real reference never wears one of these nouns ("step #495" is not a thing). Closed set,
+#      reference: a real reference never wears one of these nouns as a small ordinal. Closed set,
 #      documented; extend it when a new ordinal noun over-fires. These are BRIDGED across a line boundary
 #      (a keyword ending line N, its #N opening line N+1) so a wrapped ordinal is still recognised.
 #      the `the #N <word>` carve-out stays SINGLE-digit on purpose: a multi-digit "the #N footgun" is a real
@@ -141,7 +141,8 @@ _ORDINAL_CARVEOUTS = (
     re.compile(r"(?i)the #[1-9] [A-Za-z]"),    # "the #2 priority" — SINGLE-digit only: a multi-digit
     #                                            "the #N footgun" is a real reference and must stay flagged
     re.compile(r"(?i)\b(?:option|step|item|part|phase|round|tier|level|point|rung|slot|lane|bucket|"
-               r"scenario|figure|section|row|column|chapter|priority) #\d+"),
+               r"scenario|figure|section|row|column|chapter|priority) #[1-9]\b"),  # SINGLE-digit: an ordinal
+    #                                            is small; a multi-digit "part #NNN" is a real reference
 )
 # (2b) PR-linkage grammar — a `Closes/Fixes/Resolves/Part of #N[, #M]` clause (incl. the comma-trap). NOT
 #      bridged: a genuine reference opening a line after an unrelated sentence that merely ends in "resolve"
