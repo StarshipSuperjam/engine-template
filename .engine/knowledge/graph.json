@@ -9570,7 +9570,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:40a1d07417ff9982543ae5603160425f81bebeff91fb7673981c84b3ad0fdc7e",
+        "fingerprint": "sha256:21af3adb815c887ad3040f136f5616b27a01540ff2f88f860cf5a69ecda8d026",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12788,6 +12788,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:boot",
           "tool:bootstrap",
           "tool:capture",
           "tool:demo_594_rollback_discard",
@@ -12810,7 +12811,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:51c643854c974e3b83433c8eef1827635a8dbdcc446d50bcb5e7120c58322378",
+        "fingerprint": "sha256:847f76bdf87544c640870499464cff1f684b17be81b3b2b64773b0b525bf482e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
