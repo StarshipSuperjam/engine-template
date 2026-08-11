@@ -171,27 +171,36 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             "wholesale, so a local edit to this one is overwritten on the next upgrade.\n\n"
         )
         _leave_it = "- **Or leave it** — it is only a nudge and never blocks anything.\n"
-        _never_sent = (
+        _never_sent_manual = (
             "- The engine has not sent anything to that upstream project and will not; logging it there "
             "is yours to decide."
         )
         slug = (home_slug or "").strip()
         if module_coherence.is_wellformed_slug(slug):
             # Home recorded and well-formed: name it, link it (home_ref below), and — only when the filing
-            # tool actually ships — offer the one-approval route. The offer sits DIRECTLY beside the
-            # "has not sent anything … and will not" line and is phrased as operator-triggered, so it can
-            # never read as the engine having filed or intending to (StarshipSuperjam/engine-template#643; eADR-0028 never phone home).
-            offer = (
-                f"\n- **The engine can file that report for you when you say so** — it drafts the issue to "
-                f"{slug}'s own form and files it only on your go-ahead, never on its own."
-                if ext_contribution_installed else ""
-            )
+            # tool actually ships — offer the one-approval route. The offer is grouped with the fix-durably
+            # line it operationalises, and the never-phone-home line below is QUALIFIED to "never on its own"
+            # so it can never read as contradicting the offer (a bare "will not" directly above an offer to
+            # file reads as a flip-flop) — StarshipSuperjam/engine-template#643, eADR-0028 never phone home.
+            if ext_contribution_installed:
+                offer = (
+                    f"- **The engine can file that report for you when you ask** — it drafts the issue using "
+                    f"{slug}'s own form and files it only on your go-ahead, never on its own.\n"
+                )
+                never_sent = (
+                    "- The engine has sent nothing upstream and never will on its own; whether to log it "
+                    "there is your call."
+                )
+            else:
+                offer = ""
+                never_sent = _never_sent_manual  # no filing tool here, so the plain "will not" is truthful
             whats_next = (
                 _trim_wont_last
                 + f"- **To fix it durably,** raise it in **{slug}** — the engine-template project this "
                 "engine was created from (the one GitHub's \"Use this template\" was used on).\n"
+                + offer
                 + _leave_it
-                + f"{_never_sent}{offer}\n"
+                + f"{never_sent}\n"
                 + _SELF_REVIEW_TRAILER
             )
             # The slug is shape-validated (safe ASCII owner/repo), so it goes into the URL RAW — _neutralize
@@ -206,7 +215,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
                 "from — the project you (or whoever set up this engine) used GitHub's \"Use this template\" "
                 "on. If you are not sure where that is, whoever set the engine up will know.\n"
                 + _leave_it
-                + f"{_never_sent}\n"
+                + f"{_never_sent_manual}\n"
                 + _SELF_REVIEW_TRAILER
             )
     elif machinery and home:

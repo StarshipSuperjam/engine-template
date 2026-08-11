@@ -26,9 +26,9 @@ network only on a real filing — see Notes.
 3. **Review the prepared issue.** The engine shows you the exact title — carrying that project's own prefix —
    and the body, assembled to the project's template when it has one. Nothing is filed yet. **When the engine
    already holds the full report** — a diagnosis it has worked out, not just a one-line summary — it authors
-   that whole write-up to the project's own form and files *that* as the body (so the detail travels in the
-   body, never crammed into the title): it previews the project's template with a prepare step first, writes
-   the report to match those headings, and passes it as the authored body. Without a held report, the body
+   that whole write-up to the project's own form and carries *that* as the issue body (so the detail travels
+   in the body, never crammed into the title): it previews the project's template with a prepare step first,
+   writes the report to match those headings, and passes it as the authored body. Without a held report, the body
    stays the one-line summary plus the project's blank template for a person to fill in after.
 4. **Authorize it — your call.** The engine files the issue **only on your go-ahead**; without it, the prepared
    issue just waits. Filing puts a public record on a project you're contributing to, so it's yours to approve.

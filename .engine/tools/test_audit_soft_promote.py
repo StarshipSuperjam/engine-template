@@ -38,6 +38,9 @@ class TestBudgetRecords(unittest.TestCase):
         validate.collect = lambda suite, ctx, **kw: list(findings)
 
     def test_machinery_finding_carries_the_upstream_caveat(self):
+        # Asserts the lane-INVARIANT deployed-machinery markers — the "engine-template project" caveat and the
+        # "overwritten" why — which hold whether or not this repo's live home resolves (StarshipSuperjam/engine-template#643 makes
+        # this repo take the NAMED branch); the un-named fallback branch is pinned by the dedicated _render tests.
         self._stub([_f("'.engine/operations/x.md' is 300 lines, over its 200-line budget.",
                        ".engine/operations/x.md")])
         recs = asp.budget_records(_NOW, claims={".engine/operations/x.md": ["core"]})
@@ -70,7 +73,9 @@ class TestBudgetRecords(unittest.TestCase):
 
     def test_machinery_finding_in_deployed_repo_keeps_the_upstream_caveat(self):
         # A downstream copy (the target slug differs from the recorded home) still routes the durable fix
-        # upstream — a local trim there is overwritten on the next update.
+        # upstream — a local trim there is overwritten on the next update. Asserts the lane-invariant markers
+        # (present in both the named and un-named deployed variants); the named-vs-fallback distinction is
+        # pinned by the dedicated _render tests below.
         self._stub([_f("'.engine/operations/x.md' is 300 lines, over its 200-line budget.",
                        ".engine/operations/x.md")])
         recs = asp.budget_records(_NOW, claims={".engine/operations/x.md": ["core"]},
@@ -101,7 +106,11 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertIn("can file that report for you", body)                   # the one-approval offer appears
         self.assertIn("only on your go-ahead", body)                         # operator-triggered
         self.assertIn("never on its own", body)                             # never auto-files
-        self.assertIn("has not sent anything", body)                        # offer sits beside the never-sent line
+        self.assertIn("never will on its own", body)                        # never-phone-home, QUALIFIED so it
+        #                                                                     doesn't read as contradicting the offer
+        offer_at = body.index("can file that report")
+        never_at = body.index("never will on its own")
+        self.assertLess(offer_at, never_at)                                 # offer precedes the never-sent line
 
     def test_deployed_lane_falls_back_to_prose_when_home_absent(self):
         # No recorded home: today's prose UNCHANGED, no slug named, no offer even though the tool is installed

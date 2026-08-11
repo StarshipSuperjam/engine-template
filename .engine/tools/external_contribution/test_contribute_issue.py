@@ -221,6 +221,17 @@ class TestContributeFlow(unittest.TestCase):
         self.assertEqual({k["key"] for k in r["kinds"]}, {"bug", "feature"})
         self.assertNotIn(["issue", "create"], [c[:2] for c in gh.calls])  # nothing filed despite confirm=True
 
+    def test_unknown_kind_still_surfaces_choices_even_with_an_authored_body(self):
+        # StarshipSuperjam/engine-template#644: authored_body is threaded into body assembly (step 2), AFTER kind
+        # resolution (step 1) — so an unresolved kind still surfaces the choices and files nothing, never
+        # skipping the guard because a body was supplied.
+        gh = _fake_gh(_STD)
+        r = contribute_issue.contribute_issue(upstream_repo="upstream/project", kind="banana", summary="x",
+                                              authored_body="**A full report**\n\ndetail", gh_run=gh,
+                                              github=None, confirm=True)
+        self.assertEqual(r["status"], "kind-choice-needed")
+        self.assertNotIn(["issue", "create"], [c[:2] for c in gh.calls])  # nothing filed despite the body
+
     def test_clean_prepare_does_not_file(self):
         gh = _fake_gh(_STD)
         r = contribute_issue.contribute_issue(upstream_repo="upstream/project", kind="bug",
