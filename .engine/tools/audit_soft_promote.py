@@ -136,7 +136,8 @@ _SELF_REVIEW_TRAILER = (
 
 
 def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
-            home: bool = False) -> tuple:
+            home: bool = False, home_slug: str | None = None,
+            ext_contribution_installed: bool = False) -> tuple:
     """The lane-aware (title, body_core) for one over-budget surface. `rel` is the raw repo path (the
     title is plain text, not rendered markdown) and `message` is the raw finding message; both the path
     and the message are neutralised before they enter the rendered body. body_core is prose only —
@@ -146,10 +147,16 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
     Three lanes: an engine machinery file in a DOWNSTREAM copy points the durable fix UPSTREAM (a local
     trim is overwritten by the next update); the SAME machinery file in the engine's OWN home repo
     (`home=True`) is fixable right here, because here the engine's source IS the project; a file this
-    project owns (not machinery) is always fixable here."""
+    project owns (not machinery) is always fixable here.
+
+    On the DOWNSTREAM machinery lane the body names the recorded home (`home_slug`) and links it when the
+    slug is well-formed, and — only when `ext_contribution_installed` — offers the engine's one-approval
+    filing route (an OFFER; it never files, never phones home — StarshipSuperjam/engine-template#643). A None/blank/malformed
+    home falls back to today's un-named prose: the engine never guesses a home."""
     where = _neutralize(rel)
     message = _neutralize(message)
     title = f"Engine length budget: {rel} is over its limit"
+    home_ref = None  # the extra (label, url) link to the home project, set on the named deployed lane
     if machinery and not home:
         what_this_is = (
             f"The engine noticed one of its OWN files has grown past the length it is meant to stay "
@@ -159,17 +166,58 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             f"which is why the limit exists.)\n"
             f"- **Where:** `{where}`."
         )
-        whats_next = (
+        _trim_wont_last = (
             "Trimming it here will NOT last: the next engine update replaces the engine's own files "
             "wholesale, so a local edit to this one is overwritten on the next upgrade.\n\n"
-            "- **To fix it durably,** raise it in the engine-template project this engine was created "
-            "from — the project you (or whoever set up this engine) used GitHub's \"Use this template\" "
-            "on. If you are not sure where that is, whoever set the engine up will know.\n"
-            "- **Or leave it** — it is only a nudge and never blocks anything.\n"
-            "- The engine has not sent anything to that upstream project and will not; logging it there "
-            "is yours to decide.\n"
-            + _SELF_REVIEW_TRAILER
         )
+        _leave_it = "- **Or leave it** — it is only a nudge and never blocks anything.\n"
+        _never_sent_manual = (
+            "- The engine has not sent anything to that upstream project and will not; logging it there "
+            "is yours to decide."
+        )
+        slug = (home_slug or "").strip()
+        if module_coherence.is_wellformed_slug(slug):
+            # Home recorded and well-formed: name it, link it (home_ref below), and — only when the filing
+            # tool actually ships — offer the one-approval route. The offer is grouped with the fix-durably
+            # line it operationalises, and the never-phone-home line below is QUALIFIED to "never on its own"
+            # so it can never read as contradicting the offer (a bare "will not" directly above an offer to
+            # file reads as a flip-flop) — StarshipSuperjam/engine-template#643, eADR-0028 never phone home.
+            if ext_contribution_installed:
+                offer = (
+                    f"- **The engine can file that report for you when you ask** — it drafts the issue using "
+                    f"{slug}'s own form and files it only on your go-ahead, never on its own.\n"
+                )
+                never_sent = (
+                    "- The engine has sent nothing upstream and never will on its own; whether to log it "
+                    "there is your call."
+                )
+            else:
+                offer = ""
+                never_sent = _never_sent_manual  # no filing tool here, so the plain "will not" is truthful
+            whats_next = (
+                _trim_wont_last
+                + f"- **To fix it durably,** raise it in **{slug}** — the engine-template project this "
+                "engine was created from (the one GitHub's \"Use this template\" was used on).\n"
+                + offer
+                + _leave_it
+                + f"{never_sent}\n"
+                + _SELF_REVIEW_TRAILER
+            )
+            # The slug is shape-validated (safe ASCII owner/repo), so it goes into the URL RAW — _neutralize
+            # would corrupt a URL and only the label is ever neutralised (as in _entity_reference).
+            home_ref = (_neutralize(f"The engine-template project to raise this in — {slug}"),
+                        f"https://github.com/{slug}")
+        else:
+            # No home recorded, or a malformed value: today's prose UNCHANGED — the engine never guesses a home.
+            whats_next = (
+                _trim_wont_last
+                + "- **To fix it durably,** raise it in the engine-template project this engine was created "
+                "from — the project you (or whoever set up this engine) used GitHub's \"Use this template\" "
+                "on. If you are not sure where that is, whoever set the engine up will know.\n"
+                + _leave_it
+                + f"{_never_sent_manual}\n"
+                + _SELF_REVIEW_TRAILER
+            )
     elif machinery and home:
         what_this_is = (
             f"The engine noticed one of its OWN files has grown past the length it is meant to stay "
@@ -202,22 +250,44 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             "- **Leave it** — it is only a nudge and never blocks anything.\n"
             + _SELF_REVIEW_TRAILER
         )
+    refs = list(_entity_reference(rel, repo) or [])
+    if home_ref:                                     # the deployed lane also links the home project to raise it in
+        refs.append(home_ref)
     body_core = issue_author.render_engine_issue_body(
-        what_this_is=what_this_is, whats_next=whats_next, references=_entity_reference(rel, repo))
+        what_this_is=what_this_is, whats_next=whats_next, references=(refs or None))
     return title, body_core
 
 
-def budget_records(now: str, *, claims: dict | None = None, repo: str | None = None) -> list:
+def budget_records(now: str, *, claims: dict | None = None, repo: str | None = None,
+                   ext_contribution_installed: bool | None = None) -> list:
     """One finding-record per firing length-budget nudge — soft, kind `shape`, with a file location —
     each carrying a lane-aware `title` + `body_core` ready for the live triage pass. Lane is the
     authoritative machinery test: a file a present module manifest claims is overlaid on every upgrade.
     `claims` (the {relpath: [owner,...]} ownership map) is injectable so the demo/tests can exercise both
     lanes on a real over-budget finding without mutating shipped files; by default it is computed live.
-    `repo` (owner/name) is threaded to the body render for the entity permalink; None omits it."""
+    `repo` (owner/name) is threaded to the body render for the entity permalink; None omits it.
+    `ext_contribution_installed` is injectable (None => derived live from the present manifests) so the
+    tests can exercise both the offer-present and no-offer deployed-lane bodies without mutating
+    `.engine/modules/` (external-contribution is installed in the home repo, so a live read is always True
+    here) — StarshipSuperjam/engine-template#643."""
     findings = validate.collect(FEED_SUITE, {}, with_source=True)
+    manifests = None
     if claims is None:
-        claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+        manifests = module_coherence.discover_manifests()
+        claims = module_coherence.provides_claims(manifests)
     home = _is_home_repo(repo)
+    # The recorded home slug the deployed-machinery lane names (StarshipSuperjam/engine-template#643, ADR-0281 reader (b) —
+    # "the escalate-upstream path reads the same home"). A read distinct from `_is_home_repo`'s bool so the lane
+    # can tell "home recorded but this is a copy" (name it) from "no home recorded" (today's prose); the extra
+    # manifest read is a tiny load in this weekly audit. A malformed manifest degrades to the un-named prose.
+    try:
+        home_slug = module_coherence.home_repository()
+    except Exception:  # noqa: BLE001 — never let a corrupt manifest crash promotion; degrade to un-named prose
+        home_slug = None
+    if ext_contribution_installed is None:
+        if manifests is None:
+            manifests = module_coherence.discover_manifests()
+        ext_contribution_installed = "external-contribution" in {m.get("id") for _p, m in manifests}
     records = []
     for f in findings:
         if f.get("severity") == "hard":
@@ -233,7 +303,9 @@ def budget_records(now: str, *, claims: dict | None = None, repo: str | None = N
             # depth alongside the body neutralisation below.
             continue
         machinery = bool(claims.get(rel))            # claimed by a manifest's provides => machinery
-        title, body_core = _render(rel, f.get("message", ""), machinery, repo=repo, home=home)
+        title, body_core = _render(rel, f.get("message", ""), machinery, repo=repo, home=home,
+                                   home_slug=home_slug,
+                                   ext_contribution_installed=ext_contribution_installed)
         records.append({
             "source_id": f"{SOURCE_PREFIX}{rel}",
             "severity": telemetry.PERSISTENT_BENIGN,

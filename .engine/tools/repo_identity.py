@@ -83,6 +83,23 @@ def slug_eq(a: "str | None", b: "str | None") -> bool:
     return na is not None and na == nb
 
 
+# A well-formed `owner/repo`: two non-empty segments of `[A-Za-z0-9._-]`, each STARTING alphanumeric, joined by
+# a single `/`, ASCII-only, and nothing else. `re.fullmatch` (never a `^…$` anchor, which admits a single
+# TRAILING newline — Python's `$` matches before a terminal `\n`) so a value carrying `\n`, spaces, `)`/`]`, a
+# `../` segment, extra path segments, or a unicode look-alike is rejected whole (StarshipSuperjam/engine-template#643 review).
+_SLUG_SHAPE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
+
+
+def is_wellformed_slug(slug: "str | None") -> bool:
+    """True iff `slug` is a safe, well-formed GitHub `owner/repo` — a SHAPE validator, distinct from
+    `_GITHUB_SLUG_RE` (which EXTRACTS a slug out of a remote URL). It gates a manifest-recorded slug BEFORE it
+    is interpolated into a rendered URL or issue body, so a malformed or hostile value can never break out of
+    the link or the prose. Validates the EXACT string passed (no internal strip): strip the value first,
+    validate that, then interpolate the SAME value — validating one form and interpolating another is the gap
+    this closes. `None`/non-str -> False."""
+    return isinstance(slug, str) and _SLUG_SHAPE_RE.fullmatch(slug) is not None
+
+
 _READ_HOME = object()  # sentinel: "no home passed -> read THIS repo's home", distinct from a passed home of None
 
 

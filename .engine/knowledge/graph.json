@@ -4813,7 +4813,7 @@
       },
       "slug": "external-contribution-issue",
       "source": {
-        "fingerprint": "sha256:5ae04326e56576245f404eb8a35e67edfba846434a32b56ab68cc12d08244bf0",
+        "fingerprint": "sha256:00c37393b70e7a4d680f861fd07412eee404be4a3734e794289a4c18be7187da",
         "path": ".engine/operations/external-contribution-issue.md"
       },
       "status": "active",
@@ -6527,7 +6527,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:d61fe36390f13a20666dea81821f3b2ee77aaa615b02ff6857c11a23d7354998",
+        "fingerprint": "sha256:80d3a45b1d7b7ef3ccd4a170c7947deeb674060a124db8eee1d73bafe5af7a67",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -7144,7 +7144,7 @@
       },
       "slug": "contribute_issue",
       "source": {
-        "fingerprint": "sha256:596a87ace543fd44c96ad8dcb532e4295cb6dab19ef15abf2ba6145005a3d978",
+        "fingerprint": "sha256:696bfe53a0130cb8e68e1751e44a6a24276ae84c53891045624d6f55a4b0eb99",
         "path": ".engine/tools/external_contribution/contribute_issue.py"
       },
       "status": "active",
@@ -9765,7 +9765,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:475f565394177d0e1497939bb6cc03ff8e8ae7f3371076191e29f29684593c32",
+        "fingerprint": "sha256:2a0ddf4cf8863e91b2154f8fba870874bd25baabb62b735535072c24a2a4f802",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -10466,7 +10466,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:9d3ae532fb1c1a5055bcea34f821d98e8b5ac9d193dea737fcabf9a3dd938323",
+        "fingerprint": "sha256:1a4995c3b7c97c319d7b05a429d5bb45a5dfe123c5b3b9c0e1015ed0991a205d",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -11282,7 +11282,7 @@
       },
       "slug": "test_audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:d5abb0ea7fa2b67ae695ed4567f76ec4edaa5546362a8541154f35b91797e7c2",
+        "fingerprint": "sha256:80e5d038bcc119e9f5f2c82d90090929d5c1b7a0aff784dbbe931c00f67f973e",
         "path": ".engine/tools/test_audit_soft_promote.py"
       },
       "status": "active",
@@ -11827,7 +11827,7 @@
       },
       "slug": "test_contribute_issue",
       "source": {
-        "fingerprint": "sha256:3bd2cfec107b9ec4c1489621e6ac79cd527bdc2b50a23b17683fe31c9dbc9350",
+        "fingerprint": "sha256:6a520e166a29911e809165e90163086c18b77e5da9e16718e8bb0987ff280c96",
         "path": ".engine/tools/external_contribution/test_contribute_issue.py"
       },
       "status": "active",
@@ -13801,12 +13801,13 @@
           "tool:execution_environment",
           "tool:first_run_health",
           "tool:mechanic_build",
+          "tool:module_coherence",
           "tool:repo_identity"
         ]
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:82e820d9002f60cd57b5da5264e0181a0f6b7820e594ba06d716de769f1ec577",
+        "fingerprint": "sha256:9ac01a2fbe5a9aa1f6775ee6831395117e3a6ea3bd33f5fd83c6eddd4c9f978d",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
