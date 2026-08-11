@@ -36,6 +36,12 @@
   ".agents/skills/engine-recall/agents/openai.yaml": [
    "core"
   ],
+  ".agents/skills/engine-release/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-release/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-routine/SKILL.md": [
    "routine-mode"
   ],
@@ -118,6 +124,9 @@
    "core"
   ],
   ".claude/skills/engine-recall/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-release/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-routine/SKILL.md": [
@@ -609,6 +618,9 @@
   ".engine/operations/engine-development.md": [
    "core"
   ],
+  ".engine/operations/engine-release.md": [
+   "core"
+  ],
   ".engine/operations/engine-remove.md": [
    "core"
   ],
@@ -647,6 +659,9 @@
   ],
   ".engine/operations/product-intake.md": [
    "product-design"
+  ],
+  ".engine/operations/projects-release-advance.md": [
+   "github-projects-sync"
   ],
   ".engine/operations/projects-sync-setup.md": [
    "github-projects-sync"

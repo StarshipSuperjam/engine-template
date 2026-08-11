@@ -318,6 +318,26 @@ class Prose(unittest.TestCase):
         self.assertIn("Actions", without)                     # else point at where the control lives
         self.assertIn("did not finish", with_url.lower())
 
+    def test_run_summaries_read_distinct_and_a_publish_carries_the_release_url(self):
+        # the run-page summary (--summary-out) mirrors the comment's outcome families, rendered by the tool
+        published = rt._summary_md({"published": True, "reason": "published", "tag": "v0.1.0"}, "acme/widgets")
+        already = rt._summary_md({"published": True, "reason": "already-published", "tag": "v0.1.0"},
+                                 "acme/widgets")
+        unfinished = rt._summary_md({"published": False, "reason": "release-create-failed", "tag": "v0.1.0",
+                                     "message": "the release could not be published."}, "acme/widgets")
+        refused = rt._summary_md({"published": False, "reason": "not-newer", "tag": "v0.1.0",
+                                  "message": "it is older.", "recovery": "cut it again higher."}, "acme/widgets")
+        self.assertEqual(len({published, already, unfinished, refused}), 4)
+        self.assertIn("https://github.com/acme/widgets/releases/tag/v0.1.0", published)  # the run-page link
+        self.assertIn("nothing changed", already)
+        self.assertIn("did not finish", unfinished)
+        self.assertIn("No release was published", refused)
+        # a deployed repo's summary speaks of the product, never "engine version" (#516 carried through)
+        product = rt._summary_md({"published": True, "reason": "published", "tag": "v0.2.0", "product": True},
+                                 "acme/widgets")
+        self.assertIn("Release v0.2.0", product)
+        self.assertNotIn("Engine", product)
+
 
 class ExitCode(unittest.TestCase):
     def test_published_and_noop_are_zero_refusals_are_one(self):

@@ -62,10 +62,13 @@ appear on it. The board then refreshes at the start of each session (about every
   reach back out to delete them. Delete the board yourself if you want it gone, and run
   `gh auth refresh --remove-scopes project` to take the permission back.
 - The engine only ever **adds its own already-labelled work** and writes **its own five fields**. It never
-  changes a card's Status, column, or position — those are yours and GitHub's built-in automation's.
+  changes a card's Status, column, or position — those are yours and GitHub's built-in automation's. One
+  named exception: after a release, at your ask, it re-points a release view's filter to the next milestone
+  — [the release-advance runbook](projects-release-advance.md) shows you the change before it happens.
 - **The engine's five fields are its own, and it keeps them in step with the real record every session.** So
   if you type your own value into one of them — say a different *Known issues* count — the engine will set it
   back to match the real record at the next sync. That is expected, not a bug, and it's called out here so it
   never surprises you: to change what those five fields show, change the underlying work they mirror (the
   issues, pull requests, and engine state), not the board cell. Everything else on the board — your Status,
-  your card moves, your own board text — stays yours and is never touched.
+  your card moves, your own board text — stays yours and is never touched (bar the release-time view
+  re-point above, which only ever happens at your ask).

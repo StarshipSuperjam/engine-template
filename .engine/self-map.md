@@ -56,7 +56,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: nothing
 - provides:
   - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
-  - codex-skill: `.agents/skills/engine-conduct/SKILL.md`, `.agents/skills/engine-conduct/agents/openai.yaml`, `.agents/skills/engine-help/SKILL.md`, `.agents/skills/engine-help/agents/openai.yaml`, `.agents/skills/engine-parts/SKILL.md`, `.agents/skills/engine-parts/agents/openai.yaml`, `.agents/skills/engine-recall/SKILL.md`, `.agents/skills/engine-recall/agents/openai.yaml`, `.agents/skills/engine-setup/SKILL.md`, `.agents/skills/engine-setup/agents/openai.yaml`, `.agents/skills/engine-start/SKILL.md`, `.agents/skills/engine-start/agents/openai.yaml`, `.agents/skills/engine-status/SKILL.md`, `.agents/skills/engine-status/agents/openai.yaml`, `.agents/skills/engine-tune/SKILL.md`, `.agents/skills/engine-tune/agents/openai.yaml`, `.agents/skills/engine-upgrade/SKILL.md`, `.agents/skills/engine-upgrade/agents/openai.yaml`
+  - codex-skill: `.agents/skills/engine-conduct/SKILL.md`, `.agents/skills/engine-conduct/agents/openai.yaml`, `.agents/skills/engine-help/SKILL.md`, `.agents/skills/engine-help/agents/openai.yaml`, `.agents/skills/engine-parts/SKILL.md`, `.agents/skills/engine-parts/agents/openai.yaml`, `.agents/skills/engine-recall/SKILL.md`, `.agents/skills/engine-recall/agents/openai.yaml`, `.agents/skills/engine-release/SKILL.md`, `.agents/skills/engine-release/agents/openai.yaml`, `.agents/skills/engine-setup/SKILL.md`, `.agents/skills/engine-setup/agents/openai.yaml`, `.agents/skills/engine-start/SKILL.md`, `.agents/skills/engine-start/agents/openai.yaml`, `.agents/skills/engine-status/SKILL.md`, `.agents/skills/engine-status/agents/openai.yaml`, `.agents/skills/engine-tune/SKILL.md`, `.agents/skills/engine-tune/agents/openai.yaml`, `.agents/skills/engine-upgrade/SKILL.md`, `.agents/skills/engine-upgrade/agents/openai.yaml`
   - conduct: `.engine/conduct/defaults.md`
   - contract: `.engine/contracts/*.md`
   - doc: `.engine/docs/getting-started.md`
@@ -64,11 +64,11 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
   - migration: `.engine/modules/core/migrations/*.py`
-  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/codex-validation.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-arrival.md`, `.engine/operations/engine-development.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-team-switch.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/memory-recall.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/onboarding-read.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
+  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/codex-validation.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-arrival.md`, `.engine/operations/engine-development.md`, `.engine/operations/engine-release.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-team-switch.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/memory-recall.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/onboarding-read.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
   - policy: `.engine/policies/attention.md`, `.engine/policies/briefing-budget.md`, `.engine/policies/contract-threshold.md`, `.engine/policies/escalation.md`, `.engine/policies/finding-disposition.md`, `.engine/policies/model-bindings.json`, `.engine/policies/model-routing.md`, `.engine/policies/supported-upgrade-matrix.md`, `.engine/policies/triage-threshold.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`, `.engine/provisioning/module-surfaces.json`
   - schema: `.engine/schemas/*.json`
-  - skill: `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-parts/SKILL.md`, `.claude/skills/engine-recall/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`, `.claude/skills/engine-upgrade/SKILL.md`
+  - skill: `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-parts/SKILL.md`, `.claude/skills/engine-recall/SKILL.md`, `.claude/skills/engine-release/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`, `.claude/skills/engine-upgrade/SKILL.md`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
@@ -106,7 +106,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: `core`
 - provides:
   - codex-skill: `.agents/skills/engine-board-setup/SKILL.md`, `.agents/skills/engine-board-setup/agents/openai.yaml`
-  - operation: `.engine/operations/projects-sync-setup.md`
+  - operation: `.engine/operations/projects-release-advance.md`, `.engine/operations/projects-sync-setup.md`
   - skill: `.claude/skills/engine-board-setup/SKILL.md`
   - tool: `.engine/tools/projects_sync/*.py`
 - wires: codex-hook, gitignore, hook
