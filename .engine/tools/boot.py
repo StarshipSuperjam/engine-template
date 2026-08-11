@@ -863,11 +863,12 @@ _MIN_VALUES = {
     "excerpt_chars": 80,
     "pin_index_title_chars": 40,
     "neighborhood_groups_max": 3,
-    # safety-critical: floors the never-shed mechanic build grounding ABOVE its real render (~828-856 chars for a
-    # realistic checkout path, StarshipSuperjam/engine-template#950), so an unguarded policy edit cannot force the per-component
-    # budget below its safety content — the same floor-above-real rationale as posture_chars_max. A pathological
-    # checkout path is clipped by _one_line and the whole shape is still caught by the mechanic margin canary,
-    # which is the tighter integrated gate.
+    # safety-critical: keeps an unguarded policy edit from shrinking the per-component budget below the grounding's
+    # fixed safety prose (StarshipSuperjam/engine-template#950). It sits above the real render for a TYPICAL durable-checkout path
+    # (~828-849 chars for a 40-57 char path) — but is NOT a universal "above every render" floor: the checkout
+    # path is deployment-specific and bounded only by _one_line's 200-char clip, so a very deep path renders
+    # larger. The real OVERFLOW guard is the mechanic margin canary, which measures the ACTUAL assembled render
+    # (path included) against the cap; this floor only keeps the prose-growth alarm from being set uselessly low.
     "mechanic_grounding_chars_max": 860,
     "pin_index_count_max": 5,           # keep at least a handful of pins visible as titles
     "pins_block_chars_max": 800,
@@ -2631,8 +2632,10 @@ def render_dashboard(s: dict) -> str:
                 out.append(f"- {path} ({kind}){idle_txt}")
             skipped = sprawl.get("active_skipped") or 0
             if skipped:
-                out.append(f"(Plus {skipped} recently-active workspace{'' if skipped == 1 else 's'} I left alone "
-                           "— they may belong to a session you have open, so this list isn't everything.)")
+                one = skipped == 1
+                out.append(f"(Plus {skipped} recently-active workspace{'' if one else 's'} I left alone — "
+                           f"{'it' if one else 'they'} may belong to a session you have open, so this list "
+                           "isn't everything.)")
 
     # The artifact warrant, proportionately LIGHT: this dashboard — and the project map it
     # draws on — is an automated readout derived from the engine's own checks, so it states its bound

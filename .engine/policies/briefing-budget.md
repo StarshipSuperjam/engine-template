@@ -65,10 +65,12 @@ The growing components and their dials:
 - `pins_block_chars_max` — a backstop on the whole pins block: if the index still overflows this after
   the count cap, the shown count is trimmed further (folding into the same disclosed count), so the
   block always fits its budget while the loud disclosure and provenance caveat are always kept.
-- `mechanic_grounding_chars_max` — the most an engine-**mechanic**'s never-shed build-safety grounding
-  (do-not-build-in-the-shared-clone, the isolated-worktree route, non-reflexivity) may occupy. A
-  **growth alarm**, floored in code above the real render so an unguarded policy edit cannot force the
-  grounding below its safety content; the mechanic margin canary is the tighter integrated gate.
+- `mechanic_grounding_chars_max` — a **growth alarm** on the prose of an engine-**mechanic**'s never-shed
+  build-safety grounding (do-not-build-in-the-shared-clone, the isolated-worktree route, non-reflexivity),
+  measured at a representative checkout path so it trips when the *prose* grows. Its code floor keeps an
+  unguarded policy edit from setting the budget uselessly low; it is not a promise to bound every
+  deployment's render, since the checkout path is deployment-specific. The real overflow guard is the
+  **mechanic margin canary**, which measures the actual assembled render (path included) against the cap.
 - `posture_lines_max` / `posture_chars_max` — the most lines and characters the execution-posture
   relay (always-shown operating guidance) may occupy before it is clipped to a pointer. Shipped well
   above the real posture size, so clipping is insurance, never the normal case.

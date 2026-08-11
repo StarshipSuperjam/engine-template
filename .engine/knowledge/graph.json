@@ -5114,7 +5114,7 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:5905a53bf4e299da2d31c6c7dbe087c16bcfe89d4772287de9febaf3bb6f2982",
+        "fingerprint": "sha256:849850de66f1e64df0337c6ab0d218111d6f24a805fde77584ceb9df63fe6b81",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
@@ -6656,7 +6656,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d11eeaf2b52966cb0b62613a1aa55fbb7a7b5efc37c7b168d28a3d8cf1086acf",
+        "fingerprint": "sha256:a89009a91eb97c152cd89716960a1b458ab0a48cf2d0f9bec8258076d260f1e1",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -11386,7 +11386,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:e7c2794a8f01f76b810d15abca53bdef5ca762a4171042975832033d01411698",
+        "fingerprint": "sha256:f38c7c681c326b9a4492aead87cb03a2e041cfac81531ee18728d123c46af7e6",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
