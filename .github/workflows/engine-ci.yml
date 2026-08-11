@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   engine-ci:
@@ -31,6 +32,9 @@ jobs:
       - name: Run the seed validator (CI suite)
         # The validator reads the PR body from $GITHUB_EVENT_PATH (.pull_request.body),
         # never from an interpolated shell argument.
+        # It also reads the current body live from the API during CI, falling back to that
+        # event payload when the live read is unavailable (StarshipSuperjam/engine-template#949).
+        # The `pull-requests: read` permission above lets the live read succeed in a private repo.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

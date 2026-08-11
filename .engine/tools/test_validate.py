@@ -713,5 +713,232 @@ class TestAuthorityReservationFindings(unittest.TestCase):
         self.assertEqual(validate.authority_reservation_findings(catalog, manifests, "hard", "M"), [])
 
 
+# ---- CI live PR-body read + phase-aware recovery (StarshipSuperjam/engine-template#949) -------------
+import urllib.error  # noqa: E402
+import github_client  # noqa: E402
+
+
+class _FakeResp:
+    """A minimal context-manager stand-in for a urllib response — the shape json_request drives
+    (`with _urlopen(...) as resp: resp.read(); resp.status`). No live call is ever made."""
+    def __init__(self, status, raw):
+        self.status, self._raw = status, raw
+
+    def read(self):
+        return self._raw
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _urlopen_ok(status=200, payload=None, raw=None):
+    body = raw if raw is not None else json.dumps(payload if payload is not None else {}).encode("utf-8")
+    def _fn(req, timeout=None):
+        return _FakeResp(status, body)
+    return _fn
+
+
+def _urlopen_raise(exc):
+    def _fn(req, timeout=None):
+        raise exc
+    return _fn
+
+
+def _urlopen_forbidden():
+    def _fn(req, timeout=None):
+        raise urllib.error.HTTPError("https://api.github.com/repos/o/r/pulls/42", 403,
+                                     "Forbidden", {}, None)
+    return _fn
+
+
+def _urlopen_read_raises(exc):
+    """A response whose .read() raises — the faithful shape of a truncated transfer (IncompleteRead is raised
+    during read(), inside json_request's with-block, and is NOT an OSError)."""
+    class _R(_FakeResp):
+        def read(self):
+            raise exc
+    def _fn(req, timeout=None):
+        return _R(200, b"")
+    return _fn
+
+
+class TestLivePrBodyFetch(unittest.TestCase):
+    """resolve_ci_pr_body fetches the CURRENT body in a CI pull-request run so an edited body (invisible to a
+    rerun of the frozen event) is seen, and falls back — never raises — when the live read is unavailable. The
+    network is injected at `github_client._urlopen`; a live call is NEVER made."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+        self.ev = os.path.join(self.d, "event.json")
+        self._write_event({"pull_request": {"number": 42, "body": "FROZEN STALE BODY"}})
+        self.ci_env = {"GITHUB_EVENT_PATH": self.ev, "GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "t"}
+
+    def _write_event(self, obj):
+        with open(self.ev, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+
+    def _resolve(self, urlopen, env=None):
+        with mock.patch.object(github_client, "_urlopen", urlopen), \
+                mock.patch.dict(os.environ, env if env is not None else self.ci_env, clear=True):
+            return validate.resolve_ci_pr_body(None)
+
+    # --- the live read wins, and NEVER yields None (the merge-gate-safety invariant) ---
+    def test_live_body_overrides_stale_frozen(self):
+        body, source = self._resolve(_urlopen_ok(payload={"body": "LIVE CURRENT BODY"}))
+        self.assertEqual(body, "LIVE CURRENT BODY")
+        self.assertEqual(source, "live")
+
+    def test_live_null_body_normalizes_to_empty_and_never_none(self):
+        # GitHub returns "body": null for an empty PR body. It MUST become "" (which ENFORCES the
+        # completeness check), never None (which the kind treats as a disclosed no-op and SKIPS).
+        body, source = self._resolve(_urlopen_ok(payload={"body": None}))
+        self.assertEqual(body, "")
+        self.assertEqual(source, "live")
+        self.assertIsNotNone(body)
+
+    def test_empty_live_body_hard_fails_completeness_not_skip(self):
+        # The end-to-end invariant: a live-read empty body FAILS the presence check, never skips it.
+        rule = {"tier": "hard", "message": "MSG", "target": {"context": "pull-request-body"},
+                "params": {"sections": ["Purpose"]}}
+        passed, findings = validate.kind_presence(rule, {"pr_body": "", "pr_body_source": "live"})
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in findings))
+
+    # --- every failure path falls back to the frozen read, never raises, never None ---
+    def test_httperror_falls_back_to_frozen(self):
+        body, source = self._resolve(_urlopen_forbidden())   # 403 = no pull-requests perm (private repo)
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    def test_urlerror_falls_back_no_raise(self):
+        body, source = self._resolve(_urlopen_raise(urllib.error.URLError("unreachable")))
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    def test_timeout_falls_back_no_raise(self):
+        body, source = self._resolve(_urlopen_raise(TimeoutError("timed out")))
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    def test_malformed_json_falls_back_no_raise(self):
+        body, source = self._resolve(_urlopen_ok(raw=b"{ not json"))
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    def test_non_200_status_falls_back(self):
+        body, source = self._resolve(_urlopen_ok(status=500, payload={"body": "ignored"}))
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    def test_incomplete_read_falls_back_no_raise(self):
+        # A truncated transfer raises http.client.IncompleteRead during read() — NOT an OSError, so it must be
+        # in the catch set or it would crash the whole required check on a transient blip.
+        import http.client
+        body, source = self._resolve(_urlopen_read_raises(http.client.IncompleteRead(b"partial")))
+        self.assertEqual(body, "FROZEN STALE BODY")
+        self.assertEqual(source, "frozen-fallback")
+
+    # --- the fetch is gated: an explicit body file or a non-CI context never touches the network ---
+    def test_body_file_override_skips_fetch(self):
+        bf = os.path.join(self.d, "body.md")
+        with open(bf, "w", encoding="utf-8") as fh:
+            fh.write("EXPLICIT FILE BODY")
+        called = []
+        with mock.patch.object(github_client, "_urlopen", lambda *a, **k: called.append(1)), \
+                mock.patch.dict(os.environ, self.ci_env, clear=True):
+            body, source = validate.resolve_ci_pr_body(bf)
+        self.assertEqual(body, "EXPLICIT FILE BODY")
+        self.assertEqual(source, "frozen")
+        self.assertEqual(called, [])
+
+    def test_no_token_skips_fetch(self):
+        env = {k: v for k, v in self.ci_env.items() if k != "GITHUB_TOKEN"}
+        called = []
+        with mock.patch.object(github_client, "_urlopen", lambda *a, **k: called.append(1)), \
+                mock.patch.dict(os.environ, env, clear=True):
+            body, source = validate.resolve_ci_pr_body(None)
+        self.assertEqual(source, "frozen")
+        self.assertEqual(called, [])
+
+    def test_non_pr_event_skips_fetch(self):
+        self._write_event({"action": "push"})   # no pull_request → no number → no fetch
+        called = []
+        with mock.patch.object(github_client, "_urlopen", lambda *a, **k: called.append(1)), \
+                mock.patch.dict(os.environ, self.ci_env, clear=True):
+            _body, source = validate.resolve_ci_pr_body(None)
+        self.assertEqual(source, "frozen")
+        self.assertEqual(called, [])
+
+    def test_event_pr_number_rejects_bad_values(self):
+        for bad in ({"pull_request": {"number": 0}}, {"pull_request": {"number": "42"}},
+                    {"pull_request": {"number": True}}, {"pull_request": {}}, {"action": "x"}):
+            self._write_event(bad)
+            with mock.patch.dict(os.environ, self.ci_env, clear=True):
+                self.assertIsNone(validate._event_pr_number())
+
+    # --- end-to-end through main(), the real GitHub Actions entry point ---
+    def test_main_wires_live_body_into_ctx(self):
+        # main() is what CI actually invokes (`python tools/validate.py --suite CI`); drive it end-to-end and
+        # confirm the live body + provenance land in the ctx it hands run() — the tuple-unpack/ctx assembly no
+        # other test exercises.
+        captured = {}
+        def _capture_run(suite, ctx):
+            captured.update(ctx)
+            return 0
+        with mock.patch.object(github_client, "_urlopen", _urlopen_ok(payload={"body": "LIVE VIA MAIN"})), \
+                mock.patch.object(validate, "run", _capture_run), \
+                mock.patch.dict(os.environ, self.ci_env, clear=True):
+            rc = validate.main(["--suite", "CI"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured.get("pr_body"), "LIVE VIA MAIN")
+        self.assertEqual(captured.get("pr_body_source"), "live")
+
+    # --- the load-bearing contract: the LOCAL path makes no network call ---
+    def test_local_ctx_makes_no_network_call(self):
+        called = []
+        with mock.patch.object(github_client, "_urlopen", lambda *a, **k: called.append(1)), \
+                mock.patch.dict(os.environ, self.ci_env, clear=True):
+            ctx = validate.local_ctx()
+        self.assertEqual(called, [])                       # local_ctx never reaches the live fetch
+        self.assertNotIn("pr_body_source", ctx)            # and carries no CI provenance
+        self.assertEqual(ctx["pr_body"], "FROZEN STALE BODY")
+
+    # --- the recovery note is phase-aware: once, only on frozen-fallback WITH findings ---
+    def _presence_rule(self):
+        return {"tier": "hard", "message": "MSG", "target": {"context": "pull-request-body"},
+                "params": {"sections": ["Purpose"]}}
+
+    def _soft_notes(self, findings):
+        return [f for f in findings if f["severity"] == "soft" and "To recover: edit" in f["message"]]
+
+    def test_recovery_note_fires_on_frozen_fallback_failure(self):
+        _passed, findings = validate.kind_presence(
+            self._presence_rule(), {"pr_body": "no purpose section", "pr_body_source": "frozen-fallback"})
+        notes = self._soft_notes(findings)
+        self.assertEqual(len(notes), 1)                    # emitted ONCE, not per missing section
+
+    def test_no_recovery_note_when_live_read_succeeded(self):
+        _passed, findings = validate.kind_presence(
+            self._presence_rule(), {"pr_body": "no purpose section", "pr_body_source": "live"})
+        self.assertEqual(self._soft_notes(findings), [])   # rerun re-reads the live body — no stale-trap warning
+
+    def test_no_recovery_note_when_completeness_passes(self):
+        passed, findings = validate.kind_presence(
+            self._presence_rule(), {"pr_body": "## Purpose\nreal content", "pr_body_source": "frozen-fallback"})
+        self.assertTrue(passed)
+        self.assertEqual(self._soft_notes(findings), [])   # nothing to recover from
+
+    def test_recovery_note_is_soft_and_never_gates(self):
+        # a soft note among hard findings must not change the hard-fired verdict
+        _passed, findings = validate.kind_presence(
+            self._presence_rule(), {"pr_body": "", "pr_body_source": "frozen-fallback"})
+        note = self._soft_notes(findings)[0]
+        self.assertEqual(note["severity"], "soft")
+
+
 if __name__ == "__main__":
     unittest.main()
