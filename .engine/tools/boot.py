@@ -1622,9 +1622,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     try:
         # The code-older-than-data restore offer, RELAYED from memory's own OFFLINE detector
         # (boot computes no new state). Same lazy import as the restore-offer above (the restore_vault -> backup_vault
-        # -> boot back-edge). `gh` is passed so the detector can ALSO promote the durable tracked Issue when online;
-        # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
-        # is the normal state, and a non-version-shaped running version never false-fires.
+        # -> boot back-edge). A write-capable client is passed so the detector can ALSO promote the durable
+        # tracked Issue when online; offline (client None) it still returns the in-session offer. Degrades
+        # QUIETLY to None — no stamp (no recent data migration) is the normal state, and a non-version-shaped
+        # running version never false-fires.
         from memory import restore_vault as _rv
         # This detector PROMOTES a durable engine Issue when online, so it needs the WRITE-capable domain
         # client (open_issue/ensure_label/...), NOT boot's neutral read-only reader (`gh`), which carries only
