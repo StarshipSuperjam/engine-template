@@ -1890,6 +1890,7 @@
           "policy:migration-discipline",
           "policy:model-routing",
           "policy:spec-structure-integrity",
+          "policy:supported-upgrade-matrix",
           "policy:triage-threshold"
         ]
       },
@@ -1956,6 +1957,7 @@
           "policy:migration-discipline",
           "policy:model-routing",
           "policy:spec-structure-integrity",
+          "policy:supported-upgrade-matrix",
           "policy:triage-threshold"
         ]
       },
@@ -4292,7 +4294,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:4e1186c0cea130a969ebd37e16abb406bba0fbb84c66c686e896c3fea9e3ee0d",
+        "fingerprint": "sha256:c4017912757ab53ddb2aa97f463842f9e92d860a9572238dea55570b5fa4a3f1",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5237,6 +5239,27 @@
       },
       "status": "active",
       "title": "Spec structure integrity",
+      "type": "policy"
+    },
+    {
+      "id": "policy:supported-upgrade-matrix",
+      "name": ".engine/policies/supported-upgrade-matrix.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "supported-upgrade-matrix",
+      "source": {
+        "fingerprint": "sha256:592b50b0497ed48069ae681d02f04f838f02a9266b04b96ec7c9d57c83b738fb",
+        "path": ".engine/policies/supported-upgrade-matrix.md"
+      },
+      "status": "active",
+      "title": "Supported-version deployed upgrade and rollback matrix",
       "type": "policy"
     },
     {
@@ -7230,7 +7253,7 @@
       },
       "slug": "demo_664_release_gate",
       "source": {
-        "fingerprint": "sha256:1d5b78a5359303c0601b305449ab4a8764e80f1aa1d8cd997b29e505df48eec6",
+        "fingerprint": "sha256:439107eff2aae86c2652d0d0bf9a8eee173e36a13df375a93cbfb4593c69ab92",
         "path": ".engine/tools/demo_664_release_gate.py"
       },
       "status": "active",
@@ -10210,7 +10233,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:3ccb2a666f8e801dc03cbc669fca079207dfe486642e76f4e8cb92c1388ec48d",
+        "fingerprint": "sha256:7c2552ec9247bee7348e99fa485223ec7751bbfa5950ba0c9b3265e58fb26eac",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -10235,7 +10258,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:97de09f569088dca35e7b782f852903661e5e02763f2012a9b2ca3d7d6f06bc1",
+        "fingerprint": "sha256:6649670e874f05a96946533132e817994c10c2dfa567e2a21614ec646f2766d3",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -13564,7 +13587,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:2e91de52950f36bb3095d6e99e099886eb1c87242835f3ce434adb1f11c6528f",
+        "fingerprint": "sha256:55dc0082d432b9893e2bbffe6d1ae1db203e6d4149b3683748b8df6893331a04",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -13589,7 +13612,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:5c4858cc2b4756fa4357933b6dc6018e7047c34f30cf70c51441f7c92d24f393",
+        "fingerprint": "sha256:8b1f3e0799b0fca983a31baf701586d8af9a044b0d8aeafe90261fb75a125d50",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",

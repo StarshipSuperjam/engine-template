@@ -1302,7 +1302,81 @@ def template_preamble() -> str:
     return "\n".join(block)
 
 
-def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -> str:
+def _working_tree_sha() -> "str | None":
+    """The git tree sha of the current working tree (through a THROWAWAY index, never the real one) — used to
+    confirm a supplied deployment-gate result describes THIS release candidate. At the `release.yml` pr-body
+    step the tree is unchanged since the gate ran two steps earlier, so this matches the gate's stamped
+    `candidate_tree`; a mismatch means a stale or foreign gate JSON. Best-effort: None on any git failure."""
+    import subprocess   # local: only this correspondence check needs it (mirrors the file's other local uses)
+    try:
+        with tempfile.TemporaryDirectory() as idx:
+            env = {**os.environ, "GIT_INDEX_FILE": os.path.join(idx, "index")}
+            if subprocess.run(["git", "-C", validate.ROOT, "add", "-A"], env=env,
+                              capture_output=True, timeout=120).returncode != 0:
+                return None
+            r = subprocess.run(["git", "-C", validate.ROOT, "write-tree"], env=env,
+                               capture_output=True, text=True, timeout=60)
+        return (r.stdout.strip() or None) if r.returncode == 0 else None
+    except Exception:   # noqa: BLE001 — correspondence is advisory, never a block
+        return None
+
+
+def _deployment_check_lines(gate: "dict | None") -> list:
+    """The Validation-section bullets recording the deployed upgrade+rollback check (the `release_gate` result).
+    ENGINE cuts only — the caller suppresses this in product mode, where the gate is inert. STRUCTURED FIELDS
+    ONLY reach the body: the baseline tag and per-leg outcome, never a raw `detail` string (those are
+    unsanitized nested stderr — local paths, tracebacks, `::`-prefixed text a public body must not carry). It
+    ALWAYS emits something on an engine cut: a missing / unreadable / mismatched / incomplete gate result
+    renders an honest line rather than silently restoring a body that looks like no check exists. The wording is
+    strictly mechanical — a deploy-and-undo CHECK, never a 'qualification' (the engine never qualifies itself;
+    that word names the operator's own frozen judgment)."""
+    lead = "- **Deployed upgrade and rollback check** —"
+    if gate is None:
+        return [f"{lead} no deployed upgrade/rollback evidence was supplied with this summary."]
+    if gate.get("_unreadable"):
+        return [f"{lead} deployed upgrade/rollback evidence was supplied but could not be read "
+                f"({gate.get('_error') or 'unreadable'})."]
+    if not gate.get("ran"):
+        return [f"{lead} the deployment gate was inert here (not the engine's home repo), so it recorded no "
+                "transitions."]
+    up = gate.get("upgrades") or {}
+    transitions = up.get("transitions")
+    if not transitions:
+        return [f"{lead} the deployment gate did not complete, so it recorded no per-transition evidence."]
+    stamped, current = gate.get("candidate_tree"), _working_tree_sha()
+    if stamped and current and stamped != current:
+        return [f"{lead} the gate evidence supplied does not correspond to this release candidate, so it is "
+                "not shown (re-run the deployment gate against this tree)."]
+    unverified = "" if (stamped and current) else " (candidate correspondence could not be verified)"
+    lines = [f"{lead} on a projected deployed copy, from each supported source version, a practice upgrade to "
+             f"this release then an undo of it{unverified}:"]
+    for t in transitions:
+        base, up_ok = t.get("baseline"), (t.get("upgrade") or {}).get("passed")
+        rb_ok = (t.get("rollback") or {}).get("passed")
+        if up_ok and rb_ok:
+            lines.append(f"  - from {base}: practice upgrade completed, then the undo restored the copy.")
+        elif up_ok and rb_ok is False:
+            lines.append(f"  - from {base}: practice upgrade completed, but the undo did not cleanly restore "
+                         "the copy.")
+        elif up_ok is False:
+            lines.append(f"  - from {base}: the practice upgrade did not complete.")
+        else:
+            lines.append(f"  - from {base}: recorded an unexpected state.")
+    floor, n = up.get("floor"), len(transitions)
+    excl = up.get("excluded") or []
+    excl_note = f"; excluded below the floor: {', '.join(excl)}" if excl else ""
+    if floor:
+        lines.append(f"  - Supported source versions: every released version at or above the clean-upgrade "
+                     f"floor {floor} ({n} transition{'' if n == 1 else 's'} this cut{excl_note}).")
+    lines.append("  - This is a mechanical deploy-and-undo check on a projected deployed copy, not the "
+                 "readiness judgment referred to under Risk. It proves a stalled/staged update from each "
+                 "version above can be undone; it does not exercise reverting an already-merged upgrade "
+                 "pull request.")
+    return lines
+
+
+def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
+                   deployment_gate: "dict | None" = None) -> str:
     """The release pull request's body — the maintainer's whole evidence bundle, authored HERE (never
     composed in workflow bash) so the gate-path legibility has one home. It takes both the `propose` JSON
     (the change inventory + interface impacts) and the `apply` result JSON (the versions actually recorded),
@@ -1424,13 +1498,17 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             "*Impact: a wrong version, or a change the summary could not detect mechanically, is caught by "
             "closing and re-running with the right version — nothing publishes until you merge.*", ""]
 
+    validation_bullets = [
+        ("- A green check shows the recorded version is well-formed and this summary is complete." if product else
+         "- A green check shows the versions agree across all the files that record them, the generated maps "
+         "are in sync, and this summary is complete."),
+        f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."]
+    if not product:      # the deployment gate is an ENGINE-cut instrument; it is inert on a product cut
+        validation_bullets += _deployment_check_lines(deployment_gate)
     out += pr_section(
         "Validation",
         "The engine's own tooling produced this and `engine-ci` checks it — the mechanical floor.",
-        [("- A green check shows the recorded version is well-formed and this summary is complete." if product else
-          "- A green check shows the versions agree across all the files that record them, the generated maps "
-          "are in sync, and this summary is complete."),
-         f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."],
+        validation_bullets,
         f"green means the release conforms to the engine's rules, not that {engine} is the right call.")
 
     out += pr_section(
@@ -1566,7 +1644,13 @@ def _cmd_propose(args) -> int:
 def _cmd_pr_body(args) -> int:
     proposal = validate.load_json(args.proposal)
     applied = validate.load_json(args.applied)
-    print(render_pr_body(proposal, applied, args.gate_state))
+    deployment_gate = None
+    if getattr(args, "deployment_gate_json", None):
+        try:
+            deployment_gate = validate.load_json(args.deployment_gate_json)
+        except Exception as exc:   # noqa: BLE001 — a supplied-but-unreadable gate result renders honestly
+            deployment_gate = {"_unreadable": args.deployment_gate_json, "_error": str(exc)}
+    print(render_pr_body(proposal, applied, args.gate_state, deployment_gate))
     return 0
 
 
@@ -1651,6 +1735,9 @@ def main(argv: list) -> int:
     pb.add_argument("--gate-state", default="sub-bar", choices=["passed", "sub-bar", "errored"],
                     help="the acceptance-benchmark outcome to render (only 'sub-bar' is reachable while no "
                          "benchmark measures a release)")
+    pb.add_argument("--deployment-gate-json", dest="deployment_gate_json", metavar="PATH",
+                    help="the release_gate.py --json-out result; its per-transition upgrade/rollback outcomes "
+                         "are recorded in the Validation section (engine cuts only)")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "propose":

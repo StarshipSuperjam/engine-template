@@ -10,6 +10,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import validate
 import module_coherence
@@ -1556,6 +1557,83 @@ class ReleaseWorkflowsAreFoundation(unittest.TestCase):
         owned = module_coherence.foundation_infra_paths()
         for w in (".github/workflows/release.yml", ".github/workflows/release-publish.yml"):
             self.assertIn(w, owned, w)
+
+
+class RenderPRBodyDeploymentCheck(unittest.TestCase):
+    """The Validation section records the deployed upgrade+rollback check (the release_gate result,
+    StarshipSuperjam/engine-template#703) on an ENGINE cut — worded as a mechanical check, keyed off the
+    gate JSON's own fields, cross-checked against the candidate tree, and suppressed on a product cut."""
+
+    _PROPOSAL = {"change_inventory": ["First release."], "impacts": []}
+    _APPLIED = {"applied": True, "engine": "0.4.2", "from_engine": "0.3.2", "targets": {"core": "0.4.2"}}
+
+    def _gate(self, transitions=None, **over):
+        g = {"ran": True, "passed": True, "candidate_tree": "abc123",
+             "upgrades": {"passed": True, "floor": "0.3.2", "baselines": ["v0.3.2"], "excluded": [],
+                          "transitions": transitions if transitions is not None else
+                          [{"baseline": "v0.3.2", "upgrade": {"passed": True, "detail": ""},
+                            "rollback": {"passed": True, "detail": ""}, "passed": True}]}}
+        g.update(over)
+        return g
+
+    def _validation(self, body):
+        return body.split("## Validation", 1)[1].split("## Review", 1)[0]
+
+    def test_block_rendered_in_validation_when_tree_matches(self):
+        with mock.patch.object(rc, "_working_tree_sha", return_value="abc123"):
+            body = rc.render_pr_body(self._PROPOSAL, self._APPLIED, deployment_gate=self._gate())
+        val = self._validation(body)
+        self.assertIn("Deployed upgrade and rollback check", val)
+        self.assertIn("from v0.3.2: practice upgrade completed, then the undo restored the copy", val)
+        self.assertIn("clean-upgrade floor 0.3.2", val)
+        self.assertIn("not the readiness judgment referred to under Risk", val)
+        # the reserved word 'qualification' must never appear — the engine never qualifies itself
+        for banned in ("qualification", "qualified", "certified"):
+            self.assertNotIn(banned, val.lower())
+
+    def test_absent_evidence_line_on_engine_cut(self):
+        # flag not passed -> None -> the honest-absence line is ALWAYS emitted (a dropped flag can't silently
+        # restore a body that looks like no check exists)
+        body = rc.render_pr_body(self._PROPOSAL, self._APPLIED, deployment_gate=None)
+        self.assertIn("no deployed upgrade/rollback evidence was supplied", self._validation(body))
+
+    def test_unreadable_evidence_renders_honestly(self):
+        body = rc.render_pr_body(self._PROPOSAL, self._APPLIED,
+                                 deployment_gate={"_unreadable": "/x", "_error": "boom"})
+        self.assertIn("could not be read", self._validation(body))
+
+    def test_candidate_mismatch_hides_the_table(self):
+        with mock.patch.object(rc, "_working_tree_sha", return_value="DIFFERENT"):
+            body = rc.render_pr_body(self._PROPOSAL, self._APPLIED, deployment_gate=self._gate())
+        val = self._validation(body)
+        self.assertIn("does not correspond to this release candidate", val)
+        self.assertNotIn("from v0.3.2", val)                   # the per-transition rows are withheld
+
+    def test_incomplete_gate_result_renders_honestly(self):
+        # a fail-closed gate result has no `transitions` key at all -> must not KeyError or render an empty pass
+        body = rc.render_pr_body(self._PROPOSAL, self._APPLIED,
+                                 deployment_gate={"ran": True, "passed": False, "reason": "setup error"})
+        self.assertIn("did not complete", self._validation(body))
+
+    def test_failed_transition_rendered_honestly(self):
+        tx = [{"baseline": "v0.3.2", "upgrade": {"passed": True, "detail": "x"},
+               "rollback": {"passed": False, "detail": "/Users/me/secret/traceback"}, "passed": False}]
+        with mock.patch.object(rc, "_working_tree_sha", return_value="abc123"):
+            body = rc.render_pr_body(self._PROPOSAL, self._APPLIED,
+                                     deployment_gate=self._gate(transitions=tx, passed=False,
+                                                                upgrades={"passed": False, "floor": "0.3.2",
+                                                                          "baselines": ["v0.3.2"],
+                                                                          "excluded": [], "transitions": tx}))
+        val = self._validation(body)
+        self.assertIn("the undo did not cleanly restore the copy", val)
+        self.assertNotIn("/Users/me/secret/traceback", val)    # raw detail never reaches the public body
+
+    def test_product_cut_suppresses_the_block(self):
+        product_applied = dict(self._APPLIED, product=True)
+        with mock.patch.object(rc, "_working_tree_sha", return_value="abc123"):
+            body = rc.render_pr_body({"change_inventory": ["Release."], "impacts": [], "product": True},
+                                     product_applied, deployment_gate=self._gate())
+        self.assertNotIn("Deployed upgrade and rollback check", body)
 
 
 if __name__ == "__main__":
