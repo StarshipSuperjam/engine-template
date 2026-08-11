@@ -35,6 +35,26 @@ import release_gate as rg       # noqa: E402  (the shipped gate helpers under te
 _KNOWLEDGE_GEN_REL = os.path.join(".engine", "tools", "knowledge_gen.py")
 _CARVE_OUT_LINE = '_OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})'
 _CARVE_OUT_DISABLED = "_OPTIONAL_MODULE_SUBTREES = frozenset()"
+_MODULE_MANAGER_REL = os.path.join(".engine", "tools", "module_manager.py")
+_SWITCH_BACK_LINE = '    if _git(root, "checkout", branch) is None:'
+_SWITCH_BACK_BROKEN = '    if True:  # seeded rollback regression (demo #664 negative control): switch-back neutralized'
+
+
+def _seed_rollback_regression(tree: str) -> bool:
+    """Break the CLONE's own `rollback` switch-back (the pre-#599-safe shape) so a staged update cannot be
+    cleanly undone — the discard reports `partial` instead of `undone`. Because the overlay installs the
+    candidate's `module_manager.py` into the projection, this edit reaches the rollback child the gate spawns
+    after the practice upgrade — the only mechanism that crosses that process boundary (an in-process patch
+    like demo_594's cannot). The UPGRADE leg is untouched (it never calls the discard), so this isolates the
+    ROLLBACK leg: the upgrade still passes, the undo fails, and the gate blocks. Returns True if seeded."""
+    path = os.path.join(tree, _MODULE_MANAGER_REL)
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    if _SWITCH_BACK_LINE not in src:
+        return False
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src.replace(_SWITCH_BACK_LINE, _SWITCH_BACK_BROKEN, 1))
+    return True
 
 def _seed_rename_residue(tree: str) -> bool:
     """Introduce a genuine rename-residue import into the always-present memory substrate — a
@@ -122,6 +142,33 @@ def main() -> int:
                 failures.append("NEGATIVE(upgrade): the gate did NOT block a candidate whose wiring map cannot "
                                 "regenerate during an upgrade")
 
+    # ---- POSITIVE (upgrade + rollback arm): a healthy candidate upgrades AND cleanly rolls back ----
+    with tempfile.TemporaryDirectory() as d:
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "healthy-tx"))
+        res = rg._upgrade_from("v0.4.0", tree)   # a real past release -> practice upgrade -> undo, all clean
+        up_ok = (res.get("upgrade") or {}).get("passed")
+        rb_ok = (res.get("rollback") or {}).get("passed")
+        print("\n[POSITIVE — upgrade + rollback arm, a healthy candidate]")
+        print(f"  upgrade passed: {up_ok}; rollback passed: {rb_ok}; transition passed: {res['passed']}")
+        if not (res["passed"] and up_ok and rb_ok is True):
+            failures.append(f"POSITIVE(rollback): a healthy candidate did not upgrade-then-cleanly-roll-back "
+                            f"(upgrade={up_ok}, rollback={rb_ok}, detail={(res.get('rollback') or {}).get('detail','')[:300]})")
+
+    # ---- NEGATIVE CONTROL (rollback arm): a candidate whose undo cannot restore the copy is BLOCKED ----
+    with tempfile.TemporaryDirectory() as d:
+        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "rollback-regressed"))
+        if not _seed_rollback_regression(tree):
+            failures.append("NEGATIVE(rollback): could not seed the regression (switch-back line not found)")
+        else:
+            res = rg._upgrade_from("v0.4.0", tree)   # upgrade still clean; the seeded undo cannot restore
+            up_ok = (res.get("upgrade") or {}).get("passed")
+            rb_ok = (res.get("rollback") or {}).get("passed")
+            print("\n[NEGATIVE CONTROL — rollback arm, a candidate whose undo cannot restore the copy]")
+            print(f"  upgrade still passed: {up_ok}; the gate's rollback arm blocked the cut: {rb_ok is False}")
+            if not (up_ok and rb_ok is False):
+                failures.append("NEGATIVE(rollback): the gate did NOT block a candidate whose staged update "
+                                f"could not be cleanly undone (upgrade={up_ok}, rollback={rb_ok})")
+
     print("\n" + "=" * 78)
     if failures:
         print("DEMO #664 FAILED:")
@@ -129,10 +176,11 @@ def main() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO #664 PASSED: the deployment gate lets a healthy release cut proceed (it operates on a "
-          "module-declined deployment), blocks a release that regressed the #663 carve-out (its wiring map "
-          "cannot regenerate on the declined shape), AND blocks — on the upgrade arm — a release whose wiring "
-          "map cannot regenerate during an upgrade from a real past release. The gate fails closed, so a broken "
-          "release never opens its pull request.")
+          "module-declined deployment, and upgrades then cleanly rolls back from a real past release), blocks a "
+          "release that regressed the #663 carve-out (its wiring map cannot regenerate on the declined shape), "
+          "blocks — on the upgrade arm — a release whose wiring map cannot regenerate during an upgrade, AND "
+          "blocks — on the rollback arm — a release whose staged update cannot be cleanly undone (the #703 "
+          "matrix's rollback leg). The gate fails closed, so a broken release never opens its pull request.")
     return 0
 
 

@@ -37,12 +37,22 @@ jobs:
       - name: Run the deployment gate against the current tree
         run: |
           set -uo pipefail
-          # No --json: the gate prints its plain-language result to the log (the reader's signal).
-          uv run --directory .engine --frozen -- python tools/release_gate.py
+          sum="${RUNNER_TEMP}/deployment-gate-summary.md"
+          # No --json: the gate prints its plain-language result to the log (the reader's signal). --summary-out
+          # writes the per-transition upgrade/rollback matrix table (rendered by the gate, never in this shell)
+          # so a between-cuts run surfaces the same supported-version matrix the release PR records.
+          uv run --directory .engine --frozen -- python tools/release_gate.py --summary-out "${sum}"
           gate_rc=$?
           if [ "${gate_rc}" -ne 0 ]; then
-            echo "::error::This tree would not operate or upgrade cleanly when deployed. See the plain-language reason in the step log above. Nothing was changed — this workflow only reads and reports."
-            echo "### Deployment gate: BLOCKED — this tree would not operate or upgrade cleanly when deployed. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
+            echo "::error::This tree would not operate, upgrade, or roll back cleanly when deployed. See the plain-language reason in the step log above. Nothing was changed — this workflow only reads and reports."
+            echo "### Deployment gate: BLOCKED — this tree would not operate, upgrade, or roll back cleanly when deployed. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
+            # Surface the per-transition matrix too (the gate writes it whether it passed or failed), so a
+            # blocked run shows which baseline and leg failed rather than only a raw stderr log.
+            if [ -s "${sum}" ]; then cat "${sum}" >> "${GITHUB_STEP_SUMMARY}"; fi
             exit 1
           fi
-          echo "### Deployment gate: passed — this tree operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"
+          if [ -s "${sum}" ]; then
+            cat "${sum}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "### Deployment gate: passed — this tree operates, upgrades, and rolls back when deployed" >> "${GITHUB_STEP_SUMMARY}"
+          fi

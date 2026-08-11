@@ -11,10 +11,14 @@ gate catches both at CONSTRUCTION cut time, before a release pull request is eve
   validator + the whole self-test suite against it, in two configurations: the default install (every shipped
   module) and an optional-modules-declined install (each `default-on` module and the files it owns removed —
   the exact shape StarshipSuperjam/engine-template#663 broke on). A red here means the release would not operate on a real deployment.
-- **Arm B — upgrades when deployed.** For each released baseline at or above the clean-upgrade floor, project
-  that past release to its deployed shape and run a REAL practice upgrade to the candidate — the same child
-  tail, the same six-check structural gate (including the wiring-map coverage check StarshipSuperjam/engine-template#663 failed), no pull
-  request opened. A red means a deployed engine could not reconcile cleanly onto this release.
+- **Arm B — upgrades AND rolls back when deployed.** For each released baseline at or above the clean-upgrade
+  floor, project that past release to its deployed shape and run a REAL practice upgrade to the candidate — the
+  same child tail, the same seven-check structural gate (including the wiring-map coverage check
+  StarshipSuperjam/engine-template#663 failed), no pull request opened — and then a REAL undo of that staged
+  update (the operator's `rollback`), asserting the projected copy is cleanly restored to the baseline. A red
+  means a deployed engine could not reconcile cleanly onto this release, or could not cleanly undo a stalled
+  update from it (the StarshipSuperjam/engine-template#599 rollback-refusal class). The per-baseline outcomes
+  are recorded as the supported-version transition matrix (StarshipSuperjam/engine-template#703).
 
 **Where deployed-shape protection now lives.** This gate REPLACES the inline `test_deployed_selftests.py` belt,
 which ran Arm A's default configuration on every home-repo pull request (~44% of the suite's wall time). That
@@ -34,6 +38,7 @@ by re-running the `release-gate` workflow; a real red is fixed and the release r
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -118,6 +123,24 @@ def _archive_candidate(dest: str) -> str:
         return module_manager._archive_tree(tree_sha, dest)
     except Exception as exc:                              # noqa: BLE001 — surface as a clean block
         raise GateError(f"could not archive the candidate tree ({exc})")
+
+
+def _candidate_tree_sha() -> "str | None":
+    """The git tree sha of the current working tree — the exact bytes the cut will commit, captured through a
+    THROWAWAY index so the real index is never touched (the same capture `_archive_candidate` archives). Stamped
+    into the gate result as the candidate identity, so the evidence can be tied to the tree it describes: the
+    release-PR renderer re-derives this sha and refuses to present the transition matrix if it does not match
+    (stale or mismatched gate JSON). Best-effort: returns None on any git failure rather than blocking the gate
+    on an identity read (the arms are the gate's real verdict)."""
+    try:
+        with tempfile.TemporaryDirectory() as idx_dir:
+            env = {**os.environ, "GIT_INDEX_FILE": os.path.join(idx_dir, "index")}
+            if _run(["git", "-C", validate.ROOT, "add", "-A"], env=env, timeout=120).returncode != 0:
+                return None
+            tree = _run(["git", "-C", validate.ROOT, "write-tree"], env=env, timeout=60)
+        return tree.stdout.strip() or None if tree.returncode == 0 else None
+    except Exception:                                        # noqa: BLE001 — identity is advisory, never a block
+        return None
 
 
 def _archive_baseline(tag: str, dest: str) -> str:
@@ -292,7 +315,7 @@ def _driver_source() -> str:
     """The in-projection driver: run as `python -c` with the working directory inside the projection's own
     `.engine/tools`, so `import module_manager` binds the PROJECTION's copy and `validate.ROOT` (derived from
     that file's own path) resolves to the projection — never home. It asserts that isolation itself before
-    mutating anything, injects the candidate as `release_tree` alone (practice mode -> the real six-check
+    mutating anything, injects the candidate as `release_tree` alone (practice mode -> the real seven-check
     child gate, no pull request), and prints the result JSON."""
     return (
         "import json, os, sys\n"
@@ -306,29 +329,52 @@ def _driver_source() -> str:
     ) % (_DRIVER_EXPECT_ROOT, _DRIVER_CANDIDATE)
 
 
-def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
-    """Arm B, one baseline. Project the baseline release to its deployed shape, then run a REAL practice
-    upgrade to the candidate driven by the PROJECTION's own module_manager (so phase-1 runs as the baseline's
-    shipped code, exactly as a real deployment would, and the tail runs as the overlaid candidate code). Assert
+def _rollback_driver_source() -> str:
+    """The in-projection ROLLBACK driver — a SECOND fresh child, run after the practice upgrade with the working
+    directory inside the projection's own `.engine/tools`, so `import module_manager` binds the CANDIDATE'S
+    just-overlaid rollback code (the true post-upgrade reality — the upgrade child had imported the baseline's
+    copy before the overlay, so rollback could not run there). It re-asserts its own resolved ROOT before
+    mutating anything (the same belt as the upgrade driver — `rollback` runs real `git checkout`/branch
+    operations, the most destructive surface here), then undoes the staged update through the operator's own
+    `rollback(confirm=True)` with the two side-effect boundaries seamed exactly as `demo_594_rollback_discard`
+    does: `resync=lambda: True` (no `uv sync` of a projection that has no venv) and `transport=None`. The memory
+    put-back is provably a no-op in a projection: `rollback` restores memory only when `detect_migration_revert`
+    finds the GITIGNORED store's migration stamp ahead of the code, and a `git archive` projection carries no
+    gitignored store — so `transport` is never reached (the leg also asserts the no-offer degrade as a
+    postcondition). Prints the full result JSON."""
+    return (
+        "import json, os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import validate, module_manager\n"
+        "expect = os.path.realpath(os.environ['%s'])\n"
+        "here = os.path.realpath(validate.ROOT)\n"
+        "assert here == expect, 'ROOT isolation breach: %%r != %%r' %% (here, expect)\n"
+        "res = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)\n"
+        "sys.stdout.write('ROLLBACK_RESULT:' + json.dumps(res))\n"
+    ) % (_DRIVER_EXPECT_ROOT,)
+
+
+def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
+    """Arm B, one baseline — the UPGRADE leg. Run a REAL practice upgrade of the already-projected baseline
+    `proj` to the candidate, driven by the PROJECTION's own module_manager (phase-1 runs as the baseline's
+    shipped code, exactly as a real deployment would; the tail runs as the overlaid candidate code). Assert
     the upgrade completed with NO refusal reason (a reconcile/migration refusal sets `reason` and leaves an
     early `applied=True` with empty findings — it must NOT read as a pass), no hard structural finding, and
-    that it took the practice child path (not a silent network fetch). Returns {passed, detail}."""
-    with tempfile.TemporaryDirectory() as d:
-        proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
-        _project_to_deployed(proj, decline_optional=False)
-        _assert_isolated(proj)
-        env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj),
-                             _DRIVER_CANDIDATE: os.path.abspath(candidate)})
-        env.pop("GITHUB_TOKEN", None)                    # already stripped by _nested_env; kept in place so the
-                                                         # "practice mode opens no PR, deny the token outright"
-                                                         # property stays legible at this sensitive spawn
-        run = _run([sys.executable, "-c", _driver_source()],
-                   cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
-        if run.returncode != 0 or "GATE_RESULT:" not in run.stdout:
-            return {"passed": False,
-                    "detail": f"upgrade/{baseline_tag}: the practice upgrade did not complete\n"
-                              f"{_tail(run.stderr or run.stdout, 3000)}"}
-        result = json.loads(run.stdout.split("GATE_RESULT:", 1)[1])
+    that it took the practice child path (not a silent network fetch). Returns {passed, detail}. Leaves the
+    projection STAGED (the practice tail `git add -A`s but never commits/opens) so the rollback leg can undo
+    it."""
+    env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj),
+                         _DRIVER_CANDIDATE: os.path.abspath(candidate)})
+    env.pop("GITHUB_TOKEN", None)                    # already stripped by _nested_env; kept in place so the
+                                                     # "practice mode opens no PR, deny the token outright"
+                                                     # property stays legible at this sensitive spawn
+    run = _run([sys.executable, "-c", _driver_source()],
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+    if run.returncode != 0 or "GATE_RESULT:" not in run.stdout:
+        return {"passed": False,
+                "detail": f"upgrade/{baseline_tag}: the practice upgrade did not complete\n"
+                          f"{_tail(run.stderr or run.stdout, 3000)}"}
+    result = json.loads(run.stdout.split("GATE_RESULT:", 1)[1])
     problems = []
     # A refusal at ANY step — phase-1 (`refused`) OR the tail (a `reason` with an early `applied=True` and no
     # findings) — means the deployed upgrade did not reconcile cleanly. Reading `reason` catches the tail case.
@@ -350,9 +396,88 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
             else f"upgrade/{baseline_tag}: " + "; ".join(problems)}
 
 
-def _upgrade_baselines() -> list:
-    """The released baselines Arm B upgrades FROM: every version tag at or above the candidate's clean-upgrade
-    floor, deduped. Tags are `v`-prefixed; the floor is bare — strip the `v` before the version compare."""
+def _rollback_leg(proj: str, baseline_tag: str) -> dict:
+    """Arm B, one baseline — the ROLLBACK leg. Undo the staged practice upgrade the upgrade leg just left in
+    `proj`, through a SECOND fresh child running the candidate's overlaid `rollback` (`_rollback_driver_source`).
+    Assert the PARSED result, never the exit code: `rollback --confirm` exits 0 on `state:"none"` (nothing to
+    undo) and an in-projection git failure degrades to `state:"none"` too — either would be a vacuous pass. The
+    bar is the `demo_594` bar: a STAGED update was seen, it was UNDONE, a recovery point was saved first, and no
+    refusal/partial. The foreign-work guard NOT tripping is the standing regression for the
+    StarshipSuperjam/engine-template#599 rollback-refusal class (an `_upgrade_footprint` that disagreed with the
+    reconcile deliver-set would flag the freshly-delivered files as foreign work and refuse). After the undo the
+    projection tree must be clean (the discarded overlay lives only on the recovery branch). Returns
+    {passed, detail}."""
+    env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj)})
+    env.pop("GITHUB_TOKEN", None)                    # rollback opens no PR and reaches no network — deny outright
+    run = _run([sys.executable, "-c", _rollback_driver_source()],
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+    if run.returncode != 0 or "ROLLBACK_RESULT:" not in run.stdout:
+        return {"passed": False,
+                "detail": f"rollback/{baseline_tag}: the undo did not complete\n"
+                          f"{_tail(run.stderr or run.stdout, 3000)}"}
+    result = json.loads(run.stdout.split("ROLLBACK_RESULT:", 1)[1])
+    problems = []
+    if result.get("state") != "staged":
+        problems.append(f"the engine saw no staged update to undo (state={result.get('state')!r}) — a vacuous "
+                        "pass, not a real rollback")
+    if result.get("refused"):
+        problems.append(f"the undo refused (the foreign-work guard, the "
+                        f"StarshipSuperjam/engine-template#599 class): {result.get('reason')}")
+    if result.get("partial"):
+        problems.append(f"the undo only partly completed: {result.get('reason')}")
+    if not result.get("undone"):
+        problems.append("the undo did not report the staged update discarded")
+    if not (result.get("recovery_point") or "").startswith("engine-rescue/"):
+        problems.append("the undo did not save a recovery point before discarding")
+    if result.get("resync_failed"):
+        problems.append("the tool-runtime rebuild after the undo reported a failure")
+    # The memory put-back must have been the no-op degrade a projection guarantees (no gitignored store -> no
+    # migration-revert offer -> transport never reached). A real restore, or a vault-reach attempt, means the
+    # leg touched state a projection should never reach.
+    if result.get("restored") is True:
+        problems.append("the undo unexpectedly restored memory in a projection (it should be a no-op there)")
+    note = result.get("memory_note") or ""
+    if note.startswith("couldn't reach your backup"):
+        problems.append("the undo attempted to reach a memory backup from a projection")
+    # The tree must be clean after the undo — the discarded overlay lives only on the recovery branch now.
+    st = _run(["git", "-C", proj, "status", "--porcelain"], timeout=60)
+    if st.returncode != 0:
+        problems.append("could not confirm the projected tree was clean after the undo")
+    elif st.stdout.strip():
+        problems.append(f"the undo left changes in the projected tree: {_tail(st.stdout, 400)}")
+    return {"passed": not problems, "detail": "" if not problems
+            else f"rollback/{baseline_tag}: " + "; ".join(problems)}
+
+
+def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
+    """Arm B, one baseline — one supported-version transition. Project the baseline release to its deployed
+    shape, run the practice UPGRADE leg, then (only if it passed) the ROLLBACK leg against the same staged
+    projection. If the upgrade did not complete the rollback leg is NOT run — a rollback attempt on a half-
+    applied tree would obscure the real upgrade failure (this is also the shape `demo_664` drives with a
+    deliberately broken candidate). Returns the transition record
+    `{baseline, upgrade:{passed,detail}, rollback:{passed,detail}, passed}`, where a not-run rollback carries
+    `passed: None`. The whole transition happens inside one tempdir so the projection lives across both legs."""
+    with tempfile.TemporaryDirectory() as d:
+        proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
+        _project_to_deployed(proj, decline_optional=False)
+        _assert_isolated(proj)
+        upgrade = _upgrade_leg(proj, baseline_tag, candidate)
+        if not upgrade["passed"]:
+            return {"baseline": baseline_tag, "upgrade": upgrade,
+                    "rollback": {"passed": None, "detail": "not run — the upgrade did not complete"},
+                    "passed": False}
+        rollback = _rollback_leg(proj, baseline_tag)
+        return {"baseline": baseline_tag, "upgrade": upgrade, "rollback": rollback,
+                "passed": bool(upgrade["passed"] and rollback["passed"])}
+
+
+def _baseline_selection() -> dict:
+    """The Arm B baseline set, as {floor, baselines, excluded}. `baselines` = every released version tag at or
+    above the candidate's clean-upgrade floor, deduped and sorted; `excluded` = the version tags BELOW the floor
+    (recorded so the evidence shows the matrix wasn't silently shrunk by a floor bump or a deleted tag). Tags
+    are `v`-prefixed; the floor is bare — strip the `v` before the version compare. Below-floor sources are not
+    tested here: they predate the floor-preflight code and cannot self-refuse — which is why the floor exists
+    (see the supported-upgrade-matrix policy)."""
     floor = None
     try:
         floor = (validate.load_json(os.path.join(validate.ROOT, ".engine", "engine.json")) or {}).get(
@@ -362,29 +487,46 @@ def _upgrade_baselines() -> list:
     tags = _run(["git", "-C", validate.ROOT, "tag", "--list", "v*"], timeout=60)
     if tags.returncode != 0:
         raise GateError(f"could not list release tags to pick upgrade baselines ({_tail(tags.stderr)})")
-    baselines = []
+    baselines, excluded = [], []
     for line in tags.stdout.split():
         m = re.match(r"^v(\d+\.\d+\.\d+)$", line.strip())
         if not m:
             continue
-        version = m.group(1)
-        if floor and validate._ver_tuple(version) < validate._ver_tuple(floor):
+        if floor and validate._ver_tuple(m.group(1)) < validate._ver_tuple(floor):
+            excluded.append(line.strip())
             continue
         baselines.append(line.strip())
-    return sorted(set(baselines), key=lambda t: validate._ver_tuple(t[1:]))
+    key = lambda t: validate._ver_tuple(t[1:])           # noqa: E731 — a one-line sort key reads clearest inline
+    return {"floor": floor,
+            "baselines": sorted(set(baselines), key=key),
+            "excluded": sorted(set(excluded), key=key)}
+
+
+def _upgrade_baselines() -> list:
+    """The released baselines Arm B upgrades FROM (the `baselines` field of `_baseline_selection`)."""
+    return _baseline_selection()["baselines"]
 
 
 def _arm_upgrades(candidate: str) -> dict:
-    """Arm B. Upgrade each in-range released baseline to the candidate and collect the failures."""
-    baselines = _upgrade_baselines()
+    """Arm B. Run the upgrade+rollback transition for each in-range released baseline and record the matrix.
+    `transitions` is the per-baseline record (the executable supported-version matrix); `floor`/`baselines`/
+    `excluded` state the matrix's shape so a reviewer can see it was not silently shrunk; `failures` is the
+    plain-text detail list the operator log surfaces."""
+    sel = _baseline_selection()
+    baselines = sel["baselines"]
     if not baselines:
         raise GateError("found no released baseline at or above the clean-upgrade floor to test upgrades from")
+    transitions = [_upgrade_from(tag, candidate) for tag in baselines]
     failures = []
-    for tag in baselines:
-        res = _upgrade_from(tag, candidate)
-        if not res["passed"]:
-            failures.append(res["detail"])
-    return {"passed": not failures, "baselines": baselines, "failures": failures}
+    for t in transitions:
+        if t["passed"]:
+            continue
+        for leg in ("upgrade", "rollback"):
+            detail = (t.get(leg) or {}).get("detail")
+            if (t.get(leg) or {}).get("passed") is False and detail:
+                failures.append(detail)
+    return {"passed": not failures, "floor": sel["floor"], "baselines": baselines,
+            "excluded": sel["excluded"], "transitions": transitions, "failures": failures}
 
 
 # --------------------------------------------------------------------------- entrypoint
@@ -403,7 +545,13 @@ def run_gate() -> dict:
         arm_b = _arm_upgrades(candidate)
     after = _worktree_digest()
     result = {"ran": True, "operates": arm_a, "upgrades": arm_b,
-              "passed": bool(arm_a["passed"] and arm_b["passed"])}
+              "passed": bool(arm_a["passed"] and arm_b["passed"]),
+              # Evidence identity — the candidate this result describes, and when it was produced — so the
+              # release-PR renderer can tie the transition matrix to the tree it was run against (and refuse a
+              # stale/mismatched gate JSON) rather than asserting deployed-upgrade evidence for some other tree.
+              "candidate_tree": _candidate_tree_sha(),
+              "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(
+                  microsecond=0).isoformat()}
     if before != after:                                  # the gate must have written nothing to the home tree
         result["passed"] = False
         result["home_tree_mutated"] = True
@@ -416,7 +564,11 @@ def _render(result: dict) -> str:
     if not result.get("ran"):
         return "The deployment gate is inert here (this is not the engine's home repo); nothing to check."
     if result.get("passed"):
-        return "The deployment gate passed: this release operates and upgrades cleanly when deployed."
+        n = len((result.get("upgrades") or {}).get("transitions") or [])
+        matrix = (f" (upgrade and rollback verified from {n} supported source version"
+                  f"{'' if n == 1 else 's'})") if n else ""
+        return ("The deployment gate passed: this release operates when deployed, and upgrades then cleanly "
+                f"rolls back{matrix}.")
     if result.get("home_tree_mutated"):
         return ("The deployment gate was stopped because it detected an unexpected change to the release "
                 "working copy while checking. No release pull request was opened and nothing was changed; "
@@ -427,19 +579,57 @@ def _render(result: dict) -> str:
         parts.append("  - it does not OPERATE cleanly on a deployed shape (a self-test or consistency check "
                      "failed against a projected deployment).")
     if not (result.get("upgrades") or {}).get("passed", True):
-        parts.append("  - a deployed engine could not UPGRADE cleanly onto it from a supported version.")
+        parts.append("  - a deployed engine could not UPGRADE cleanly onto it from a supported version, or "
+                     "could not cleanly UNDO that update.")
     parts.append("Fix the problem and cut the release again; a transient infrastructure hiccup clears by "
                  "re-running the `release-gate` workflow.")
     return "\n".join(parts)
 
 
+def _summary_md(result: dict) -> str:
+    """A plain-markdown per-transition summary for `$GITHUB_STEP_SUMMARY` — rendered HERE (never assembled in
+    workflow bash) so the one home for this rendering is the tool, and STRUCTURED FIELDS ONLY: the baseline tag
+    and per-leg outcome, never a raw `detail` string (those are unsanitized nested stderr — local paths,
+    tracebacks, and `::`-prefixed text that a workflow-command stream or markdown table would mis-parse)."""
+    if not result.get("ran"):
+        return "### Deployment gate: not applicable here (this repository runs its own engine-ci directly)\n"
+    up = result.get("upgrades") or {}
+    transitions = up.get("transitions") or []
+    # This block reports the upgrade/rollback matrix (Arm B) — its header reflects THAT arm's status, not the
+    # overall gate verdict (which also covers the separate operate arm), so a green matrix is never mislabelled
+    # BLOCKED because a different arm failed.
+    head = "passed" if up.get("passed") else "BLOCKED"
+    lines = [f"### Deployed upgrade and rollback check: {head}", ""]
+    if up.get("floor"):
+        n = len(transitions)
+        excl = up.get("excluded") or []
+        extra = f"; below the floor and not tested: {', '.join(excl)}" if excl else ""
+        lines.append(f"Supported source versions: every released version at or above the clean-upgrade floor "
+                     f"`{up['floor']}` ({n} transition{'' if n == 1 else 's'}{extra}).")
+        lines.append("")
+    if transitions:
+        lines += ["| from version | practice upgrade | undo (rollback) |", "| --- | --- | --- |"]
+        mark = {True: "pass", False: "FAIL", None: "not run"}
+        for t in transitions:
+            up_state = mark.get((t.get("upgrade") or {}).get("passed"), "unknown")
+            rb_state = mark.get((t.get("rollback") or {}).get("passed"), "unknown")
+            lines.append(f"| `{t.get('baseline')}` | {up_state} | {rb_state} |")
+        lines.append("")
+    lines.append("_A mechanical deploy-and-undo check on a projected deployed copy — not a readiness judgment._")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Release-cut deployment gate (operate + upgrade when deployed).")
+    ap = argparse.ArgumentParser(description="Release-cut deployment gate (operate + upgrade/rollback when "
+                                             "deployed).")
     ap.add_argument("--json", action="store_true",
                     help="emit the structured result as JSON on stdout instead of the plain-language render")
     ap.add_argument("--json-out", metavar="PATH",
                     help="also write the structured result as JSON to PATH (stdout stays plain-language) — so a "
                          "caller can read machine fields while the operator log gets plain words")
+    ap.add_argument("--summary-out", metavar="PATH",
+                    help="also write a plain-markdown per-transition summary to PATH (for $GITHUB_STEP_SUMMARY) "
+                         "— structured fields only, never raw failure detail")
     args = ap.parse_args(argv)
     try:
         result = run_gate()
@@ -453,6 +643,12 @@ def main(argv: list | None = None) -> int:
                 json.dump(result, fh)
         except OSError as exc:
             sys.stderr.write(f"(could not write the gate result to {args.json_out}: {exc})\n")
+    if args.summary_out:
+        try:
+            with open(args.summary_out, "w", encoding="utf-8") as fh:
+                fh.write(_summary_md(result))
+        except OSError as exc:
+            sys.stderr.write(f"(could not write the gate summary to {args.summary_out}: {exc})\n")
     if args.json:
         sys.stdout.write(json.dumps(result) + "\n")
     else:
