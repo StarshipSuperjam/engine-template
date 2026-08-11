@@ -5255,7 +5255,7 @@
       },
       "slug": "supported-upgrade-matrix",
       "source": {
-        "fingerprint": "sha256:592b50b0497ed48069ae681d02f04f838f02a9266b04b96ec7c9d57c83b738fb",
+        "fingerprint": "sha256:5a22a1d7c9c4a7070c9e36e23aee1ca2a552e86e7f6ccf507cc21dc4ea029951",
         "path": ".engine/policies/supported-upgrade-matrix.md"
       },
       "status": "active",
@@ -10233,7 +10233,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:7c2552ec9247bee7348e99fa485223ec7751bbfa5950ba0c9b3265e58fb26eac",
+        "fingerprint": "sha256:c5783687f4b6bbdb0d576fbd26b2a27b97b75bfc1694dff141cb4c61a2e0d8d3",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -10258,7 +10258,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:6649670e874f05a96946533132e817994c10c2dfa567e2a21614ec646f2766d3",
+        "fingerprint": "sha256:689323bd68917c88020de0d381ddea239bf89c0fa59082fa8e6dd5477874e69d",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -13587,7 +13587,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:55dc0082d432b9893e2bbffe6d1ae1db203e6d4149b3683748b8df6893331a04",
+        "fingerprint": "sha256:39796fbb9c2a243ef629c0759c6c95e7f10b11ffd9fb44b1eec743c6a92ffae8",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -13612,7 +13612,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:8b1f3e0799b0fca983a31baf701586d8af9a044b0d8aeafe90261fb75a125d50",
+        "fingerprint": "sha256:924b2ba21176b3e77e8df262694f6ab1df276124808ef7227f743d29ff4ebe2e",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",

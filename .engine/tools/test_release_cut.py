@@ -1635,6 +1635,12 @@ class RenderPRBodyDeploymentCheck(unittest.TestCase):
                                      product_applied, deployment_gate=self._gate())
         self.assertNotIn("Deployed upgrade and rollback check", body)
 
+    def test_working_tree_sha_is_real_git_plumbing(self):
+        # the candidate-correspondence check depends on this real git write-tree; every other test mocks it, so
+        # exercise the actual plumbing once. Best-effort: a real sha in a git checkout, or None on git failure.
+        sha = rc._working_tree_sha()
+        self.assertTrue(sha is None or (len(sha) == 40 and all(c in "0123456789abcdef" for c in sha)))
+
 
 if __name__ == "__main__":
     unittest.main()

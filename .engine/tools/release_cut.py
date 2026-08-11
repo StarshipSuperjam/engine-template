@@ -1364,7 +1364,7 @@ def _deployment_check_lines(gate: "dict | None") -> list:
             lines.append(f"  - from {base}: recorded an unexpected state.")
     floor, n = up.get("floor"), len(transitions)
     excl = up.get("excluded") or []
-    excl_note = f"; excluded below the floor: {', '.join(excl)}" if excl else ""
+    excl_note = f"; below the floor and not tested: {', '.join(excl)}" if excl else ""
     if floor:
         lines.append(f"  - Supported source versions: every released version at or above the clean-upgrade "
                      f"floor {floor} ({n} transition{'' if n == 1 else 's'} this cut{excl_note}).")

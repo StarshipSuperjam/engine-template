@@ -381,6 +381,37 @@ class TestArmUpgradesShape(unittest.TestCase):
         self.assertFalse(arm["passed"])
         self.assertEqual(arm["failures"], ["rollback/v0.3.2: partial"])
 
+    def test_an_upgrade_failure_does_not_pollute_failures_with_the_not_run_line(self):
+        # when the upgrade leg fails, the rollback leg is recorded as not-run (passed:None) — that placeholder
+        # must NOT appear in the operator-facing failures list, only the real upgrade-leg detail.
+        with mock.patch.object(rg, "_baseline_selection",
+                               return_value={"floor": "0.3.2", "baselines": ["v0.3.2"], "excluded": []}), \
+             mock.patch.object(rg, "_upgrade_from",
+                               side_effect=lambda tag, cand: {"baseline": tag,
+                                                              "upgrade": {"passed": False,
+                                                                          "detail": "upgrade/v0.3.2: red"},
+                                                              "rollback": {"passed": None,
+                                                                           "detail": "not run — the upgrade "
+                                                                                     "did not complete"},
+                                                              "passed": False}):
+            arm = rg._arm_upgrades("/tmp/candidate")
+        self.assertFalse(arm["passed"])
+        self.assertEqual(arm["failures"], ["upgrade/v0.3.2: red"])
+        self.assertFalse(any("not run" in f for f in arm["failures"]))
+
+
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestCandidateIdentity(unittest.TestCase):
+    """`_candidate_tree_sha` computes a real git tree hash of the working tree (the identity stamped into the
+    gate result). Exercised against real git — the run_gate/pr-body unit tests mock it, so this is the one place
+    the actual git plumbing is checked."""
+
+    def test_returns_a_git_tree_sha(self):
+        sha = rg._candidate_tree_sha()
+        self.assertIsInstance(sha, str)
+        self.assertEqual(len(sha), 40)                         # a git object name (SHA-1 tree hash)
+        self.assertTrue(all(c in "0123456789abcdef" for c in sha))
+
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestSummaryMarkdown(unittest.TestCase):

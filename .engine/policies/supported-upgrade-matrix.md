@@ -38,7 +38,7 @@ below the floor are excluded deliberately: the machinery that would let an old c
 did not exist yet in those releases, so no test run against their real trees could demonstrate a clean
 refusal — which is the whole reason a floor exists. That floor behavior is proven separately by
 `demo_599d_upgrade_floor.py` and `test_module_manager.TestUpgradeFloorPreflight`. This work closes
-StarshipSuperjam/engine-template#703, the qualification capstone of the StarshipSuperjam/engine-template#599
+StarshipSuperjam/engine-template#703, the closing item of the StarshipSuperjam/engine-template#599
 upgrade-integrity family.
 
 ## Enforcement-tier

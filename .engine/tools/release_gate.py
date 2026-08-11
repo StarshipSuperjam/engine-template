@@ -315,7 +315,7 @@ def _driver_source() -> str:
     """The in-projection driver: run as `python -c` with the working directory inside the projection's own
     `.engine/tools`, so `import module_manager` binds the PROJECTION's copy and `validate.ROOT` (derived from
     that file's own path) resolves to the projection — never home. It asserts that isolation itself before
-    mutating anything, injects the candidate as `release_tree` alone (practice mode -> the real six-check
+    mutating anything, injects the candidate as `release_tree` alone (practice mode -> the real seven-check
     child gate, no pull request), and prints the result JSON."""
     return (
         "import json, os, sys\n"
