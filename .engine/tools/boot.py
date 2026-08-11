@@ -1626,7 +1626,11 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
         # is the normal state, and a non-version-shaped running version never false-fires.
         from memory import restore_vault as _rv
-        migration_revert = _rv.detect_migration_revert(github=gh)
+        # This detector PROMOTES a durable engine Issue when online, so it needs the WRITE-capable domain
+        # client (open_issue/ensure_label/...), NOT boot's neutral read-only reader (`gh`), which carries only
+        # `.repo` + `.transport`. Construction does no I/O.
+        gh_promote = telemetry.GitHubIssues(repo, token) if repo and token else None
+        migration_revert = _rv.detect_migration_revert(github=gh_promote)
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_revert = None
     try:
