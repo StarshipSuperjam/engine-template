@@ -251,8 +251,10 @@ def _summary_md(result: dict, repo: str) -> str:
     """The one-block run summary the publish workflow appends to GITHUB_STEP_SUMMARY — rendered HERE, never
     assembled in workflow shell, so the outcome legibility keeps one home (the same rule release_gate's
     summary and the PR comment above follow). PURE (no network): the Release URL is constructed from the
-    repo slug + tag, which is exactly where GitHub serves it. The families mirror `_comment_body`; the PR
-    comment stays the maintainer's surface — this is for whoever is watching the run."""
+    repo slug + tag, which is exactly where GitHub serves it. The families follow `_comment_body`'s
+    published / did-not-finish / other split (coarser than the comment — the per-case `message` still
+    carries the specifics); the PR comment stays the maintainer's surface — this is for whoever is
+    watching the run."""
     tag = result.get("tag") or "the new version"
     product = bool(result.get("product"))
     if result.get("published"):

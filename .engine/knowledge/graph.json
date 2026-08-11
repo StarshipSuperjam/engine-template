@@ -4733,7 +4733,7 @@
       },
       "slug": "engine-release",
       "source": {
-        "fingerprint": "sha256:27952ceeff99da699d221b73df8a9d0edd7d84e1cbd6021644209f06aaa926c8",
+        "fingerprint": "sha256:10f316f95d4d304c7f5dace7cec12e9ec5fa25a5d34a70332e483801f370fea7",
         "path": ".engine/operations/engine-release.md"
       },
       "status": "active",
@@ -5013,7 +5013,7 @@
       },
       "slug": "projects-release-advance",
       "source": {
-        "fingerprint": "sha256:7fbca0abda4123bf0689cbc1d07ac869f2add544afbd4a029ba037c66c76ce10",
+        "fingerprint": "sha256:80b605c76dd2c691ab36df960679f1e39219c37dce6e0ae75a1ac956f97b93a1",
         "path": ".engine/operations/projects-release-advance.md"
       },
       "status": "active",
@@ -10417,7 +10417,7 @@
       },
       "slug": "release_terminal",
       "source": {
-        "fingerprint": "sha256:73ffe5b7b4cfd62c5f88b61e3e6f9733784d01c14264d2cc62b25bf09fa0fd28",
+        "fingerprint": "sha256:a10221d38b020cbb6ac206d6a1ae7670953a37aae3c5939f2727f9d3f4f765bb",
         "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
