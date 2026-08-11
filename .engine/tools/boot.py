@@ -658,36 +658,46 @@ def tilde_path(path: str) -> str:
     return path
 
 
-def _mechanic_sprawl_note(sprawl: dict | None) -> str:
-    """The AI-facing cleanup note appended to a RESOLVED mechanic's grounding when the build-sprawl detector
-    (StarshipSuperjam/engine-template#902) found stray product worktrees or sibling clones. Lists what was found and tells the
-    session to OFFER the operator cleanup — never to delete anything unprompted (a worktree or clone may hold
-    unpushed work). "" when nothing stray, so a clean mechanic's grounding is unchanged."""
+def _sprawl_counts(sprawl: dict | None) -> "tuple[int, int]":
+    """(stray_worktrees, sibling_clones) counts from a build-sprawl dict, or (0, 0) when there is nothing stale."""
     if not sprawl or sprawl.get("state") != "build-sprawl":
+        return (0, 0)
+    return (len(sprawl.get("stray_worktrees") or []), len(sprawl.get("sibling_clones") or []))
+
+
+def render_mechanic_sprawl_note(sprawl: dict | None) -> str:
+    """AI-facing build-sprawl cleanup nudge (StarshipSuperjam/engine-template#902, StarshipSuperjam/engine-template#950) — a COUNTS-ONLY one-liner, no paths.
+    It is a low-value housekeeping reminder, so unlike the safety grounding it is NOT never-shed: assemble_pack
+    ranks it as the first block set aside under size pressure, and the operator-facing detail (the paths, their
+    idle days, the remove/prune steps) lives on the status dashboard and `/engine-status`. What stays here is the
+    safety floor the risk review requires locked: OFFER cleanup, NEVER delete unprompted (a stray may hold unpushed
+    work), and the CONCRETE pre-delete check — `--branches --not --remotes`, plus checking whether its PR merged,
+    because a squash-merge makes "unpushed commits" an unreliable staleness signal. "" when nothing is stale."""
+    nw, nc = _sprawl_counts(sprawl)
+    if not nw and not nc:
         return ""
-    product = _one_line(str(sprawl.get("product") or "<product checkout>"))
-    stray = [_one_line(str(p)) for p in (sprawl.get("stray_worktrees") or [])]
-    clones = [_one_line(str(p)) for p in (sprawl.get("sibling_clones") or [])]
     parts = []
-    if stray:
-        parts.append("worktrees registered outside the sanctioned `.engine/mechanic/worktrees/` "
-                     f"({', '.join(stray)})")
-    if clones:
-        parts.append(f"sibling clones beside the product ({', '.join(clones)})")
-    return (" BUILD-SPRAWL FOUND (engine-template#902): older build workspaces are lying around — "
-            + "; ".join(parts) + ". These are the pattern the worktree-isolated model replaces. OFFER the "
-            "operator cleanup, but NEVER delete unprompted — one may hold unpushed work. Check each FIRST with "
-            "`git -C <that path> log --oneline --branches --not --remotes` (it prints nothing when there is no "
-            "local-only work); then, on the operator's OK, remove a stray worktree with "
-            f"`git -C {product} worktree remove <that path>` (then `git -C {product} worktree prune`), and a "
-            "sibling clone by deleting its folder. Let the operator decide.")
+    if nw:
+        parts.append(f"{nw} stray build worktree" + ("" if nw == 1 else "s"))
+    if nc:
+        parts.append(f"{nc} sibling clone" + ("" if nc == 1 else "s"))
+    return ("BUILD-SPRAWL (engine-template#902): " + " and ".join(parts) + " with no recent activity are lying "
+            "around outside the sanctioned `.engine/mechanic/worktrees/`. OFFER the operator cleanup; NEVER delete "
+            "unprompted — a stray may hold unpushed work (check `git -C <path> log --branches --not --remotes`, and "
+            "whether its pull request already merged, FIRST). The paths, their idle days, and the remove/prune "
+            "steps are on the status dashboard — type `/engine-status` — and in the build-sprawl arm of "
+            "`.engine/operations/build-orchestration.md`.")
 
 
-def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False,
-                              sprawl: dict | None = None) -> str:
+def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
     """The engine-MECHANIC grounding paragraph (eADR-0026) — AI-facing, Tier 0 in the pack (never shed), or ""
     when this deployment is not a mechanic. A PURE renderer over `checkout_health.mechanic_orientation`'s dict, so
     the grounding can be exercised (and demonstrated) without assembling a whole pack.
+
+    The build-sprawl cleanup nudge is NO LONGER appended here (StarshipSuperjam/engine-template#950): it is a low-value housekeeping
+    reminder, not never-shed safety content, so it is rendered separately as a sheddable one-liner (see
+    `render_mechanic_sprawl_note`) and its operator-facing detail lives on the status dashboard. Keeping it out of
+    this block is what lets the safety grounding compress without dragging the cleanup prose into never-shed Tier 0.
 
     Fires when the engine records an executable product build target: it builds a SEPARATE owned checkout and
     delivers a DIRECT pull request into it. Mutually exclusive with the home-workshop overlay by data (a mechanic's
@@ -704,26 +714,22 @@ def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = Fa
     state = mech.get("state")
     product = _one_line(mech.get("product") or "")
     if state == "resolved":
-        return ("GROUNDING (for you, not the operator): this is an engine-MECHANIC — its product is "
-                f"`{product}`, and a folder for it is recorded on this machine at "
-                f"`{_one_line(str(mech.get('checkout')))}`. That folder is UNVERIFIED here — this orientation "
-                "only checked that something is there, NOT that it is really that product, on a trusted origin. "
-                "It is the DURABLE shared clone, and a peer session may be using it right now — so do NOT build "
-                "in it and do NOT switch its branch (that breaks other sessions). Also do NOT clone a sibling "
-                "folder beside it. Instead, run `mechanic_build.py worktree <name>` from THIS mechanic tree: it "
-                "verifies the checkout fail-closed (refusing in plain language otherwise) and cuts an ISOLATED "
-                "worktree from the product's default branch, homed under the mechanic's own "
-                "`.engine/mechanic/worktrees/`; it emits `ENGINE_PRODUCT_WORKTREE=<path>` — the path to `cd` "
-                "into and build in (NOT `ENGINE_PRODUCT_CHECKOUT`, which stays the durable pointer). Note the "
-                "session worktree you are in now is a worktree of the MECHANIC, not of the product — the product "
-                "build never happens here. Build changes in that worktree and open a DIRECT pull request into "
-                "the product, following the owned-product arm of `.engine/operations/build-orchestration.md`. "
-                "Because you own the product, the merge gate is the operator's OWN gate on it — the same human, "
-                "not an independent reviewer — so what keeps self-improvement honest is NON-REFLEXIVITY: this "
-                "mechanic UPGRADES ITSELF only to human-approved RELEASED output of the product, never to its "
-                "own unmerged branch. (That governs what this engine runs ON, not what you may build: building "
-                "unmerged product work in an isolated worktree and opening a pull request for it is exactly the "
-                "job.)") + _mechanic_sprawl_note(sprawl)
+        # Compressed to the safety-load-bearing minimum (StarshipSuperjam/engine-template#950): every imperative and its
+        # rationale stays inline (a session must ground on the discipline before opening any runbook), while the
+        # worktree-mechanics walkthrough — the homing detail, the ENGINE_PRODUCT_CHECKOUT-vs-WORKTREE distinction,
+        # the fail-closed belt's specifics — moves behind the build-orchestration.md pointer. The kept clauses are
+        # each pinned by a test (rationale phrases included, so a future re-compression cannot hollow this to
+        # keywords); the whole render is bounded by `mechanic_grounding_chars_max` and the mechanic margin canary.
+        return ("GROUNDING (for you, not the operator): engine-MECHANIC — product "
+                f"`{product}`, checkout `{_one_line(str(mech.get('checkout')))}`. "
+                "UNVERIFIED (not confirmed to be that product on a trusted origin) and a DURABLE shared clone a "
+                "peer session may be using, so do NOT build in it, switch its branch (that breaks peers), or "
+                "clone a sibling. Run `mechanic_build.py worktree <name>` here (fail-closed) and build in the "
+                "emitted `ENGINE_PRODUCT_WORKTREE`; this tree is a worktree of the MECHANIC, not the product, so "
+                "no build here. Open a DIRECT pull request into the product (owned-product arm of "
+                "`.engine/operations/build-orchestration.md`). The merge gate is the operator's OWN — the same "
+                "human, not an independent reviewer — NON-REFLEXIVITY: upgrade only to human-approved RELEASED "
+                "output, never an unmerged branch.")
     if state not in ("path-unset", "path-unreachable"):
         return ""
     seen = ("The operator is NOT being shown the mechanic setup offer this session — first-time engine setup is "
@@ -832,9 +838,12 @@ def _recent_sessions_recall(read=None, *, session_id=None) -> list:
 _BRIEFING_BUDGET_DEFAULTS = {
     "excerpt_chars": 200,
     "pin_index_title_chars": 80,
+    "pin_index_count_max": 8,
+    "pins_block_chars_max": 1300,
     "posture_lines_max": 8,
     "posture_chars_max": 700,
     "neighborhood_groups_max": 8,
+    "mechanic_grounding_chars_max": 900,
     "dashboard_chars_max": 4500,
     "margin_floor_chars": 300,
 }
@@ -854,6 +863,12 @@ _MIN_VALUES = {
     "excerpt_chars": 80,
     "pin_index_title_chars": 40,
     "neighborhood_groups_max": 3,
+    # safety-critical: floors the never-shed mechanic build grounding above its real render (~834 chars,
+    # StarshipSuperjam/engine-template#950), so an unguarded policy edit cannot force it below its safety content — the same
+    # floor-above-real rationale as posture_chars_max. The mechanic margin canary is the tighter integrated gate.
+    "mechanic_grounding_chars_max": 800,
+    "pin_index_count_max": 5,           # keep at least a handful of pins visible as titles
+    "pins_block_chars_max": 800,
 }
 _BRIEFING_BUDGET_PATH = os.path.join(validate.ENGINE_DIR, "policies", "briefing-budget.md")
 
@@ -907,13 +922,20 @@ def read_pins(*, read=None) -> list:
         return []
 
 
-def render_pins(pinned: list, title_chars: int | None = None) -> list:
-    """The operator-facing INDEX of what they asked to be remembered: one title-length line per pin, so EVERY
-    pin is always visible at a glance and none is silently aged out, with the full text a pull away. A pin's
-    text is a dense standing directive — too long to show in full every session, and too meaningful to
-    truncate as a quote — so the pack carries the index and the memory tools carry the detail. Showing every
-    pin as a title (not a top-N of full texts) is the deliberate fix for the old rank-out: nothing drops
-    unseen, and a list grown too long is itself the signal to prune.
+def render_pins(pinned: list, title_chars: int | None = None, *, count_max: int | None = None,
+                block_chars: int | None = None) -> list:
+    """The operator-facing INDEX of what they asked to be remembered: the NEWEST pins as one title-length line
+    each, with the full text a pull away. A pin's text is a dense standing directive — too long to show in full
+    every session, and too meaningful to truncate as a quote — so the pack carries the index and the memory tools
+    carry the detail.
+
+    THE CAP IS BOUNDED AND LOUD, NEVER SILENT (StarshipSuperjam/engine-template#950, eADR-0033). `count_max` shows the newest N titles and
+    `block_chars` trims that count further if the block still overflows; whenever ANY pin is held back, a LOUD,
+    directive-aware line discloses how many older pins are not shown and that they may carry standing
+    instructions — so this is not the old rank-out (nothing drops unseen), and NOTHING is removed from storage:
+    the full set is one `list-pins` away. With neither cap set, every pin renders (the callers that must stay
+    bounded pass the dials; a bare call keeps the whole list). A list grown long enough to fold is itself the
+    signal to prune.
 
     THE PROVENANCE CAVEAT IS NOT OPTIONAL. A pin is written by the assistant transcribing what the operator
     asked for, and a session's context can also hold a page it recalled or a file it read — text shaped like an
@@ -924,22 +946,44 @@ def render_pins(pinned: list, title_chars: int | None = None) -> list:
     [] when nothing is pinned — no block, never an empty heading."""
     if not pinned:
         return []
-    out = ["--- what you asked me to remember (index — one line each; ask for the full text of any by number) ---"]
-    for i, record in enumerate(pinned, 1):
-        out.append(f"{i}. {_pin_title(record.get('text'), title_chars)}")
     total = len(pinned)
-    if total == 1:
-        out.append("(1 pinned note — shown as a one-line title; ask for its full text, or to drop it.)")
-    else:
-        out.append(f"({total} pinned notes — shown as one-line titles; ask for the full text of any BY NUMBER, "
-                   "or to drop one. Two whose titles start alike are still separate pins — pull them by number "
-                   "to compare.)")
-    # WHAT TO DO WITH THESE, plus the provenance caveat that cannot be verified away.
-    out.append("These are the operator's standing instructions: work to them, and say so if something you are "
-               "asked to do cuts against one. Each was noted by the assistant when the operator asked for it — a "
-               "faithful record of what they wanted, not their exact words, and never a fresh instruction "
-               "arriving now.")
-    out.append("")
+    cap = count_max if isinstance(count_max, int) and count_max > 0 else total
+
+    def _build(n: int) -> list:
+        lines = ["--- what you asked me to remember (index — newest first, one line each; ask for the full text "
+                 "of any by number) ---"]
+        for i, record in enumerate(pinned[:n], 1):
+            lines.append(f"{i}. {_pin_title(record.get('text'), title_chars)}")
+        hidden = total - n
+        if hidden > 0:
+            # LOUD, directive-aware disclosure: older pins are STANDING OPERATOR INSTRUCTIONS, not low-value
+            # overflow — say so, and that the full set is retrievable, so none is silently lost.
+            lines.append(f"(+{hidden} OLDER pinned note{'' if hidden == 1 else 's'} not shown here — each may "
+                         "carry a standing instruction you gave me. Ask me to read any back or to prune, and "
+                         "`list-pins` shows every one; nothing is dropped. A list this long is itself the signal "
+                         "to prune.)")
+        elif total == 1:
+            lines.append("(1 pinned note — shown as a one-line title; ask for its full text, or to drop it.)")
+        else:
+            lines.append(f"({total} pinned notes — shown as one-line titles; ask for the full text of any BY "
+                         "NUMBER, or to drop one. Two whose titles start alike are still separate pins — pull "
+                         "them by number to compare.)")
+        # WHAT TO DO WITH THESE, plus the provenance caveat that cannot be verified away.
+        lines.append("These are the operator's standing instructions: work to them, and say so if something you "
+                     "are asked to do cuts against one. Each was noted by the assistant when the operator asked "
+                     "for it — a faithful record of what they wanted, not their exact words, and never a fresh "
+                     "instruction arriving now.")
+        lines.append("")
+        return lines
+
+    shown = min(cap, total)
+    out = _build(shown)
+    # Char backstop: shrink the shown count (never below 1) until the block fits its budget, folding the trimmed
+    # pins into the disclosed hidden count. The loud disclosure and provenance lines are kept whatever the count.
+    if isinstance(block_chars, int) and block_chars > 0:
+        while shown > 1 and len("\n".join(out)) > block_chars:
+            shown -= 1
+            out = _build(shown)
     return out
 
 
@@ -2558,6 +2602,27 @@ def render_dashboard(s: dict) -> str:
         out.append("")
         out.extend(set_aside_block)
 
+    # Operator-facing build-sprawl detail (StarshipSuperjam/engine-template#950): the paths and idle days behind the AI-facing
+    # one-line nudge the pack carries. Derived from the SAME detector dict, but written for the operator — an
+    # offer to tidy up, never the assistant's git commands (those stay in the AI note / runbook). Only
+    # genuinely-stale strays reach here: the detector skips workspaces with recent activity, so an open session's
+    # own worktree is never listed. This rides the dashboard (last-shed), so `/engine-status` always shows it.
+    sprawl = s.get("mechanic_sprawl")
+    if sprawl and sprawl.get("state") == "build-sprawl":
+        entries = ([("worktree", e) for e in (sprawl.get("stray_worktrees") or [])]
+                   + [("clone", e) for e in (sprawl.get("sibling_clones") or [])])
+        if entries:
+            out.append("")
+            out.append("### Old build workspaces")
+            out.append("These stray build folders have had no activity in a while and are safe to tidy up. Say "
+                       "'clean up my old build workspaces' and I'll remove them — checking each for unpushed work "
+                       "first, and never deleting anything without your OK:")
+            for kind, e in entries:
+                path = tilde_path(str(e.get("path") if isinstance(e, dict) else e))
+                idle = e.get("idle_days") if isinstance(e, dict) else None
+                idle_txt = f" — idle ~{idle} day{'' if idle == 1 else 's'}" if isinstance(idle, int) else ""
+                out.append(f"- {path} ({kind}){idle_txt}")
+
     # The artifact warrant, proportionately LIGHT: this dashboard — and the project map it
     # draws on — is an automated readout derived from the engine's own checks, so it states its bound
     # right where it is read. The graph behind "your project map" is a byte-fingerprinted generated file
@@ -2962,14 +3027,17 @@ def _relay_lines(s: dict) -> list:
 _PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
 
 
-def _pack_blocks(gov: str, neighborhood: str, wwlo: str, pins: str, dashboard: str) -> list:
+def _pack_blocks(gov: str, sprawl: str, neighborhood: str, wwlo: str, pins: str, dashboard: str) -> list:
     """The ordered (priority, name, text) blocks handed to cap_shed. The governance briefing never sheds (0);
-    the status dashboard sheds last (2); the pins index (3), where-we-left-off (4) and the work-neighbourhood
-    map (5) shed in that reverse order — the briefing-budget set-aside ladder. Empty components are omitted so
-    the shed notice never names something that was not there. A pure builder (a test seam for the margin
-    canary), doing no measurement of its own."""
+    the status dashboard sheds last (2); the pins index (3), where-we-left-off (4), the work-neighbourhood
+    map (5) and the build-sprawl nudge (6) shed in that reverse order — the briefing-budget set-aside ladder.
+    The sprawl nudge sheds FIRST (StarshipSuperjam/engine-template#950): it is a low-value housekeeping reminder whose operator-facing
+    detail already lives on the dashboard, so it yields before any orientation the operator cares about. Empty
+    components are omitted so the shed notice never names something that was not there. A pure builder (a test
+    seam for the margin canary), doing no measurement of its own."""
     candidates = [
         (0, "the governance briefing", gov),
+        (6, "the build-sprawl note", sprawl),
         (5, "the work-neighbourhood map", neighborhood),
         (4, "where we left off", wwlo),
         (3, _PINS_BLOCK_NAME, pins),
@@ -3083,8 +3151,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # also names a build target is a misconfiguration to be read conservatively rather than acted on.
     if not s.get("home_workshop"):
         grounding = render_mechanic_grounding(s.get("mechanic"),
-                                              first_run_pending=bool((s.get("first_run") or {}).get("present")),
-                                              sprawl=s.get("mechanic_sprawl"))
+                                              first_run_pending=bool((s.get("first_run") or {}).get("present")))
         if grounding:
             out.append(grounding)
             out.append("")
@@ -3110,26 +3177,34 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
     # The sheddable components, each its own block with its own set-aside rank (briefing-budget / eADR-0033),
     # so trimming is per-component and every shed is named accurately — not one coarse "orientation" tier whose
-    # notice mislabels what actually went. The set-aside ladder (first set aside -> last kept): the
-    # work-neighbourhood map, then where-we-left-off, then the pins index, then the status dashboard; the
-    # governance briefing is never set aside. Each is rendered here; _pack_blocks assigns the priorities.
+    # notice mislabels what actually went. The set-aside ladder (first set aside -> last kept): the build-sprawl
+    # note, then the work-neighbourhood map, then where-we-left-off, then the pins index, then the status
+    # dashboard; the governance briefing is never set aside. Each is rendered here; _pack_blocks assigns the
+    # priorities. The sprawl one-liner is AI-facing (StarshipSuperjam/engine-template#950) — its operator-facing detail rides the
+    # dashboard — and only in a mechanic (home_workshop and mechanic are mutually exclusive).
+    sprawl_note = ("" if s.get("home_workshop")
+                   else render_mechanic_sprawl_note(s.get("mechanic_sprawl")))
     neighborhood = "\n".join(render_neighborhood(s.get("neighborhood"), bvals["neighborhood_groups_max"]))
     wwlo = "\n".join(render_recent_sessions(s.get("recent_sessions") or [], bvals["excerpt_chars"]))
-    pins = "\n".join(render_pins(s.get("pinned") or [], bvals["pin_index_title_chars"]))
+    pins = "\n".join(render_pins(s.get("pinned") or [], bvals["pin_index_title_chars"],
+                                 count_max=bvals["pin_index_count_max"], block_chars=bvals["pins_block_chars_max"]))
     status = "\n".join(["--- the full status (your grounding for this session) ---", dashboard])
 
+    # The trim notice points the OPERATOR at `/engine-status` (the operator-typed skill), NOT the raw uv command
+    # — the notice is counted against the cap it apologises for, and the operator's gesture is the slash verb.
+    # (Instruction #4 near the top of the pack deliberately keeps the uv invocation: that line is ASSISTANT-facing
+    # — the assistant runs terminal commands — so the two speak to two audiences, by design, not by oversight.)
     def _shed_notice(names: list) -> str:
         return ("(To fit the platform's size limit, part of this briefing was left out this session: "
                 + ", ".join(names) + ". Tell the operator, in one plain sentence, that today's session "
                 "briefing was trimmed to fit a size limit and the full status is always available with "
-                "`uv run --directory .engine -- python tools/engine_status.py`.)")
+                "`/engine-status`.)")
 
     def _compact_notice(names: list) -> str:
         return ("(Part of this briefing was trimmed to fit the platform's size limit. Tell the operator in "
-                "one plain sentence; the full status is always available with "
-                "`uv run --directory .engine -- python tools/engine_status.py`.)")
+                "one plain sentence; the full status is always available with `/engine-status`.)")
 
-    blocks = _pack_blocks("\n".join(out), neighborhood, wwlo, pins, status)
+    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, wwlo, pins, status)
     text, shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     # LOUD pin set-aside (operator directive): pins shed BEFORE the dashboard, but a pin dropping silently is
     # exactly what must not happen — an operator who over-pins must learn to prune rather than lose them
@@ -3142,7 +3217,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         loud = ("ALSO relay to the operator: their " + str(n) + " pinned note" + ("" if n == 1 else "s")
                 + " did not fit in this session's briefing and were set aside (they are safe) — ask them to "
                 "review and prune any no longer needed, or offer to read any back with the memory tools.")
-        blocks = _pack_blocks("\n".join(out + ["", loud]), neighborhood, wwlo, "", status)
+        blocks = _pack_blocks("\n".join(out + ["", loud]), sprawl_note, neighborhood, wwlo, "", status)
         text, _shed2 = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
