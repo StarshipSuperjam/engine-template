@@ -8834,7 +8834,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:d453bee965bf8753b0c06d62804a3b3ee8bb3a40262cc1921a8311537fe50cfc",
+        "fingerprint": "sha256:03fbb24d35d93d46e153cd37d5b3bb5bae8c8529412cf9f5b492dcbdf68c655c",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -11006,7 +11006,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:4d2f56caddf849fbb218de4abcd1b6644507442dd20376e89ea62d220abb2916",
+        "fingerprint": "sha256:539e10ed7e3e359dfb3770e1cae3dd47d84fca4b559e8bb9d873b4ec4d590633",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",

@@ -128,7 +128,8 @@ def json_request(method: str, path: str, token: str, *, user_agent: str, body=No
 class _Reader:
     """A neutral GitHub read seam: `.repo` plus a `.transport(method, path, body) -> (status, data | None)`
     callable. A read-only consumer (standing_situation, work_record, pr_reconcile, first_run_health) accepts
-    one of these INSTEAD of reaching a domain client's private `_transport` — the coupling issue #907 removes.
+    one of these INSTEAD of reaching a domain client's private `_transport` — the coupling
+    StarshipSuperjam/engine-template#907 removes.
     `.transport` has the exact shape those consumers already duck-typed, so a canned test transport drops in
     unchanged."""
     __slots__ = ("repo", "transport")

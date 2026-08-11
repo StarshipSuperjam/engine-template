@@ -935,7 +935,8 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         standing = None
         try:
             # A neutral reader over THIS pass's client transport (telemetry owns `github`, so bridging its
-            # transport into the reader is not the generic-consumer reach #907 removes from the leaves).
+            # transport into the reader is not the generic-consumer reach StarshipSuperjam/engine-template#907
+            # removes from the leaves).
             derived = standing_situation.derive_standing_situation(
                 github_client.reader(github.repo, github.token, user_agent=USER_AGENT, transport=github._transport))
             standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"), "as_of": now}
