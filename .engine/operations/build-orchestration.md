@@ -382,7 +382,10 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
 
 **The merge gate on that pull request is the operator's OWN engine-template gate — the same human, not an
 independent reviewer.** What keeps that honest is NON-REFLEXIVITY: the mechanic upgrades only to human-approved
-RELEASED engine-template, never its own unmerged branch — a human-review-grade rule, not a machine proof. (The
+RELEASED engine-template, never its own unmerged branch — a human-review-grade rule, not a machine proof.
+**Non-reflexivity governs what this engine RUNS ON, not what you may BUILD:** building unmerged product work in
+an isolated worktree and opening a pull request for it is exactly the job, never a breach of the rule — so do
+not read "never an unmerged branch" as a reason to refuse legitimate build work. (The
 mechanic's product, update home, and any engine-fix target are all engine-template, so an engine fix ALSO takes
 this direct path, never `submit`; a mis-route to `submit` still opens a sound pull request into engine-template —
 safe by benign construction — but the rule is **owned → direct**.)

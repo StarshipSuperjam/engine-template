@@ -678,15 +678,15 @@ def render_mechanic_sprawl_note(sprawl: dict | None) -> str:
         return ""
     parts = []
     if nw:
-        parts.append(f"{nw} stray build worktree" + ("" if nw == 1 else "s"))
+        parts.append(f"{nw} stray build worktree" + ("" if nw == 1 else "s")
+                     + " registered outside the sanctioned `.engine/mechanic/worktrees/`")
     if nc:
-        parts.append(f"{nc} sibling clone" + ("" if nc == 1 else "s"))
-    return ("BUILD-SPRAWL (engine-template#902): " + " and ".join(parts) + " with no recent activity are lying "
-            "around outside the sanctioned `.engine/mechanic/worktrees/`. OFFER the operator cleanup; NEVER delete "
-            "unprompted — a stray may hold unpushed work (check `git -C <path> log --branches --not --remotes`, and "
-            "whether its pull request already merged, FIRST). The paths, their idle days, and the remove/prune "
-            "steps are on the status dashboard — type `/engine-status` — and in the build-sprawl arm of "
-            "`.engine/operations/build-orchestration.md`.")
+        parts.append(f"{nc} sibling clone" + ("" if nc == 1 else "s") + " sitting beside the product")
+    return ("BUILD-SPRAWL (engine-template#902): " + " and ".join(parts) + ", with no recent activity. OFFER the "
+            "operator cleanup; NEVER delete unprompted — a stray may hold unpushed work (check `git -C <path> log "
+            "--branches --not --remotes`, and whether its pull request already merged, FIRST). Their paths and idle "
+            "days are on the operator's status dashboard (tell them they can see it with `/engine-status`); the "
+            "remove/prune steps are in the build-sprawl arm of `.engine/operations/build-orchestration.md`.")
 
 
 def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
@@ -863,10 +863,12 @@ _MIN_VALUES = {
     "excerpt_chars": 80,
     "pin_index_title_chars": 40,
     "neighborhood_groups_max": 3,
-    # safety-critical: floors the never-shed mechanic build grounding above its real render (~834 chars,
-    # StarshipSuperjam/engine-template#950), so an unguarded policy edit cannot force it below its safety content — the same
-    # floor-above-real rationale as posture_chars_max. The mechanic margin canary is the tighter integrated gate.
-    "mechanic_grounding_chars_max": 800,
+    # safety-critical: floors the never-shed mechanic build grounding ABOVE its real render (~828-856 chars for a
+    # realistic checkout path, StarshipSuperjam/engine-template#950), so an unguarded policy edit cannot force the per-component
+    # budget below its safety content — the same floor-above-real rationale as posture_chars_max. A pathological
+    # checkout path is clipped by _one_line and the whole shape is still caught by the mechanic margin canary,
+    # which is the tighter integrated gate.
+    "mechanic_grounding_chars_max": 860,
     "pin_index_count_max": 5,           # keep at least a handful of pins visible as titles
     "pins_block_chars_max": 800,
 }
@@ -2618,10 +2620,19 @@ def render_dashboard(s: dict) -> str:
                        "'clean up my old build workspaces' and I'll remove them — checking each for unpushed work "
                        "first, and never deleting anything without your OK:")
             for kind, e in entries:
-                path = tilde_path(str(e.get("path") if isinstance(e, dict) else e))
+                # _one_line DEFANGS the machine-supplied path before it is interpolated (StarshipSuperjam/engine-template#950): a
+                # directory name can carry a newline or a fence marker, and this text rides the boot pack into the
+                # model's context — without the defang a maliciously-named worktree/clone folder could forge a line
+                # that reads as engine-authored, exactly what _one_line guards on every other interpolated value
+                # here. tilde_path first (contract $HOME), then _one_line (collapse + defang).
+                path = _one_line(tilde_path(str(e.get("path") if isinstance(e, dict) else e)))
                 idle = e.get("idle_days") if isinstance(e, dict) else None
                 idle_txt = f" — idle ~{idle} day{'' if idle == 1 else 's'}" if isinstance(idle, int) else ""
                 out.append(f"- {path} ({kind}){idle_txt}")
+            skipped = sprawl.get("active_skipped") or 0
+            if skipped:
+                out.append(f"(Plus {skipped} recently-active workspace{'' if skipped == 1 else 's'} I left alone "
+                           "— they may belong to a session you have open, so this list isn't everything.)")
 
     # The artifact warrant, proportionately LIGHT: this dashboard — and the project map it
     # draws on — is an automated readout derived from the engine's own checks, so it states its bound

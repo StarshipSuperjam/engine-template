@@ -1776,6 +1776,22 @@ class TestProductBuildSprawl(unittest.TestCase):
             with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
                 self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
 
+    def test_unstattable_worktree_is_reported_not_hidden(self):
+        # engine-template#950: when a stray's git-admin files can't be stat'd (permissions, a race during removal),
+        # _idle_days is None — the fail-toward-showing direction reports the nudge rather than silently suppress a
+        # workspace it could not age (a suppressed real leftover is the worse miss for a housekeeping nudge).
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "opaque-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stray)   # fresh, but pretend its idle can't be read
+            with mock.patch.object(checkout_health, "_idle_days", return_value=None), \
+                 mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(stray), _sprawl_paths(got["stray_worktrees"]))
+            self.assertIsNone(got["stray_worktrees"][0]["idle_days"])
+
     def test_prunable_worktree_is_flagged_regardless_of_age(self):
         # git itself calls a prunable worktree removable, so it surfaces even if its admin files look fresh.
         with tempfile.TemporaryDirectory() as tmp:
