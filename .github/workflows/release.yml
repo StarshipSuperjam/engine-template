@@ -191,9 +191,12 @@ jobs:
         run: |
           set -uo pipefail
           out="${RUNNER_TEMP}/deployment-gate.json"
-          # No --json here: the gate prints its PLAIN-LANGUAGE render to the log (the operator's signal), and
-          # --json-out writes the machine-readable result to a file for the home/ran misdetection check below.
-          uv run --directory .engine --frozen -- python tools/release_gate.py --json-out "${out}"
+          sum="${RUNNER_TEMP}/deployment-gate-summary.md"
+          # No --json here: the gate prints its PLAIN-LANGUAGE render to the log (the operator's signal).
+          # --json-out writes the machine-readable result for the home/ran misdetection check below AND for the
+          # pull-request body's Validation section; --summary-out writes the per-transition matrix table (the
+          # gate renders it — never assembled in this shell) for the step summary.
+          uv run --directory .engine --frozen -- python tools/release_gate.py --json-out "${out}" --summary-out "${sum}"
           gate_rc=$?
           if [ "${gate_rc}" -ne 0 ]; then
             echo "::error::This release would not operate or upgrade cleanly when deployed, so no release pull request was opened and nothing was changed. See the plain-language reason in the step log above; fix the problem and cut the release again (a transient infrastructure hiccup clears by re-running the release-gate workflow)."
@@ -213,7 +216,13 @@ jobs:
             exit 1
           fi
           if [ "${ran}" = "True" ]; then
-            echo "### Deployment gate: passed — verified this release operates and upgrades when deployed" >> "${GITHUB_STEP_SUMMARY}"
+            # The gate rendered the per-transition matrix table to ${sum}; surface it as the step summary. Fall
+            # back to a one-line note if the summary file is somehow absent.
+            if [ -s "${sum}" ]; then
+              cat "${sum}" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              echo "### Deployment gate: passed — verified this release operates, upgrades, and rolls back when deployed" >> "${GITHUB_STEP_SUMMARY}"
+            fi
           else
             echo "### Deployment gate: not applicable here — this repository does not run the engine's own deployment gate (its own engine-ci runs the suite directly)" >> "${GITHUB_STEP_SUMMARY}"
           fi
@@ -224,6 +233,7 @@ jobs:
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/release_cut.py pr-body \
             --proposal "${RUNNER_TEMP}/proposal.json" --applied "${RUNNER_TEMP}/applied.json" \
+            --deployment-gate-json "${RUNNER_TEMP}/deployment-gate.json" \
             > "${RUNNER_TEMP}/pr-body.md"
       # Open the release pull request. The branch is pushed with the built-in token; the pull request is opened
       # with RELEASE_PAT so `engine-ci` actually runs on it. This step OPENS THE PR AND STOPS — no merge, ever.
