@@ -228,6 +228,19 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
                         self.assertTrue(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found),
                                         found)
+                elif stem == "shipped-issue-references":
+                    # Home-scoped (#640) and it reads its fixture from the filesystem (like census-completeness,
+                    # not `git show HEAD:`): required to bite here in the construction repo; in a deployed repo
+                    # (the deployment gate's projection) the ambient-verified carve-out yields the loud NOT
+                    # APPLICABLE HERE note. Owned by required validators-core, so the check and its
+                    # construction-scoped.json survive the add-on-declined projection too.
+                    found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
+                    if repo_identity.is_home_repo(ROOT):
+                        self.assertEqual(found, [], f"{stem}: did not bite in the construction repo")
+                    else:
+                        self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
+                        self.assertTrue(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found),
+                                        found)
                 elif stem == "memory-pointer-public-safety":
                     # Construction-scoped (#512) AND it reads its fixture via `git show HEAD:`, so in the
                     # construction repo it bites only once the fixture is committed at HEAD; in a deployed

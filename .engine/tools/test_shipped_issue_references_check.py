@@ -10,10 +10,27 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shipped_issue_references_check as check  # noqa: E402
 import validate  # noqa: E402
+
+
+class _ForceHome(unittest.TestCase):
+    """Base for the detection tests: pin the home-repo gate True so the check's scan logic runs deterministically
+    wherever the suite runs. `check()` no-ops outside the home repo, and its `_in_home_repo()` reads the AMBIENT
+    `validate.ROOT` — NOT the fixture root a test passes to `check(root)` — so inside the deployment gate's
+    projected deployed tree (foreign origin) these fixture tests would silently get `[]` and fail. Pinning the
+    gate is the exact idiom the two sibling home-scoped checks use (test_census_completeness,
+    test_memory_pointer_public_safety); it does not weaken the check's real runtime home-scoping. Underscore-named
+    with no `test_` methods so discovery collects nothing from it."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(check, "_in_home_repo", lambda: True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 class TestMatcher(unittest.TestCase):
@@ -120,7 +137,7 @@ class TestBridge(unittest.TestCase):
         self.assertEqual(check._find_refs("#623 is the timeout", "the retry loop will resolve"), ["#623"])
 
 
-class TestProseExtractionPython(unittest.TestCase):
+class TestProseExtractionPython(_ForceHome):
     """`.py`: comments and docstrings are scanned; string literals are NOT."""
 
     def _run(self, body: str):
@@ -153,7 +170,7 @@ class TestProseExtractionPython(unittest.TestCase):
         self.assertIn("#923", f[0]["message"])
 
 
-class TestScanDomain(unittest.TestCase):
+class TestScanDomain(_ForceHome):
     """The shipped surface: `.engine/**` minus retire minus excluded, plus foundation outside `.engine/`."""
 
     def test_a_retired_file_is_not_scanned(self):
@@ -218,7 +235,7 @@ class TestScanDomain(unittest.TestCase):
             self.assertEqual(len(f), 1)  # the prose "why" line, not the "version" value
 
 
-class TestFailClosed(unittest.TestCase):
+class TestFailClosed(_ForceHome):
     def test_a_missing_retire_manifest_fails_closed(self):
         with tempfile.TemporaryDirectory() as root:
             _seed_tree(root, {".engine/tools/probe.py": "# clean\n"}, with_manifest=False)
@@ -243,7 +260,12 @@ class TestHomeScoped(unittest.TestCase):
 class TestRealTreeAndFixture(unittest.TestCase):
     def test_the_committed_negative_fixture_bites(self):
         fixture = os.path.join(validate.ROOT, ".engine", "_fixtures", "shipped-issue-references")
-        f = check.check(fixture)
+        # Pin the gate for THIS method only: it scans the committed fixture (which survives the deployment gate's
+        # projection — `.engine/_fixtures` is not a first-run retired asset), and the check would otherwise no-op
+        # against the projection's foreign origin. The class's other two methods are deliberately mode-aware
+        # (one relies on the no-op, one self-skips) and must NOT be forced home — hence a local patch, not a base.
+        with mock.patch.object(check, "_in_home_repo", lambda: True):
+            f = check.check(fixture)
         self.assertTrue(any("resolves to THAT repository's own issue" in x["message"] for x in f),
                         "the negative fixture no longer bites the check")
 
@@ -305,9 +327,11 @@ def _loc(finding: dict):
 
 
 def _seed_tree(root: str, files: dict, with_manifest: bool = True) -> None:
-    """Seed a mini checkout whose git origin is absent, so is_home_repo fails toward home and the check runs.
-    Every value is written at its repo-relative path under `root`. Unless a test opts out (or supplies its
-    own), a default empty retire manifest is added so the scan is not the fail-closed path."""
+    """Seed a mini checkout under `root`. Every value is written at its repo-relative path; unless a test opts
+    out (or supplies its own), a default empty retire manifest is added so the scan is not the fail-closed path.
+    Note: the home-repo gate is NOT driven by this seeded tree — `check()`'s `_in_home_repo()` reads the AMBIENT
+    `validate.ROOT`, not the passed root — so the detection tests pin the gate via the `_ForceHome` base instead
+    (that is what lets them run inside the deployment gate's foreign-origin projection)."""
     for rel, content in files.items():
         path = os.path.join(root, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)

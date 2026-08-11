@@ -691,6 +691,18 @@ class TestWeakeningTiers(unittest.TestCase):
 
     _IG = (set(), ())  # no instance declaration
 
+    # Hard-floor members owned by an OPTIONAL module: each is guarded by its check rule's PRESENCE, so a
+    # deployment that DECLINED the owning module (the deployment gate's add-on-declined projection) legitimately
+    # ships neither the tool file nor its `.engine/check/*.json` rule — is_guardrail() then correctly returns
+    # False, a declined-shape truth rather than dead weight. Keyed on the EXACT _HARD_EXACT path (a module may own
+    # several scripts). Any member NOT listed here is asserted unconditionally, so a typo'd or genuinely
+    # unguarded floor entry is still caught; adding a new optional-owned member without listing it here fails
+    # safe (it reds the declined projection until handled), never silently skips.
+    _OPTIONAL_FLOOR_OWNERS = {
+        ".engine/tools/product_design/lock_integrity.py": "product-design",
+        ".engine/tools/dependency_discipline/review.py": "dependency-discipline",
+    }
+
     def test_classify_tiers(self):
         c = weakening_guard.classify
         # disclosure tier: the measured noise — the validator, the hook substrate, readable configs
@@ -717,9 +729,15 @@ class TestWeakeningTiers(unittest.TestCase):
 
     def test_hard_floor_members_are_all_guarded(self):
         # every hard-floor member must be IN the guarded set, or classify() would never see it — a floor
-        # entry outside is_guardrail() is dead weight that reads as protection.
+        # entry outside is_guardrail() is dead weight that reads as protection. An optional-module-owned member
+        # is skipped ONLY where its owning module is declined (see _OPTIONAL_FLOOR_OWNERS); everywhere it is
+        # present it is still asserted, so a genuine dead-weight entry is still caught.
         derived = weakening_guard._derive_check_scripts()
+        installed = _installed_module_ids()
         for path in weakening_guard._HARD_EXACT:
+            owner = self._OPTIONAL_FLOOR_OWNERS.get(path)
+            if owner and owner not in installed:
+                continue
             self.assertTrue(weakening_guard.is_guardrail(path, derived, self._IG), path)
 
     def test_check_rule_demotion_detector(self):
