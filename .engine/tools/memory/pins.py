@@ -49,9 +49,15 @@ from memory import forget, ledger, records, scrub  # noqa: E402
 # silently halved instruction is worse than one that was not saved.
 MAX_PIN_CHARS = 1000
 
-# How many pins the briefing carries. Not a cap on how many may exist — `list_pins` returns them all — but the
-# newest-first slice a cold start is shown, so the pack stays bounded however many accumulate.
-BOOT_PINS = 5
+# How many live pins is "a lot" — the point at which the pin handler gently suggests pruning at creation time,
+# set to arrive AS the session-start briefing begins folding older pins behind a disclosed count (boot's index
+# cap is 8, so the 9th pin is the first one folded). Aligning the two means the operator meets the gentle
+# create-time nudge no later than the louder every-session fold, not after it. This is memory's OWN hygiene
+# sense tracking that fold point, NOT a mirror-import of boot's render budget (boot owns and enforces the actual
+# index cap, StarshipSuperjam/engine-template#950) — keeping it local avoids a memory->boot import. A nudge only: creation NEVER
+# refuses on count — a pin the operator asked for is always saved (over-long TEXT is the one refusal, and even
+# that saves nothing halfway).
+PIN_PRUNE_HINT_AT = 9
 
 
 class PinRefused(ValueError):

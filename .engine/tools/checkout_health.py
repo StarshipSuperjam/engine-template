@@ -628,6 +628,54 @@ def confident_default_branch(checkout_path: str) -> str | None:
     return _confident_default_branch(checkout_path)
 
 
+# A stray build workspace with no git activity in this many days is "stale" and worth a cleanup nudge; one
+# touched more recently is treated as a possibly-live session's and left alone (StarshipSuperjam/engine-template#950). A detection
+# threshold, deliberately a code constant here rather than a briefing-budget dial — that policy governs the
+# pack's byte-fit, not detector tuning, and blurring the two would cross eADR-0033's boundary.
+SPRAWL_STALE_DAYS = 7
+
+
+def _worktree_admin_dir(wt: str) -> str | None:
+    """The git admin directory backing a checkout at `wt`: its own `.git` when that is a real directory (the main
+    checkout / a plain clone), else the `gitdir:` target its `.git` pointer file names (a linked worktree keeps
+    its HEAD/index under `<repo>/.git/worktrees/<id>/`). None when neither is readable."""
+    dotgit = os.path.join(wt, ".git")
+    try:
+        if os.path.isdir(dotgit):
+            return dotgit
+        with open(dotgit, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped.startswith("gitdir:"):
+                    target = stripped[len("gitdir:"):].strip()
+                    return target if os.path.isabs(target) else os.path.normpath(os.path.join(wt, target))
+    except OSError:
+        return None
+    return None
+
+
+def _idle_days(wt: str, now: float) -> "int | None":
+    """Whole days since the most recent git activity in the checkout at `wt` — the max mtime of its admin dir and
+    that dir's HEAD/index/ORIG_HEAD. ANY git operation touches one of these, including the `git status` a live
+    session runs constantly, so a workspace a session is actively using reads as fresh (idle ≈ 0); that is the
+    signal, not "real work happened" — deliberately, because the question is whether a session may be USING it.
+    A hint, not a fact (mtimes are coarse and trivially changed); None when nothing can be stat'd."""
+    admin = _worktree_admin_dir(wt)
+    if not admin:
+        return None
+    newest = None
+    for name in ("", "HEAD", "index", "ORIG_HEAD"):
+        target = admin if name == "" else os.path.join(admin, name)
+        try:
+            mtime = os.path.getmtime(target)
+        except OSError:
+            continue
+        newest = mtime if newest is None else max(newest, mtime)
+    if newest is None:
+        return None
+    return max(0, int((now - newest) // 86400))
+
+
 def detect_product_build_sprawl(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: the negative control for the worktree-isolated build model (StarshipSuperjam/engine-template#902).
     Reports build workspaces of the product that are NOT the sanctioned kind — the sprawl the model exists to
@@ -637,29 +685,55 @@ def detect_product_build_sprawl(cwd: str | None = None) -> dict | None:
         `.claude/worktrees/` or a `~/Developer` sibling);
       - `sibling_clones` — separate CLONES of the product (same `origin`) sitting beside it as `<name>-*`
         folders (the `engine-template-656-labels` sprawl the operator flagged).
-    Returns `{"state":"build-sprawl","product",<stray_worktrees>,<sibling_clones>}` with at least one list
-    non-empty, or None when this is not a mechanic, the product path is unset/absent, or nothing stray is found
-    (fail-soft QUIET). It never judges the shared checkout's BRANCH — under this model that no longer matters,
-    so flagging it would be noise. Read-only: it lists, it never removes; cleanup is a consented act."""
+    ACTIVITY-AWARE (StarshipSuperjam/engine-template#950): a stray whose git admin files were touched within `SPRAWL_STALE_DAYS` is
+    treated as a possibly-live session's workspace and NOT reported (counted in `active_skipped` instead), so the
+    nudge never fires on the worktrees of the operator's other open sessions. A `locked` worktree is skipped
+    (deliberately parked); a `prunable` one is reported regardless of age (git itself calls it removable).
+    Unpushed commits are deliberately NOT used as the staleness signal — a squash-merge leaves a merged branch
+    looking unpushed forever — so that check stays a pre-DELETE safeguard, not a detection input.
+    Returns `{"state":"build-sprawl","product",<stray_worktrees>,<sibling_clones>,"active_skipped"}` — each stray
+    an `{"path","idle_days"}` entry — with at least one list non-empty, or None when this is not a mechanic, the
+    product path is unset/absent, or nothing STALE is found (fail-soft QUIET). It never judges the shared
+    checkout's BRANCH — under this model that no longer matters. Read-only: it lists, it never removes."""
     path, state = resolve_product_checkout(cwd)
     if state is not None or not path or not os.path.isdir(path):
         return None                              # not a mechanic / path unset / nothing there -> nothing to say
     product = os.path.realpath(path)
     root = engine_common_checkout(cwd)
     sanctioned = os.path.realpath(os.path.join(root, ".engine", "mechanic", "worktrees")) if root else None
-    registered: set = set()
-    stray_worktrees: list = []
+    now = time.time()
+    active_skipped = 0
+    # Parse the porcelain into per-worktree records so `locked`/`prunable` flags (their own lines in each
+    # record, blank-line separated) are visible, not just the `worktree ` path line.
     listing = _run(["git", "-C", product, "worktree", "list", "--porcelain"]) or ""
+    records: list = []
+    current: dict | None = None
     for line in listing.splitlines():
-        if not line.startswith("worktree "):
-            continue
-        wt = os.path.realpath(line[len("worktree "):].strip())
-        registered.add(wt)
+        if line.startswith("worktree "):
+            current = {"path": os.path.realpath(line[len("worktree "):].strip()),
+                       "locked": False, "prunable": False}
+            records.append(current)
+        elif current is not None and line.startswith("locked"):
+            current["locked"] = True
+        elif current is not None and line.startswith("prunable"):
+            current["prunable"] = True
+        elif not line.strip():
+            current = None
+    registered: set = {rec["path"] for rec in records}
+    stray_worktrees: list = []
+    for rec in records:
+        wt = rec["path"]
         if wt == product:
             continue                             # the main worktree is the product itself — expected
         if sanctioned and (wt == sanctioned or wt.startswith(sanctioned + os.sep)):
             continue                             # a sanctioned build worktree — the whole point of the model
-        stray_worktrees.append(wt)
+        if rec["locked"]:
+            continue                             # deliberately parked — never a cleanup nudge
+        idle = _idle_days(wt, now)
+        if not rec["prunable"] and idle is not None and idle < SPRAWL_STALE_DAYS:
+            active_skipped += 1                  # recent git activity: a live session may be using it
+            continue
+        stray_worktrees.append({"path": wt, "idle_days": idle})
     sibling_clones: list = []
     origin = _run(["git", "-C", product, "remote", "get-url", "origin"])
     origin = origin.strip() if origin and origin.strip() else None
@@ -674,11 +748,16 @@ def detect_product_build_sprawl(cwd: str | None = None) -> dict | None:
                 continue                         # a linked worktree, already counted above — not a clone
             cand_origin = _run(["git", "-C", cand, "remote", "get-url", "origin"])
             if cand_origin and cand_origin.strip() == origin:
-                sibling_clones.append(os.path.realpath(cand))
+                idle = _idle_days(cand, now)
+                if idle is not None and idle < SPRAWL_STALE_DAYS:
+                    active_skipped += 1          # a clone with recent activity — a live session may hold it
+                    continue
+                sibling_clones.append({"path": os.path.realpath(cand), "idle_days": idle})
     if not stray_worktrees and not sibling_clones:
         return None
     return {"state": "build-sprawl", "product": product,
-            "stray_worktrees": stray_worktrees, "sibling_clones": sibling_clones}
+            "stray_worktrees": stray_worktrees, "sibling_clones": sibling_clones,
+            "active_skipped": active_skipped}
 
 
 def mechanic_orientation(cwd: str | None = None) -> dict | None:

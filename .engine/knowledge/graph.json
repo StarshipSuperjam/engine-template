@@ -4043,7 +4043,7 @@
       },
       "slug": "eADR-0033-boot-refresh-family",
       "source": {
-        "fingerprint": "sha256:cc54dfc9a47d61938219e94a20c617d12b2089ccf63c1c96e6fe8641fcfa6af9",
+        "fingerprint": "sha256:c777d6d9cff55050103d3281feb37841f4e7093e155a8ab7acadfe5a79882716",
         "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
       },
       "status": "accepted",
@@ -4593,7 +4593,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:baa8c6abc655dd1e5245dd9178bd2080782db08048956f841c86a92501a843c2",
+        "fingerprint": "sha256:60010bac9cb0ab4b48a6d56627800df2f965d17c4235ddc25f82487b1b247f55",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5114,7 +5114,7 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:d75664c0c933a8dd72d2679fbd546e990fa3648546bb151e8486c72fd75931ab",
+        "fingerprint": "sha256:849850de66f1e64df0337c6ab0d218111d6f24a805fde77584ceb9df63fe6b81",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
@@ -6656,7 +6656,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d777acb36bca99954354de80e6640eb995371458474815a023bd92084846ae12",
+        "fingerprint": "sha256:a89009a91eb97c152cd89716960a1b458ab0a48cf2d0f9bec8258076d260f1e1",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6854,7 +6854,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:a6410f255ecd3d7b513659e49b43ee9cb53b343bf25c35cd1ae0144e6dbe7a3e",
+        "fingerprint": "sha256:7601e526cdc8036257c33da3005387b4b045e4fa77561ca5d15ef991e645e12b",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -9552,7 +9552,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:87467df2b39547cbbdba2d25076861bb1d63e9141b997bb15d64fb8efe1061f8",
+        "fingerprint": "sha256:dae7e338ea7def2969d2fa66e474b7610184ba69004fb891dda0282f3de3384d",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -10025,7 +10025,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:ea80a82920d6692300169c37202521e635fd3f924385206e7371c8bd502c317a",
+        "fingerprint": "sha256:5a71fdab91f8e3c21425a2fb6364f9b5a7d7bfdc77b013e6e287c25cc8333f6c",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -11386,7 +11386,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:40422ac4270cb5d6234489ab04ed7c29833b3d05f17a128fd3eabacc3ebcc178",
+        "fingerprint": "sha256:f38c7c681c326b9a4492aead87cb03a2e041cfac81531ee18728d123c46af7e6",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11566,7 +11566,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:339c07f8a6421650f1db14a1d9995c6774f4a7082ca1c926d0d33697610d09b7",
+        "fingerprint": "sha256:88e24f362deef2fdc76c99b19ac666192a83a1e8e0ac25ec65f1884f3ac6fc58",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -12957,13 +12957,14 @@
           "tool:ledger",
           "tool:mcp_server",
           "tool:mcp_test_support",
+          "tool:pins",
           "tool:records",
           "tool:validate"
         ]
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:dbe0e0b9f8210640fc4f8e3cf9b6012d60247396a7a139246dbc7ef470b18d25",
+        "fingerprint": "sha256:9768ec291a5466bfb4f7ec20de327dfe37deacd3b50141574ccda6d3e535c8ae",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -13450,7 +13451,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:aa33ddaec1f9b944a8d548ec8aecf652481af0065622f88f23375b8b7e20ebb2",
+        "fingerprint": "sha256:c6ca32ff2001d1e760070b54f8491c4e6c0d0c08b5da0f102630c176a729cf5f",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",

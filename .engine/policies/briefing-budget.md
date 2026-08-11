@@ -6,9 +6,12 @@ established_by: eADR-0033
 values:
   excerpt_chars: 200
   pin_index_title_chars: 80
+  pin_index_count_max: 8
+  pins_block_chars_max: 1300
   posture_lines_max: 8
   posture_chars_max: 700
   neighborhood_groups_max: 8
+  mechanic_grounding_chars_max: 900
   dashboard_chars_max: 4500
   margin_floor_chars: 300
 ---
@@ -53,9 +56,21 @@ The growing components and their dials:
 - `excerpt_chars` — the longest a single quoted line from the operator's own past sessions
   ("where we left off") may run before it is clipped. Applies to conversational quotes only, never
   to a pinned note's text.
-- `pin_index_title_chars` — pins are shown as a compact **index**: one title-length line each so
-  every pin is always visible, with its full text pulled on request. This is the longest a single
-  pin's index line may run.
+- `pin_index_title_chars` — pins are shown as a compact **index**: one title-length line each, with
+  its full text pulled on request. This is the longest a single pin's index line may run.
+- `pin_index_count_max` — how many pins the index shows, newest first. When more exist, the rest are
+  folded behind a **loud, directive-aware disclosure** (how many older pins are not shown, that each
+  may carry a standing instruction, and that the full set is one `list-pins` away) — never a silent
+  drop, and nothing is removed from storage. A pin list grown past this is itself the signal to prune.
+- `pins_block_chars_max` — a backstop on the whole pins block: if the index still overflows this after
+  the count cap, the shown count is trimmed further (folding into the same disclosed count), so the
+  block always fits its budget while the loud disclosure and provenance caveat are always kept.
+- `mechanic_grounding_chars_max` — a **growth alarm** on the prose of an engine-**mechanic**'s never-shed
+  build-safety grounding (do-not-build-in-the-shared-clone, the isolated-worktree route, non-reflexivity),
+  measured at a representative checkout path so it trips when the *prose* grows. Its code floor keeps an
+  unguarded policy edit from setting the budget uselessly low; it is not a promise to bound every
+  deployment's render, since the checkout path is deployment-specific. The real overflow guard is the
+  **mechanic margin canary**, which measures the actual assembled render (path included) against the cap.
 - `posture_lines_max` / `posture_chars_max` — the most lines and characters the execution-posture
   relay (always-shown operating guidance) may occupy before it is clipped to a pointer. Shipped well
   above the real posture size, so clipping is insurance, never the normal case.
@@ -67,9 +82,11 @@ The growing components and their dials:
 - `margin_floor_chars` — the character margin the never-shed core must keep under the size limit in
   the worst modelled case. A hard minimum in code bounds this from below.
 
-The fixed set-aside order (first set aside → last kept): the work neighbourhood, then where-we-left-
-off, then the pin index, then the status dashboard. Governance and consent content is never set
-aside.
+The fixed set-aside order (first set aside → last kept): the build-sprawl cleanup note, then the work
+neighbourhood, then where-we-left-off, then the pin index, then the status dashboard. Governance and
+consent content — including a mechanic's never-shed build-safety grounding — is never set aside. The
+build-sprawl note sheds first because it is a low-value housekeeping nudge whose operator-facing detail
+already rides the (last-shed) status dashboard, so setting it aside loses nothing the operator needs.
 
 ## Rationale
 
@@ -89,9 +106,14 @@ editable — otherwise the guarantee against silent erosion could be removed at 
 
 **Layered.** The `values` are read live at pack build by a reader that never raises: a missing or
 malformed file falls back to the shipped defaults compiled into code, so the boot pack always
-assembles. The set-aside itself is mechanical, in the pack assembler. Two hard checks run in CI: a
+assembles. The set-aside itself is mechanical, in the pack assembler. Hard checks run in CI: a
 **margin canary** asserts the never-shed core fits the size limit with `margin_floor_chars` to spare
 under the worst modelled case, and **per-component budget tests** each fail — naming the component —
-when one outgrows its budget. The **hard code minimum** on the margin is what this policy cannot
+when one outgrows its budget. An engine-**mechanic** carries mandatory never-shed build-safety
+grounding a plain deployment does not, so its shape is modelled by a **separate margin canary**
+(StarshipSuperjam/engine-template#950) rather than the plain one, which never exercises it (product CI runs the home shape).
+That mechanic canary is tuned to the mechanic's own runtime; a mechanic driven by a heavier runtime
+sits tighter and is disclosed as such in the test rather than silently assumed to hold — the honest
+bound, not the flattering one. The **hard code minimum** on the margin is what this policy cannot
 weaken: a test asserts `margin_floor_chars` is at least that minimum. The pin-overflow alert is a
 posture surfaced to the assistant to relay; the protected-branch merge remains the real gate.
