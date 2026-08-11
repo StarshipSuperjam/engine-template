@@ -391,8 +391,9 @@ class TestPolicyFrontmatterRule(unittest.TestCase):
         # the briefing-budget dials boot reads to fit the pack to the platform size limit (eADR-0033).
         briefing = validate.frontmatter(os.path.join(POLICIES_DIR, "briefing-budget.md"))
         self.assertEqual(set(briefing.get("values", {})),
-                         {"excerpt_chars", "pin_index_title_chars", "posture_lines_max",
-                          "posture_chars_max", "neighborhood_groups_max", "dashboard_chars_max",
+                         {"excerpt_chars", "pin_index_title_chars", "pin_index_count_max",
+                          "pins_block_chars_max", "posture_lines_max", "posture_chars_max",
+                          "neighborhood_groups_max", "mechanic_grounding_chars_max", "dashboard_chars_max",
                           "margin_floor_chars"},
                          "the briefing-budget policy carries exactly the dials the boot reader expects")
         self.assertTrue(all(isinstance(v, (int, float)) and not isinstance(v, bool)

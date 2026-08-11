@@ -28,7 +28,7 @@ It also locks the byte-fit as **governed, not emergency**: every component that 
 | Governance + consent | — | — | never set aside |
 | Clean-case headroom | never-shed content + routine dashboard | `margin_floor_chars` (hard code min) | — |
 
-Three amendments (engine-template#950), each recorded here so the built code and this contract cannot drift:
+Three amendments (StarshipSuperjam/engine-template#950), each recorded here so the built code and this contract cannot drift:
 
 - **The build-sprawl cleanup note leaves never-shed Tier 0.** It was appended to the mechanic grounding (and so inherited never-shed); it is now a separate, counts-only, first-to-shed one-liner, with its operator-facing detail (paths, idle days, remove/prune steps) on the last-shed dashboard and `/engine-status`. A low-value housekeeping nudge should not consume the never-shed room that safety grounding and consent content need. Its detector is now **activity-aware** — a stray workspace with recent git activity is a possibly-live session's and is not surfaced — so the nudge stops firing on the operator's other open sessions.
 - **The pin index gains a bounded, LOUD fold.** "Every pin always visible" is amended: the index shows the newest `pin_index_count_max` titles and folds the rest behind a **loud, directive-aware disclosure** (how many older pins are held back, that each may carry a standing instruction, that `list-pins` shows them all). This is not the old silent rank-out — nothing leaves storage and the remainder is announced — and it is what lets the pins block carry a hard `pins_block_chars_max` budget. The live-read `briefing-budget` policy is amended in lockstep, not just this record.

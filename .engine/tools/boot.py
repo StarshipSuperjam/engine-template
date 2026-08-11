@@ -3192,7 +3192,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
     # The trim notice points the OPERATOR at `/engine-status` (the operator-typed skill), NOT the raw uv command
     # — the notice is counted against the cap it apologises for, and the operator's gesture is the slash verb.
-    # (Instruction #4 near the top of the pack deliberately keeps the uv invocation: that line is ASSISTANT-facing
+    # (Instruction 4 near the top of the pack deliberately keeps the uv invocation: that line is ASSISTANT-facing
     # — the assistant runs terminal commands — so the two speak to two audiences, by design, not by oversight.)
     def _shed_notice(names: list) -> str:
         return ("(To fit the platform's size limit, part of this briefing was left out this session: "
