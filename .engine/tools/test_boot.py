@@ -28,9 +28,18 @@ import hooks
 import modes
 import module_coherence
 import validate
+import repo_identity
 
 ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
+
+# The home/construction gate for cases that assert against the REAL ambient repo. When the deployment gate's
+# Arm A re-collects this file inside a projected deployed tree (foreign origin -> is_home_repo False), such a
+# case skips rather than red against a shape it was never meant to judge. The env-var name is shared with
+# release_gate.py / selftest.py (the nested-run marker they set on every projected suite run); it is copied here
+# rather than imported to keep test_boot's import graph light.
+_CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
+_SKIP_DEPLOYED = "runs in the construction/home repo (not a deployed projection, where fresh-copy alerts fire)"
 
 # Pin the saved-memory store to a throwaway dir for the whole module. Several boot paths (session cards, the
 # where-we-left-off block, pins) read ENGINE_MEMORY_DIR through gather_signals()/assemble_pack(); left unset it
@@ -3491,7 +3500,8 @@ class TestBriefingBudget(unittest.TestCase):
         # behind-origin, migration-revert, foreign-license, greenfield-intake, …) are NOT budgeted here — like
         # governance alarms they are consent-relevant and, when several fire at once, the dashboard legitimately
         # exceeds this routine budget and is set aside with a disclosed notice (the correct priority; see the
-        # policy's Rule). This test therefore fixes the routine body, the part a clean session actually carries.
+        # policy's Rule). This synthetic case fixes the routine body — the part a clean session actually carries —
+        # with a controlled signal set (no pinned alerts), so it holds in ANY repo shape, home or deployed.
         budget = boot._briefing_values()["dashboard_chars_max"]
         heavy = _signals(finding_count=40, unrated_count=12, operator_backlog_count=40,
                          shipped=[f"#{i} — a fairly wordy recently-shipped pull request title {i}" for i in range(15)],
@@ -3499,6 +3509,17 @@ class TestBriefingBudget(unittest.TestCase):
                          att_degraded=["memory recall is degraded", "fast search unavailable"])
         self.assertLessEqual(len(boot.render_dashboard(heavy)), budget,
                              "a heavy dashboard outgrew dashboard_chars_max — raise the budget deliberately or trim")
+
+    @unittest.skipUnless(_CONSTRUCTION, _SKIP_DEPLOYED)
+    def test_real_assembled_dashboard_routine_body_stays_within_budget(self):
+        # The same #787 canary over the REAL assembled dashboard (not a synthetic signal set). This is meaningful
+        # ONLY in the home/construction repo: in a deployed projection the ambient state is a fresh, foreign copy,
+        # so several conditional pinned alerts legitimately fire (empty-memory, half-finished-upgrade,
+        # foreign-license, greenfield-intake) and inflate the routine block past the routine budget by design —
+        # cap_shed then sets the whole block aside with its disclosed notice. Asserting the routine budget there
+        # would judge the deployed shape against a home-only invariant (the exact class the deployment gate's
+        # Arm A exists to catch); the synthetic case above backstops the routine body in every shape.
+        budget = boot._briefing_values()["dashboard_chars_max"]
         patchers = _offline()
         captured = {}
         try:
