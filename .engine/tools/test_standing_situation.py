@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import urllib.error
 from types import SimpleNamespace
 from unittest import mock
 
@@ -46,8 +47,8 @@ class DemoFailureBranchReportsTests(unittest.TestCase):
 
 
 def _gh(transport, *, label="engine", repo="owner/repo"):
-    """A duck-typed GitHub reader: just the attributes derive uses (repo, label, _transport)."""
-    return SimpleNamespace(repo=repo, label=label, _transport=transport)
+    """A duck-typed GitHub reader: just the attributes derive uses (repo, label, transport)."""
+    return SimpleNamespace(repo=repo, label=label, transport=transport)
 
 
 def _transport(*, milestones=(200, []), pulls=(200, [])):
@@ -89,6 +90,14 @@ class TestMilestone(unittest.TestCase):
         gh = _gh(_transport(milestones=(403, None)))
         with self.assertRaises(ss.DeriveUnavailable):
             ss.derive_milestone(gh)
+
+    def test_unreachable_host_raises_never_reads_as_empty(self):
+        # #907: the shared transport lets a URLError reach the leaf, which owns it as DeriveUnavailable —
+        # an unreachable host must never read as a confident live "none set".
+        def unreachable(method, path, body):
+            raise urllib.error.URLError("no route to host")
+        with self.assertRaises(ss.DeriveUnavailable):
+            ss.derive_milestone(_gh(unreachable))
 
 
 class TestLastMerged(unittest.TestCase):

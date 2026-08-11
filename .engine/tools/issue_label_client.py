@@ -18,12 +18,10 @@ a read/remove: the label the caller asked about is simply not there (`label_exis
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import urllib.error
 import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
@@ -47,14 +45,11 @@ class IssueLabelClient:
         self._transport = transport or self._http
 
     def _http(self, method: str, path: str, body=None):
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = github_client.request(path, self.token, user_agent=self.user_agent, method=method, data=data)
+        # The shared JSON-transport mechanics (encode, build-with-off-host-guard, execute, HTTPError->status,
+        # empty-body->None) live in github_client.json_request now; only this client's URLError POLICY — an
+        # unreachable host is a WRITE failure — stays here.
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8")
-                return resp.status, (json.loads(raw) if raw else None)
-        except urllib.error.HTTPError as exc:           # 4xx/5xx — surface the status, never swallow
-            return exc.code, None
+            return github_client.json_request(method, path, self.token, user_agent=self.user_agent, body=body)
         except urllib.error.URLError as exc:             # network unreachable — a write failure
             raise DegradedWriteError(f"GitHub is unreachable: {exc}") from exc
 

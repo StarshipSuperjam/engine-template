@@ -42,7 +42,6 @@ import sys
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (sibling tool; reused for finding/frontmatter/effective_policy_values/ROOT)
@@ -586,6 +585,14 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
 
 # ---- the GitHub boundary (the only network seam; transport is injectable) ---
 
+def all_open_issues_query_url(repo: str) -> str:
+    """The human-citable register for the whole open backlog — every open issue, engine and operator alike
+    (no label term). A PURE repo string (no token, no network), so boot's live-derived neutral reader can
+    build it without constructing a GitHubIssues; the method below delegates here to keep the format single-
+    homed. `is:issue` drops PRs."""
+    return f"https://github.com/{repo}/issues?q=is:open+is:issue"
+
+
 class GitHubIssues:
     """The engine-labelled-Issue boundary. Reuses the urllib + GITHUB_TOKEN pattern of the seed
     guards, EXTENDED to writes (POST/PATCH). `transport(method, path, body) -> (status, json)` is
@@ -599,14 +606,11 @@ class GitHubIssues:
         self._transport = transport or self._http
 
     def _http(self, method: str, path: str, body=None):
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
+        # The shared JSON-transport mechanics (encode, build-with-off-host-guard, execute, HTTPError->status,
+        # empty-body->None) live in github_client.json_request now; only this client's URLError POLICY — an
+        # unreachable host is a READ failure — stays here.
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8")
-                return resp.status, (json.loads(raw) if raw else None)
-        except urllib.error.HTTPError as exc:           # 4xx/5xx — surface the status, never swallow
-            return exc.code, None
+            return github_client.json_request(method, path, self.token, user_agent=USER_AGENT, body=body)
         except urllib.error.URLError as exc:             # network unreachable — a read failure
             raise DegradedReadError(f"GitHub is unreachable: {exc}") from exc
 
@@ -714,8 +718,9 @@ class GitHubIssues:
         """The human-citable register for the whole open backlog — every open issue, engine and operator alike
         (no label term). This is the exact union of `issues_query_url` (engine findings) and
         `operator_issues_query_url` (the operator's own), so the total the status card leads with links to a
-        list whose size equals `finding_count + operator_backlog_count`. `is:issue` drops PRs on both sides."""
-        return f"https://github.com/{self.repo}/issues?q=is:open+is:issue"
+        list whose size equals `finding_count + operator_backlog_count`. `is:issue` drops PRs on both sides.
+        Delegates to the module-level builder so a generic caller needs no domain client for this pure string."""
+        return all_open_issues_query_url(self.repo)
 
     def list_head_check_runs(self, ref: str) -> list:
         """Every CI check-run on `ref` (a branch name or SHA), paginated to exhaustion. The response is the
@@ -803,12 +808,12 @@ def refresh_state(state_path: str, debt: dict | None = None, standing: dict | No
 def refresh_standing(state_path: str, repo: str, token: str, *, now: str | None = None, transport=None) -> dict:
     """Derive the standing-situation live from GitHub and write ONLY that offline-cache field (with its
     `as_of` stamped) into the committed cursor — the focused offline-floor refresh, the standing-situation
-    sibling of refresh_state's debt write. Raises on any read failure (standing_situation.DeriveUnavailable
-    for an HTTP-status error, or telemetry's DegradedReadError if the host is unreachable) and writes nothing
-    on that failure — the caller decides whether to proceed. `transport` is injectable so tests/demo run
-    offline on the real derive + write."""
-    gh = GitHubIssues(repo, token, transport=transport)
-    derived = standing_situation.derive_standing_situation(gh)
+    sibling of refresh_state's debt write. Raises standing_situation.DeriveUnavailable on any read failure
+    (an HTTP-status error OR an unreachable host — the leaf now owns both, since the shared transport lets
+    the URLError reach it) and writes nothing on that failure — the caller decides whether to proceed.
+    `transport` is injectable so tests/demo run offline on the real derive + write."""
+    derived = standing_situation.derive_standing_situation(
+        github_client.reader(repo, token, user_agent=USER_AGENT, transport=transport))
     standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"),
                 "as_of": now or moment.utc_now()}
     refresh_state(state_path, standing=standing)
@@ -836,7 +841,8 @@ def refresh_cache(state_path: str, repo: str, token: str, *, now: str | None = N
     except DegradedReadError:
         debt = None   # leave the prior committed debt count untouched
     try:
-        derived = standing_situation.derive_standing_situation(gh)
+        derived = standing_situation.derive_standing_situation(
+            github_client.reader(repo, token, user_agent=USER_AGENT, transport=transport))
         standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"), "as_of": now}
     except Exception:  # noqa: BLE001 — a where-we-are read failure must not break the debt refresh or the workflow
         standing = None   # leave the prior committed standing untouched
@@ -928,7 +934,10 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         # (never clobbered with a failed read).
         standing = None
         try:
-            derived = standing_situation.derive_standing_situation(github)
+            # A neutral reader over THIS pass's client transport (telemetry owns `github`, so bridging its
+            # transport into the reader is not the generic-consumer reach #907 removes from the leaves).
+            derived = standing_situation.derive_standing_situation(
+                github_client.reader(github.repo, github.token, user_agent=USER_AGENT, transport=github._transport))
             standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"), "as_of": now}
         except Exception:  # noqa: BLE001 — a where-we-are read failure must not break the debt refresh
             standing = None

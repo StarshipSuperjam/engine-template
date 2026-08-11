@@ -30,9 +30,10 @@ Two layers, so it answers offline and degrades to git-native:
     the live register") — so a failed PR read degrades WITHIN the git substrate, not to a crash.
 
 Pure leaf — imports only the standard library and the stdlib-only `moment` time seam, and takes injected
-seams (a `run` for git, a duck-typed `gh` reader: `gh.repo` + `gh._transport(method, path, body) ->
-(status, json)`, the seam telemetry.GitHubIssues exposes). It imports neither attention nor boot, so
-attention imports IT with no cycle (mirrors standing_situation.py). It performs NO writes.
+seams (a `run` for git, a duck-typed `gh` reader: `gh.repo` + `gh.transport(method, path, body) ->
+(status, json)`, the NEUTRAL seam `github_client.reader` exposes — never a domain client's private
+transport). It imports neither attention nor boot, so attention imports IT with no cycle (mirrors
+standing_situation.py). It performs NO writes.
 
 Availability vs emptiness (the degraded-input contract): `read_in_flight` RAISES WorkRecordUnavailable only
 when the work record cannot be consulted AT ALL — git is not runnable here AND no GitHub read succeeded. A
@@ -46,6 +47,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repo_identity  # noqa: E402  (default_branch — the recorded fallback for the on-default-branch test)
@@ -128,9 +130,15 @@ def _branch_is_merged(run, default: str) -> bool:
 
 def _open_prs(gh, *, window: int) -> list[tuple]:
     """The repo's open pull requests via the injected reader, as (number, title, updated_at, head_ref) tuples.
-    Raises WorkRecordUnavailable on a read failure (HTTP >= 400 / non-list body) — never read as "no PRs"."""
-    status, data = gh._transport(
-        "GET", f"/repos/{gh.repo}/pulls?state=open&sort=updated&direction=desc&per_page={window}", None)
+    Raises WorkRecordUnavailable on a read failure (HTTP >= 400 / non-list body, OR an unreachable host —
+    the transport's `URLError`) — never read as "no PRs". `read_in_flight` catches that and degrades to the
+    local-git floor, which is why an unreachable host must arrive here as WorkRecordUnavailable, not a raw
+    `URLError` that would skip the floor."""
+    try:
+        status, data = gh.transport(
+            "GET", f"/repos/{gh.repo}/pulls?state=open&sort=updated&direction=desc&per_page={window}", None)
+    except urllib.error.URLError as exc:      # unreachable host — a read failure that degrades to the floor
+        raise WorkRecordUnavailable(f"GitHub is unreachable listing open pull requests: {exc}") from exc
     if status >= 400 or not isinstance(data, list):
         raise WorkRecordUnavailable(f"GitHub returned {status} listing open pull requests")
     out: list[tuple] = []
@@ -281,9 +289,9 @@ def _fake_run(*, current="claude/my-feature", default="main", tip="2026-06-19T10
 
 
 def _gh(transport, *, repo="your-org/your-project"):
-    """A duck-typed GitHub reader (just .repo + ._transport) over a canned transport — only the network is faked."""
+    """A duck-typed GitHub reader (just .repo + .transport) over a canned transport — only the network is faked."""
     from types import SimpleNamespace
-    return SimpleNamespace(repo=repo, _transport=transport)
+    return SimpleNamespace(repo=repo, transport=transport)
 
 
 def _canned_prs(*prs):

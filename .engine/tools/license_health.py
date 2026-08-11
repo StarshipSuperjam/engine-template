@@ -143,13 +143,13 @@ def removal_pr_open(repo: str | None, token: str | None) -> bool | None:
     if not repo or not token:
         return None
     try:
-        import telemetry
-        gh = telemetry.GitHubIssues(repo, token)
-        status, pulls = gh._transport("GET", f"/repos/{repo}/pulls?state=open&per_page=50", None)
+        import github_client  # lazy: keep the network client off the offline detector's import path
+        status, pulls = github_client.json_request(
+            "GET", f"/repos/{repo}/pulls?state=open&per_page=50", token, user_agent="engine-license-health")
         if status >= 400 or not isinstance(pulls, list):
             return None
         return any((p.get("title") or "") == REMOVAL_PR_TITLE for p in pulls)
-    except Exception:  # noqa: BLE001 — any read failure degrades this one signal quietly
+    except Exception:  # noqa: BLE001 — any read failure (incl. an unreachable host) degrades this signal quietly
         return None
 
 

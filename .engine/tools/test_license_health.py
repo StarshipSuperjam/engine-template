@@ -17,6 +17,8 @@ import os
 import subprocess
 import tempfile
 import unittest
+import urllib.error
+from unittest import mock
 
 import license_health
 import license_seeds
@@ -152,6 +154,27 @@ class TestRemovalPrDedupe(unittest.TestCase):
         self.assertIsNone(license_health.removal_pr_open(None, None))
         self.assertIsNone(license_health.removal_pr_open("owner/repo", None))
         self.assertIsNone(license_health.removal_pr_open(None, "tok"))
+
+    def test_open_removal_pr_is_detected(self):
+        # #907: reads through github_client.json_request now (no telemetry.GitHubIssues construction).
+        import github_client
+        with mock.patch.object(github_client, "json_request",
+                               return_value=(200, [{"title": license_health.REMOVAL_PR_TITLE}])):
+            self.assertIs(license_health.removal_pr_open("owner/repo", "tok"), True)
+
+    def test_no_matching_open_pr_returns_false(self):
+        import github_client
+        with mock.patch.object(github_client, "json_request",
+                               return_value=(200, [{"title": "Something else"}, {"title": None}])):
+            self.assertIs(license_health.removal_pr_open("owner/repo", "tok"), False)
+
+    def test_read_failure_and_outage_both_degrade_to_none(self):
+        # A >=400 status OR an unreachable host degrades this best-effort signal to None (offer normally).
+        import github_client
+        with mock.patch.object(github_client, "json_request", return_value=(403, None)):
+            self.assertIsNone(license_health.removal_pr_open("owner/repo", "tok"))
+        with mock.patch.object(github_client, "json_request", side_effect=urllib.error.URLError("down")):
+            self.assertIsNone(license_health.removal_pr_open("owner/repo", "tok"))
 
 
 class TestReadOnly(unittest.TestCase):

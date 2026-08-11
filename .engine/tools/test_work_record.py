@@ -11,7 +11,7 @@ These lock the load-bearing behaviours a non-engineer cannot read code to verify
     and NEVER swallows that as "no in-flight work"; an empty-but-consulted record returns [] (git available);
   - recency is normalised to a trailing-Z UTC moment (a git offset / a GitHub Z), or omitted when malformed —
     so a bad timestamp can never reach the ranking math and crash the whole ranking.
-Only git (an injected `run`) and the network (an injected `gh._transport`) are faked; the reader logic is real.
+Only git (an injected `run`) and the network (an injected `gh.transport`) are faked; the reader logic is real.
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import urllib.error
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,8 +47,8 @@ def _run(*, in_repo=True, current="claude/my-feature", default="main", tip="2026
 
 
 def _gh(transport, *, repo="owner/repo"):
-    """A duck-typed GitHub reader (just .repo + ._transport) over a canned transport."""
-    return SimpleNamespace(repo=repo, _transport=transport)
+    """A duck-typed GitHub reader (just .repo + .transport) over a canned transport."""
+    return SimpleNamespace(repo=repo, transport=transport)
 
 
 def _prs(*pulls, status=200):
@@ -121,6 +122,15 @@ class TestFloorAndDegrade(unittest.TestCase):
     def test_github_failure_degrades_to_floor(self):
         # A 403 on the PR read must fall back to the local-git floor, never raise.
         recs = wr.read_in_flight(_gh(_prs(status=403)), run=_run(current="claude/my-feature"))
+        self.assertEqual([r["id"] for r in recs], ["branch:claude/my-feature"])
+
+    def test_unreachable_host_degrades_to_floor(self):
+        # #907 correction: an unreachable host (URLError) now arrives as WorkRecordUnavailable, so the read
+        # degrades to the git floor (the working branch) as the docstring promises — previously the raw
+        # URLError bypassed the floor and propagated.
+        def unreachable(method, path, body):
+            raise urllib.error.URLError("no route to host")
+        recs = wr.read_in_flight(_gh(unreachable), run=_run(current="claude/my-feature"))
         self.assertEqual([r["id"] for r in recs], ["branch:claude/my-feature"])
 
     def test_unavailable_when_no_git_and_no_github(self):

@@ -122,6 +122,17 @@ class TestApplyIsApplyOnlyAndIdempotent(unittest.TestCase):
         with self.assertRaises(issue_label_client.DegradedWriteError):
             k.apply_kind_label({"number": 6, "title": "Fix: x", "labels": []}, self._client(boom))
 
+    def test_http_wraps_urlerror_as_degraded_write(self):
+        # The REAL _http (not an injected transport) must still map an unreachable host to DegradedWriteError
+        # after the shared transport moved into github_client.json_request (#907) — write-fail preserved.
+        from unittest import mock
+        import urllib.error
+        import github_client
+        client = issue_label_client.IssueLabelClient("o/r", "tok", user_agent="ua")
+        with mock.patch.object(github_client, "_urlopen", side_effect=urllib.error.URLError("down")):
+            with self.assertRaises(issue_label_client.DegradedWriteError):
+                client._http("POST", "/repos/o/r/issues/1/labels", {"labels": ["x"]})
+
 
 class TestScopeFilter(unittest.TestCase):
     def test_partial_or_non_issue_events_are_out_of_scope(self):

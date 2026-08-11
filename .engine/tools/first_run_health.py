@@ -257,17 +257,17 @@ def forked_from_home(repo: str | None, token: str | None, home: str | None, tran
     Kept OFF `detect_first_run_pending` so a network round-trip never sits on the offline detector's critical
     path. Only a fork OF THE HOME suppresses: a template-generated copy and a clone-and-push copy are both
     `fork == false`, so neither is silenced and the dead-on-arrival case they represent is still caught.
-    `transport(method, path, body) -> (status, json)` is injectable (the `GitHubIssues` seam) so a test drives
-    the real fork/parent decision logic without a network round-trip. NOTE (issue StarshipSuperjam/engine-template#353): this deliberately
+    `transport(method, path, body) -> (status, json)` is injectable (the neutral `github_client.reader` seam)
+    so a test drives the real fork/parent decision logic without a network round-trip. NOTE (issue StarshipSuperjam/engine-template#353): this deliberately
     silences a FORK-based *adopter* too (indistinguishable from a contributor's fork through this one signal);
     a fork-adopter is still rescued via `/engine-setup show`, which does not apply this suppressor. Revisit
     when the project's contribution model is defined (see README 'Contributing')."""
     if not repo or not token or not home:
         return None
     try:
-        import telemetry
-        gh = telemetry.GitHubIssues(repo, token, transport=transport)
-        status, data = gh._transport("GET", f"/repos/{repo}", None)
+        import github_client
+        gh = github_client.reader(repo, token, user_agent="engine-first-run-health", transport=transport)
+        status, data = gh.transport("GET", f"/repos/{repo}", None)
         if status >= 400 or not isinstance(data, dict):
             return None
         if not data.get("fork"):

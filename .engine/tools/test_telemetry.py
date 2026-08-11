@@ -286,6 +286,16 @@ class TestDegradedRead(unittest.TestCase):
             with self.assertRaises(telemetry.DegradedReadError):
                 gh(f).list_open_engine_issues()
 
+    def test_http_wraps_urlerror_as_degraded_read(self):
+        # The REAL _http (not the injected transport) must still map an unreachable host to DegradedReadError
+        # after the shared transport moved into github_client.json_request (#907) — read-degradation preserved.
+        import urllib.error
+        import github_client
+        client = telemetry.GitHubIssues("o/r", "tok")
+        with mock.patch.object(github_client, "_urlopen", side_effect=urllib.error.URLError("down")):
+            with self.assertRaises(telemetry.DegradedReadError):
+                client._http("GET", "/repos/o/r/issues", None)
+
     def test_run_degrades_on_read_failure_makes_no_issue_writes(self):
         f = FakeGH(labels={"engine"}, fail_read=403)
         with tempfile.TemporaryDirectory() as d:
