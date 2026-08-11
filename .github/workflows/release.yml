@@ -184,7 +184,7 @@ jobs:
       # MUST run, so if this IS the engine's home repo (github.repository == the recorded home, an independent
       # signal) yet the gate reported it did not run, that is an origin-signal misdetection and the cut fails
       # closed rather than shipping the engine ungated.
-      - name: Verify the release operates and upgrades when deployed
+      - name: Verify the release operates, upgrades, and rolls back when deployed
         timeout-minutes: 60
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -199,8 +199,11 @@ jobs:
           uv run --directory .engine --frozen -- python tools/release_gate.py --json-out "${out}" --summary-out "${sum}"
           gate_rc=$?
           if [ "${gate_rc}" -ne 0 ]; then
-            echo "::error::This release would not operate or upgrade cleanly when deployed, so no release pull request was opened and nothing was changed. See the plain-language reason in the step log above; fix the problem and cut the release again (a transient infrastructure hiccup clears by re-running the release-gate workflow)."
+            echo "::error::This release would not operate, upgrade, or roll back cleanly when deployed, so no release pull request was opened and nothing was changed. See the plain-language reason in the step log above; fix the problem and cut the release again (a transient infrastructure hiccup clears by re-running the release-gate workflow)."
             echo "### Deployment gate: BLOCKED — the release was not opened. The step log above says, in plain words, what would not deploy." >> "${GITHUB_STEP_SUMMARY}"
+            # Surface the per-transition matrix too (the gate writes it whether it passed or failed), so a
+            # blocked run shows which baseline and leg failed rather than only a raw stderr log.
+            if [ -s "${sum}" ]; then cat "${sum}" >> "${GITHUB_STEP_SUMMARY}"; fi
             exit 1
           fi
           # The gate's home-repo signal reads the on-disk git origin; this is the INDEPENDENT context signal.
