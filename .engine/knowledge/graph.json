@@ -687,6 +687,7 @@
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
           "codex-skill:engine-recall",
+          "codex-skill:engine-release",
           "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
@@ -726,6 +727,7 @@
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
           "codex-skill:engine-recall",
+          "codex-skill:engine-release",
           "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
@@ -1729,6 +1731,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
           "operation:engine-development",
+          "operation:engine-release",
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
@@ -1742,6 +1745,7 @@
           "operation:onboarding-read",
           "operation:operating-modes",
           "operation:product-intake",
+          "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
@@ -1780,6 +1784,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
           "operation:engine-development",
+          "operation:engine-release",
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
@@ -1793,6 +1798,7 @@
           "operation:onboarding-read",
           "operation:operating-modes",
           "operation:product-intake",
+          "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
@@ -2443,6 +2449,7 @@
           "skill:engine-help",
           "skill:engine-parts",
           "skill:engine-recall",
+          "skill:engine-release",
           "skill:engine-routine",
           "skill:engine-setup",
           "skill:engine-start",
@@ -2482,6 +2489,7 @@
           "skill:engine-help",
           "skill:engine-parts",
           "skill:engine-recall",
+          "skill:engine-release",
           "skill:engine-routine",
           "skill:engine-setup",
           "skill:engine-start",
@@ -3077,6 +3085,46 @@
       "source": {
         "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
         "path": ".agents/skills/engine-recall/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-release",
+      "name": ".agents/skills/engine-release/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release",
+      "source": {
+        "fingerprint": "sha256:0e8df9eff90b8a95d9fd772cfbfa13e1911206a7e5965d2b19753affe77c670e",
+        "path": ".agents/skills/engine-release/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-release.policy",
+      "name": ".agents/skills/engine-release/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-release/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -4294,7 +4342,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:98736fe588bf1693ff0616d6c16809f7bf8c71f44d1c28e4958caddae95a34a3",
+        "fingerprint": "sha256:c1ebae87b1af45940d513630fa183661e8f4fa8e94565793f6b69a6b240b4919",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4369,7 +4417,7 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:dc5505a3bbb3e5f6c8d8a786de4a0e364f25cc9e99d7970ee04fcfcffca091fe",
+        "fingerprint": "sha256:26c1a5cf83641b7d9754a877349f64fa589f150ef22f12750c36fbbf74e0fe94",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
@@ -4672,6 +4720,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:engine-release",
+      "name": ".engine/operations/engine-release.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release",
+      "source": {
+        "fingerprint": "sha256:10f316f95d4d304c7f5dace7cec12e9ec5fa25a5d34a70332e483801f370fea7",
+        "path": ".engine/operations/engine-release.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:engine-remove",
       "name": ".engine/operations/engine-remove.md",
       "owner": "core",
@@ -4932,6 +5000,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:projects-release-advance",
+      "name": ".engine/operations/projects-release-advance.md",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "projects-release-advance",
+      "source": {
+        "fingerprint": "sha256:80b605c76dd2c691ab36df960679f1e39219c37dce6e0ae75a1ac956f97b93a1",
+        "path": ".engine/operations/projects-release-advance.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:projects-sync-setup",
       "name": ".engine/operations/projects-sync-setup.md",
       "owner": "github-projects-sync",
@@ -4945,7 +5033,7 @@
       },
       "slug": "projects-sync-setup",
       "source": {
-        "fingerprint": "sha256:19acfbfae5df1d14952e32b01c45f71c56d2e5d765a208393b4be5242d24b5f5",
+        "fingerprint": "sha256:6980b388106adac7a48c3b1128cb2244adb9436c2854175e0be4cfe73ba19bd0",
         "path": ".engine/operations/projects-sync-setup.md"
       },
       "status": "active",
@@ -6025,6 +6113,28 @@
       },
       "status": "active",
       "title": "engine-recall",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-release",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-release/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release",
+      "source": {
+        "fingerprint": "sha256:ef05f2b197b3fac3e9f21f4b5d588233b6c2966f87b3ab36b1dc47b3c4eaa8ce",
+        "path": ".claude/skills/engine-release/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-release",
       "type": "skill"
     },
     {
@@ -10307,7 +10417,7 @@
       },
       "slug": "release_terminal",
       "source": {
-        "fingerprint": "sha256:0f683ec2578e0b8d96ccb4038dffc45506e519d192a1fd51d08d60d39ecf5a93",
+        "fingerprint": "sha256:a10221d38b020cbb6ac206d6a1ae7670953a37aae3c5939f2727f9d3f4f765bb",
         "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
@@ -13638,7 +13748,7 @@
       },
       "slug": "test_release_terminal",
       "source": {
-        "fingerprint": "sha256:80768592626f05387ad184a26445fd422ca0990b3fa922d49a5fe13bd2fa4082",
+        "fingerprint": "sha256:80829050e5aa036758c0474bdb9b0f6ed26b1c3e22736ca5399cf170f449749d",
         "path": ".engine/tools/test_release_terminal.py"
       },
       "status": "active",

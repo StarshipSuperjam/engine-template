@@ -270,9 +270,14 @@ jobs:
           # If the PR cannot be opened, the branch is already pushed — name it and give a plain recovery. This is
           # the "present-but-broken" credential case (expired PAT, or missing Pull requests: write), distinct
           # from the "not set up" failure at the first step.
-          if ! gh pr create --base "${{ github.event.repository.default_branch }}" --head "${branch}" \
+          if ! pr_url="$(gh pr create --base "${{ github.event.repository.default_branch }}" --head "${branch}" \
                 --title "Release ${RESOLVED_VERSION}" \
-                --body-file "${RUNNER_TEMP}/pr-body.md"; then
+                --body-file "${RUNNER_TEMP}/pr-body.md")"; then
             echo "::error::The release branch ${branch} was pushed, but the release pull request could not be opened. This usually means the RELEASE_PAT secret is expired or is missing the Pull requests: write permission on this repository. No release was made. Fix the token, delete the branch ${branch}, and run this again."
             exit 1
           fi
+          # Surface the opened pull request where the maintainer looks first — the run page — not only this
+          # step's log (capturing the URL above hid gh's own stdout, so print it here too). One line, a
+          # pointer only: the pull request body itself stays the evidence bundle, authored by the tool.
+          echo "Release pull request opened: ${pr_url}"
+          echo "### Release pull request opened — review and merge to publish: ${pr_url}" >> "${GITHUB_STEP_SUMMARY}"

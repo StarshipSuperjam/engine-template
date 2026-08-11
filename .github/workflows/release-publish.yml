@@ -75,5 +75,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # The tool renders the run summary itself (--summary-out) — outcome legibility keeps one home,
+          # never assembled in this shell. `|| rc=$?` keeps a refusal (exit 1) from aborting the step before
+          # the summary is surfaced; the step still exits with the tool's own code, so a failed publish
+          # stays a red run and the PR comment remains the maintainer's surface.
+          sum="${RUNNER_TEMP}/publish-summary.md"
+          rc=0
           uv run --directory .engine --frozen -- python tools/release_terminal.py publish \
-            --commit "${MERGE_SHA}" --pr "${PR_NUMBER}"
+            --commit "${MERGE_SHA}" --pr "${PR_NUMBER}" --summary-out "${sum}" || rc=$?
+          if [ -s "${sum}" ]; then cat "${sum}" >> "${GITHUB_STEP_SUMMARY}"; fi
+          exit "${rc}"

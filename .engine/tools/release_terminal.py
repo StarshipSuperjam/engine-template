@@ -247,6 +247,29 @@ def _comment_body(result: dict, run_url: "str | None" = None) -> str:
             f"{result.get('recovery', '')}").strip()
 
 
+def _summary_md(result: dict, repo: str) -> str:
+    """The one-block run summary the publish workflow appends to GITHUB_STEP_SUMMARY — rendered HERE, never
+    assembled in workflow shell, so the outcome legibility keeps one home (the same rule release_gate's
+    summary and the PR comment above follow). PURE (no network): the Release URL is constructed from the
+    repo slug + tag, which is exactly where GitHub serves it. The families follow `_comment_body`'s
+    published / did-not-finish / other split (coarser than the comment — the per-case `message` still
+    carries the specifics); the PR comment stays the maintainer's surface — this is for whoever is
+    watching the run."""
+    tag = result.get("tag") or "the new version"
+    product = bool(result.get("product"))
+    if result.get("published"):
+        noun = "Release" if product else "Engine version"
+        verb = "was already published — nothing changed" if result.get("reason") == "already-published" \
+            else "is published"
+        return f"### {noun} {tag} {verb} — https://github.com/{repo}/releases/tag/{tag}\n"
+    if result.get("reason") in ("tag-create-failed", "release-create-failed", "errored"):
+        return (f"### The version merged, but publishing {tag} did not finish\n\n"
+                f"{result.get('message', '')} The merged pull request carries the same outcome and the safe "
+                f"re-run recovery in plain words.\n")
+    return (f"### No release was published\n\n{result.get('message', '')} "
+            f"{result.get('recovery', '')}\n".rstrip() + "\n")
+
+
 # --------------------------------------------------------------------------- the publish decision
 def publish(client: TerminalCutClient, engine_release: str, commit_sha: str, proposal=None) -> dict:
     """Publish `engine_release` at `commit_sha` (idempotent, exact-commit, raise-only). Returns a result
@@ -421,6 +444,14 @@ def _cmd_publish(args) -> int:
         print(f"To fix: {result['recovery']}")
     if result.get("announce_error"):
         print(f"(could not post the outcome to the pull request: {result['announce_error']})", file=sys.stderr)
+    if getattr(args, "summary_out", None):
+        # Best-effort, after the verdict is settled: an unwritable summary path must never flip the publish
+        # outcome — the tag/Release and the PR comment are the durable artifacts, this is the run-page view.
+        try:
+            with open(args.summary_out, "w", encoding="utf-8") as fh:
+                fh.write(_summary_md(result, repo))
+        except OSError as exc:
+            print(f"(could not write the run summary: {exc})", file=sys.stderr)
     return _exit_code(result)
 
 
@@ -431,6 +462,9 @@ def main(argv: list) -> int:
     pub = sub.add_parser("publish", help="publish the tag + Release at the merged commit (idempotent)")
     pub.add_argument("--commit", required=True, help="the reviewed merge commit SHA to tag")
     pub.add_argument("--pr", help="the merged pull request number to comment the outcome onto")
+    pub.add_argument("--summary-out", dest="summary_out", metavar="PATH",
+                     help="write the publish outcome as run-summary markdown here (rendered by this tool, "
+                          "never assembled in workflow shell)")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "publish":
