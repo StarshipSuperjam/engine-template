@@ -404,8 +404,19 @@ def pin(text: str, session_id: str | None = None) -> dict:
     from memory import pins as _pins
 
     record = _pins.add(text, session_id=session_id, via=records.PIN_VIA_ASSISTANT)
-    return {"id": record[records.RECORD_ID_KEY], "text": record["text"],
-            records.PIN_VIA_KEY: record[records.PIN_VIA_KEY]}
+    live = _pins.list_pins()
+    result = {"id": record[records.RECORD_ID_KEY], "text": record["text"],
+              records.PIN_VIA_KEY: record[records.PIN_VIA_KEY], "total": len(live)}
+    # Warn, never refuse (StarshipSuperjam/engine-template#950): the pin is already saved in full. When the list has grown long, add
+    # a plain note that the briefing shows the newest as titles and folds the rest behind a disclosed count, and
+    # that pruning is easy — so the operator learns to prune rather than being surprised, without ever losing a
+    # directive they asked to keep.
+    if len(live) >= _pins.PIN_PRUNE_HINT_AT:
+        result["note"] = (f"Saved. You now have {len(live)} pinned notes. The session-start briefing shows the "
+                          "newest as one-line titles and folds the older ones behind a loud disclosed count — "
+                          "they stay safe and readable with list-pins. A list this long is worth a prune when "
+                          "it's convenient; tell me which to drop.")
+    return result
 
 
 @server.tool(
@@ -413,8 +424,9 @@ def pin(text: str, session_id: str | None = None) -> dict:
     description=(
         "Read back every pin the operator has saved, newest first, with the total. Reach for this whenever "
         "they ask what you are remembering, or before saving a new pin that might duplicate or contradict an "
-        "existing one. The session-start briefing shows only the newest few, so this is the only way to see "
-        "the whole set — and each result carries the `id` that `withhold` takes to drop one."
+        "existing one. The session-start briefing shows the newest pins as one-line titles and folds any older "
+        "ones behind a disclosed count, so this is the way to see the whole set in full — and each result "
+        "carries the `id` that `withhold` takes to drop one."
     ),
 )
 def list_pins() -> dict:
