@@ -2098,7 +2098,7 @@ class TestWeakeningReHome(unittest.TestCase):
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
     def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None,
-                   base_product_build_target=None):
+                   base_product_build_target=None, head_ack=False, head_sha="headsha0"):
         """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
         changed_files count, the BASE manifest's recorded home (`base_home`, default None = no home
         recorded, so a home in the diff reads as a first recording), the BASE manifest's recorded identity
@@ -2112,12 +2112,19 @@ class TestWeakeningReHome(unittest.TestCase):
         import io
         if expected is self._AUTO:
             expected = len(files)
+        # The head-bound ack reads pull_request.head.sha; inject one unless the caller withheld it
+        # (head_sha=None) to exercise the no-head fail-closed path. `head_ack` controls the stubbed
+        # head-ack read: True/False (fresh vs not) or "error" (the statuses read raises -> fail closed).
+        pr = event.get("pull_request")
+        if isinstance(pr, dict) and "head" not in pr and head_sha is not None:
+            event = dict(event, pull_request=dict(pr, head={"sha": head_sha}))
         saved = dict(os.environ)
         orig_fetch = weakening_guard.fetch_all_changed_files
         orig_count = weakening_guard.changed_files_total
         orig_home = weakening_guard._read_base_home
         orig_tier = weakening_guard._read_base_tier
         orig_target = weakening_guard._read_base_product_build_target
+        orig_ack = weakening_guard._head_ack_success
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -2130,6 +2137,17 @@ class TestWeakeningReHome(unittest.TestCase):
             weakening_guard._read_base_home = lambda: base_home
             weakening_guard._read_base_tier = lambda: base_tier
             weakening_guard._read_base_product_build_target = lambda: base_product_build_target
+            self._ack_calls = 0  # a clean/soft-only PR must never reach the head-ack read
+            _outer = self
+            if head_ack == "error":
+                def _fake_ack(*a, **k):
+                    _outer._ack_calls += 1
+                    raise RuntimeError("statuses API unreachable")
+            else:
+                def _fake_ack(*a, **k):
+                    _outer._ack_calls += 1
+                    return bool(head_ack)
+            weakening_guard._head_ack_success = _fake_ack
             try:
                 with contextlib.redirect_stdout(buf):
                     rc = weakening_guard.main()
@@ -2141,6 +2159,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard._read_base_home = orig_home
                 weakening_guard._read_base_tier = orig_tier
                 weakening_guard._read_base_product_build_target = orig_target
+                weakening_guard._head_ack_success = orig_ack
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -2183,10 +2202,11 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("guardrail-ack", out[0]["message"])
 
     def test_ack_label_downgrades_hard_to_disclosure_never_erases(self):
-        # eADR-0040: the ack DOWNGRADES the killswitch finding to a soft ACKNOWLEDGED record.
+        # eADR-0040 + #710: the head-bound ack (engine-ack success on this head) DOWNGRADES the killswitch
+        # finding to a soft ACKNOWLEDGED record.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
-            [{"filename": ".engine/suites.json", "status": "modified"}])
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_ack=True)
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
@@ -2201,6 +2221,87 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("GUARDRAIL DISCLOSURE", out[0]["message"])
+
+    # ---- #710: the ack is bound to the HEAD, not to the mere presence of the label ----
+
+    def test_stale_ack_blocks_after_head_change(self):
+        # The #457 regression lock: the label is present in the (frozen) payload, but no engine-ack status is
+        # bound to THIS head (head_ack=False) — a stale ack from an earlier version must NOT clear the guard.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_ack=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("does not", out[0]["message"].lower())          # "does not carry across a push"
+        self.assertIn("push", out[0]["message"].lower())
+        self.assertIn("guardrail-ack", out[0]["message"])             # tells the operator how to re-acknowledge
+
+    def test_never_acked_blocks_without_stale_wording(self):
+        # No label and no status: never acknowledged — the plain apply guidance, not the stale-after-push note.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_ack=False)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+        self.assertNotIn("earlier version", out[0]["message"].lower())
+
+    def test_fresh_head_ack_downgrades_even_without_label_in_payload(self):
+        # The gate is the head-bound status, not the payload label: a fresh engine-ack status downgrades even
+        # if the frozen payload's label list is empty (e.g. read before the label event settled).
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_ack=True)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertIn("ACKNOWLEDGED", out[0]["message"])
+
+    def test_ack_status_fetch_failure_fails_closed(self):
+        # A statuses-API read failure on a hard finding fails CLOSED (a hard block), never a silent clear.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_ack="error")
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("could not read the acknowledgment status", out[0]["message"].lower())
+
+    def test_missing_head_sha_fails_closed(self):
+        # A hard finding with no head SHA in the event fails closed (the ack is head-bound).
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/suites.json", "status": "modified"}], head_sha=None)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("no head commit", out[0]["message"].lower())
+
+    def test_clean_pr_makes_no_status_call(self):
+        # A clean pull request returns before the ack read — no dependency on the statuses API.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": "README.md", "status": "modified"}], head_ack="error")
+        self.assertEqual(out, [])
+        self.assertEqual(self._ack_calls, 0)
+
+    def test_soft_only_pr_makes_no_status_call(self):
+        # A disclosure-tier-only change passes without touching the statuses API (the ack clears only HARD).
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/tools/validate.py", "status": "modified"}], head_ack="error")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+        self.assertEqual(self._ack_calls, 0)
+
+    def test_stale_ack_on_oversized_pr_blocks(self):
+        # The too-large fail-closed path is head-bound too: a stale label must not clear a rebased big PR.
+        files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+                                  files, expected=5000, head_ack=False)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("does not", out[0]["message"].lower())
+        self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
 
     # ---- the engine's update-home repoint is a guardrail weakening (content-aware; #367) ----
     _REPOINT_PATCH = ('@@ -1,4 +1,4 @@\n'
@@ -2227,7 +2328,7 @@ class TestWeakeningReHome(unittest.TestCase):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
             [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}],
-            base_home="acme/engine-home")
+            base_home="acme/engine-home", head_ack=True)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
@@ -2519,7 +2620,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("guardrail-ack", out[0]["message"])
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
-            self._f(self._DOWNGRADE_PATCH), base_tier="team")
+            self._f(self._DOWNGRADE_PATCH), base_tier="team", head_ack=True)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
@@ -2587,7 +2688,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("guardrail-ack", out[0]["message"])
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
-            self._f(self._ARM_PATCH))
+            self._f(self._ARM_PATCH), head_ack=True)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
@@ -2723,7 +2824,8 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("foo.json", out[0]["message"])
         self.assertIn("configures the gate itself", out[0]["message"])
         self.assertIn("guardrail-ack", out[0]["message"])
-        rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}}, files)
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}}, files,
+                                  head_ack=True)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
@@ -2740,11 +2842,11 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("modes.py", soft["message"])
 
     def test_oversized_pr_with_ack_downgrades_to_record(self):
-        # the fail-closed completeness path honors the ack as a DOWNGRADE (it used to promise this and
-        # never check the label at all).
+        # the fail-closed completeness path honors the head-bound ack as a DOWNGRADE (it used to promise this
+        # and never check the label at all; now it reads the engine-ack status on this head — #710).
         files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
         rc, out = self._main_json({"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
-                                  files, expected=5000)
+                                  files, expected=5000, head_ack=True)
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
@@ -2856,6 +2958,84 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(out[0]["severity"], "hard")
         self.assertIn("guardrail-ack", out[0]["message"])
         self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+
+class TestHeadAckRead(unittest.TestCase):
+    """The REAL body of the head-ack read (#710) — driven through a faked get_page seam, NOT stubbed out.
+    Proves: it reads the per-context `/statuses` LIST (never the combined `/status` rollup), takes the
+    MOST-RECENT engine-ack entry (so a withdrawal 'failure' overrides an earlier 'success'), treats a
+    non-success state as not-fresh, paginates past the first page, fails closed on a Link cycle, and retries
+    only when asked."""
+
+    def _fake_pages(self, pages):
+        """pages: dict {url -> (list_of_status_dicts, link_header_or_None)}. Installs a fake get_page and
+        returns a call-counter list. Restores in addCleanup."""
+        calls = []
+        orig = weakening_guard.get_page
+
+        def fake(url, token, **kw):
+            calls.append(url)
+            return pages[url]
+        weakening_guard.get_page = fake
+        self.addCleanup(lambda: setattr(weakening_guard, "get_page", orig))
+        return calls
+
+    _P1 = "/repos/o/r/commits/HEAD/statuses?per_page=100"
+
+    def test_reads_statuses_list_endpoint_not_the_rollup(self):
+        calls = self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+        # it hit the per-context LIST endpoint (/statuses?…), never the combined /status rollup
+        self.assertTrue(calls and all("/statuses?" in u for u in calls))
+
+    def test_success_is_fresh(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "success")
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_withdrawal_failure_overrides_earlier_success(self):
+        # most-recent-first: a 'failure' (withdrawal) posted after a 'success' is the latest -> not fresh.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure"},
+                                      {"context": "engine-ack", "state": "success"}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "failure")
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_pending_engine_ack_is_not_fresh(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "pending"}], None)})
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_absent_engine_ack_is_not_fresh_and_no_retry_by_default(self):
+        calls = self._fake_pages({self._P1: ([{"context": "engine-ci", "state": "success"}], None)})
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+        self.assertEqual(len(calls), 1)  # retry=False -> a single fetch, no waiting
+
+    def test_absent_engine_ack_state_is_none(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ci", "state": "success"}], None)})
+        self.assertIsNone(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"))
+
+    def test_engine_ack_on_a_later_page_is_found(self):
+        p2 = "https://api.github.com/repos/o/r/commits/HEAD/statuses?per_page=100&page=2"
+        pages = {
+            self._P1: ([{"context": "other", "state": "success"}], f'<{p2}>; rel="next"'),
+            p2: ([{"context": "engine-ack", "state": "success"}], None),
+        }
+        self._fake_pages(pages)
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_pathological_link_cycle_fails_closed(self):
+        # a page that always points to itself must raise (the caller then fails closed), never loop forever.
+        pages = {self._P1: ([{"context": "other", "state": "success"}], f'<{self._P1}>; rel="next"')}
+        self._fake_pages(pages)
+        with self.assertRaises(RuntimeError):
+            weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t")
+
+    def test_retry_polls_when_asked_then_gives_up(self):
+        orig_sleep = weakening_guard.time.sleep
+        weakening_guard.time.sleep = lambda *_: None  # don't actually wait
+        self.addCleanup(lambda: setattr(weakening_guard.time, "sleep", orig_sleep))
+        calls = self._fake_pages({self._P1: ([], None)})  # persistently absent
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+        self.assertEqual(len(calls), weakening_guard._ACK_POLL_TRIES)  # polled the full budget
 
 
 class TestRunCheckById(unittest.TestCase):

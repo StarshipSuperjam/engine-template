@@ -1,0 +1,44 @@
+# engine-ack-status — bind the guardrail acknowledgment to the pull-request head.
+#
+# When the operator applies the `guardrail-ack` label, this posts a head-bound `engine-ack` commit status
+# (state success) to the pull request's CURRENT head SHA, which the guardrail-weakening guard reads to clear
+# a killswitch finding. A commit status is bound to an immutable content SHA, so a later push produces a new
+# head with no such status and a stale acknowledgment cannot replay across it (StarshipSuperjam/engine-template#710). On a push
+# (`synchronize`) it removes the now-stale label — UX only, so re-consent is a one-step re-apply; the guard's
+# correctness rests on the head-bound status, not on this removal. The tool (`ack_status.py`) is what makes
+# every decision; this workflow is a thin, pwn-request-safe launcher.
+#
+# SECURITY: like engine-guard, this runs on pull_request_target (so the write-capable token is available for a
+# same-repo pull request) but checks out ONLY the base branch and NEVER the pull request head, and executes no
+# head code — `ack_status.py` reads the event JSON and posts exactly two API calls. Do not add a head checkout
+# and do not interpolate any `github.event.pull_request.head.*` value into a run line.
+#
+# It runs the stdlib-only tool with the runner's Python directly — no `uv sync` — so it posts the status fast
+# enough to win the labeled-event race with the guard (a lost race fails closed and is cleared by a re-run).
+name: engine-ack-status
+
+on:
+  pull_request_target:
+    types: [labeled, unlabeled, synchronize]
+
+permissions:
+  contents: read          # base-only checkout of this tool
+  statuses: write         # post the head-bound engine-ack status
+  pull-requests: write    # remove the stale label on a push (UX only)
+
+concurrency:
+  group: engine-ack-status-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  engine-ack-status:
+    name: engine-ack-status
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base (trusted) branch — never the PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record or clear the head-bound acknowledgment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 .engine/tools/ack_status.py
