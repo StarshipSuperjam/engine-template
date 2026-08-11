@@ -9,10 +9,14 @@ reads a head-bound GitHub commit STATUS (context `engine-ack`, state `success`) 
 head SHA. This companion is what POSTS that status — and only when the operator deliberately applies the
 label — so the acknowledgment is bound to the exact version they reviewed.
 
-Two events, one job:
+Three actions, one job:
   - `labeled` with `label.name == guardrail-ack`: POST `engine-ack=success` to the CURRENT head SHA (the
     head at label time, read from the event). A later push produces a new head with no such status, so the
     guard re-blocks — the operator re-applies the single label to acknowledge the new head.
+  - `unlabeled` with `label.name == guardrail-ack`: POST `engine-ack=failure` to the current head. Removing
+    the label is a deliberate WITHDRAWAL of consent; a commit status cannot be deleted, so the withdrawal is
+    recorded as a non-success posting, which (as the guard reads the most-recent engine-ack entry) re-blocks
+    the same head. Without this, a removed label would be silently ignored until the next push.
   - `synchronize` (a new commit was pushed): REMOVE the `guardrail-ack` label. This is UX ONLY — it makes
     re-consent the same one-step "apply the label" gesture instead of a "remove-and-re-add". Correctness does
     NOT depend on it: the guard already re-blocks a new head because the head-bound status is absent there,
@@ -60,14 +64,18 @@ def _load_event() -> dict:
         return {}
 
 
-def post_ack_status(repo: str, head_sha: str, token: str, number) -> int:
-    """POST the head-bound acknowledgment marker: `engine-ack=success` on `head_sha`. Returns the HTTP
-    status. The description names the pull request, since a commit status is keyed per-SHA (two pull requests
-    sharing a head SHA share the marker — acceptable, as a shared SHA is shared content)."""
-    desc = f"guardrail-ack acknowledged for this head (#{number})"[:140]
+def post_ack_status(repo: str, head_sha: str, token: str, number, state: str = "success") -> int:
+    """POST the head-bound acknowledgment marker: `engine-ack` at `state` on `head_sha`. `state` is "success"
+    when the operator applies the label and "failure" when they REMOVE it (a commit status cannot be deleted,
+    only overwritten, so a withdrawal is recorded as a non-success posting — the guard reads the MOST RECENT
+    engine-ack entry, so this re-blocks the same head). Returns the HTTP status. The description names the pull
+    request, since a commit status is keyed per-SHA (two pull requests sharing a head SHA share the marker —
+    acceptable, as a shared SHA is shared content)."""
+    verb = "acknowledged" if state == "success" else "withdrawn"
+    desc = f"guardrail-ack {verb} for this head (#{number})"[:140]
     status, _ = github_client.json_request(
         "POST", f"/repos/{repo}/statuses/{head_sha}", token, user_agent=USER_AGENT,
-        body={"context": ACK_CONTEXT, "state": "success", "description": desc})
+        body={"context": ACK_CONTEXT, "state": state, "description": desc})
     return status
 
 
@@ -93,7 +101,10 @@ def main() -> int:
         return 0
 
     try:
-        if action == "labeled":
+        if action in ("labeled", "unlabeled"):
+            # Applying the ack label posts engine-ack=success; REMOVING it posts engine-ack=failure, so a
+            # deliberate withdrawal re-blocks the same head (a commit status cannot be deleted, and the guard
+            # keys on the head-bound status, not on the label's live presence).
             label_name = (event.get("label") or {}).get("name")
             if label_name != ACK_LABEL:
                 print(f"ack-status: label '{label_name}' is not the acknowledgment label — nothing to do.")
@@ -102,12 +113,13 @@ def main() -> int:
                 print("ack-status: no head commit in the event — cannot bind the acknowledgment.",
                       file=sys.stderr)
                 return 1
-            status = post_ack_status(repo, head_sha, token, number)
+            state = "success" if action == "labeled" else "failure"
+            status = post_ack_status(repo, head_sha, token, number, state)
             if status >= 400:
-                print(f"ack-status: GitHub returned {status} posting the acknowledgment status on "
+                print(f"ack-status: GitHub returned {status} posting engine-ack={state} on "
                       f"{head_sha} — the guard will fail closed until it is posted.", file=sys.stderr)
                 return 1
-            print(f"ack-status: posted engine-ack=success on {head_sha} for #{number}.")
+            print(f"ack-status: posted engine-ack={state} on {head_sha} for #{number}.")
             return 0
 
         if action == "synchronize":

@@ -89,6 +89,27 @@ class TestAckStatus(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(calls, [])
 
+    def test_unlabeled_ack_posts_engine_ack_failure_to_head(self):
+        # Removing the ack label is a deliberate withdrawal: post engine-ack=failure so the guard re-blocks
+        # the same head (a commit status cannot be deleted, only overwritten).
+        rc, calls = self._run({
+            "action": "unlabeled", "label": {"name": "guardrail-ack"},
+            "pull_request": {"number": 7, "head": {"sha": "deadbeef"}}})
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 1)
+        c = calls[0]
+        self.assertEqual(c["method"], "POST")
+        self.assertEqual(c["path"], "/repos/o/r/statuses/deadbeef")
+        self.assertEqual(c["body"]["context"], "engine-ack")
+        self.assertEqual(c["body"]["state"], "failure")
+
+    def test_unlabeled_with_a_different_label_posts_nothing(self):
+        rc, calls = self._run({
+            "action": "unlabeled", "label": {"name": "needs-review"},
+            "pull_request": {"number": 7, "head": {"sha": "deadbeef"}}})
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [])
+
     def test_labeled_ack_without_head_sha_fails_visibly(self):
         rc, calls = self._run({
             "action": "labeled", "label": {"name": "guardrail-ack"},

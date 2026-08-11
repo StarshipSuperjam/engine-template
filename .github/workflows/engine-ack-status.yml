@@ -19,7 +19,7 @@ name: engine-ack-status
 
 on:
   pull_request_target:
-    types: [labeled, synchronize]
+    types: [labeled, unlabeled, synchronize]
 
 permissions:
   contents: read          # base-only checkout of this tool

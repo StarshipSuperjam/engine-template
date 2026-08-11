@@ -109,20 +109,21 @@ def _changed(base: str, head: "str | None") -> bool:
     return _norm(base) != _norm(head)
 
 
-def classify(base_locked_docs: dict, head_docs: dict, label_present: bool, tier: str) -> list:
+def classify(base_locked_docs: dict, head_docs: dict, acked: bool, tier: str) -> list:
     """The lock-integrity findings, as a list of finding.v1 dicts. The pure decision over already-gathered
     inputs (this is the unit the tests drive directly):
 
     - `base_locked_docs`: {repo-root-relative POSIX path -> full file content} for every capability document
       that was SETTLED at the pull request's base. A document not settled at base is simply absent here.
     - `head_docs`: {same path -> content, or None if the document is absent at head (removed/renamed away)}.
-    - `label_present`: whether the operator has applied the `guardrail-ack` re-acceptance label.
+    - `acked`: whether this HEAD carries a valid re-acceptance — the head-bound `engine-ack` status resolved by
+      the caller, NOT the raw presence of the `guardrail-ack` label (StarshipSuperjam/engine-template#710).
 
-    Empty list = clean (no settled document changed, or the operator has re-accepted). Otherwise one finding
-    per changed settled document, at `tier` (hard), naming the document and the label to apply. The label is
-    global: when present, it clears every settled-document change in the pull request (informed by the per-doc
-    findings the operator saw before applying it)."""
-    if label_present:
+    Empty list = clean (no settled document changed, or the operator has re-accepted this head). Otherwise one
+    finding per changed settled document, at `tier` (hard), naming the document and the label to apply. The
+    acceptance is global: when present, it clears every settled-document change in the pull request (informed by
+    the per-doc findings the operator saw before applying it)."""
+    if acked:
         return []
     out = []
     for rel in sorted(base_locked_docs):

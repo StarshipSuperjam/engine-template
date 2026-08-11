@@ -2960,6 +2960,84 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
 
 
+class TestHeadAckRead(unittest.TestCase):
+    """The REAL body of the head-ack read (#710) — driven through a faked get_page seam, NOT stubbed out.
+    Proves: it reads the per-context `/statuses` LIST (never the combined `/status` rollup), takes the
+    MOST-RECENT engine-ack entry (so a withdrawal 'failure' overrides an earlier 'success'), treats a
+    non-success state as not-fresh, paginates past the first page, fails closed on a Link cycle, and retries
+    only when asked."""
+
+    def _fake_pages(self, pages):
+        """pages: dict {url -> (list_of_status_dicts, link_header_or_None)}. Installs a fake get_page and
+        returns a call-counter list. Restores in addCleanup."""
+        calls = []
+        orig = weakening_guard.get_page
+
+        def fake(url, token, **kw):
+            calls.append(url)
+            return pages[url]
+        weakening_guard.get_page = fake
+        self.addCleanup(lambda: setattr(weakening_guard, "get_page", orig))
+        return calls
+
+    _P1 = "/repos/o/r/commits/HEAD/statuses?per_page=100"
+
+    def test_reads_statuses_list_endpoint_not_the_rollup(self):
+        calls = self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+        # it hit the per-context LIST endpoint (/statuses?…), never the combined /status rollup
+        self.assertTrue(calls and all("/statuses?" in u for u in calls))
+
+    def test_success_is_fresh(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "success")
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_withdrawal_failure_overrides_earlier_success(self):
+        # most-recent-first: a 'failure' (withdrawal) posted after a 'success' is the latest -> not fresh.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure"},
+                                      {"context": "engine-ack", "state": "success"}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "failure")
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_pending_engine_ack_is_not_fresh(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "pending"}], None)})
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_absent_engine_ack_is_not_fresh_and_no_retry_by_default(self):
+        calls = self._fake_pages({self._P1: ([{"context": "engine-ci", "state": "success"}], None)})
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+        self.assertEqual(len(calls), 1)  # retry=False -> a single fetch, no waiting
+
+    def test_absent_engine_ack_state_is_none(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ci", "state": "success"}], None)})
+        self.assertIsNone(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"))
+
+    def test_engine_ack_on_a_later_page_is_found(self):
+        p2 = "https://api.github.com/repos/o/r/commits/HEAD/statuses?per_page=100&page=2"
+        pages = {
+            self._P1: ([{"context": "other", "state": "success"}], f'<{p2}>; rel="next"'),
+            p2: ([{"context": "engine-ack", "state": "success"}], None),
+        }
+        self._fake_pages(pages)
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_pathological_link_cycle_fails_closed(self):
+        # a page that always points to itself must raise (the caller then fails closed), never loop forever.
+        pages = {self._P1: ([{"context": "other", "state": "success"}], f'<{self._P1}>; rel="next"')}
+        self._fake_pages(pages)
+        with self.assertRaises(RuntimeError):
+            weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t")
+
+    def test_retry_polls_when_asked_then_gives_up(self):
+        orig_sleep = weakening_guard.time.sleep
+        weakening_guard.time.sleep = lambda *_: None  # don't actually wait
+        self.addCleanup(lambda: setattr(weakening_guard.time, "sleep", orig_sleep))
+        calls = self._fake_pages({self._P1: ([], None)})  # persistently absent
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
+        self.assertEqual(len(calls), weakening_guard._ACK_POLL_TRIES)  # polled the full budget
+
+
 class TestRunCheckById(unittest.TestCase):
     """validate.py --check <id> runs ONE rule by id, outside any suite: it gates on a
     hard finding (exit 1 / 0 clean / 2 on unknown id), fails closed on a dangling or

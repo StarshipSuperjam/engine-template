@@ -6304,7 +6304,7 @@
       },
       "slug": "ack_status",
       "source": {
-        "fingerprint": "sha256:db01d109f4d0454e8121ae7a27793e82eb48c922eda48f61dc8675c9f302c108",
+        "fingerprint": "sha256:11cc4994771b56dcc09fed49ce2d86053a1472d3adc99830cf2e45320a48b262",
         "path": ".engine/tools/ack_status.py"
       },
       "status": "active",
@@ -9523,7 +9523,7 @@
       },
       "slug": "lock_integrity",
       "source": {
-        "fingerprint": "sha256:2081c934172280ff8d8b639cb475fcd35e5388fcc73a544c7d83b902f05d9800",
+        "fingerprint": "sha256:e5eae2649b2237a103704636f7638ffc373fa77c3fd17b8b3b02f5a1bc03e59c",
         "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
@@ -11077,7 +11077,7 @@
       },
       "slug": "test_ack_status",
       "source": {
-        "fingerprint": "sha256:aa0baeaefd4e6f35087cf754289de8efe94c48fcd0cd89b577faaaa865a1ef46",
+        "fingerprint": "sha256:89a589fe7c909b4a546e9ce22ae3a6b53a41c1cc6136934de1b3121785a58b6d",
         "path": ".engine/tools/test_ack_status.py"
       },
       "status": "active",
@@ -14230,7 +14230,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:8d182d0f8a94fba2e37d80ea6bc6570dc09c700bbf806ddabdcd9293a90445e0",
+        "fingerprint": "sha256:185c61e0827d0cf56bbd4b9cd3073ad070fb79fd1c36c555ca4e1c09ae19bbdb",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -14959,7 +14959,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:804580b4d28044d17d5761b16c46a20eb5bd0d55435e37955a58ca0cc602a4b9",
+        "fingerprint": "sha256:4bd5a4f912dc130a4752f3749f17309d62eaa5cf4260231aeaac59bd8c70a1f7",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

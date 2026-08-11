@@ -1007,23 +1007,43 @@ def changed_files_total(repo: str, number, token: str):
     return pr.get("changed_files")
 
 
-def _head_ack_success(repo: str, head_sha: str, token: str, *, retry: bool = False) -> bool:
-    """True iff an `engine-ack` commit status with state "success" is present on `head_sha`.
+def _latest_engine_ack_state(repo: str, head_sha: str, token: str):
+    """The state of the MOST-RECENT `engine-ack` commit status on `head_sha`, or None if there is none.
 
-    Reads the PER-CONTEXT statuses LIST (`GET /commits/{sha}/statuses`), NOT the combined `/status`
-    rollup: the rollup's top-level state aggregates every check on the commit and stays "pending" while
-    any other required check is still running, so keying on it would mean the acknowledgment never
-    registers. The list is returned most-recent first, so the first entry whose context is ACK_CONTEXT is
-    the latest one. Raises `urllib.error.HTTPError` / `URLError` UNWRAPPED so the caller fails closed on a
-    read failure. When `retry` is set (the label is present, so a status is expected but may still be
-    landing — the labeled-event race), it polls a bounded few times before concluding the status is absent;
-    an unacked pull request passes `retry=False` and pays no wait."""
+    Reads the PER-CONTEXT statuses LIST (`GET /commits/{sha}/statuses`), NOT the combined `/status` rollup:
+    the rollup's top-level state aggregates every check on the commit and stays "pending" while any other
+    required check is still running, so keying on it would mean the acknowledgment never registers. The list
+    is returned most-recent-first and is PAGINATED to exhaustion — a busy head can accumulate past 100 status
+    postings, and the latest `engine-ack` must not hide past the first page — so the FIRST `engine-ack` entry
+    encountered is the latest. Raises on a pathological Link cycle (more than MAX_PAGES pages) so the caller
+    fails closed rather than judging a truncated read, and lets `urllib` errors propagate UNWRAPPED so the
+    caller fails closed on a read failure."""
+    url = f"/repos/{repo}/commits/{head_sha}/statuses?per_page=100"
+    pages = 0
+    while url:
+        pages += 1
+        if pages > MAX_PAGES:
+            raise RuntimeError(f"statuses pagination exceeded {MAX_PAGES} pages")
+        page, link = get_page(url, token, user_agent=_UA)
+        for s in page:
+            if s.get("context") == ACK_CONTEXT:
+                return s.get("state")  # most-recent-first: the first engine-ack IS the latest
+        url = next_link(link)
+    return None
+
+
+def _head_ack_success(repo: str, head_sha: str, token: str, *, retry: bool = False) -> bool:
+    """True iff the MOST-RECENT `engine-ack` commit status on `head_sha` is "success"
+    (see `_latest_engine_ack_state`). A withdrawal posts a "failure" state, so a revoked acknowledgment reads
+    as not-success and the guard re-blocks. When `retry` is set (the label is present, so a status is expected
+    but may still be landing — the labeled-event race), it polls a bounded few times before concluding the
+    status is absent; an unacked pull request passes `retry=False` and pays no wait. Raises on a read failure
+    so the caller fails closed."""
     tries = _ACK_POLL_TRIES if retry else 1
     for attempt in range(tries):
-        statuses = get_json(f"/repos/{repo}/commits/{head_sha}/statuses?per_page=100", token, user_agent=_UA)
-        for s in statuses:
-            if s.get("context") == ACK_CONTEXT:
-                return s.get("state") == "success"
+        state = _latest_engine_ack_state(repo, head_sha, token)
+        if state is not None:
+            return state == "success"
         if attempt < tries - 1:
             time.sleep(_ACK_POLL_SLEEP)
     return False
