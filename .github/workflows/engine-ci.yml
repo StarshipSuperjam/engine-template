@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  statuses: read        # lock-integrity reads the head-bound engine-ack acknowledgment status (StarshipSuperjam/engine-template#710)
 
 jobs:
   engine-ci:

@@ -1300,7 +1300,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:717cf2162005f324a3bde6d349a1d1eb3dac54a2959cde6caea4e6b89dd26826",
+        "fingerprint": "sha256:6d903ba1e14c3fe387c9991e102287c16fefeb99ba647302be45e5f2d0a1e20f",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -2111,7 +2111,7 @@
       },
       "slug": "product-lock-integrity",
       "source": {
-        "fingerprint": "sha256:f3a30a2d251e84e7b9798e624923ad43e8f7b4982759645942ec214b16207018",
+        "fingerprint": "sha256:0cfd829c033c1ccaf4eaaabc1249ffdb5c3552729d0896308af9ad18306c031a",
         "path": ".engine/check/product-lock-integrity.json"
       },
       "status": "active",
@@ -6288,6 +6288,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": true,
+      "id": "tool:ack_status",
+      "name": ".engine/tools/ack_status.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:github_client",
+          "tool:weakening_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ack_status",
+      "source": {
+        "fingerprint": "sha256:db01d109f4d0454e8121ae7a27793e82eb48c922eda48f61dc8675c9f302c108",
+        "path": ".engine/tools/ack_status.py"
+      },
+      "status": "active",
+      "summary": "engine-ack-status — bind the operator's guardrail acknowledgment to the exact pull-request head.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:adr_form",
@@ -9499,7 +9523,7 @@
       },
       "slug": "lock_integrity",
       "source": {
-        "fingerprint": "sha256:ef56194c5facd353195069bc68e5602a5a4d48032a92f8aeb350b9ad2472da4d",
+        "fingerprint": "sha256:2081c934172280ff8d8b639cb475fcd35e5388fcc73a544c7d83b902f05d9800",
         "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
@@ -11034,6 +11058,30 @@
       },
       "status": "active",
       "summary": "Standing template shape-spec check (engine issue StarshipSuperjam/engine-template#405).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_ack_status",
+      "name": ".engine/tools/test_ack_status.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:ack_status",
+          "tool:github_client"
+        ]
+      },
+      "slug": "test_ack_status",
+      "source": {
+        "fingerprint": "sha256:aa0baeaefd4e6f35087cf754289de8efe94c48fcd0cd89b577faaaa865a1ef46",
+        "path": ".engine/tools/test_ack_status.py"
+      },
+      "status": "active",
+      "summary": "Tests for ack_status.py — the head-binding acknowledgment companion (StarshipSuperjam/engine-template#710).",
       "type": "tool"
     },
     {
@@ -12909,7 +12957,7 @@
       },
       "slug": "test_lock_integrity",
       "source": {
-        "fingerprint": "sha256:453781661e3ce6d019ed393ce0a47e22a052b8b580882cc2f99a9f5d92dfaadd",
+        "fingerprint": "sha256:fbb8c7d323f85a8224f39159c82b0b99bd874b9f2e894c3c03b9dea9d12897e2",
         "path": ".engine/tools/product_design/test_lock_integrity.py"
       },
       "status": "active",
@@ -14182,7 +14230,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:3b117a1160d90e486e348c2a85196a200b9aabc4bb5d5822b70103cc94b01bb7",
+        "fingerprint": "sha256:8d182d0f8a94fba2e37d80ea6bc6570dc09c700bbf806ddabdcd9293a90445e0",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -14911,7 +14959,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:2d008e9ccca74fb912f6c11099fa8c4cec4bb1df6d97d9c9fff72d2729b46a11",
+        "fingerprint": "sha256:804580b4d28044d17d5761b16c46a20eb5bd0d55435e37955a58ca0cc602a4b9",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

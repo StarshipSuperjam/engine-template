@@ -882,6 +882,9 @@
   ".engine/templates/skill.md": [
    "core"
   ],
+  ".engine/tools/ack_status.py": [
+   "core"
+  ],
   ".engine/tools/agent_bindings.py": [
    "core"
   ],
@@ -1588,6 +1591,9 @@
    "core"
   ],
   ".engine/tools/template_shape_spec_check.py": [
+   "core"
+  ],
+  ".engine/tools/test_ack_status.py": [
    "core"
   ],
   ".engine/tools/test_actionlint.py": [

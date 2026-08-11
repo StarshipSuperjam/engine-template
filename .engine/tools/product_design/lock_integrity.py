@@ -58,11 +58,14 @@ if _PARENT not in sys.path:
 
 import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 helper
 # Reuse, never re-declare: the settled-status + path grammar from spec_form; the shared authenticated GitHub
-# API client (get_json + base64 decode) from the core github_client module; and the acknowledgment-label
-# constant from the weakening guard — that is guard POLICY, not client logic, so it stays imported there.
+# API client (get_json + base64 decode) from the core github_client module; and the acknowledgment CONTRACT
+# from the weakening guard — the label constant, the head-bound `engine-ack` status context, and the shared
+# head-ack read — that is guard POLICY, not client logic, so it stays single-homed there (StarshipSuperjam/engine-template#710). The
+# acknowledgment is bound to the pull request's head, exactly as the safety guard's is, so a re-acceptance
+# cannot replay across a later push onto a new head.
 from product_design import spec_form  # noqa: E402
 from github_client import get_json, decode_content  # noqa: E402
-from weakening_guard import ACK_LABEL  # noqa: E402
+from weakening_guard import ACK_LABEL, _head_ack_success  # noqa: E402
 
 # This check's GitHub API User-Agent. It previously inherited the weakening guard's UA (it borrowed that
 # module's api_get); now it identifies as itself — an identification-only string GitHub does not gate on.
@@ -142,7 +145,9 @@ def _reaccept_message(rel: str, removed: bool) -> str:
         f"This pull request {verb} `{rel}` — a part of your product description you had settled, the ground "
         f"the build works from. A settled description shouldn't change quietly. If you mean to make this "
         f"change, confirm it by applying the `guardrail-ack` label to this pull request — one deliberate "
-        f"action, distinct from clicking merge — and this check clears on its own.{reopen_note} " + _BOUND_TAIL
+        f"action, distinct from clicking merge — and this check clears on its own.{reopen_note} "
+        f"Your confirmation is tied to this exact version: if you push a further change after applying the "
+        f"label, apply it again for the new version — a confirmation does not carry across a push. " + _BOUND_TAIL
     )
 
 
@@ -266,10 +271,18 @@ def emit_findings() -> int:
         if not base_sha:
             # A pull request with no readable base => fail closed (only reachable in CI).
             return _emit([validate.finding(tier, _fail_closed_message("no base commit in the event"), None)])
-        label_present = ACK_LABEL in {lbl.get("name") for lbl in (pr.get("labels") or [])}
+        head_sha = ((pr.get("head") or {}).get("sha")) or ""
+        if not head_sha:
+            # A pull request with no readable head => fail closed: the re-acceptance is head-bound.
+            return _emit([validate.finding(tier, _fail_closed_message("no head commit in the event"), None)])
+        # The re-acceptance is bound to the exact head, not to the mere presence of the label (StarshipSuperjam/engine-template#710) —
+        # the label in this frozen payload can be stale after a push. The gate is the head-bound `engine-ack`
+        # status; the payload label is read only to expect (and briefly retry for) a status still landing.
+        payload_label = ACK_LABEL in {lbl.get("name") for lbl in (pr.get("labels") or [])}
+        acked = _head_ack_success(repo, head_sha, token, retry=payload_label)
         base_locked = _gather_base_locked_docs(repo, base_sha, token)
         head = {rel: _read_head(validate.ROOT, rel) for rel in base_locked}
-        result = classify(base_locked, head, label_present, tier)
+        result = classify(base_locked, head, acked, tier)
     except Exception as exc:  # any read failure => fail closed, never wave a settled-ground change through
         return _emit([validate.finding(tier, _fail_closed_message(str(exc)), None)])
     return _emit(result)
