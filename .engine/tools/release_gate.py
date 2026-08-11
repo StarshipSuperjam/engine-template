@@ -595,7 +595,10 @@ def _summary_md(result: dict) -> str:
         return "### Deployment gate: not applicable here (this repository runs its own engine-ci directly)\n"
     up = result.get("upgrades") or {}
     transitions = up.get("transitions") or []
-    head = "passed" if result.get("passed") else "BLOCKED"
+    # This block reports the upgrade/rollback matrix (Arm B) — its header reflects THAT arm's status, not the
+    # overall gate verdict (which also covers the separate operate arm), so a green matrix is never mislabelled
+    # BLOCKED because a different arm failed.
+    head = "passed" if up.get("passed") else "BLOCKED"
     lines = [f"### Deployed upgrade and rollback check: {head}", ""]
     if up.get("floor"):
         n = len(transitions)

@@ -388,10 +388,11 @@ class TestSummaryMarkdown(unittest.TestCase):
     raw `detail` string, and it states the floor and count so a shrunken matrix is visible."""
 
     def _result(self, transitions, **overupg):
-        up = {"passed": True, "floor": "0.3.2", "baselines": [t["baseline"] for t in transitions],
+        passed = all(t["passed"] for t in transitions)
+        up = {"passed": passed, "floor": "0.3.2", "baselines": [t["baseline"] for t in transitions],
               "excluded": [], "transitions": transitions, "failures": []}
         up.update(overupg)
-        return {"ran": True, "passed": all(t["passed"] for t in transitions), "upgrades": up}
+        return {"ran": True, "passed": passed, "upgrades": up}
 
     def test_renders_rows_floor_and_count(self):
         md = rg._summary_md(self._result([
