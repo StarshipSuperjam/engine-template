@@ -4813,7 +4813,7 @@
       },
       "slug": "external-contribution-issue",
       "source": {
-        "fingerprint": "sha256:eee8dc80d0299d2a8f1bb0682504a8fe5f86c7c957b7d76293acb0ed54a85a5e",
+        "fingerprint": "sha256:00c37393b70e7a4d680f861fd07412eee404be4a3734e794289a4c18be7187da",
         "path": ".engine/operations/external-contribution-issue.md"
       },
       "status": "active",
@@ -6527,7 +6527,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:7291b008f18e896096f794a17c062dfcf5ba42b38fd34f6212ebcaaec5908b91",
+        "fingerprint": "sha256:80d3a45b1d7b7ef3ccd4a170c7947deeb674060a124db8eee1d73bafe5af7a67",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -11282,7 +11282,7 @@
       },
       "slug": "test_audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:bd81149fdb0c601dcccf4540dfe43f6f3a5c8089c9fccd108847a2457a52811e",
+        "fingerprint": "sha256:80e5d038bcc119e9f5f2c82d90090929d5c1b7a0aff784dbbe931c00f67f973e",
         "path": ".engine/tools/test_audit_soft_promote.py"
       },
       "status": "active",
@@ -11827,7 +11827,7 @@
       },
       "slug": "test_contribute_issue",
       "source": {
-        "fingerprint": "sha256:50bf544aed0da8b98a0521c9406bbc4951f86502d560d4fa7d39d09955fc28b6",
+        "fingerprint": "sha256:6a520e166a29911e809165e90163086c18b77e5da9e16718e8bb0987ff280c96",
         "path": ".engine/tools/external_contribution/test_contribute_issue.py"
       },
       "status": "active",
