@@ -14666,13 +14666,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:github_client",
           "tool:module_coherence",
           "tool:validate"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:0c021fae72f1a65c01d8f1c65fd69474c4ef7828cbfad8a27991753e9f0cf10c",
+        "fingerprint": "sha256:bf3163e2b3ee521f0d9b730dbc1f6d07a1138f0b8980980cb3ed752049cea2d8",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -14856,6 +14857,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:github_client",
           "tool:hooks",
           "tool:knowledge_gen",
           "tool:module_surfaces",
@@ -14868,7 +14870,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:be7122bb989bb067bdbd734ec0777e9076f79cc1929332e929ad94774b43c349",
+        "fingerprint": "sha256:1a66cf18e3363b8d56c022793fb1d11b55e5982ea1a2d3319e19035116100803",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
