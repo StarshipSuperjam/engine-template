@@ -286,6 +286,16 @@ class TestDegradedRead(unittest.TestCase):
             with self.assertRaises(telemetry.DegradedReadError):
                 gh(f).list_open_engine_issues()
 
+    def test_http_wraps_urlerror_as_degraded_read(self):
+        # The REAL _http (not the injected transport) must still map an unreachable host to DegradedReadError
+        # after the shared transport moved into github_client.json_request (#907) — read-degradation preserved.
+        import urllib.error
+        import github_client
+        client = telemetry.GitHubIssues("o/r", "tok")
+        with mock.patch.object(github_client, "_urlopen", side_effect=urllib.error.URLError("down")):
+            with self.assertRaises(telemetry.DegradedReadError):
+                client._http("GET", "/repos/o/r/issues", None)
+
     def test_run_degrades_on_read_failure_makes_no_issue_writes(self):
         f = FakeGH(labels={"engine"}, fail_read=403)
         with tempfile.TemporaryDirectory() as d:
@@ -785,6 +795,22 @@ class TestStandingCacheRefresh(unittest.TestCase):
                 telemetry.refresh_standing(sp, "o/r", "tok", now=T[2], transport=transport)
             with open(sp, "rb") as fh:
                 self.assertEqual(fh.read(), before, "a read failure must write nothing")
+
+    def test_refresh_standing_unreachable_host_raises_deriveunavailable_on_the_production_path(self):
+        # #907: through the REAL transport (transport=None -> github_client.reader's bound json_request), an
+        # unreachable host now surfaces as standing_situation.DeriveUnavailable, NOT telemetry.DegradedReadError
+        # (the leaf owns the URLError). This locks the changed raises-contract on the production default path.
+        import urllib.error
+        import github_client
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=2, as_of=T[0])
+            with open(sp, "rb") as fh:
+                before = fh.read()
+            with mock.patch.object(github_client, "_urlopen", side_effect=urllib.error.URLError("down")):
+                with self.assertRaises(ss.DeriveUnavailable):
+                    telemetry.refresh_standing(sp, "o/r", "tok", now=T[2])   # transport defaults to None
+            with open(sp, "rb") as fh:
+                self.assertEqual(fh.read(), before, "an unreachable host must write nothing")
 
     def test_run_co_refreshes_standing_on_a_clean_pass(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())

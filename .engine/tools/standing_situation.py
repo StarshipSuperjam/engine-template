@@ -26,15 +26,17 @@ committed offline cache (rendered stale-labelled) rather than presenting a confi
 which boot renders as the honest live "none set" / "—".
 
 This module is a **pure leaf**: it imports only the standard library and takes an injected GitHub reader
-(`gh`, duck-typed: `gh.repo`, `gh.label`, `gh._transport(method, path, body) -> (status, json)` — the seam
-[telemetry].GitHubIssues exposes). It imports neither boot nor telemetry, so there is no import cycle: boot
-calls it for the live display, telemetry calls it to refresh the offline cache on its GitHub pass. It performs
-**no writes** — it never touches state.json, never advances a marker, never hand-types a value.
+(`gh`, duck-typed: `gh.repo` + `gh.transport(method, path, body) -> (status, json)` — the NEUTRAL seam
+`github_client.reader` exposes, so this leaf never reaches a domain client's private transport). It imports
+neither boot nor telemetry, so there is no import cycle: boot calls it for the live display, telemetry calls
+it to refresh the offline cache on its GitHub pass. It performs **no writes** — it never touches state.json,
+never advances a marker, never hand-types a value.
 
 Run the demo: `uv run --directory .engine -- python tools/standing_situation.py demo`
 """
 from __future__ import annotations
 import sys
+import urllib.error
 
 # How many recent closed PRs to scan for the latest merged one before giving up (returning None for phase). A
 # window because the newest CLOSED PRs may be unmerged (closed without merging); we want the newest MERGED one.
@@ -51,8 +53,12 @@ class DeriveUnavailable(Exception):
 
 def _read(gh, path: str):
     """One read through the injected transport. Raises DeriveUnavailable on any failure — an HTTP error
-    status (>= 400) or a null body — so a read failure can never be mistaken for genuine absence."""
-    status, data = gh._transport("GET", path, None)
+    status (>= 400), a null body, or an unreachable host (the transport's `URLError`) — so a read failure
+    can never be mistaken for genuine absence."""
+    try:
+        status, data = gh.transport("GET", path, None)
+    except urllib.error.URLError as exc:      # unreachable host — a read failure, never a live "none set"
+        raise DeriveUnavailable(f"GitHub is unreachable reading {path}: {exc}") from exc
     if status >= 400 or data is None:
         raise DeriveUnavailable(f"GitHub returned {status} reading {path}")
     return data
@@ -113,7 +119,7 @@ class _FakeGH:
     def __init__(self, transport, *, repo="your-org/your-project", label="engine"):
         self.repo = repo
         self.label = label
-        self._transport = transport
+        self.transport = transport
 
 
 def _canned(milestones, pulls):

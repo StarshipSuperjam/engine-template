@@ -2459,6 +2459,41 @@ class TestMigrationRevertOffer(unittest.TestCase):
         self.assertEqual(relayed["migration_revert"], self._OFFER)    # the detector's signal is relayed verbatim
         self.assertIsNone(failed["migration_revert"])                 # a detector/import failure degrades quietly to None
 
+    def test_migration_revert_promote_gets_a_write_capable_client_not_the_reader(self):
+        # #907 regression: the migration-revert detector PROMOTES a durable TRUST_CRITICAL Issue when online,
+        # which needs open_issue/ensure_label. boot must hand it a write-capable telemetry.GitHubIssues, NOT the
+        # neutral read-only reader (.repo + .transport only) — which would AttributeError, get swallowed by the
+        # detector's fail-open, and silently never open the Issue. This drives gather_signals with repo/token
+        # present (the only path that builds the client) and captures what detect_migration_revert receives.
+        captured = {}
+
+        def _capture(*, github):
+            captured["github"] = github
+            return None
+
+        patchers = _offline()
+        try:
+            from memory import restore_vault
+            with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
+                 mock.patch.object(boot, "gh_token", return_value="tok"), \
+                 mock.patch.object(boot, "open_findings", return_value=(None, None, None, None)), \
+                 mock.patch.object(boot, "open_operator_count", return_value=(None, None)), \
+                 mock.patch.object(boot, "needs_attention", return_value=([], [], None, [], [])), \
+                 mock.patch.object(boot.pr_reconcile, "detect_conflict", return_value=None), \
+                 mock.patch.object(boot.standing_situation, "derive_standing_situation",
+                                   return_value={"milestone": [], "phase": None}), \
+                 mock.patch.object(boot.protection_guard, "get_json", return_value={"message": "x"}), \
+                 mock.patch.object(restore_vault, "detect_migration_revert", _capture):
+                boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        gh = captured.get("github")
+        self.assertIsNotNone(gh, "boot passes a client to the promote path when repo/token are present")
+        self.assertNotIsInstance(gh, boot.github_client._Reader)  # NOT the neutral read-only reader
+        self.assertTrue(hasattr(gh, "open_issue") and hasattr(gh, "ensure_label"),
+                        "the migration-revert promote path must receive a write-capable client")
+
 
 class TestAuditStaleness(unittest.TestCase):
     """boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT

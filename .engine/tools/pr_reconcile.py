@@ -165,7 +165,7 @@ def detect_conflict(gh, *, root: str | None = None) -> dict | None:
     {"pr": <n>, "title": <str>} on a confirmed conflict; None on clean / no-PR / no-GitHub / an UNKNOWN
     (async-uncomputed) merge state. A `mergeable == null` / `mergeable_state == "unknown"` NEVER reads as a
     confident "all clear" — it degrades quietly to None and is caught at the next boot (the authoritative
-    file-level classifier is `assess`). `gh` is a `telemetry.GitHubIssues` (it carries its own transport)."""
+    file-level classifier is `assess`). `gh` is a neutral `github_client.reader` (`.repo` + `.transport`)."""
     if gh is None:
         return None
     root = root or validate.ROOT
@@ -174,14 +174,14 @@ def detect_conflict(gh, *, root: str | None = None) -> dict | None:
         return None
     try:
         owner = gh.repo.split("/")[0]
-        status, pulls = gh._transport(
+        status, pulls = gh.transport(
             "GET", f"/repos/{gh.repo}/pulls?state=open&head={owner}:{branch}&per_page=10", None)
         if status >= 400 or not isinstance(pulls, list) or not pulls:
             return None
         number = pulls[0].get("number")
         if not number:
             return None
-        status, pr = gh._transport("GET", f"/repos/{gh.repo}/pulls/{number}", None)
+        status, pr = gh.transport("GET", f"/repos/{gh.repo}/pulls/{number}", None)
         if status >= 400 or not isinstance(pr, dict):
             return None
         mergeable = pr.get("mergeable")
@@ -341,8 +341,9 @@ def main(argv: list) -> int:
     # Default: classify THIS branch (build a GitHub reader the way boot does, lazily to avoid an import cycle).
     import boot
     repo, token = boot.repo_slug(), boot.gh_token()
+    import github_client
     import telemetry
-    gh = telemetry.GitHubIssues(repo, token) if repo and token else None
+    gh = github_client.reader(repo, token, user_agent=telemetry.USER_AGENT) if repo and token else None
     hit = detect_conflict(gh)
     print(hit if hit else "no conflicting pull request detected for the current branch")
     return 0

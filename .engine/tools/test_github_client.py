@@ -141,6 +141,114 @@ class GetTests(unittest.TestCase):
         self.assertEqual(_headers(net.requests[0])["user-agent"], "distinct-ua")
 
 
+class JsonRequestTests(unittest.TestCase):
+    """json_request — the shared status-returning JSON transport promoted here in #907. It BUILDS via
+    request() (so the off-host guard/headers stay single-homed), executes through _urlopen, returns
+    (status, data|None), maps HTTPError->(code, None), and lets URLError propagate."""
+
+    def setUp(self):
+        self._orig = github_client._urlopen
+
+    def tearDown(self):
+        github_client._urlopen = self._orig
+
+    def test_get_returns_status_and_parsed_body(self):
+        github_client._urlopen = _FakeNetwork().queue(_FakeResp({"number": 7}, status=200))
+        self.assertEqual(github_client.json_request("GET", "/repos/o/r/pulls/7", "tok", user_agent="ua"),
+                         (200, {"number": 7}))
+
+    def test_post_encodes_body_sets_method_and_content_type(self):
+        net = _FakeNetwork().queue(_FakeResp({"id": 1}, status=201))
+        github_client._urlopen = net
+        status, data = github_client.json_request(
+            "POST", "/repos/o/r/labels", "tok", user_agent="ua", body={"name": "engine"})
+        self.assertEqual((status, data), (201, {"id": 1}))
+        req = net.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertEqual(_headers(req)["content-type"], "application/json")
+        self.assertEqual(json.loads(req.data.decode("utf-8")), {"name": "engine"})
+
+    def test_patch_and_delete_methods_reach_the_request(self):
+        for method, body in (("PATCH", {"state": "closed"}), ("DELETE", None)):
+            net = _FakeNetwork().queue(_FakeResp({}, status=200))
+            github_client._urlopen = net
+            github_client.json_request(method, "/x", "tok", user_agent="ua", body=body)
+            self.assertEqual(net.requests[0].get_method(), method)
+
+    def test_http_status_is_propagated_as_status_not_raised(self):
+        # a 404 is DATA to the caller (it branches on the status), never an exception (label_exists depends on this)
+        err = urllib.error.HTTPError("https://api.github.com/x", 404, "Not Found", None, io.BytesIO(b""))
+        github_client._urlopen = _FakeNetwork().queue(err)
+        self.assertEqual(github_client.json_request("GET", "/x", "tok", user_agent="ua"), (404, None))
+
+    def test_a_5xx_is_also_returned_as_status(self):
+        err = urllib.error.HTTPError("https://api.github.com/x", 503, "Unavailable", None, io.BytesIO(b""))
+        github_client._urlopen = _FakeNetwork().queue(err)
+        self.assertEqual(github_client.json_request("POST", "/x", "tok", user_agent="ua", body={}), (503, None))
+
+    def test_unreachable_host_propagates_urlerror_unwrapped(self):
+        # the one failure whose MEANING differs by caller (read-degrade vs write-fail) — never swallowed here
+        github_client._urlopen = _FakeNetwork().queue(urllib.error.URLError("no route"))
+        with self.assertRaises(urllib.error.URLError):
+            github_client.json_request("GET", "/x", "tok", user_agent="ua")
+
+    def test_empty_body_decodes_to_none_not_a_json_error(self):
+        # a 204 DELETE / no-content PATCH: a SUCCESSFUL write returns (status, None), never a JSONDecodeError
+        github_client._urlopen = _FakeNetwork().queue(_FakeResp(b"", status=204))
+        self.assertEqual(github_client.json_request("DELETE", "/x", "tok", user_agent="ua"), (204, None))
+
+    def test_off_host_guard_still_bites_through_json_request(self):
+        # json_request builds via request(), so the off-host guard is intact for an absolute URL
+        with self.assertRaises(ValueError):
+            github_client.json_request("GET", "https://evil.example.com/x", "tok", user_agent="ua")
+
+    def test_bearer_auth_and_user_agent_reach_the_request(self):
+        net = _FakeNetwork().queue(_FakeResp({}, status=200))
+        github_client._urlopen = net
+        github_client.json_request("GET", "/x", "sekret", user_agent="distinct-ua")
+        h = _headers(net.requests[0])
+        self.assertEqual(h["authorization"], "Bearer sekret")
+        self.assertEqual(h["user-agent"], "distinct-ua")
+
+
+class ReaderTests(unittest.TestCase):
+    """reader() — the neutral (.repo + .transport) seam a generic consumer takes instead of a domain
+    client's private transport (issue #907)."""
+
+    def setUp(self):
+        self._orig = github_client._urlopen
+
+    def tearDown(self):
+        github_client._urlopen = self._orig
+
+    def test_reader_binds_repo_and_a_working_transport(self):
+        net = _FakeNetwork().queue(_FakeResp([{"number": 1}], status=200))
+        github_client._urlopen = net
+        r = github_client.reader("o/r", "tok", user_agent="ua")
+        self.assertEqual(r.repo, "o/r")
+        self.assertEqual(r.transport("GET", "/repos/o/r/pulls", None), (200, [{"number": 1}]))
+        self.assertEqual(_headers(net.requests[0])["user-agent"], "ua")
+
+    def test_injected_transport_overrides_the_bound_closure(self):
+        # the test/demo seam: a canned transport runs the consumer logic offline (network never touched)
+        seen = []
+
+        def canned(method, path, body=None):
+            seen.append((method, path))
+            return 200, {"ok": True}
+
+        github_client._urlopen = _FakeNetwork()  # would raise IndexError if the bound closure were used
+        r = github_client.reader("o/r", "tok", user_agent="ua", transport=canned)
+        self.assertEqual(r.transport("GET", "/x", None), (200, {"ok": True}))
+        self.assertEqual(seen, [("GET", "/x")])
+
+    def test_reader_transport_lets_urlerror_propagate(self):
+        github_client._urlopen = _FakeNetwork().queue(urllib.error.URLError("down"))
+        r = github_client.reader("o/r", "tok", user_agent="ua")
+        with self.assertRaises(urllib.error.URLError):
+            r.transport("GET", "/x", None)
+
+
 class NextLinkTests(unittest.TestCase):
     def test_parses_rel_next_and_returns_none_when_absent(self):
         header = ('<https://api.github.com/r/1/files?page=2>; rel="next", '

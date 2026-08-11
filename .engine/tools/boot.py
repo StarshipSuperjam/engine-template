@@ -84,6 +84,7 @@ import boot_alarm_ledger  # noqa: E402  (the standing-alarm presentation ledger;
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import providers         # noqa: E402  (the provider seam: live-session marker + runtime detection)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
+import github_client     # noqa: E402  (the neutral GitHub reader the generic in-flight/standing/PR reads take)
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
@@ -1391,9 +1392,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
             contract_rate_line = None
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
-    # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
-    # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
-    gh = telemetry.GitHubIssues(repo, token) if repo and token else None
+    # The GitHub reader for attention's in-flight work-record read (open PRs) and the stranded-PR conflict
+    # detector — both generic reads, so a NEUTRAL github_client.reader (`.repo` + `.transport`), not a domain
+    # client. None without a repo/token -> they fall back to the local-git floor. Construction does no I/O.
+    gh = github_client.reader(repo, token, user_agent=telemetry.USER_AGENT) if repo and token else None
     # Thread the live debt register boot ALREADY read (open_findings, above) into the ranking as the PER-ISSUE
     # rows, so the ranking grades each open finding on its own severity (making the policy's debt-blocking
     # threshold and busy-session flex actually govern) while the "Engine findings" header still reads the SAME
@@ -1436,7 +1438,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         total_open = None
     # The all-open register (both engine + operator, no label term) the total links to, and the BLOCKING-finding
     # identity set that keys the never-shed relay's collapse (a new/worsened blocking finding relays full).
-    all_open_register = gh.all_open_issues_query_url() if gh else None
+    all_open_register = telemetry.all_open_issues_query_url(gh.repo) if gh else None
     blocking_finding_fingerprint = sorted(f"#{b.get('number')}" for b in blocking_findings) or None
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
@@ -1620,11 +1622,16 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     try:
         # The code-older-than-data restore offer, RELAYED from memory's own OFFLINE detector
         # (boot computes no new state). Same lazy import as the restore-offer above (the restore_vault -> backup_vault
-        # -> boot back-edge). `gh` is passed so the detector can ALSO promote the durable tracked Issue when online;
-        # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
-        # is the normal state, and a non-version-shaped running version never false-fires.
+        # -> boot back-edge). A write-capable client is passed so the detector can ALSO promote the durable
+        # tracked Issue when online; offline (client None) it still returns the in-session offer. Degrades
+        # QUIETLY to None — no stamp (no recent data migration) is the normal state, and a non-version-shaped
+        # running version never false-fires.
         from memory import restore_vault as _rv
-        migration_revert = _rv.detect_migration_revert(github=gh)
+        # This detector PROMOTES a durable engine Issue when online, so it needs the WRITE-capable domain
+        # client (open_issue/ensure_label/...), NOT boot's neutral read-only reader (`gh`), which carries only
+        # `.repo` + `.transport`. Construction does no I/O.
+        gh_promote = telemetry.GitHubIssues(repo, token) if repo and token else None
+        migration_revert = _rv.detect_migration_revert(github=gh_promote)
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_revert = None
     try:
@@ -1691,7 +1698,8 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     live_standing = None
     if repo and token:
         try:
-            live_standing = standing_situation.derive_standing_situation(telemetry.GitHubIssues(repo, token))
+            live_standing = standing_situation.derive_standing_situation(
+                github_client.reader(repo, token, user_agent=telemetry.USER_AGENT))
         except Exception:  # noqa: BLE001 — a read failure degrades to the cached line, never breaks the pack
             live_standing = None
 

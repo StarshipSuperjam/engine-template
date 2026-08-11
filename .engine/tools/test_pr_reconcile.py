@@ -93,7 +93,7 @@ class _FakeGH:
         self._prs = prs or {}
         self._fail = fail
 
-    def _transport(self, method, path, body):
+    def transport(self, method, path, body):
         if self._fail:
             return 500, None
         if "/pulls?" in path:

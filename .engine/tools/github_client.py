@@ -20,7 +20,10 @@ Two deliberate seams preserve each caller's own contract — this module does NO
     execute a GET and let `urllib.error.HTTPError` / `URLError` propagate UNWRAPPED, so a caller can
     branch on a status code (audit_digest / telemetry catch `HTTPError` into a status; lock_integrity
     catches a 404; weakening_guard / protection_guard fail closed on any exception). The status-returning
-    callers keep their OWN `urlopen` + `except` transport and call only `request`.
+    callers use `json_request` (below), the shared status-returning transport: it executes any method,
+    maps `HTTPError` to a `(status, None)` result, and lets `URLError` propagate so each caller keeps its
+    OWN read-vs-write failure policy. A read-only consumer that only needs a bound seam takes a `reader`
+    (`.repo` + a `.transport` callable), never a domain client's private transport.
   - `request` takes optional `method` / `data` to serve the write-capable callers (telemetry's issue
     writes, audit_digest's POST-able transport), but it is INERT for a GET caller: Content-Type is set
     only when `data` is present (correct REST semantics), so a GET carries no Content-Type — identical to
@@ -35,6 +38,7 @@ from __future__ import annotations
 
 import base64
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -89,6 +93,61 @@ def get_json(url_or_path: str, token: str, *, user_agent: str):
     `urllib.error.HTTPError` / `URLError` UNWRAPPED, so a caller can catch a 404 or fail closed."""
     body, _ = get_page(url_or_path, token, user_agent=user_agent)
     return body
+
+
+def json_request(method: str, path: str, token: str, *, user_agent: str, body=None):
+    """Execute an authenticated GitHub JSON call and return `(status, data | None)` — the neutral,
+    status-returning transport the write-capable / status-branching callers share (telemetry's issue
+    read/write boundary, the issue-label client, and the read-only projections that used to reach a domain
+    client's private transport). It is the single home for the JSON transport mechanics those callers used
+    to hand-copy.
+
+    It BUILDS the Request via `request` (so the OFF-HOST GUARD and the Bearer/Accept/version header block
+    stay single-homed) and executes through the injectable `_urlopen` seam, then:
+      - returns `(resp.status, json.loads(raw) if raw else None)` — an EMPTY body (a 204 label DELETE, a
+        no-content PATCH) decodes to `None`, never a `JSONDecodeError` on a successful write;
+      - maps `urllib.error.HTTPError` to `(exc.code, None)` — the caller branches on the status (a 404 is
+        data, never an exception), and the error-response body is discarded, exactly as the hand-copied
+        transports did;
+      - lets `urllib.error.URLError` PROPAGATE UNWRAPPED — an unreachable host is the one failure whose
+        meaning differs by caller (a read degrades, a write fails), so each caller keeps its own
+        `except URLError -> Degraded*Error` (or `-> None`) policy over this seam.
+    It returns no `Link` header, so a `Link`-paginated read stays on `get_page`, not this."""
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = request(path, token, user_agent=user_agent, method=method, data=data)
+    try:
+        with _urlopen(req, timeout=_TIMEOUT) as resp:
+            raw = resp.read().decode("utf-8")
+            return resp.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as exc:     # 4xx/5xx — surface the status; the body is discarded (as before)
+        return exc.code, None
+    # urllib.error.URLError is deliberately NOT caught here: an unreachable host means read-degrade vs
+    # write-fail, a decision only the caller owns.
+
+
+class _Reader:
+    """A neutral GitHub read seam: `.repo` plus a `.transport(method, path, body) -> (status, data | None)`
+    callable. A read-only consumer (standing_situation, work_record, pr_reconcile, first_run_health) accepts
+    one of these INSTEAD of reaching a domain client's private `_transport` — the coupling
+    StarshipSuperjam/engine-template#907 removes.
+    `.transport` has the exact shape those consumers already duck-typed, so a canned test transport drops in
+    unchanged."""
+    __slots__ = ("repo", "transport")
+
+    def __init__(self, repo, transport):
+        self.repo = repo
+        self.transport = transport
+
+
+def reader(repo: str, token: str, *, user_agent: str, transport=None):
+    """A neutral reader (`.repo` + `.transport`) bound to `repo` / `token` / `user_agent`. In production
+    `.transport` is a thin closure over `json_request`; a test/demo passes `transport=` — a canned
+    `(method, path, body) -> (status, data | None)` — to run the real consumer logic offline. This is how a
+    generic read reaches GitHub without constructing a domain client (telemetry.GitHubIssues) merely to
+    borrow its transport."""
+    bound = transport if transport is not None else (
+        lambda method, path, body=None: json_request(method, path, token, user_agent=user_agent, body=body))
+    return _Reader(repo, bound)
 
 
 def next_link(link_header):
