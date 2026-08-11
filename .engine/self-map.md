@@ -9,7 +9,7 @@
 > It does not show whether each part *works* or is well designed — that is your review and each
 > module's own checks, never something this map attests.
 
-Engine release `0.4.1` · identity `solo`
+Engine release `0.5.0` · identity `solo`
 
 ## Surfaces
 
@@ -51,7 +51,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `validators-core` → `core`
 - `audit-library` → `validators-core`
 
-### `core` — version `0.4.0` (required)
+### `core` — version `0.5.0` (required)
 
 - depends on: nothing
 - provides:

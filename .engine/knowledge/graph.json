@@ -4294,12 +4294,12 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:c4017912757ab53ddb2aa97f463842f9e92d860a9572238dea55570b5fa4a3f1",
+        "fingerprint": "sha256:98736fe588bf1693ff0616d6c16809f7bf8c71f44d1c28e4958caddae95a34a3",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.4.0"
+      "version": "0.5.0"
     },
     {
       "id": "module:dependency-discipline",
