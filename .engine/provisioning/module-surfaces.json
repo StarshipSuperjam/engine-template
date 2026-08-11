@@ -693,6 +693,9 @@
   ".engine/policies/spec-structure-integrity.md": [
    "product-design"
   ],
+  ".engine/policies/supported-upgrade-matrix.md": [
+   "core"
+  ],
   ".engine/policies/triage-threshold.md": [
    "core"
   ],
