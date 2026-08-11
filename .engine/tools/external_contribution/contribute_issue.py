@@ -191,11 +191,22 @@ def build_issue_title(*, kind: str | None, summary: str, templates: list) -> tup
     return f"{matched['title_prefix']}{summary}", matched
 
 
-def build_issue_body(*, summary: str, template_text: str | None = None) -> str:
-    """The contributed Issue's body. When the chosen template has a body, follow the host's form: lead with the
-    plain one-line summary, then carry the target template's body for completion. When there is none, a plain
-    summary. NEVER the Engine's engine-domain body contract (issue_author) — this Issue is authored on the
-    operator's behalf into another repo, not opened by the Engine about itself."""
+def build_issue_body(*, summary: str, template_text: str | None = None,
+                     authored_body: str | None = None) -> str:
+    """The contributed Issue's body. Precedence (mirroring `submit.build_pr_body`, StarshipSuperjam/engine-template#557 on the
+    issue path):
+
+      - an `authored_body` supplied (and not blank/whitespace) is the body AS GIVEN — the case where the Engine
+        already holds the diagnosis and has authored it to the host's form; it is carried VERBATIM, with no
+        summary lead and NO engine framing (a whitespace-only value is treated as none given);
+      - else, when the chosen template has a body, follow the host's form: lead with the plain one-line summary,
+        then carry the target template's body for completion;
+      - else a plain summary.
+
+    NEVER the Engine's engine-domain body contract (issue_author) and never a review-disclosure note — this Issue
+    is authored on the operator's behalf into another repo, not opened by the Engine about itself."""
+    if authored_body is not None and authored_body.strip():
+        return authored_body.strip()
     summary = summary.strip()
     body_text = (template_text or "").strip()
     if body_text:
@@ -329,10 +340,16 @@ def _run_gh(args: list):
 
 
 def contribute_issue(*, upstream_repo: str, kind: str | None, summary: str,
+                     authored_body: str | None = None,
                      gh_run=None, github=_UNSET,
                      confirm: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, file) an Issue contributed into `upstream_repo`,
     following that repo's own issue-title convention (read remotely from the target).
+
+    `summary` always drives the TITLE (prefixed per the target). `authored_body`, when supplied, is filed as
+    the BODY verbatim — the case where the Engine already holds the diagnosis and has authored it to the host's
+    form (a preview of that form comes from a `confirm=False` prepare with no `authored_body`, which returns
+    `summary + template`). Omitted, the body is today's summary-plus-host-template.
 
     Returns a result dict whose `status` is one of:
       - `"needs-summary"`     — the summary was blank; NOTHING is read or filed. Carries the plain-language
@@ -373,10 +390,11 @@ def contribute_issue(*, upstream_repo: str, kind: str | None, summary: str,
     #    whether a real (non-empty) prefix was actually applied, so the narration never claims a heading the
     #    matched template didn't carry (a `title:`-less template is valid and common on GitHub).
     prefixed = bool(matched and str(matched.get("title_prefix", "")).strip())
-    body = build_issue_body(summary=summary, template_text=(matched or {}).get("body_text"))
+    body = build_issue_body(summary=summary, template_text=(matched or {}).get("body_text"),
+                            authored_body=authored_body)
     issue = {"repo": upstream_repo, "title": title, "body": body,
              "kind": (matched or {}).get("key"),
-             "followed_convention": matched is not None,  # the body followed the target's template
+             "followed_convention": matched is not None,  # the target's kind/template convention was matched
              "title_prefixed": prefixed}                  # a non-empty title prefix was actually applied
 
     # 3. The human gate: without an affirmative decision, PREPARE only — never file the Issue.

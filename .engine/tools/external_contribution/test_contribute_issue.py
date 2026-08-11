@@ -188,6 +188,22 @@ class TestBuildTitleAndBody(unittest.TestCase):
     def test_body_plain_when_no_template(self):
         self.assertEqual(contribute_issue.build_issue_body(summary="it 500s", template_text=None), "it 500s")
 
+    def test_authored_body_is_carried_verbatim_and_wins_over_a_template(self):
+        # StarshipSuperjam/engine-template#644 (mirrors #557 on the issue path): a supplied authored body IS the body,
+        # verbatim — the summary does not lead it and the host template is NOT appended.
+        authored = "**What the engine did**\n\nThe full diagnosis, several paragraphs long."
+        body = contribute_issue.build_issue_body(summary="it 500s", template_text="**What happened**",
+                                                 authored_body=authored)
+        self.assertEqual(body, authored)
+        self.assertNotIn("it 500s", body)            # summary drives the title, never the authored body
+        self.assertNotIn("**What happened**", body)  # the host template is not stuffed in behind it
+
+    def test_empty_or_whitespace_authored_body_falls_back_to_the_template(self):
+        # A blank/whitespace authored body is treated as none given → today's summary+template behaviour.
+        body = contribute_issue.build_issue_body(summary="it 500s", template_text="**What happened**",
+                                                 authored_body="   \n  ")
+        self.assertEqual(body, "it 500s\n\n**What happened**")
+
 
 class TestContributeFlow(unittest.TestCase):
     def test_blank_summary_is_refused_before_reading_or_filing(self):
@@ -213,6 +229,21 @@ class TestContributeFlow(unittest.TestCase):
         self.assertEqual(r["issue"]["title"], "Bug: it 500s")
         self.assertTrue(r["issue"]["title_prefixed"])
         self.assertNotIn(["issue", "create"], [c[:2] for c in gh.calls])
+
+    def test_authored_body_reaches_the_prepared_and_filed_body(self):
+        # StarshipSuperjam/engine-template#644: the held diagnosis travels — it is the prepared body and the
+        # body `gh issue create` is called with, while the summary still drives the prefixed title.
+        authored = "**What the engine did**\n\nThree operation files ship over their length budgets."
+        gh = _fake_gh(_STD)
+        r = contribute_issue.contribute_issue(upstream_repo="upstream/project", kind="bug",
+                                              summary="three engine operation files over budget",
+                                              authored_body=authored, gh_run=gh, github=None, confirm=True)
+        self.assertEqual(r["status"], "filed")
+        self.assertEqual(r["issue"]["body"], authored)
+        self.assertEqual(r["issue"]["title"], "Bug: three engine operation files over budget")
+        create = next(c for c in gh.calls if c[:2] == ["issue", "create"])
+        body_arg = create[create.index("--body") + 1]
+        self.assertEqual(body_arg, authored)  # the diagnosis is what gets filed, not a one-liner
 
     def test_confirm_files_with_prefixed_title(self):
         gh = _fake_gh(_STD)
