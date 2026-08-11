@@ -287,6 +287,7 @@ def load_engine_manifest():
 home_repository = repo_identity.home_repository
 normalize_slug = repo_identity.normalize_slug
 slug_eq = repo_identity.slug_eq
+is_wellformed_slug = repo_identity.is_wellformed_slug
 is_downstream_copy = repo_identity.is_downstream_copy
 _READ_HOME = repo_identity._READ_HOME
 

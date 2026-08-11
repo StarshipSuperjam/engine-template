@@ -174,6 +174,29 @@ class TestSlugPrimitives(unittest.TestCase):
         self.assertFalse(repo_identity.slug_eq("owner/repo", "someone-else/repo"))
         self.assertFalse(repo_identity.slug_eq("owner/repo", None))
 
+    def test_is_wellformed_slug_accepts_a_plain_owner_repo(self):
+        self.assertTrue(repo_identity.is_wellformed_slug("StarshipSuperjam/engine-template"))
+        self.assertTrue(repo_identity.is_wellformed_slug("owner/repo"))
+        self.assertTrue(repo_identity.is_wellformed_slug("a-b_c.d/e.f_g-h"))
+
+    def test_is_wellformed_slug_rejects_a_trailing_newline(self):
+        # StarshipSuperjam/engine-template#643 review: a `^…$` anchor would ADMIT this ($ matches before a terminal \n);
+        # re.fullmatch rejects it, and home_repository() returns the manifest value un-stripped so this is the real
+        # value the validator must catch.
+        self.assertFalse(repo_identity.is_wellformed_slug("owner/repo\n"))
+        self.assertFalse(repo_identity.is_wellformed_slug("owner/repo\nmalicious"))
+
+    def test_is_wellformed_slug_rejects_injection_and_malformed_shapes(self):
+        for bad in ("owner/repo)", "owner/repo]", "owner/ repo", "owner repo", "owner/repo/extra",
+                    "../owner/repo", "owner/../repo", "/repo", "owner/", "owner", "",
+                    "https://github.com/owner/repo", "оwner/repo",  # cyrillic 'о' look-alike (rejected by re.ASCII)
+                    None):
+            self.assertFalse(repo_identity.is_wellformed_slug(bad), bad)
+
+    def test_is_wellformed_slug_is_re_exported_by_module_coherence(self):
+        import module_coherence
+        self.assertIs(module_coherence.is_wellformed_slug, repo_identity.is_wellformed_slug)
+
     def test_is_downstream_copy_defaults_and_safe_direction(self):
         self.assertTrue(repo_identity.is_downstream_copy("adopter/product", HOME))
         self.assertFalse(repo_identity.is_downstream_copy(HOME, HOME))

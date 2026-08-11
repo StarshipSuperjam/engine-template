@@ -79,6 +79,69 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertIn(_UPSTREAM, recs[0]["body_core"])              # the upstream caveat is present
         self.assertIn("overwritten", recs[0]["body_core"])
 
+    # ---- StarshipSuperjam/engine-template#643: the deployed-machinery lane names the recorded home and offers filing ----
+    _REL = ".engine/operations/x.md"
+    _MSG = "'.engine/operations/x.md' is 300 lines, over its 200-line budget."
+
+    def test_deployed_lane_names_the_home_slug_and_links_it(self):
+        # A recorded, well-formed home is NAMED in the prose (not "whoever set up the engine will know") and
+        # linked, while the "engine-template project" phrasing and the never-phone-home stance are retained.
+        _t, body = asp._render(self._REL, self._MSG, True, repo="somebody/deployed", home=False,
+                               home_slug="StarshipSuperjam/engine-template", ext_contribution_installed=False)
+        self.assertIn("StarshipSuperjam/engine-template", body)                 # the home is named
+        self.assertIn("https://github.com/StarshipSuperjam/engine-template", body)  # and linked
+        self.assertIn(_UPSTREAM, body)                                         # still "engine-template project"
+        self.assertIn("has not sent anything", body)                          # never phone home, retained
+        self.assertNotIn("whoever set the engine up will know", body)         # the old dead-end is gone
+        self.assertNotIn("can file that report for you", body)                # no offer when tool absent
+
+    def test_deployed_lane_offers_filing_only_when_module_installed(self):
+        _t, body = asp._render(self._REL, self._MSG, True, repo="somebody/deployed", home=False,
+                               home_slug="StarshipSuperjam/engine-template", ext_contribution_installed=True)
+        self.assertIn("can file that report for you", body)                   # the one-approval offer appears
+        self.assertIn("only on your go-ahead", body)                         # operator-triggered
+        self.assertIn("never on its own", body)                             # never auto-files
+        self.assertIn("has not sent anything", body)                        # offer sits beside the never-sent line
+
+    def test_deployed_lane_falls_back_to_prose_when_home_absent(self):
+        # No recorded home: today's prose UNCHANGED, no slug named, no offer even though the tool is installed
+        # — the engine never guesses a home.
+        _t, body = asp._render(self._REL, self._MSG, True, repo="somebody/deployed", home=False,
+                               home_slug=None, ext_contribution_installed=True)
+        self.assertIn("whoever set the engine up will know", body)           # the un-named fallback prose
+        self.assertIn(_UPSTREAM, body)
+        self.assertNotIn("can file that report for you", body)              # no offer without a named home
+        self.assertNotIn("to raise this in —", body)                       # no home link was added
+
+    def test_deployed_lane_falls_back_to_prose_on_a_malformed_home(self):
+        # A home value malformed even after stripping (here an extra path segment) never reaches the URL or the
+        # prose; the lane degrades to the un-named fallback, no offer, no link.
+        _t, body = asp._render(self._REL, self._MSG, True, repo="somebody/deployed", home=False,
+                               home_slug="owner/repo/extra", ext_contribution_installed=True)
+        self.assertIn("whoever set the engine up will know", body)
+        self.assertNotIn("owner/repo/extra", body)                         # the bad slug is nowhere in the body
+        self.assertNotIn("can file that report for you", body)
+        self.assertNotIn("to raise this in —", body)                       # no home link was added
+
+    def test_deployed_lane_strips_trailing_whitespace_before_naming_the_home(self):
+        # home_repository() returns the manifest value UN-stripped; _render strips BEFORE validating and
+        # interpolates that same stripped value, so a trailing newline is cleaned away — it is named safely and
+        # the newline never reaches the URL or the prose (StarshipSuperjam/engine-template#643 review, finding 1).
+        _t, body = asp._render(self._REL, self._MSG, True, repo="somebody/deployed", home=False,
+                               home_slug="StarshipSuperjam/engine-template\n", ext_contribution_installed=False)
+        self.assertIn("**StarshipSuperjam/engine-template**", body)        # named, cleanly
+        self.assertIn("https://github.com/StarshipSuperjam/engine-template)", body)  # URL closes with no newline
+        self.assertNotIn("engine-template\n", body)                        # the raw trailing newline is gone
+
+    def test_ext_contribution_flag_is_injectable_through_budget_records(self):
+        # The offer state is reachable both ways from budget_records without mutating .engine/modules/
+        # (external-contribution IS installed here, so a live read is always True) — the injectable seam.
+        self._stub([_f(self._MSG, self._REL)])
+        on = asp.budget_records(_NOW, claims={self._REL: ["core"]}, ext_contribution_installed=True)
+        self.assertIn("can file that report for you", on[0]["body_core"])
+        off = asp.budget_records(_NOW, claims={self._REL: ["core"]}, ext_contribution_installed=False)
+        self.assertNotIn("can file that report for you", off[0]["body_core"])
+
     def test_is_home_repo_is_strict_positive_and_fails_toward_deployed(self):
         # The lane switch: confirmed origin==home is the ONLY True; anything unconfirmed falls to the
         # deployed lane, so a copy whose home can't be placed is never mis-told "the fix sticks here".
