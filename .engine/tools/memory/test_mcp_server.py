@@ -299,6 +299,19 @@ class ControlToolTests(_ServerBase):
         out = await self._call("pin", {"text": "token sk-ant-api03-" + "A" * 32})
         self.assertNotIn("sk-ant-api03", out["text"])
 
+    async def test_pinning_returns_the_total_and_warns_only_when_the_list_grows_long(self):
+        # Warn, never refuse (engine-template#950): every pin is saved in full; once the list is long the handler
+        # adds a plain prune nudge, keyed off the LIVE count (not boot's render dial — no cross-layer import).
+        from memory import pins as _pins
+        for i in range(_pins.PIN_PRUNE_HINT_AT - 1):
+            out = await self._call("pin", {"text": f"standing preference number {i}"})
+            self.assertEqual(out["total"], i + 1)
+            self.assertNotIn("note", out)                       # below the hint threshold: no nudge
+        out = await self._call("pin", {"text": "one more standing preference"})
+        self.assertEqual(out["total"], _pins.PIN_PRUNE_HINT_AT)  # nothing refused — all saved
+        self.assertIn("note", out)                              # at the threshold: a prune nudge appears
+        self.assertIn("prune", out["note"].lower())
+
     async def test_withhold_and_restore_round_trip_through_the_server(self):
         rid = self.add("a decision that was withdrawn", role="decision")
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)

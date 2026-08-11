@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1686,9 +1687,29 @@ def _product_with_origin(tmp: str, name: str = "product",
     return root
 
 
+def _age_workspace(wt_path: str, days: int = 30) -> None:
+    """Backdate the git-admin mtimes of the checkout at `wt_path` so the activity-aware sprawl detector reads it
+    as stale (its admin files were just written by `worktree add`, which would otherwise read as active)."""
+    old = time.time() - days * 86400
+    admin = checkout_health._worktree_admin_dir(wt_path)
+    for name in ("", "HEAD", "index", "ORIG_HEAD"):
+        target = admin if name == "" else os.path.join(admin, name)
+        try:
+            os.utime(target, (old, old))
+        except OSError:
+            pass
+
+
+def _sprawl_paths(entries: list) -> list:
+    """The `path` fields from a sprawl result's stray_worktrees / sibling_clones dicts."""
+    return [e["path"] for e in entries]
+
+
 class TestProductBuildSprawl(unittest.TestCase):
     """The negative control (engine-template#902): stray product worktrees and sibling clones are surfaced so a
-    regression to the old sprawl is CAUGHT, while the sanctioned .engine/mechanic/worktrees/ home reads clean."""
+    regression to the old sprawl is CAUGHT, while the sanctioned .engine/mechanic/worktrees/ home reads clean.
+    ACTIVITY-AWARE (engine-template#950): only STALE strays surface — a recently-touched workspace (a possibly-live
+    peer session) is skipped, so the nudge never fires on another open session's worktree."""
 
     def test_clean_mechanic_reports_no_sprawl(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1710,11 +1731,80 @@ class TestProductBuildSprawl(unittest.TestCase):
             p = _product_with_origin(tmp)
             stray = os.path.join(tmp, "loose-wt")            # NOT under m/.engine/mechanic/worktrees
             _git(p, "worktree", "add", "-q", "--detach", stray)
+            _age_workspace(stray)                            # a genuinely-stale leftover, not a live session
             with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
                 got = checkout_health.detect_product_build_sprawl(cwd=m)
             self.assertIsNotNone(got)
-            self.assertIn(os.path.realpath(stray), got["stray_worktrees"])
+            self.assertIn(os.path.realpath(stray), _sprawl_paths(got["stray_worktrees"]))
             self.assertEqual(got["sibling_clones"], [])
+
+    def test_recently_active_stray_worktree_is_not_flagged(self):
+        # engine-template#950: a stray worktree touched moments ago is a POSSIBLY-LIVE session's — the operator's
+        # own complaint — so it is skipped (counted in active_skipped), not surfaced as sprawl.
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "live-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stray)   # fresh admin mtimes -> looks active
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_active_skipped_counts_the_suppressed_while_a_stale_stray_still_surfaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stale = os.path.join(tmp, "old-wt")
+            live = os.path.join(tmp, "live-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stale)
+            _git(p, "worktree", "add", "-q", "--detach", live)
+            _age_workspace(stale)                            # only this one is stale
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertEqual(_sprawl_paths(got["stray_worktrees"]), [os.path.realpath(stale)])
+            self.assertEqual(got["active_skipped"], 1)
+
+    def test_locked_worktree_is_never_flagged_even_when_stale(self):
+        # A `locked` worktree is deliberately parked; never a cleanup nudge, regardless of age.
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "locked-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stray)
+            _git(p, "worktree", "lock", stray)
+            _age_workspace(stray)
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
+
+    def test_unstattable_worktree_is_reported_not_hidden(self):
+        # engine-template#950: when a stray's git-admin files can't be stat'd (permissions, a race during removal),
+        # _idle_days is None — the fail-toward-showing direction reports the nudge rather than silently suppress a
+        # workspace it could not age (a suppressed real leftover is the worse miss for a housekeeping nudge).
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "opaque-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stray)   # fresh, but pretend its idle can't be read
+            with mock.patch.object(checkout_health, "_idle_days", return_value=None), \
+                 mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(stray), _sprawl_paths(got["stray_worktrees"]))
+            self.assertIsNone(got["stray_worktrees"][0]["idle_days"])
+
+    def test_prunable_worktree_is_flagged_regardless_of_age(self):
+        # git itself calls a prunable worktree removable, so it surfaces even if its admin files look fresh.
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            stray = os.path.join(tmp, "gone-wt")
+            _git(p, "worktree", "add", "-q", "--detach", stray)
+            import shutil
+            shutil.rmtree(stray)                             # working dir gone -> git reports it prunable
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                got = checkout_health.detect_product_build_sprawl(cwd=m)
+            self.assertIsNotNone(got)
+            self.assertIn(os.path.realpath(stray), _sprawl_paths(got["stray_worktrees"]))
 
     def test_sanctioned_worktree_is_not_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1730,10 +1820,21 @@ class TestProductBuildSprawl(unittest.TestCase):
             m = _mechanic_with_target(tmp)
             p = _product_with_origin(tmp)                      # basename "product"
             sib = _product_with_origin(tmp, name="product-656-labels")   # same origin, sibling folder
+            _age_workspace(sib)                                # a genuinely-stale clone, not a live session's
             with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
                 got = checkout_health.detect_product_build_sprawl(cwd=m)
             self.assertIsNotNone(got)
-            self.assertIn(os.path.realpath(sib), got["sibling_clones"])
+            self.assertIn(os.path.realpath(sib), _sprawl_paths(got["sibling_clones"]))
+
+    def test_recently_active_sibling_clone_is_not_flagged(self):
+        # Activity-awareness applies symmetrically to clones (engine-template#950): a clone with fresh git activity
+        # may be a live session's, so it is skipped like an active worktree.
+        with tempfile.TemporaryDirectory() as tmp:
+            m = _mechanic_with_target(tmp)
+            p = _product_with_origin(tmp)
+            _product_with_origin(tmp, name="product-656-labels")   # fresh clone -> looks active
+            with mock.patch.dict(os.environ, {"ENGINE_PRODUCT_CHECKOUT": p}):
+                self.assertIsNone(checkout_health.detect_product_build_sprawl(cwd=m))
 
     def test_sibling_folder_with_a_different_origin_is_not_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:

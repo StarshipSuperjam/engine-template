@@ -368,10 +368,24 @@ checkout**, NOT through `external-contribution-submit` (that path is for the un-
   Passing the belt-verified slug as `--repo` makes the write target the verified repo — not a fresh read of the
   cwd's origin — which is what closes the gap between verify and write; a mid-session origin repoint cannot
   redirect it.
+- **Build-sprawl cleanup — the arm the boot nudge and `/engine-status` point at (StarshipSuperjam/engine-template#950).** Boot
+  surfaces STALE stray workspaces (worktrees registered outside `.engine/mechanic/worktrees/`, or sibling clones
+  of the product) as a counts-only one-line nudge, and the operator sees the paths and idle days under "Old build
+  workspaces" on the status dashboard. The detector is activity-aware — a workspace whose git admin files were
+  touched within `SPRAWL_STALE_DAYS` is treated as a possibly-live session's and never listed — so what reaches
+  here is genuinely idle, not another open session's worktree. Cleanup is a CONSENTED act, never automatic.
+  Before removing ANY of them, check for unpushed work — but `git -C <path> log --branches --not --remotes`
+  printing nothing is NOT sufficient on its own: a squash-merged branch looks unpushed forever, so ALSO confirm
+  whether the workspace's branch already merged (its pull request). Only then, on the operator's OK, remove a
+  stray worktree with `git -C <shared checkout> worktree remove <path>` (then `git -C <shared checkout> worktree
+  prune`), and a sibling clone by deleting its folder. Never delete unprompted; let the operator decide.
 
 **The merge gate on that pull request is the operator's OWN engine-template gate — the same human, not an
 independent reviewer.** What keeps that honest is NON-REFLEXIVITY: the mechanic upgrades only to human-approved
-RELEASED engine-template, never its own unmerged branch — a human-review-grade rule, not a machine proof. (The
+RELEASED engine-template, never its own unmerged branch — a human-review-grade rule, not a machine proof.
+**Non-reflexivity governs what this engine RUNS ON, not what you may BUILD:** building unmerged product work in
+an isolated worktree and opening a pull request for it is exactly the job, never a breach of the rule — so do
+not read "never an unmerged branch" as a reason to refuse legitimate build work. (The
 mechanic's product, update home, and any engine-fix target are all engine-template, so an engine fix ALSO takes
 this direct path, never `submit`; a mis-route to `submit` still opens a sound pull request into engine-template —
 safe by benign construction — but the rule is **owned → direct**.)
