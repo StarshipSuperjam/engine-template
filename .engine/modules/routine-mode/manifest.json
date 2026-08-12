@@ -17,5 +17,10 @@
   "wires": [],
   "depends": {
     "core": ""
+  },
+  "retired_capabilities": {
+    "0.2.0": {
+      "description": "The Codex Automation path for unattended Engine builds has been retired because its shared scheduled permissions and repository-write credentials cannot preserve the operator-only merge boundary. Open Scheduled, pause or delete every recurring task whose prompt contains $engine-routine, confirm it is no longer Active, and use interactive Codex or a Claude Desktop Routine instead."
+    }
   }
 }

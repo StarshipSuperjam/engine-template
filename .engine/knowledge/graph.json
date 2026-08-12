@@ -484,7 +484,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:93233d133807dcc2e304183659a11d2cedeb91d57d705339f675090340039492",
+        "fingerprint": "sha256:cdfdb5403eb4b659c656c0a274ab945d7bee5202f4190bec65da0a33d17054d4",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -1726,6 +1726,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-settings",
           "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
@@ -1779,6 +1780,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-settings",
           "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
@@ -3143,7 +3145,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:c43bd3cdd9ddb59de78eeb90adffc3800acb3f7534d686ca091f7e898638252b",
+        "fingerprint": "sha256:bb482a0f8193912464fab4a06f08c1b576c9fdb0a88656c181a45521faa6015d",
         "path": ".agents/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -3263,7 +3265,7 @@
       },
       "slug": "engine-status",
       "source": {
-        "fingerprint": "sha256:1f4ea2c4fd8c4f2808297ead3149816d7271e5e2235d58c7a9941eb26f7d45ff",
+        "fingerprint": "sha256:23e393067f5b849fd7e0276d37fa9df2f60ef3ca8d55127e6225e31c22bb0c4c",
         "path": ".agents/skills/engine-status/SKILL.md"
       },
       "status": "active",
@@ -4317,7 +4319,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:f3c5d3e498597fd9bea8de4df0210a1afaf43c36e1ea3d0534fabdbffade967f",
+        "fingerprint": "sha256:d2b195d5ce894bc8cb7df96113f2283deaec1b26e046d296b2c9012b1248a47e",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -4342,7 +4344,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:c1ebae87b1af45940d513630fa183661e8f4fa8e94565793f6b69a6b240b4919",
+        "fingerprint": "sha256:580612eebea17cfa99a04ffd436a6e9cf7bb50ca5a742acae4540307135bc1bb",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4534,7 +4536,7 @@
       },
       "slug": "routine-mode",
       "source": {
-        "fingerprint": "sha256:9f40bcad6438d483d4b70451c0a5470bca203daf5f3079c0712583778abb0d3b",
+        "fingerprint": "sha256:d0b87106abd744deb2183e0f22f6ff41648c4f27bd5a59198568298fcc42e78b",
         "path": ".engine/modules/routine-mode/manifest.json"
       },
       "status": "required",
@@ -4620,6 +4622,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:codex-settings",
+      "name": ".engine/operations/codex-settings.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-settings",
+      "source": {
+        "fingerprint": "sha256:f90b8cf8df208e6661dfd1fd9d9f9dad28f896e4d04143d920ddbb6534c67b7c",
+        "path": ".engine/operations/codex-settings.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:codex-validation",
       "name": ".engine/operations/codex-validation.md",
       "owner": "core",
@@ -4633,7 +4655,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:89bf65fca4e2f7611064e1b82f57f1dc77a46cc3143efeab187e3035eda1264a",
+        "fingerprint": "sha256:083a4f9c7cf53920a6db1319593a2d998cc570fd9617a22a36fa9f4aa5ea49d1",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -4973,7 +4995,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:5ef8159890d0904c496e3e550a2912621638f240809cc5c064ad69aea5ac2b45",
+        "fingerprint": "sha256:5af9afb4f4c980ff2165b78f3abd92fbcede92a2c34a6f914c41f1a1a21c7213",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -5053,7 +5075,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:cf4f626e00a4825ce716ab907f66c439981931b2fbdbdd08544a21af956358b6",
+        "fingerprint": "sha256:e749e2c1583bf9a68aa178bb8cb9f2369641705873232b43eda9288d4c841811",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -5302,7 +5324,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:b39d5ca11b513115e342b4d8955e3a47f40d61e59874490f68d3f1b4e2b54e7c",
+        "fingerprint": "sha256:d8d0a9d4eab166b3db0e6657c9e8c5ee3229060b247866714c94c0d906fb3db5",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -5467,7 +5489,7 @@
       },
       "slug": "codex-agent.v1",
       "source": {
-        "fingerprint": "sha256:c83ce942df3b2cdf9cc7ea7eea4736be5462534ef25b6c564a2bc2d6d84334f5",
+        "fingerprint": "sha256:4c41c19188e2c84d90db40cf66462e463c5dfcea81989d8625837416ab34b858",
         "path": ".engine/schemas/codex-agent.v1.json"
       },
       "status": "active",
@@ -6152,7 +6174,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:8e10a615757d801b1ed8cbdc3f64129f764303bfddbde574e65fd6db33abd1bf",
+        "fingerprint": "sha256:77dcf9440c133a765a4dd475d19946bcc8f90a43af4c60a2cc6fffaf572eb472",
         "path": ".claude/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -6218,7 +6240,7 @@
       },
       "slug": "engine-status",
       "source": {
-        "fingerprint": "sha256:106158b8f33023e478575f768d6b3cf57eda7582275ee7d6f29085ff06fc95a1",
+        "fingerprint": "sha256:4a02112110f1a62580467169bff9f775d0b61f99e33de8924bb6dfeed5fda74d",
         "path": ".claude/skills/engine-status/SKILL.md"
       },
       "status": "active",
@@ -6680,7 +6702,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:a89009a91eb97c152cd89716960a1b458ab0a48cf2d0f9bec8258076d260f1e1",
+        "fingerprint": "sha256:975a82fbea56b64669323bd76eaa04c07e674e346340fdfbf800b33dff1bfc42",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6991,7 +7013,7 @@
       },
       "slug": "codex_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:67996282fdd28e1826ab4a154152590df7fd54e034a5f32975b3e9d5652bc495",
+        "fingerprint": "sha256:b9290352fe9155a4b12ef1c1d18fd8578be2e7d3ecfb436fdcea20d10af3fd81",
         "path": ".engine/tools/codex_agent_coherence_check.py"
       },
       "status": "active",
@@ -7014,7 +7036,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:e6f26b83ff6f5a16bcfb1466255ef93bc8b154198580fad40001a82e047b0097",
+        "fingerprint": "sha256:66b48d102afca42830943e6320ae27e1d0d5c0112d64b1b8c838226d22d7146f",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -8418,6 +8440,26 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_uv_workspace_cache",
+      "name": ".engine/tools/demo_uv_workspace_cache.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_uv_workspace_cache",
+      "source": {
+        "fingerprint": "sha256:77a0803ff80c982d87c3d5de5c38f3ec099dd3ed1bff672c58fdfe23c7f9fbe0",
+        "path": ".engine/tools/demo_uv_workspace_cache.py"
+      },
+      "status": "active",
+      "summary": "Operator-runnable proof that manual grounding needs no home-directory write access.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_weakening_guard_narrowed_set",
       "name": ".engine/tools/demo_weakening_guard_narrowed_set.py",
       "owner": "core",
@@ -9738,7 +9780,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:8f078d51b54f6f3474a33900c57f8029adc8b333c3ec73cfd5d5881c5dc97360",
+        "fingerprint": "sha256:9bd2eac396d037ce378fa6bfdac7dec8b02a233758c31c13160f3fafeb201f9a",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -9831,7 +9873,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:f9acdd334d5e663ecb2f20b6407e8361f68d51c74c03b640ccdbb3344e5933e7",
+        "fingerprint": "sha256:e116cf17de013ebfff2f795b9e26a5f1180110d16fab88c3d85e2a967272516d",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11434,7 +11476,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f38c7c681c326b9a4492aead87cb03a2e041cfac81531ee18728d123c46af7e6",
+        "fingerprint": "sha256:4f6a042c597616336deae9e12999d9e0b155aa2fcc133c70c7c80ff2027be98d",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -11691,11 +11733,34 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:ece3ed16527b2ed1ac1eec9b7a7dc09600ca7628b8f5c8d0ec8e5849bd3df7e2",
+        "fingerprint": "sha256:9b42e5caccae3fbce2212f3e9d5b9cebe158159f770a7f9ec23e0f2560f939cc",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
       "summary": "Self-tests for the Codex render tool (codex_gen.py) — the pipeline five enforcement surfaces",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_codex_settings",
+      "name": ".engine/tools/test_codex_settings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_manager"
+        ]
+      },
+      "slug": "test_codex_settings",
+      "source": {
+        "fingerprint": "sha256:5165140afa9a3f32029048c21bababc8d168f3d7d2a6947453fa659a0e860e4f",
+        "path": ".engine/tools/test_codex_settings.py"
+      },
+      "status": "active",
+      "summary": "Acceptance pins for the complete, canonical Codex settings audit.",
       "type": "tool"
     },
     {
@@ -13110,7 +13175,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:45ef7358b470a0b5555f447e7056471f2978bf8448927dd0f7fd2218c22f2529",
+        "fingerprint": "sha256:11c8bb023a6d4eef58bd4514d97ac57f4358d6a7220583ad6b86327942883183",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -13174,7 +13239,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:13b3825c350f4824b4e2115ba207efc770bf924bfa2013cd209463d0c7ea2da8",
+        "fingerprint": "sha256:503603ebbd93ad9d7c9de4b3fee07b1cc3ac197ee2d2dca8f48a0503f8be92d3",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -14273,11 +14338,14 @@
       "predicates": {
         "provided_by": [
           "module:core"
+        ],
+        "tests": [
+          "tool:module_manager"
         ]
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:d9a4ba6c6ea479ca8e4ad386a4be4d35bdcc73d8749be42ee07083ad2701ddea",
+        "fingerprint": "sha256:c827914b4dd4311b335a91289312482f2b6223d15141e28f5b8ef365b71b4ee3",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
@@ -14701,6 +14769,30 @@
       },
       "status": "active",
       "summary": "Self-tests for the uv-group-drift CI check (engine/check/uv-group-drift) and the",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_uv_workspace_cache",
+      "name": ".engine/tools/test_uv_workspace_cache.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demo_uv_workspace_cache",
+          "tool:quiet_call"
+        ]
+      },
+      "slug": "test_uv_workspace_cache",
+      "source": {
+        "fingerprint": "sha256:5180fc6510739a9fe1f95c3f3de581d57a5c581d56450bbe4f26cb81648579ca",
+        "path": ".engine/tools/test_uv_workspace_cache.py"
+      },
+      "status": "active",
+      "summary": "Regression for the Engine-owned uv cache under a workspace-only sandbox.",
       "type": "tool"
     },
     {

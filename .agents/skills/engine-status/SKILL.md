@@ -8,7 +8,7 @@ description: Show where your project stands — what's next, what recently shipp
 ## Steps
 
 1. Show where the project stands by running:
-   `uv run --directory .engine -- python tools/engine_status.py`
+   `uv run --directory .engine --frozen -- python tools/engine_status.py`
    (the engine works out this session's identity automatically. If no session can be identified, the
    status still renders — only the building-or-looking-around line may be left off.)
 2. Show the operator the status exactly as it is printed — where the project stands, what recently shipped,

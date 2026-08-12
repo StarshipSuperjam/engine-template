@@ -3118,7 +3118,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     out.append("3. Check the engine's live helpers against your own tools; report failures: "
                + mcp_availability_check())
     out.append("4. Briefly surface status items needing attention. If the status was trimmed, its notice says "
-               "so. On a status or next-step question, run `uv run --directory .engine -- python "
+               "so. On a status or next-step question, run `uv run --directory .engine --frozen -- python "
                "tools/engine_status.py` and show its output verbatim. The protected-branch merge is the real "
                "governance guarantee.")
     out.append("")

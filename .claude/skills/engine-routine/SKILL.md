@@ -8,7 +8,10 @@ allowed-tools: Bash(uv run *)
 
 ## Steps
 
-1. Enter and follow the procedure in `.engine/operations/routine-entry.md`. It confirms the engine's guardrails
+1. If this is Codex, stop: the Codex build Automation path is retired. Tell the operator to open **Scheduled**,
+   pause or delete any recurring task whose prompt contains `$engine-routine`, and use an interactive Codex task
+   or a Claude Desktop routine instead. Do not enter Routine.
+2. On Claude, enter and follow the procedure in `.engine/operations/routine-entry.md`. It confirms the engine's guardrails
    are running, that this run can work on its own and in an isolated copy of your repo, enters the unattended
    write-stance, finds the next planned piece of work and the files it's allowed to touch, does that piece and
    adds the commit(s) to the open pull request, and leaves a GitHub Issue for anything it can't handle alone —
@@ -16,11 +19,10 @@ allowed-tools: Bash(uv run *)
 
 ## Notes
 
-This is a command you put inside a scheduled automation — a Claude Desktop **routine** or a Codex
-**Automation** — so I can keep a planned build moving while you're away. It is not something I start on my own.
-To set one up, follow the **"Running unattended"** section of the README: it walks the exact steps for your
-runtime — the schedule, running in an isolated copy of the repo, the non-interactive permission posture,
-network access, and keeping your computer awake.
+This is a command you put inside a Claude Desktop **routine** so I can keep a planned build moving while you're
+away. It is not something I start on my own. To set one up, follow **"Running unattended"** in the root README.
+The committed Codex twin exists so an old `$engine-routine` schedule fails with an actionable retirement message
+rather than silently running; it never enters the write stance on Codex.
 
 While it works on its own it stays inside the planned files and **never merges** — every change still waits for
 your approval as a pull request. It adds its work to that pull request but doesn't finish it: when you're back,

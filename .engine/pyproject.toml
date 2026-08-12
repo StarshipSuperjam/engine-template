@@ -47,4 +47,9 @@ core = ["jsonschema>=4.20", "mcp>=2", "pyyaml>=6.0"]
 memory-semantic-recall = ["numpy>=1.26"]
 
 [tool.uv]
+# Keep uv's own cache inside the Engine's already-gitignored runtime corner. Relative uv settings
+# resolve from this project file's directory, so every supported invocation (`--directory .engine`
+# from the repo root or `uv sync` with cwd=.engine during upgrade) lands at `.engine/.uv/` instead
+# of the user-home cache that Codex's normal workspace sandbox cannot write.
+cache-dir = ".uv"
 default-groups = ["core", "memory-semantic-recall"]

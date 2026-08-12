@@ -188,12 +188,12 @@ tested in isolation and the test read above exercises the real read path, but th
 read runs for real only on your own schedule. Treat it as a capability to try, with the test read as your check
 that it's working.
 
-## Optional: run it off the schedule — from Claude or from Codex
+## Optional: run it off the schedule — from Claude, or interactively from Codex
 
 This part is optional. The setup above — the scheduled run on GitHub — is the supported, dependable way, and you
 don't need anything more. If you'd rather the review also run somewhere else — on Anthropic's cloud so it runs even
-while your computer is off, or from **Codex** on your own machine — you can set up a recurring **routine** that runs
-it. Both are extras alongside the GitHub schedule, and three things are worth knowing before you choose either one.
+while your computer is off, you can set up a recurring Claude **routine**. Codex review remains an interactive
+Read Only task, not a recurring Automation. Three things are worth knowing before you choose the Claude extra.
 
 **These off-schedule runs are a lighter review.** The GitHub schedule hands the review a set of things gathered for
 it — your saved memory (from its backup), the engine's open health issues, its own past reviews, and any warnings
@@ -213,10 +213,10 @@ as these features mature — a routine simply never leaves the record the engine
 **The dependable schedule needs a Claude sign-in token — even on Codex.** The GitHub schedule is done by a capable
 model reached through the **Claude sign-in token** from *Turn it on* above, no matter which AI you build your project
 with. If you build on Codex and don't keep a Claude subscription, that scheduled path isn't open to you — so the
-**from-Codex routine below is your only unattended review**, not a lesser extra on top of a schedule you already run.
-Set it up knowing that.
+Engine has no safe unattended self-review path to offer on that account today. Run the audit on demand in an
+ordinary interactive Read Only Codex task instead; do not trade the read-only boundary away just to add a schedule.
 
-**The instruction to paste — the same for both.** Whichever routine you set up, paste this exactly as its
+**The instruction to paste into the Claude routine.** Paste this exactly as its
 instruction, and don't change a word:
 
 ```
@@ -229,31 +229,17 @@ instruction above. Then use **Run now** once and check that a fresh summary appe
 Routine needs a paid plan with Claude Code on the web turned on, and it counts against your account's daily routine
 allowance.
 
-**From Codex — a Codex Automation.** On Codex, schedule the same review as a **Codex Automation**: create a
-**recurring** Automation (not a one-time run), pointed at **this project**, and paste the instruction above. One
-setting makes it safe, and it's easy to miss:
+**Codex scheduled self-review was retired.** Codex Automations use one shared default sandbox and offer no
+per-Automation permission profile. In the desktop sidebar, open **Scheduled**, find the recurring task whose
+prompt names `.claude/agents/engine-audit.md` or asks for the Engine self-review, and use its task controls to
+pause or delete it; confirm it no longer appears under Active. Changing its prompt does not repair the shared
+sandbox. On Codex, ask the Engine to run the audit in an ordinary interactive
+Read Only task when you want an off-schedule review. For a recurring review, keep the GitHub schedule above (or
+the Claude Cloud Routine) so its permission boundary and durable pull-request result remain explicit.
 
-- **Set `sandbox_mode = "read-only"`** in your **Codex settings** (`.codex/config.toml`) — **not on the Automation's
-  own screen**. This is the only thing that stops the run from changing anything; the whole convenience depends on it.
-- `approval_policy = "never"` belongs there too, so an unattended run doesn't stall to ask — but it only means "don't
-  pause to ask me," never "don't make changes," so it is no substitute for the read-only sandbox. Setting never-ask
-  (which you *can* see on the Automation screen) while forgetting the read-only sandbox is exactly how an unattended
-  run ends up write-capable.
-- **If you also run the Codex build routine** (`$engine-routine`, from *Running unattended* in the README): it wants
-  `sandbox_mode = "workspace-write"` in that **same** file — the opposite of this review. They can't both be the global
-  default at once. If your Codex lets you scope the sandbox per Automation, give this review its own read-only one;
-  otherwise don't leave `workspace-write` in force while an unattended review runs.
-- **Confirm it took.** After **Run now**, check that a fresh summary appears **and that the run changed nothing** — no
-  new commit, no edited file, no pull request.
-
-With read-only in place the review needs no network and no token: it works from your committed files, is told not to go
-reaching through your machine for your saved memory or the engine's issues (and with no network it can't fetch your
-memory backup or issues from GitHub anyway), and its summary says plainly what it couldn't see. A Codex Automation
-needs a Codex build that supports scheduling, and it counts against your Codex usage.
-
-**Only a live run on your own setup proves it:** neither routine above runs end-to-end until it runs on your own
-schedule against your own account — the engine can't try them for you — so treat them as conveniences to try, not
-guarantees, and keep the standard GitHub schedule as your dependable path where a Claude token is available to you.
+**Only a live run on your own setup proves an off-schedule routine:** the Claude routine above runs for real only
+on your own schedule and account — the engine can't try it for you — so treat it as a convenience, not a guarantee,
+and keep the standard GitHub schedule as the dependable path where a Claude token is available to you.
 
 ## Once it's running
 

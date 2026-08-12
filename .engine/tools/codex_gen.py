@@ -17,7 +17,9 @@ Render rules (the whole mapping, so review needs no second source):
     - name/description from the frontmatter; the prose body becomes `developer_instructions`,
       prefixed with rendered routing lines for what the TOML cannot carry structurally (the output
       contract; the read-only floor; a no-shell line when the source denylists Bash).
-    - `sandbox_mode = "read-only"` always (every current persona is a report-only reviewer).
+    - `sandbox_mode = "read-only"` always (every current persona is a report-only reviewer). This is
+      the agent's requested standalone default, not mechanical child isolation: a parent task's live
+      runtime override can be reapplied by Codex (the declared provider exception).
     - `model` is NEVER emitted (a pinned model id in a persona file rots — eADR-0034);
       `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low).
   SKILLS (.claude/skills/engine-*/ -> .agents/skills/engine-*/):
@@ -29,8 +31,8 @@ Render rules (the whole mapping, so review needs no second source):
       on Claude and silently disable it on Codex.
     - the body is the Claude body with the typed prefix rewritten (/engine-x -> $engine-x) and the
       Claude session flag dropped (the engine resolves the session itself on Codex).
-    - every engine skill is rendered; there is no exclusion. (The routine backend — the set-routine
-      stance-entry — shipped, so `engine-routine` now has its Codex twin like the rest.)
+    - every engine skill is rendered; there is no exclusion. The `engine-routine` Codex twin is retained as
+      an actionable retirement surface so an invocation explains the required external migration.
 """
 from __future__ import annotations
 import glob
@@ -48,9 +50,13 @@ SKILL_SRC_ROOT = os.path.join(".claude", "skills")
 AGENT_OUT_DIR = os.path.join(".codex", "agents")
 SKILL_OUT_ROOT = os.path.join(".agents", "skills")
 
-SKILL_EXCLUDE = frozenset()   # no exclusions — every engine skill has a Codex twin (the routine backend shipped)
+SKILL_EXCLUDE = frozenset()   # every skill renders; engine-routine's Codex twin is a retirement/refusal surface
 
 _EFFORT_BY_TIER = {"judgment": "high", "mechanical": "low"}
+_CODEX_SKILL_DESCRIPTIONS = {
+    "engine-routine": ("Retired on Codex — explains how to disable an old unattended Engine build "
+                       "Automation and which supported path to use instead."),
+}
 
 _SESSION_FLAG_RE = re.compile(r'\s*--session\s+"\$\{CLAUDE_CODE_SESSION_ID\}"')
 # A typed verb reference is a /engine-… NOT preceded by a word character (so a path segment like
@@ -144,7 +150,7 @@ def render_skill(src_dir: str, root: str | None = None):
     text = "\n".join([
         "---",
         f"name: {slug}",
-        f"description: {fm.get('description')}",
+        f"description: {_CODEX_SKILL_DESCRIPTIONS.get(slug, fm.get('description'))}",
         "---",
         "",
         _MD_BANNER.format(src=rel_src),

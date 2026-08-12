@@ -1689,7 +1689,12 @@ def _resync_tool_runtime() -> bool:
     the demo (the injected-release path skips it) — one of the four named inductive gaps."""
     import subprocess   # local: only the real re-sync needs it
     try:
-        subprocess.run(["uv", "sync", "--frozen"], cwd=os.path.join(validate.ROOT, ".engine"),
+        cwd = os.path.join(validate.ROOT, ".engine")
+        subprocess.run(["uv", "sync", "--frozen"], cwd=cwd,
+                       check=True, capture_output=True, timeout=300)
+        # The project-local cache is disposable and can otherwise grow without a production retention seam.
+        # Prune after each real update re-sync, when the locked environment has already been materialized.
+        subprocess.run(["uv", "cache", "prune"], cwd=cwd,
                        check=True, capture_output=True, timeout=300)
         return True
     except Exception:   # noqa: BLE001 — degrade: the caller surfaces a re-sync failure, never crashes
@@ -4301,7 +4306,7 @@ def _build_upgrade_release(root: str) -> str:
         fh.write("# lock v2\n")
     with open(os.path.join(eng, "pyproject.toml"), "w") as fh:
         fh.write('[project]\nname = "x"\nversion = "0"\n\n[dependency-groups]\nbase = ["pkg-a"]\n\n'
-                 '[tool.uv]\ndefault-groups = ["base"]\n')
+                 '[tool.uv]\ncache-dir = ".uv"\ndefault-groups = ["base"]\n')
     # The PR template is foundation the overlay delivers (FOUNDATION_CODE), and the upgrade tail's PR-body
     # author reads its consent-preamble blockquote from the LIVE tree (post-overlay). A real release ships it,
     # so the fixture release must too — else the body author finds no template and the update can't open. This
