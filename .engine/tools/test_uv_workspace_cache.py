@@ -71,6 +71,35 @@ class TestUvWorkspaceCache(unittest.TestCase):
         self.assertIn("Project status", proc.stdout)
         self.assertTrue(os.path.isfile(self.home), "fixture HOME must be a file, not a writable directory")
 
+    def test_real_manual_grounding_runs_with_a_cold_project_cache(self):
+        # Keep the real Engine checkout and its warm cache untouched. A throwaway project carries the exact
+        # committed uv configuration and lock, while reusing the already-materialized locked environment so
+        # this test isolates cache initialization rather than introducing a package-download dependency.
+        cold_project = os.path.join(self.tmp.name, "cold-engine-project")
+        os.makedirs(cold_project)
+        shutil.copy2(os.path.join(ENGINE, "pyproject.toml"), cold_project)
+        shutil.copy2(os.path.join(ENGINE, "uv.lock"), cold_project)
+        cold_cache = os.path.join(cold_project, ".uv")
+        self.assertFalse(os.path.exists(cold_cache))
+
+        env = _env(self.home)
+        env["UV_PROJECT_ENVIRONMENT"] = os.path.join(ENGINE, ".venv")
+        resolved = subprocess.run(
+            ["uv", "--project", cold_project, "cache", "dir"],
+            cwd=ROOT, env=env, check=True, capture_output=True, text=True, timeout=30)
+        self.assertEqual(
+            os.path.realpath(os.path.join(cold_project, resolved.stdout.strip())),
+            os.path.realpath(cold_cache),
+        )
+
+        proc = subprocess.run(
+            ["uv", "run", "--project", cold_project, "--frozen", "--", "python",
+             os.path.join(TOOLS, "engine_status.py")],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Project status", proc.stdout)
+        self.assertTrue(os.path.isfile(self.home), "fixture HOME must remain inaccessible as a directory")
+
     def test_two_cold_callers_share_the_cache_without_corruption(self):
         cold_cache = os.path.join(self.tmp.name, "cold-cache")
         self.assertFalse(os.path.exists(cold_cache))

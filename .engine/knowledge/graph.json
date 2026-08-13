@@ -14788,7 +14788,7 @@
       },
       "slug": "test_uv_workspace_cache",
       "source": {
-        "fingerprint": "sha256:5180fc6510739a9fe1f95c3f3de581d57a5c581d56450bbe4f26cb81648579ca",
+        "fingerprint": "sha256:deb96e1d26351110893a4002aeebd93519bce1c7cf3d0dd3dc3fbdd3e866bd9a",
         "path": ".engine/tools/test_uv_workspace_cache.py"
       },
       "status": "active",
