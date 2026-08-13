@@ -3,7 +3,8 @@
 
 This page is the returnable, plain-language guide that tells the operator how to arm the engine's scheduled
 self-review (the one-time token), keep it running (expiry / usage limits / re-arm), change how-often / which
-model, and optionally run it off-schedule as a Claude Cloud Routine or a Codex Automation. It survives first-run (the year-later token re-arm depends on
+model, and optionally run it off-schedule as a Claude Cloud Routine. It also retires the unsafe Codex
+Automation recipe explicitly. It survives first-run (the year-later token re-arm depends on
 it), so it lives with the audit's own files and is owned by audit-library's `provides`.
 
 These pin the load-bearing facts a future edit must not silently drop — the EXACT secret name, the two-step
@@ -16,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 import unittest
+
+import module_manager
 
 _TOOLS = os.path.dirname(os.path.abspath(__file__))
 _ENGINE = os.path.dirname(_TOOLS)
@@ -96,20 +99,42 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("Remote", self.text)
         self.assertIn("recurring", self.text)
 
-    def test_discloses_both_off_schedule_routines_prove_out_only_on_a_live_run(self):
-        # The off-schedule conveniences — the Claude Cloud Routine AND the Codex Automation — run for real only on
-        # the operator's own schedule and account; the engine can't exercise them for the operator. The page must
-        # disclose that honestly for both, so a future edit that quietly drops the run-it-yourself steer fails here.
-        self.assertIn("neither routine above runs end-to-end until it runs on your own", self.text)
+    def test_discloses_the_cloud_routine_proves_out_only_on_a_live_run(self):
+        self.assertIn("Claude routine above runs for real only", self.text)
 
-    def test_foregrounds_the_read_only_sandbox_as_the_codex_write_wall(self):
-        # The from-Codex convenience is safe ONLY because its Codex Automation runs sandbox_mode=read-only — that,
-        # not approval_policy, is the write wall. A future edit must not drop the read-only setting, let the
-        # never-ask setting stand in for it, or point the paste at a generated render. Pin the load-bearing facts.
+    def test_retires_the_unsafe_codex_automation_with_actionable_migration(self):
+        # Codex schedules have one shared sandbox and cannot give this audit its own read-only boundary.
+        # Existing external Automations survive repository upgrades, so the page must give exact disable
+        # steps and name both replacements.
         t = self.text
-        self.assertIn("Codex Automation", t)                 # the from-Codex arm exists
-        self.assertIn('sandbox_mode = "read-only"', t)       # the write-safety wall, exact
-        self.assertIn(".claude/agents/engine-audit.md", t)   # the paste names the canonical persona, not a render
+        self.assertIn("Codex scheduled self-review was retired", t)
+        self.assertIn("open **Scheduled**", t)
+        self.assertIn("pause or delete it", t)
+        self.assertIn("no longer appears under Active", t)
+        self.assertIn("interactive", t)
+        self.assertIn("GitHub schedule", t)
+
+    def test_upgrade_announces_the_external_automation_retirement(self):
+        with open(MANIFEST_PATH, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        notice = manifest["retired_capabilities"]["0.3.0"]["description"]
+        self.assertIn("Open Scheduled", notice)
+        self.assertIn("pause or delete it", notice)
+        self.assertIn("no longer Active", notice)
+        self.assertIn("interactive Read Only Codex task", notice)
+        self.assertIn("GitHub/Claude recurring review", notice)
+
+    def test_existing_audit_library_deployment_selects_the_real_retirement_notice(self):
+        # Exercise the actual manifest through the upgrade selector, not just its prose. v0.2.0 is the
+        # currently released audit-library; release-cut mechanically raises the candidate to 0.3.0 because
+        # the new retirement key is a minor floor.
+        with open(MANIFEST_PATH, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        selected = module_manager.select_retired_capabilities(
+            {"audit-library": "0.2.0"}, {"audit-library": "0.3.0"}, [manifest])
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["version"], "0.3.0")
+        self.assertIn("pause or delete it", selected[0]["description"])
 
     def test_discloses_the_cloud_path_leaves_no_committed_freshness_record(self):
         # #406: the Cloud-Routine path yields a chat summary but never refreshes the committed record the

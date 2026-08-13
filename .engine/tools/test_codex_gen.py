@@ -239,10 +239,10 @@ class TestDriftGate(_FixtureTree):
         self.assertTrue(any("is missing" in p for p in problems), problems)
 
     def test_no_skill_is_excluded_and_engine_routine_now_renders(self):
-        # The routine backend shipped, so SKILL_EXCLUDE is empty: an engine-routine skill renders its twin
-        # like every other (the old exclusion, which would have shipped a stub, is retired).
+        # SKILL_EXCLUDE stays empty so the engine-routine twin remains present as an actionable refusal for
+        # old Codex schedules, rather than disappearing and leaving them with an opaque missing-skill failure.
         self.assertEqual(codex_gen.SKILL_EXCLUDE, frozenset(),
-                         "no skill is excluded once the routine backend exists")
+                         "every skill has a Codex render, including retirement surfaces")
         _write(os.path.join(self.root, ".claude", "skills", "engine-routine", "SKILL.md"),
                SKILL_SRC.replace("engine-widget", "engine-routine"))
         codex_gen.generate(self.root)
@@ -250,6 +250,9 @@ class TestDriftGate(_FixtureTree):
                                                     "SKILL.md")), "the twin now renders")
         self.assertTrue(os.path.isfile(os.path.join(self.root, ".agents", "skills", "engine-routine",
                                                     "agents", "openai.yaml")), "with its operator-only policy")
+        with open(os.path.join(self.root, ".agents", "skills", "engine-routine", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            self.assertIn("description: Retired on Codex", fh.read())
         self.assertEqual(codex_gen.check(self.root), [], "and the drift gate is clean")
 
 

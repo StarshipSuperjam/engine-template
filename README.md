@@ -229,7 +229,7 @@ and rough edges worth knowing below.
 <tr>
 <td>Review personas</td>
 <td>10 native agents</td>
-<td>The same 10, rendered natively (read-only sandbox)</td>
+<td>The same 10, rendered natively (request a read-only default; a parent task's live permission can override it)</td>
 </tr>
 <tr>
 <td>Memory &amp; knowledge servers</td>
@@ -260,8 +260,8 @@ The Engine can advance a *planned* build on a schedule while you're away — eac
 adds its commits to an open pull request, and **never merges**. Your review at the merge stays the only gate.
 
 The short version: first plan the build in a normal, interactive session (a routine *advances* a plan, it
-doesn't make one), then schedule `/engine-routine` (Claude Code) or `$engine-routine` (Codex) pointed at that
-build's branch, in an isolated copy of the repo. When you're back, open a normal session and ask the Engine to
+doesn't make one), then schedule `/engine-routine` as a Claude Desktop routine, pointed at that
+build's branch in an isolated copy of the repo. When you're back, open a normal session and ask the Engine to
 wrap the pull request up for your merge — a routine never finishes it for you.
 
 <details>
@@ -278,27 +278,19 @@ in its Instructions; turn on **"Work in an isolated copy of the repo"** (the Eng
 run is in a dedicated worktree, so this is required) and make sure that copy is on your build's branch; and set
 the **permission mode** to the one that lets the session act without pausing to ask you.
 
-**On Codex — a Codex Automation.** Create an Automation with a schedule; put `$engine-routine` in its prompt;
-and choose **"run on a dedicated background worktree"**, on your build's branch. Two settings live in your Codex
-config (`.codex/config.toml`), not on the Automation's screen: the sandbox must be workspace-write
-(`sandbox_mode = "workspace-write"`) and the approval posture non-interactive (`approval_policy = "never"`) —
-subject to your organization's policy. If that policy won't allow the non-interactive posture, the run pauses
-for an approval no one gives, so confirm it's in effect before you rely on it. Finally, **grant the run network
-access** so it can push, open the pull request, and file Issues.
+**On Codex — keep Engine builds interactive.** The former `$engine-routine` Automation is retired: Codex's one
+shared scheduled sandbox plus unattended repository credentials cannot preserve the promise that only you merge.
+If one exists, open **Scheduled** in the desktop sidebar, find the recurring task whose prompt contains
+`$engine-routine`, and pause or delete it; confirm it no longer appears under Active. Use Codex interactively, or
+use the Claude Desktop routine above when you need unattended writes. This is deliberately the simpler supported
+path; the canonical reasoning is in `.engine/operations/codex-settings.md`.
 
-**Both runtimes — confirm before you rely on it.**
+**For the Claude routine — confirm before you rely on it.**
 
 - Keep the computer on and the app running during the scheduled time — a local run only works while your
   machine is awake.
-- The version must support scheduling (Codex Automations need a 2026 build).
 - git/GitHub credentials must be reachable to a scheduled run **without** an interactive prompt — otherwise it
   can't push or even leave an Issue.
-- **On Codex, after any Engine update that changes its hooks, run one normal interactive session and re-approve
-  the hooks (`/hooks`) before the routine runs again.** Codex turns changed hooks off until you re-trust them,
-  and an unattended run can't do that itself. With its hooks off, the run is *designed* to notice the missing
-  start-of-session briefing and refuse to write — but that's the run following its own procedure, not a
-  mechanical lock, so your review at the merge is the real guarantee. (Claude Code keeps its hooks on, so this
-  step doesn't apply there.)
 
 You'll see each run in your scheduling app's history and its progress on the pull request. If a run can't
 safely start — hooks not running, or not isolated — it reports why and stops. It files a GitHub Issue only for
@@ -309,8 +301,9 @@ your merge.
 
 </details>
 
-The Engine's periodic **self-review** — its own health check — can also run unattended on a schedule, including
-from Codex; that's set up separately. See
+The Engine's periodic **self-review** — its own health check — can run unattended through the durable GitHub
+schedule or a Claude Cloud Routine. Codex scheduled self-review is retired because Codex cannot give that audit
+a separate Read Only sandbox; run it interactively in a Read Only Codex task instead. See
 [Setting up the engine's scheduled self-review](.engine/audits/self-review-setup.md).
 
 ## Status

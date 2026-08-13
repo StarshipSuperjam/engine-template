@@ -65,6 +65,7 @@ import os
 import re
 import sys
 import tempfile
+from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks  # noqa: E402  (run_hook + decide/proceed: the fail-open harness the gate rides)
@@ -129,24 +130,61 @@ def current_stance(session_id: str | None) -> str:
     return value if value in STANCES else EXPLORE
 
 
-def set_stance(session_id: str | None, stance: str) -> bool:
+@dataclass(frozen=True)
+class StanceWriteResult:
+    """Truth-compatible result for a stance-marker write.
+
+    Existing hook callers need only success/failure and remain fail-open through ``bool(result)``.
+    Operator-typed CLI callers also need the reason so they do not misdiagnose an absent session id,
+    a sandbox-denied temp write, and an unrelated filesystem failure as the same thing.
+    """
+    ok: bool
+    reason: str | None = None
+    path: str | None = None
+    error: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+def set_stance(session_id: str | None, stance: str) -> StanceWriteResult:
     """Set the session's stance signal. Callers: the plan-acceptance trigger (accept_handler, this module),
     the operator-typed Build verb, and the demo/tests. Setting EXPLORE clears the marker
-    (explore is the absence of a signal). Returns True on success, False when there is no usable session
-    id or the write fails; never raises."""
+    (explore is the absence of a signal). Returns a truth-testable structured result: hook callers keep
+    their old success/failure behavior, while operator-typed CLI callers can distinguish no session,
+    sandbox denial, and another filesystem failure. Never raises."""
     if stance == EXPLORE:
-        return clear_stance(session_id)
+        ok = clear_stance(session_id)
+        return StanceWriteResult(ok, None if ok else "no-session", _signal_path(session_id))
     if stance not in STANCES:
         raise ValueError(f"unknown stance {stance!r}; expected one of {sorted(STANCES)}")
     path = _signal_path(session_id)
     if not path:
-        return False
+        return StanceWriteResult(False, "no-session")
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(stance)
-        return True
-    except Exception:  # noqa: BLE001 — a failed write degrades to "no signal" → explore, never a crash
-        return False
+        return StanceWriteResult(True, path=path)
+    except PermissionError as exc:
+        # The OS denied the temp marker. Codex Read Only is one cause; host ownership/permissions are another.
+        # Preserve only what this seam can prove so the CLI can name both narrow remedies without guessing.
+        return StanceWriteResult(False, "permission-denied", path, str(exc))
+    except OSError as exc:
+        return StanceWriteResult(False, "filesystem-error", path, str(exc))
+    except Exception as exc:  # noqa: BLE001 — a failed write degrades to Explore, never a crash
+        return StanceWriteResult(False, "unknown-error", path, str(exc))
+
+
+def _stance_write_failure(label: str, result: StanceWriteResult) -> str:
+    """One truthful CLI failure line for Build/Routine stance entry."""
+    if result.reason == "no-session":
+        return f"set {label}: False (no session id resolvable)"
+    if result.reason == "permission-denied":
+        return (f"set {label}: False (the OS denied the session marker write; if this Codex task is "
+                f"Read Only, select Workspace Write and try again; otherwise check ownership and permissions "
+                f"on the reported temporary path: {result.path or 'unknown'})")
+    detail = f": {result.error}" if result.error else ""
+    return f"set {label}: False (could not write the session marker{detail})"
 
 
 def clear_stance(session_id: str | None) -> bool:
@@ -719,9 +757,9 @@ def main(argv: list) -> int:
         print(current_stance(session))
         return 0
     if cmd == "set-build":
-        ok = set_stance(_resolve_session(argv), BUILD)
-        print(f"set Build: {ok}")
-        return 0 if ok else 1
+        result = set_stance(_resolve_session(argv), BUILD)
+        print("set Build: True" if result else _stance_write_failure("Build", result))
+        return 0 if result else 1
     if cmd == "set-routine":
         # The unattended Routine stance-entry — run by the operator-authored scheduled fire through the
         # engine-routine skill (which carries the operator-only flag), never the model on its own. Unlike
@@ -737,9 +775,9 @@ def main(argv: list) -> int:
             print("set Routine: False (not a dedicated worktree — a routine writes only in an isolated "
                   "worktree, never the operator's checkout)")
             return 1
-        ok = set_stance(session, ROUTINE)
-        print(f"set Routine: {ok}")
-        return 0 if ok else 1
+        result = set_stance(session, ROUTINE)
+        print("set Routine: True" if result else _stance_write_failure("Routine", result))
+        return 0 if result else 1
     if cmd == "clear":
         ok = clear_stance(_arg(argv, "--session"))
         print(f"cleared: {ok}")

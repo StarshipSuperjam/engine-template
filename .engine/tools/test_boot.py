@@ -2892,7 +2892,7 @@ class TestStanceLine(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertIn("uv run --directory .engine -- python tools/engine_status.py", pack)
+        self.assertIn("uv run --directory .engine --frozen -- python tools/engine_status.py", pack)
         self.assertIn("show its output verbatim", pack)
 
     def test_handler_clears_the_stance_for_this_session(self):

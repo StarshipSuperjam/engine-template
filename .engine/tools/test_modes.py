@@ -132,8 +132,29 @@ class TestStanceSignal(unittest.TestCase):
 
     def test_absent_session_id_degrades_safe(self):
         self.assertEqual(modes.current_stance(None), modes.EXPLORE)
-        self.assertFalse(modes.set_stance(None, modes.BUILD))             # no id -> cannot enter Build
+        result = modes.set_stance(None, modes.BUILD)
+        self.assertFalse(result)                                         # no id -> cannot enter Build
+        self.assertEqual(result.reason, "no-session")                    # diagnosis stays distinct
         self.assertIsNone(modes._signal_path(""))
+
+    def test_permission_denied_is_structured_and_gives_both_possible_remedies(self):
+        with mock.patch("builtins.open", side_effect=PermissionError("sandbox denied")):
+            result = modes.set_stance("sess-1", modes.BUILD)
+        self.assertFalse(result)
+        self.assertEqual(result.reason, "permission-denied")
+        line = modes._stance_write_failure("Build", result)
+        self.assertIn("Workspace Write", line)
+        self.assertIn("if this Codex task is Read Only", line)
+        self.assertIn("ownership and permissions", line)
+        self.assertNotIn("sandbox denied", line)
+
+    def test_other_filesystem_failure_is_not_misreported_as_sandbox_denial(self):
+        with mock.patch("builtins.open", side_effect=OSError("disk unavailable")):
+            result = modes.set_stance("sess-1", modes.BUILD)
+        self.assertEqual(result.reason, "filesystem-error")
+        line = modes._stance_write_failure("Build", result)
+        self.assertIn("disk unavailable", line)
+        self.assertNotIn("Workspace Write", line)
 
 
 class TestBuildAndRoutinePermit(unittest.TestCase):

@@ -22,7 +22,7 @@
       "id": "reviewer-shell-prohibition",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "On Claude, the audit and plan-review personas mechanically denylist shell commands; the Codex agent format has no per-tool denylist field, so the renders carry the prohibition as instruction text inside a read-only sandbox (the sandbox bounds the blast radius; the wording is discipline).",
+      "reason": "On Claude, the audit and plan-review personas mechanically denylist shell commands. The Codex agent format has no per-tool denylist field, so its renders carry the prohibition as instruction text and request a read-only sandbox. That request is only the agent's standalone default: Codex reapplies the parent task's live runtime permission override to spawned agents, so a reviewer launched from a Workspace Write parent can be Workspace Write too. The no-shell/no-write wording is then discipline, and the operator's merge is the wall; the read-only TOML must not be described as mechanical child isolation.",
       "contract_ref": "eADR-0034"
     },
     {

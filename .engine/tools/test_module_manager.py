@@ -164,6 +164,14 @@ class TestUvGroupDerivation(unittest.TestCase):
             module_manager.rewrite_default_groups_text(
                 '[tool.uv]\ndefault-groups = [\n  "base",\n]\n', ["base"])
 
+    def test_default_group_reconcile_preserves_engine_cache_setting(self):
+        text = ('[dependency-groups]\nbase = ["p"]\noptx = ["q"]\n\n[tool.uv]\n'
+                'cache-dir = ".uv"\ndefault-groups = ["base", "optx"]\n')
+        new, changed = module_manager.rewrite_default_groups_text(text, ["base"])
+        self.assertTrue(changed)
+        self.assertIn('cache-dir = ".uv"', new)
+        self.assertEqual(new.count('cache-dir = ".uv"'), 1)
+
 
 class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
     """#757 — an engine update reconciles its OWN tool-runtime dependency-group selection so the update's pull
@@ -647,8 +655,12 @@ class TestFrozenLockSync(unittest.TestCase):
         from unittest import mock
         with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as run:
             self.assertTrue(module_manager._resync_tool_runtime())
-        self.assertIn("--frozen", run.call_args[0][0])              # never a bare `uv sync` that can re-resolve
-        self.assertEqual(run.call_args[0][0][:3], ["uv", "sync", "--frozen"])
+        self.assertEqual(run.call_count, 2)
+        sync, prune = run.call_args_list
+        self.assertIn("--frozen", sync.args[0])              # never a bare `uv sync` that can re-resolve
+        self.assertEqual(sync.args[0][:3], ["uv", "sync", "--frozen"])
+        self.assertEqual(prune.args[0], ["uv", "cache", "prune"])
+        self.assertEqual(sync.kwargs["cwd"], prune.kwargs["cwd"])
 
 
 class TestCli(unittest.TestCase):
@@ -1519,6 +1531,25 @@ class TestUpgradeSafety(unittest.TestCase):
                 engine = module_manager.module_coherence.load_engine_manifest()
         self.assertEqual((engine or {}).get("home_repository"), "acme/engine-home")   # preserved
         self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")     # but versions bumped
+
+    def test_upgrade_overlays_engine_cache_and_preserves_reconciled_groups(self):
+        # The older deployment has no cache-dir. The release overlays the whole foundation pyproject,
+        # then the upgrade's default-group reconciler rewrites only its one array; both settings must survive.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                before = module_manager.validate.read(os.path.join(live, ".engine", "pyproject.toml"))
+                self.assertNotIn("cache-dir", before)
+                module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                       opener=lambda **k: {"number": 1},
+                                       backup=lambda *a, **k: {"ok": 1})
+                after = module_manager.validate.read(os.path.join(live, ".engine", "pyproject.toml"))
+                groups = module_manager.committed_default_groups()
+        self.assertIn('cache-dir = ".uv"', after)
+        self.assertEqual(groups, ["base"])
 
     def test_upgrade_preserves_a_recorded_protection_posture(self):
         # #809: an unsupported-platform posture is operator config (a top-level manifest key), so a version bump

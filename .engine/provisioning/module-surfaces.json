@@ -603,6 +603,9 @@
   ".engine/operations/close-turn.md": [
    "core"
   ],
+  ".engine/operations/codex-settings.md": [
+   "core"
+  ],
   ".engine/operations/codex-validation.md": [
    "core"
   ],
@@ -1117,6 +1120,9 @@
    "core"
   ],
   ".engine/tools/demo_state_cursor_honesty.py": [
+   "core"
+  ],
+  ".engine/tools/demo_uv_workspace_cache.py": [
    "core"
   ],
   ".engine/tools/demo_weakening_guard_narrowed_set.py": [
@@ -1656,6 +1662,9 @@
   ".engine/tools/test_codex_gen.py": [
    "core"
   ],
+  ".engine/tools/test_codex_settings.py": [
+   "core"
+  ],
   ".engine/tools/test_conduct.py": [
    "core"
   ],
@@ -1909,6 +1918,9 @@
    "core"
   ],
   ".engine/tools/test_uv_group_drift.py": [
+   "core"
+  ],
+  ".engine/tools/test_uv_workspace_cache.py": [
    "core"
   ],
   ".engine/tools/test_validate.py": [

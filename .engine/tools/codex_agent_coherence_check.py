@@ -2,10 +2,11 @@
 """Codex-render integrity guard — the custom/script entry for engine/check/codex-agent-coherence.
 
 Two legs over the Codex renders (eADR-0034):
-  1. REVIEWER FLOOR: every engine Codex persona (`.codex/agents/*.toml` rendered from a canonical
-     Claude persona) keeps `sandbox_mode = "read-only"` and pins NO `model` — a reviewer that can
-     write, or a model id that rots in a persona file, is exactly the drift the render rule exists
-     to prevent.
+  1. REVIEWER REQUESTED DEFAULT: every engine Codex persona (`.codex/agents/*.toml` rendered from a
+     canonical Claude persona) keeps `sandbox_mode = "read-only"` and pins NO `model`. This is the
+     standalone default, not a mechanical child boundary: Codex can reapply the parent task's live
+     permission override (provider-exceptions.json). The check prevents weaker committed defaults and
+     rotting model ids without overstating runtime isolation.
   2. RENDER SYNC: every committed render (personas AND the `.agents/skills/` twins) matches what the
      render tool would produce from its canonical `.claude/` source, and no engine-prefixed render
      exists without a source — a hand-edited, stale, or orphaned render goes red (the drift gate
@@ -39,8 +40,8 @@ def _floor_findings(tier: str, agents_dir: str) -> list:
                        f"Regenerate it (codex_gen.py generate).", validate.loc(path)))
             continue
         if data.get("sandbox_mode") != "read-only":
-            out.append(validate.finding(tier, f"'{rel}' is a review persona whose sandbox is not "
-                       f"read-only — a reviewer must report findings, never edit the work. Restore "
+            out.append(validate.finding(tier, f"'{rel}' is a review persona whose sandbox is not read-only "
+                       f"as its requested default — a reviewer must report findings, never edit the work. Restore "
                        f"sandbox_mode = \"read-only\" (edit the Claude source and regenerate).",
                        validate.loc(path)))
         if "model" in data:

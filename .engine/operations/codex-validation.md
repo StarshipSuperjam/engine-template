@@ -20,9 +20,12 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
    the engine says so whenever it changes that file).
 3. Start a fresh session and check the floor and grounding: the session reads `AGENTS.md`, and its
    first reply opens with the **Project status** block (or plainly discloses that the briefing did
-   not arrive and grounds manually via `uv run --directory .engine -- python tools/engine_status.py`).
-4. Check the write-gate: ask for a small file edit WITHOUT starting a build — the edit must be
-   denied with the plain exploring explanation; a shell `git commit` must be denied the same way.
+   not arrive and grounds manually via `uv run --directory .engine --frozen -- python tools/engine_status.py`).
+4. **Check the write-gate only in a disposable git worktree.** Open that throwaway worktree as a separate
+   Codex project and, WITHOUT starting a build, ask for a small file edit and then a shell `git commit`.
+   Both must be denied with the plain exploring explanation. Inspect and discard the worktree afterward;
+   never probe a guardrail's negative path by offering it the real project as the mutation target, because a
+   failed hook could perform the action the check meant to deny.
 5. Check Build entry: type `$engine-start` — the stance flips to building (and ONLY this typed verb
    does; casual phrasing must not).
 6. **Check deferred live-helper discovery — including its failure branches, without disturbing the real
@@ -49,50 +52,42 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 7. Check memory capture: after a turn or two, `$engine-status` shows no memory-capture warning (a
    "conversation wasn't saved" line means the transcript reader needs updating — a defect, not a
    deferral).
-8. Check review reach: the ten personas under `.codex/agents/` are visible to the session and a
-   spawned one reports without editing anything.
+8. **Check review reach and the parent-override limit.** Confirm the ten personas under
+   `.codex/agents/` are visible. From a live **Read Only** parent task, spawn one and confirm it reports
+   without editing. Then start a separate live **Workspace Write** parent task, spawn the same persona,
+   inspect the child's effective permission, and confirm Codex reapplies the parent's Workspace Write
+   override instead of mechanically confining the child to its TOML `sandbox_mode = "read-only"`. The
+   second arm is a platform-limit witness, not a desired permission result: if Codex later preserves the
+   child's read-only boundary, reopen the provider exception and `codex-settings.md` rather than retaining
+   a stale weakness claim.
 9. Check help: `$engine-help` renders the commands with the `$` prefix.
-10. Check the routine backend (unattended work). Item zero (two platform facts the whole routine rides on,
-    unverifiable from inside the repo): the installed Codex build supports Automations and a scheduled
-    Automation fires SessionStart (you see the start-of-session briefing / a resolvable session); AND the
-    Automation's "dedicated background worktree" is a git-linked worktree the isolation gate recognizes — i.e.
-    `set-routine` **enters** Routine there, rather than declining "not a dedicated worktree" (if it declines,
-    Codex is isolating by a means the gate doesn't yet detect — a defect owed a fix here, since the ledger
-    exception was retired on the twin's presence, ahead of this live check). Then configure a Codex Automation with
-    `$engine-routine`, a dedicated background worktree, `approval_policy = "never"` + `workspace-write`, and
-    network access, pointed at a scope-locked build Issue with an open draft pull request. Confirm it enters
-    **Routine** (the run reports "Running unattended (routine)…"), advances one planned chunk into the pull
-    request, and **never merges**. Then confirm the safety refusals: pointed at your main checkout (worktree
-    off), or with hooks un-retrusted after an update, it **refuses to write** and says why in the run output —
-    no ungated or main-checkout writes.
-11. **Check the from-Codex self-review (the read-only audit convenience).** Item zero (platform facts, unverifiable
-    from inside the repo): a scheduled Automation fires and runs its pasted prompt; that prompt makes the run **adopt
-    the audit persona** — it loads and follows `.claude/agents/engine-audit.md`, rather than musing generically; a
-    `sandbox_mode = "read-only"` Automation genuinely blocks writes **and reads only within the project** (so the
-    operator's out-of-repo saved memory at `~/.claude/.../memory/` is mechanically out of reach, not merely by the
-    persona's discipline); and — for an operator who also runs the write-capable build routine — the review's
-    read-only sandbox can be scoped to **this** Automation without disabling that routine's `workspace-write` (if
-    Codex cannot scope the sandbox per Automation, record that limitation here). Then configure a **read-only** Codex Automation
-    (`sandbox_mode = "read-only"` + `approval_policy = "never"`; no worktree, no network, no token) with the paste
-    instruction from `.engine/audits/self-review-setup.md`, and **Run now**. Confirm all three: (a) a **plain-language
-    self-review summary appears in the run** — what it looked at, found, and recommends; (b) it is the **real persona
-    degrading honestly, not a look-alike** — the summary **discloses what it could not reach** (the saved memory, the
-    engine's issue backlog, prior reviews, live soft findings, and — only where the project has settled a `docs/spec/`
-    — the spec-conformance feed), since a committed-files-only
-    run is handed none of them; a summary that claims to have reviewed those, or quotes a specific saved-memory note,
-    is the tell that the paste loaded something generic **or** that the read-only sandbox reached your local memory —
-    either is a defect owed a fix here; (c) it **writes nothing** — no file edit, no commit, no pull request, no
-    Issue. This arm is a convenience — its findings live in the run; the scheduled GitHub self-review stays the
-    dependable, durable-findings path.
+10. **Check the retired Codex build-Routine path.** Confirm the scheduling UI still exposes no per-Automation
+    permission profile and uses one shared default; if either fact changed, reopen `codex-settings.md` rather
+    than retaining the retirement without its premise. In **Scheduled**, find every recurring task whose prompt
+    contains `$engine-routine`, pause or delete it, and confirm it no longer appears under Active. Invoke the
+    committed `$engine-routine` skill once in a normal Codex task and confirm it refuses to enter Routine and
+    points to the supported interactive Codex or Claude Desktop path. This external disable is a **pre-merge
+    migration gate**, not merely release follow-up: a shell process cannot prove which scheduler launched it,
+    so repository code cannot safely substitute for removing the old task. During an upgrade crossing routine-mode
+    0.2.0, confirm the preview and pull-request body carry the same disable-and-replace notice.
+11. **Check the retired Codex scheduled self-review path.** Confirm
+    `.engine/audits/self-review-setup.md` no longer tells an operator to create a Codex Automation and instead
+    tells existing users to open **Scheduled**, identify the recurring audit by its prompt, pause or delete it,
+    and then names both supported replacements: an ordinary interactive Read
+    Only Codex task, and the durable GitHub/Claude recurring path. During an upgrade that crosses
+    audit-library 0.3.0, confirm the upgrade preview and pull-request body carry that same disable-and-replace
+    notice. Finally confirm the scheduling UI still has no per-Automation permission profile; if one now exists,
+    reopen the audit rather than keeping the retirement on an obsolete platform limit.
 
 ## Done when
 
 Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
-immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). With the
-routine adapter shipped, the provider-exception ledger carries no remaining capability follow-up — every
-engine command now has its Codex twin. The from-Codex self-review (step 11) rides the audit persona's
-existing twin as a read-only convenience — its findings surface in the run, not a filed record — so it opens
-no new capability the ledger must track.
+immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). The Codex
+routine twin remains as an actionable refusal surface, not a write backend. Codex build and review Automations
+stay retired until Codex and the repository host can preserve the operator-only merge boundary; interactive
+Codex work and the durable GitHub/Claude schedules remain available.
+The live acceptance record must be complete before the Engine release is cut; a documentation-only answer does
+not satisfy the rollout gate.
 
 ## Notes
 

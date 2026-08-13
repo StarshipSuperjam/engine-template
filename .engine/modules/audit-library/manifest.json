@@ -18,5 +18,10 @@
   "wires": [],
   "depends": {
     "validators-core": ""
+  },
+  "retired_capabilities": {
+    "0.3.0": {
+      "description": "The Codex Automation recipe for scheduled self-review has been retired because Codex schedules share one default sandbox and cannot give the audit a schedule-specific Read Only boundary. Open Scheduled, find the recurring task whose prompt names the Engine self-review, pause or delete it, and confirm it is no longer Active. Run the audit in an ordinary interactive Read Only Codex task, or use the GitHub/Claude recurring review described in .engine/audits/self-review-setup.md."
+    }
   }
 }
