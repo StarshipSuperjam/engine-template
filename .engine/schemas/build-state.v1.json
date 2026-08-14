@@ -9,11 +9,12 @@
     "revision": {"type": "integer", "minimum": 1},
     "build": {
       "type": "object", "additionalProperties": false,
-      "required": ["repository", "pr", "base_at_bind"],
+      "required": ["repository", "pr", "base_at_bind", "mode"],
       "properties": {
         "repository": {"type": "string", "minLength": 1},
         "pr": {"type": "integer", "minimum": 1},
-        "base_at_bind": {"$ref": "#/$defs/commit"}
+        "base_at_bind": {"$ref": "#/$defs/commit"},
+        "mode": {"enum": ["same-session", "unattended"]}
       }
     },
     "plan": {

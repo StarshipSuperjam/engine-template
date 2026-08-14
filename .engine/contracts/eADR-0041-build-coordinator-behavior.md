@@ -77,7 +77,7 @@ conditions.
 
 ### Historical replay rule
 
-The six normalized cases are not benchmarks for reproducing one model's prose. A scenario passes when the
+The eight normalized cases are not benchmarks for reproducing one model's prose. A scenario passes when the
 coordinator permits the competent workflow outcome recorded in `expected` and does not impose any behavior
 listed in `must_not`. Mechanical tests may construct the minimum snapshot needed to demonstrate that result.
 The fixtures must remain stable, source-linked, free of transcript text, and broad enough to cover planning

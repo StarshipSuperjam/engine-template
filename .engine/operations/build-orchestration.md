@@ -39,7 +39,8 @@ Open one draft pull request for the Build and keep it draft throughout construct
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
 be one session.
 
-Turn the initiating request or Issue into a `build-plan.v1` document. Keep the operator's raw intent distinct
+Turn the initiating request or Issue into a structured JSON `build-plan.v1` document and present that exact
+document for approval in the harness; never approve prose and translate it into JSON afterward. Keep the operator's raw intent distinct
 from the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
 verified, accepted risk, or unresolved, and state the objective, checkable success obligations, scope,
 non-goals, important risks, implementation outline, and review strategy. Include settled-spec mapping when
@@ -68,7 +69,8 @@ of current evidence, not an append-only event ledger and not repository state. T
 For an interactive Build expected to finish in this harness session, the harness is the content store. The
 snapshot keeps only the canonical digest and source facts. Every checkpoint, review packet, and submission
 preview receives the plan again and refuses a mismatch. This works whether or not the runtime has a formal
-Plan feature: the orchestrator may author `build-plan.v1` conversationally and pass the file or stdin.
+Plan feature: the orchestrator may author and present the same `build-plan.v1` JSON conversationally and pass
+that exact document by file or stdin. The JSON document is the harness plan, not a second plan authority.
 
 A GitHub Issue is not created merely because a Build exists. If a same-session Build began from a suitable
 Issue, that Issue remains the intent record but need not duplicate the plan. A direct request needs only the
@@ -84,8 +86,10 @@ suitable single-Build authority.
 
 No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. A
 deleted durable plan blocks only cold continuation; never reconstruct an approved plan from a summary,
-transcript fragments, or implementation. `handoff export` produces a bounded, redacted snapshot for the PR
-contract; `handoff restore` accepts only the current shape and verifies the durable Issue plan.
+transcript fragments, or implementation. `handoff export --publish --ack-visibility` places one bounded,
+redacted snapshot block in the PR contract with an optimistic-concurrency check; it never creates a comment.
+`handoff restore --repository <owner/repo> --pr <number>` reads that block and verifies the durable Issue plan.
+File/stdin export and restore remain available for a harness that transports the same bytes itself.
 
 ### 2. Assess risk and approve the Build gate
 
@@ -143,7 +147,7 @@ disclosed evidence, not immutable authority.
 
 ### 5. Validate, review the deliverable, and repair proportionately
 
-When the implementation is cohesive, run `validate`. Its default commands are the CI suite and self-tests,
+When the implementation is cohesive, run `validate`. Its fixed registered commands are the CI suite and self-tests,
 and every result is bound to the current commit. Use focused tests while building; run the full project
 validation once on the cohesive candidate. If a later accepted repair changes code, validation must be green
 again for the new final commit.

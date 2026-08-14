@@ -25,6 +25,8 @@ STATE_SCHEMA = ROOT / ".engine" / "schemas" / "build-state.v1.json"
 HANDOFF_SCHEMA = ROOT / ".engine" / "schemas" / "build-handoff.v1.json"
 PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
+HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
+HANDOFF_END = "<!-- /engine-build-handoff -->"
 VALIDATION_COMMANDS = [
     {"id": "engine-ci", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/validate.py", "--suite", "CI"]},
     {"id": "engine-selftest", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]},
@@ -178,10 +180,11 @@ def _empty_review() -> dict:
     return {"packet_digest": None, "required_lenses": [], "installed_lenses": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
 
 
-def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None) -> dict:
+def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
+                   mode: str = "same-session") -> dict:
     return {
         "schema_version": "build-state.v1", "revision": 1,
-        "build": {"repository": repo, "pr": pr, "base_at_bind": base},
+        "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode},
         "plan": {"source": source, "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
                  "spec_digest": plan["spec"].get("digest"), "durable_issue": issue},
         "approval": None, "reviews": {"plan": _empty_review(), "deliverable": _empty_review()},
@@ -290,9 +293,10 @@ def _missing_receipts(stage: dict) -> list[str]:
     return [lens for lens in stage["required_lenses"] if lens not in done]
 
 
-def _status(state: dict) -> dict:
+def _status(state: dict, plan: dict | None = None) -> dict:
     head = _head()
     required_evidence, judgments, warnings = [], [], []
+    unresolved_assumptions: list[str] = []
     plan_stage, delivery = state["reviews"]["plan"], state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
     blocking = [f["id"] for f in state["findings"] if f["blocks_this_pr"]]
@@ -340,6 +344,11 @@ def _status(state: dict) -> dict:
         required_evidence.append("complete PR contract for the final commit")
     if state["plan"]["source"] == "session":
         warnings.append("plan is session-local; promote it before intentional cold-session handoff")
+    if plan:
+        unresolved_assumptions = [x["claim"] for x in plan["assumptions"] if x["status"] == "unresolved"]
+        accepted = [x["claim"] for x in plan["assumptions"] if x["status"] == "accepted-risk"]
+        judgments.extend("investigate unresolved assumption: " + value for value in unresolved_assumptions)
+        warnings.extend("accepted plan risk: " + value for value in accepted)
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     plan_ready = plan_stage["packet_digest"] is not None and not _missing_receipts(plan_stage) and plan_coverage_current
@@ -347,8 +356,7 @@ def _status(state: dict) -> dict:
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
-        state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
-        and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
+        state["repair"] is not None and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         not [x for x in state["repair"]["lenses"] if x not in {r["lens"] for r in state["repair"]["receipts"]}]))
     preflight_ready = not [x for x in protocol["preflights"] if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
@@ -359,8 +367,8 @@ def _status(state: dict) -> dict:
         phase, next_one, available = "plan-review", "prepare or complete the plan review", []
     elif not dispositions_ready:
         phase, next_one, available = "finding-disposition", None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
-    elif judgments and state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned":
-        phase, next_one, available = "engineering-decision", None, ["revise the plan", "obtain the genuine operator decision", "record an aligned checkpoint after resolving the decision"]
+    elif unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
+        phase, next_one, available = "engineering-decision", None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
     elif not valid:
         phase, next_one, available = "implementation", None, ["continue implementation", "run focused verification", "run final validation when the change is cohesive"]
     elif not delivery_ready:
@@ -378,6 +386,9 @@ def _status(state: dict) -> dict:
 
 def cmd_plan_bind(args, store: StateStore) -> None:
     plan = _plan(args.input)
+    mode = getattr(args, "mode", "same-session")
+    if mode == "unattended" and args.source != "issue":
+        raise CoordinatorError("unattended Builds require an exact durable Issue plan")
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
@@ -388,7 +399,7 @@ def cmd_plan_bind(args, store: StateStore) -> None:
         durable = _durable_plan(_issue_body(args.repository, issue))
         if _digest(durable) != _digest(plan):
             raise CoordinatorError("supplied plan does not match the durable Issue plan")
-    state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue)
+    state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue, mode)
     store.create(state)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
 
@@ -443,9 +454,11 @@ def cmd_approve(args, store: StateStore) -> None:
 
 def cmd_status(args, store: StateStore) -> None:
     state = store.read()
+    plan = None
     if args.plan:
-        _assert_plan(state, _plan(args.plan))
-    result = _status(state)
+        plan = _plan(args.plan)
+        _assert_plan(state, plan)
+    result = _status(state, plan)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
         return
@@ -497,6 +510,10 @@ def _packet(args, store: StateStore) -> None:
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed, "required_lenses": required}
     packet["packet_digest"] = _digest(packet)
+    current = state["repair"] if stage == "repair" else state["reviews"][stage]
+    if current and current.get("packet_digest") == packet["packet_digest"]:
+        print(json.dumps(packet, indent=2, sort_keys=True))
+        return
     def change(s):
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
@@ -523,11 +540,6 @@ def cmd_review_record(args, store: StateStore) -> None:
                 raise CoordinatorError(f"{args.lens} was not requested for this repair review")
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest, "commit": target["final_commit"], "finding_ids": finding_ids}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
-            if not [x for x in target["lenses"] if x not in {r["lens"] for r in target["receipts"]}]:
-                delivery = state["reviews"]["deliverable"]
-                refreshed = {r["lens"]: r for r in target["receipts"]}
-                delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] not in refreshed] + list(refreshed.values())
-                delivery["reviewed_commit"] = target["final_commit"]
         else:
             target = state["reviews"][args.stage]
             if target["packet_digest"] != args.packet_digest:
@@ -588,10 +600,9 @@ def cmd_checkpoint(args, store: StateStore) -> None:
 
 def cmd_validate(args, store: StateStore) -> None:
     store.read()
-    commands = json.loads(_input(args.commands)) if args.commands else VALIDATION_COMMANDS
     head = _head()
     results = []
-    for item in commands:
+    for item in VALIDATION_COMMANDS:
         result = _run(item["command"])
         detail = (result.stdout + "\n" + result.stderr).strip()
         summary = (detail[-1000:] if detail else f"exit {result.returncode}")
@@ -606,6 +617,11 @@ def cmd_repair_assess(args, store: StateStore) -> None:
     head = _head()
     state = store.read()
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
+    prior = state["repair"]
+    if prior and prior["judgment"] != "none" and not [
+        lens for lens in prior["lenses"] if lens not in {receipt["lens"] for receipt in prior["receipts"]}
+    ]:
+        reviewed = prior["final_commit"]
     if not reviewed:
         raise CoordinatorError("deliverable review has not recorded a reviewed commit")
     summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
@@ -672,9 +688,15 @@ def _handoff(state: dict) -> dict:
                           "packet_digest": finding["packet_digest"], "commit": finding["commit"],
                           "disposition": finding["disposition"],
                           "blocks_this_pr": finding["blocks_this_pr"], "summary": finding["handoff_summary"]})
+    validation = None if not state["validation"] else {
+        "commit": state["validation"]["commit"],
+        "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["validation"]["results"]],
+    }
+    repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
+    preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
     value = {"schema_version": "build-handoff.v1", "build": state["build"], "plan": state["plan"],
              "approval": state["approval"], "reviews": state["reviews"], "finding_summaries": summaries,
-             "validation": state["validation"], "repair": state["repair"], "preflights": state["preflights"],
+             "validation": validation, "repair": repair, "preflights": preflights,
              "pr_contract": state["pr_contract"]}
     _validate(value, HANDOFF_SCHEMA)
     return value
@@ -683,6 +705,22 @@ def _handoff(state: dict) -> dict:
 def cmd_handoff_export(args, store: StateStore) -> None:
     value = _handoff(store.read())
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    if args.publish:
+        if not args.ack_visibility:
+            raise CoordinatorError("handoff publication places redacted evidence in the PR contract; pass --ack-visibility")
+        repo, pr = value["build"]["repository"], value["build"]["pr"]
+        before = _verify_draft(repo, pr).get("body") or ""
+        block = f"{HANDOFF_BEGIN}{_digest(value)} -->\n```json\n{rendered.rstrip()}\n```\n{HANDOFF_END}"
+        pattern = re.compile(re.escape(HANDOFF_BEGIN) + r".*?" + re.escape(HANDOFF_END), re.DOTALL)
+        after = pattern.sub(block, before) if pattern.search(before) else before.rstrip() + "\n\n" + block + "\n"
+        if (_verify_draft(repo, pr).get("body") or "") != before:
+            raise CoordinatorError("PR contract changed while preparing handoff; no write was made")
+        _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=after)
+        confirmed = _verify_draft(repo, pr).get("body") or ""
+        if confirmed != after:
+            raise CoordinatorError("GitHub did not preserve the exact handoff block")
+        print(f"published bounded handoff snapshot in {repo}#{pr}")
+        return
     if args.output == "-":
         print(rendered, end="")
     else:
@@ -690,8 +728,37 @@ def cmd_handoff_export(args, store: StateStore) -> None:
         print(f"wrote bounded handoff snapshot to {args.output}")
 
 
+def _restore_results(results: list[dict]) -> list[dict]:
+    return [{**item, "summary": "details redacted from durable handoff"} for item in results]
+
+
+def _restore_result_set(result_set: dict | None) -> dict | None:
+    if not result_set:
+        return None
+    return {"commit": result_set["commit"], "results": _restore_results(result_set["results"])}
+
+
+def _restore_repair(repair: dict | None) -> dict | None:
+    if not repair:
+        return None
+    return {**repair, "rationale": "private rationale redacted from durable handoff"}
+
+
 def cmd_handoff_restore(args, store: StateStore) -> None:
-    value = json.loads(_input(args.input))
+    if args.input:
+        rendered = _input(args.input)
+    else:
+        if not args.repository or not args.pr:
+            raise CoordinatorError("restore needs --input or both --repository and --pr")
+        body = _gh_json(["pr", "view", str(args.pr), "--repo", args.repository, "--json", "body"]).get("body") or ""
+        pattern = re.compile(re.escape(HANDOFF_BEGIN) + r"(sha256:[0-9a-f]{64}) -->\n```json\n(.*?)\n```\n" + re.escape(HANDOFF_END), re.DOTALL)
+        matches = list(pattern.finditer(body))
+        if len(matches) != 1:
+            raise CoordinatorError("PR contract has no unique engine-build-handoff:v1 block")
+        rendered = matches[0].group(2)
+        if _digest(json.loads(rendered)) != matches[0].group(1):
+            raise CoordinatorError("PR handoff content does not match its marker digest")
+    value = json.loads(rendered)
     if value.get("schema_version") != "build-handoff.v1":
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
     _validate(value, HANDOFF_SCHEMA)
@@ -705,24 +772,33 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
                            "commit": f["commit"], "severity": "nit", "summary": f["summary"], "disposition": f["disposition"],
                            "rationale": f["summary"], "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"]}
                           for f in value["finding_summaries"]],
-             "checkpoint": None, "validation": value["validation"], "repair": value["repair"],
-             "preflights": value["preflights"], "pr_contract": value["pr_contract"], "submission": "draft"}
+             "checkpoint": None, "validation": _restore_result_set(value["validation"]),
+             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
+             "pr_contract": value["pr_contract"], "submission": "draft"}
     store.create(state)
     print(f"restored Build snapshot from durable Issue #{issue}")
 
 
 def _submit_preview(store: StateStore, plan_path: str) -> dict:
     state = store.read()
-    _assert_plan(state, _plan(plan_path))
-    status = _status(state)
-    pr = _verify_draft(state["build"]["repository"], state["build"]["pr"])
+    plan = _plan(plan_path)
+    _assert_plan(state, plan)
+    status = _status(state, plan)
+    pr = _gh_json(["pr", "view", str(state["build"]["pr"]), "--repo", state["build"]["repository"],
+                   "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body"])
+    if pr.get("number") != state["build"]["pr"] or pr.get("state") != "OPEN":
+        raise CoordinatorError("the expected pull request is not open")
     if pr.get("headRefOid") != status["head_commit"]:
         raise CoordinatorError("the PR head does not match the local final commit")
     if pr.get("mergeable") != "MERGEABLE":
         raise CoordinatorError("the PR is not currently confirmed mergeable; reconcile or retry the live check before submission")
+    base = pr.get("baseRefOid")
+    if not base or _run(["git", "merge-base", "--is-ancestor", base, status["head_commit"]]).returncode:
+        raise CoordinatorError("the final commit does not contain the live target-branch base; reconcile, validate, and assess review proportionally")
     if status["phase"] != "ready":
         raise CoordinatorError("submission evidence is incomplete: " + "; ".join(status["required_evidence"] + status["engineering_judgment"]))
-    return {"repository": state["build"]["repository"], "pr": state["build"]["pr"], "commit": status["head_commit"], "action": "mark-ready", "merge": False}
+    action = "mark-ready" if pr.get("isDraft") else "record-ready"
+    return {"repository": state["build"]["repository"], "pr": state["build"]["pr"], "commit": status["head_commit"], "action": action, "merge": False}
 
 
 def cmd_submit_preview(args, store: StateStore) -> None:
@@ -731,7 +807,8 @@ def cmd_submit_preview(args, store: StateStore) -> None:
 
 def cmd_submit_apply(args, store: StateStore) -> None:
     preview = _submit_preview(store, args.plan)
-    _must_run(["gh", "pr", "ready", str(preview["pr"]), "--repo", preview["repository"]])
+    if preview["action"] == "mark-ready":
+        _must_run(["gh", "pr", "ready", str(preview["pr"]), "--repo", preview["repository"]])
     store.mutate(lambda s: s.update({"submission": "ready"}))
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
 
@@ -742,7 +819,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
-    bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
+    bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
     promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); promote.add_argument("--issue", type=int, required=True); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
@@ -753,13 +830,13 @@ def parser() -> argparse.ArgumentParser:
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.set_defaults(func=cmd_finding_record)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.set_defaults(func=cmd_checkpoint)
-    validate = sub.add_parser("validate"); validate.add_argument("--commands"); validate.set_defaults(func=cmd_validate)
+    validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
-    export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.set_defaults(func=cmd_handoff_export)
-    restore = handoff.add_parser("restore"); restore.add_argument("--input", required=True); restore.set_defaults(func=cmd_handoff_restore)
+    export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.add_argument("--publish", action="store_true"); export.add_argument("--ack-visibility", action="store_true"); export.set_defaults(func=cmd_handoff_export)
+    restore = handoff.add_parser("restore"); restore.add_argument("--input"); restore.add_argument("--repository"); restore.add_argument("--pr", type=int); restore.set_defaults(func=cmd_handoff_restore)
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
