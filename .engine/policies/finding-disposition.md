@@ -6,11 +6,25 @@ date: 2026-06-03
 
 ## Rule
 
-Every concern the AI raises while working must reach exactly one durable outcome — never a "maybe later" left floating in the conversation:
+Every concern the AI raises while working must reach exactly one durable outcome — never a "maybe later" left floating in the conversation.
+
+For an ordinary concern discovered during work:
 
 - If it blocks the work at hand → stop and surface it for a decision (escalate).
 - If it is small and directly related to the current work → fix it in line.
 - If it is real but outside the current work → open a tracked issue and move on.
+
+For a cold-review finding, the orchestrator first judges whether the concern is correct and whether the
+reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic response. Record one of:
+
+- **Accepted and fixed** — the concern is correct and the in-scope repair landed.
+- **Accepted and tracked** — the concern is correct but is deliberately outside this PR, with a durable Issue.
+- **Partially accepted** — the underlying concern is real, but a bounded remedy fits better than the proposal.
+- **Rejected** — the concern or proposed consequence does not hold, with grounded rationale.
+- **Escalated** — a genuine design, law, authority, capability-boundary, or operator-only decision remains.
+
+Record separately whether the finding still blocks this PR. A `blocking` or `serious` reviewer label never
+sets that field by itself, and accepting a concern never means accepting its proposed remedy.
 
 A "not urgent, we'll get to it" aside with no record created is a violation of this rule.
 
@@ -20,7 +34,11 @@ Applies to anything the AI surfaces during a working session. The "fix it in lin
 
 ## Rationale
 
-The point is simple: no concern the AI raises should quietly disappear into a chat transcript nobody re-reads. By forcing every concern to a fix, a tracked issue, or an escalation, the operator can trust that nothing important was noticed and then silently dropped. Tracked issues are not a hidden backlog either — they are brought back to the operator in plain language the next time the engine starts up, so they surface on their own rather than waiting to be hunted down.
+The point is simple: no concern should disappear into a transcript, and no reviewer should silently become the
+engineer of record. Ordinary concerns still resolve to fix, track, or escalate. Review findings preserve the
+orchestrator's adjudication so the operator can see which concern was accepted, bounded, rejected, or raised
+for a real decision. Tracked issues are not a hidden backlog either — they return through normal Engine
+attention rather than waiting to be hunted down.
 
 ## Enforcement-tier
 

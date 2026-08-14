@@ -342,6 +342,26 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         self.assertIn("recursive-audit", forbidden)
         self.assertIn("blindly-apply-reviewer-remedy", forbidden)
 
+    def test_short_runbook_preserves_the_quality_and_authority_gates(self):
+        text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
+        self.assertLessEqual(len(text.split()), 3063)
+        for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
+                       "no automatic audit recursion", "operator alone merges"):
+            self.assertIn(phrase, text)
+
+    def test_every_reviewer_receives_the_exact_approved_plan(self):
+        agents = list((bc.ROOT / ".claude" / "agents").glob("engine-design-review-*.md"))
+        agents += list((bc.ROOT / ".claude" / "agents").glob("engine-qa-review-*.md"))
+        self.assertEqual(len(agents), 9)
+        for agent in agents:
+            self.assertIn("exact operator-approved Build plan", agent.read_text(), agent.name)
+
+    def test_no_spec_keeps_both_plan_derived_conformance_lenses(self):
+        for name in ("engine-qa-review-spec-conformance.md", "engine-qa-review-divergence-hunter.md"):
+            text = (bc.ROOT / ".claude" / "agents" / name).read_text()
+            self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)
+            self.assertIn("operator-approved Build plan", text)
+
 
 if __name__ == "__main__":
     unittest.main()
