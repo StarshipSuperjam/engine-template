@@ -82,6 +82,7 @@
       ".engine/templates/*.md"
     ],
     "foundation": [
+      ".engine/build-protocol.json",
       ".engine/suites.json",
       ".engine/self-map.md"
     ],

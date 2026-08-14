@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build-handoff.v1 — bounded cold-session continuation evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "build", "plan", "approval", "reviews", "finding_summaries", "validation", "repair", "preflights", "pr_contract"],
+  "properties": {
+    "schema_version": {"const": "build-handoff.v1"},
+    "build": {"type": "object"},
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue"],
+      "properties": {
+        "source": {"const": "issue"}, "digest": {"type": "string"}, "intent_digest": {"type": "string"},
+        "spec_digest": {"type": ["string", "null"]}, "durable_issue": {"type": "integer", "minimum": 1}
+      }
+    },
+    "approval": {"type": ["object", "null"]},
+    "reviews": {"type": "object"},
+    "finding_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "stage", "lens", "packet_digest", "commit", "disposition", "blocks_this_pr", "summary"],
+        "properties": {
+          "id": {"type": "string"}, "stage": {"enum": ["plan", "deliverable", "repair"]},
+          "lens": {"type": "string"}, "packet_digest": {"type": "string"}, "commit": {"type": ["string", "null"]},
+          "disposition": {"type": "string"}, "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "validation": {"type": ["object", "null"]},
+    "repair": {"type": ["object", "null"]},
+    "preflights": {"type": "array"},
+    "pr_contract": {"type": ["object", "null"]}
+  }
+}
