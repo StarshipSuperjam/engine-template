@@ -1,0 +1,54 @@
+{
+  "schema_version": "build-scenarios.v1",
+  "normalization": "Workflow facts distilled from Engine memory and merged PR records. No transcript prose, private path, or runtime-specific internal state is retained.",
+  "scenarios": [
+    {
+      "id": "direct-no-spec-disposition",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 865, "memory_session": "f90d8b1b-92af-4754-8257-d5eda0a242e3"},
+      "shape": ["same-session", "direct-request", "no-settled-spec"],
+      "events": ["plan-held-in-session", "plan-derived-conformance", "review-findings-adjudicated"],
+      "expected": ["no-issue-required", "exact-plan-remains-review-referent", "findings-may-use-different-dispositions"],
+      "must_not": ["invent-settled-spec", "create-issue-for-ceremony", "severity-selects-remedy"]
+    },
+    {
+      "id": "false-premise-corrected-before-code",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 886, "memory_session": "80cbfb46-8d2f-4fb1-b2bf-4ba3549159b6"},
+      "shape": ["same-session", "originating-issue"],
+      "events": ["premise-investigated", "plan-revised", "approval-bound-to-revised-plan"],
+      "expected": ["investigation-before-implementation", "old-approval-invalidated", "one-corrected-build-path"],
+      "must_not": ["structural-plan-completeness-implies-truth", "implement-known-false-premise"]
+    },
+    {
+      "id": "material-repair-focused-review-and-reconcile",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 681, "memory_session": "f73864f7-7231-484b-b7d4-97321f737052"},
+      "shape": ["same-session", "base-advanced"],
+      "events": ["deliverable-reviewed", "material-repair", "focused-re-review", "base-reconciled", "validation-rerun"],
+      "expected": ["scoped-review-is-valid", "base-is-evidence-not-authority", "final-commit-is-validated"],
+      "must_not": ["force-full-review-by-diff-size", "freeze-original-base"]
+    },
+    {
+      "id": "small-rereview-repair-terminates",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 685, "memory_session": "d9ae59f5-2309-40df-b525-4ef1ed8ef364"},
+      "shape": ["same-session", "post-review-repair"],
+      "events": ["focused-re-review", "one-line-prescribed-repair", "direct-verification", "no-further-review"],
+      "expected": ["none-judgment-is-valid", "review-loop-terminates", "validation-fresh-for-final-commit"],
+      "must_not": ["repair-automatically-invalidates-all-review", "recursive-audit"]
+    },
+    {
+      "id": "serious-findings-scoped-rereview",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 955, "memory_session": "08f90f17-976a-40a3-a70e-2b13044e6ffa"},
+      "shape": ["same-session", "security-sensitive"],
+      "events": ["serious-findings-received", "remedies-critically-adjudicated", "accepted-repairs", "scoped-re-review"],
+      "expected": ["severity-does-not-select-remedy", "accepted-concern-may-have-bounded-remedy", "affected-lenses-rerun"],
+      "must_not": ["blindly-apply-reviewer-remedy", "automatically-escalate-every-serious-finding"]
+    },
+    {
+      "id": "discovered-scope-and-operator-boundary",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 924, "memory_session": "d56725c5-dc04-4c28-84ef-4524dcfcff22"},
+      "shape": ["same-session", "complex-discovery"],
+      "events": ["ordinary-leaves-implemented", "out-of-scope-concern-tracked", "genuine-product-boundary-returned-to-operator"],
+      "expected": ["engineering-leaves-do-not-require-reapproval", "genuine-boundary-decision-does", "rejected-remedy-keeps-rationale"],
+      "must_not": ["unexpected-path-is-automatic-scope-violation", "every-review-note-stops-build"]
+    }
+  ]
+}
