@@ -1409,6 +1409,15 @@ class TestUpgradeEndToEnd(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(module_manager.upgrade_demo())
 
+    def test_upgrade_fixture_isolates_the_memory_migration_window(self):
+        from memory import ledger
+        previous = os.environ.get("ENGINE_MEMORY_DIR")
+        with tempfile.TemporaryDirectory() as root:
+            expected = os.path.join(root, ".engine", "memory")
+            with module_manager._redirect_root(root):
+                self.assertEqual(ledger.ledger_dir(), expected)
+            self.assertEqual(os.environ.get("ENGINE_MEMORY_DIR"), previous)
+
 
 class TestUpgradeSafety(unittest.TestCase):
     """Upgrade's defense-in-depth: degrade on an unreachable release, the data-migration pre-flight refusal

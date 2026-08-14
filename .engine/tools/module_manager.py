@@ -3994,10 +3994,14 @@ def _status() -> int:
 def _redirect_root(root: str):
     """Point every ROOT-derived path at a throwaway fixture tree, restore on exit. The wiring-library
     path constants are bound at import, so they are redirected explicitly (the same discipline the
-    coherence tests use)."""
+    coherence tests use). Fixture migrations must also use a throwaway memory directory: the real
+    memory ledger is intentionally shared across worktrees, so leaving that seam live would make a
+    synthetic upgrade contend with an unrelated active session or write a migration marker into the
+    operator's store."""
     saved = (validate.ROOT, validate.ENGINE_DIR, wiring.SETTINGS_PATH, wiring.MCP_PATH,
              wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
              wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH)
+    saved_memory_dir = os.environ.get("ENGINE_MEMORY_DIR")
     validate.ROOT = root
     validate.ENGINE_DIR = os.path.join(root, ".engine")
     wiring.SETTINGS_PATH = os.path.join(root, ".claude", "settings.json")
@@ -4006,12 +4010,17 @@ def _redirect_root(root: str):
     wiring.CATALOG_PATH = os.path.join(root, ".engine", "schemas", "surface-catalog.json")
     wiring.CODEX_HOOKS_PATH = os.path.join(root, ".codex", "hooks.json")
     wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
+    os.environ["ENGINE_MEMORY_DIR"] = os.path.join(root, ".engine", "memory")
     try:
         yield
     finally:
         (validate.ROOT, validate.ENGINE_DIR, wiring.SETTINGS_PATH, wiring.MCP_PATH,
          wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
          wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH) = saved
+        if saved_memory_dir is None:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+        else:
+            os.environ["ENGINE_MEMORY_DIR"] = saved_memory_dir
 
 
 def _build_fixture(root: str) -> None:
