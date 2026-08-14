@@ -206,6 +206,22 @@ def _missing_receipts(stage: dict) -> list[str]:
     return review.missing_receipts(stage)
 
 
+def _plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
+    ready, missing = review.plan_review_ready(state, plan)
+    stage = state["reviews"]["plan"]
+    waiver = stage.get("waiver")
+    trivial = plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick"
+    if waiver or trivial or not state.get("approval"):
+        return ready, missing
+    current = _required(_protocol(), "plan", state["approval"]["depth"], _installed("plan"))
+    recorded = {item["lens"]: (item["path"], item["digest"])
+                for item in stage.get("reviewer_contracts", [])}
+    changed = [item["lens"] for item in current
+               if recorded.get(item["lens"]) != (item["path"], item["digest"])]
+    missing.extend(f"refresh plan-review contract: {lens}" for lens in changed)
+    return not missing, missing
+
+
 def _trivial_violations(state: dict, plan: dict) -> list[str]:
     if plan["profile"] != "trivial":
         return []
@@ -726,7 +742,7 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         _assert_spec_boundary(state, plan, allow_same_session_offline=True)
         if not state["approval"]:
             raise CoordinatorError("the Build gate is not approved")
-        plan_ready, missing_review = review.plan_review_ready(state, plan)
+        plan_ready, missing_review = _plan_review_ready(state, plan)
         if not plan_ready:
             raise CoordinatorError("implementation cannot begin before plan review: " + "; ".join(missing_review))
         items = {item["id"]: item for item in plan["work_items"]}
@@ -764,7 +780,7 @@ def cmd_checkpoint(args, store: StateStore) -> None:
 def cmd_validate(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
-    plan_ready, missing_review = review.plan_review_ready(state, {"profile": state["plan"]["profile"]})
+    plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
     if not plan_ready:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
     results = []

@@ -41,6 +41,25 @@ class TestPlanReviewOrdering(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "before plan review"):
             bc.cmd_validate(argparse.Namespace(), self.store)
 
+    def test_changed_installed_plan_contract_blocks_checkpoint_until_refreshed(self):
+        self.approve("standard")
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None,
+                                  standalone=False, output=None, json=True)
+        reviewer = {"lens": "product-intent", "path": "reviewer.md",
+                    "digest": "sha256:" + "1" * 64}
+        with mock.patch.object(bc, "_installed", return_value=[reviewer]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc._packet(args, self.store)
+        packet = self.state()["reviews"]["plan"]["packet_digest"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(argparse.Namespace(stage="plan", lens="product-intent",
+                                                    packet_digest=packet, finding=[]), self.store)
+        changed = {**reviewer, "digest": "sha256:" + "2" * 64}
+        with mock.patch.object(bc, "_installed", return_value=[changed]), \
+                self.assertRaisesRegex(bc.CoordinatorError, "refresh plan-review contract"):
+            bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(self.note_path),
+                                                 complete_item=None, json=False), self.store)
+
     def test_routine_cannot_use_retrospective_plan_review_waiver(self):
         value = plan()
         value["profile"] = "routine"
