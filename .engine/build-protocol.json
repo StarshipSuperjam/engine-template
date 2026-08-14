@@ -1,103 +1,93 @@
 {
   "schema_version": "build-protocol.v1",
-  "preservation_source": {
-    "git_object": "7b0af413b2f684fed541f0c5ef0aee07b0364b6a:.engine/operations/build-orchestration.md",
-    "digest": "sha256:60010bac9cb0ab4b48a6d56627800df2f965d17c4235ddc25f82487b1b247f55",
-    "lines": 448,
-    "words": 6296,
-    "assurance": "The map is structural traceability, not proof of semantic equivalence. Independent QA reconstructs the source obligations and judges current mechanics and prose."
-  },
   "plan_review": {
     "quick": [],
-    "standard": ["product-intent", "architecture"],
-    "thorough": ["product-intent", "architecture", "feasibility", "risk-governance"]
+    "standard": [
+      "product-intent",
+      "architecture"
+    ],
+    "thorough": [
+      "product-intent",
+      "architecture",
+      "feasibility",
+      "risk-governance"
+    ]
   },
   "deliverable_review": {
     "quick": [],
-    "standard": ["spec-conformance", "divergence-hunter", "usability"],
-    "thorough": ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"]
+    "standard": [
+      "spec-conformance",
+      "divergence-hunter",
+      "usability"
+    ],
+    "thorough": [
+      "spec-conformance",
+      "divergence-hunter",
+      "usability",
+      "technical-integrity",
+      "security-governance"
+    ]
   },
   "preflights": [
-    {"id": "close-linkage", "command": ["python", ".engine/tools/close_linkage_preflight.py", "check"], "required": false},
-    {"id": "pr-contract", "command": [], "required": true}
+    {
+      "id": "close-linkage",
+      "command": [
+        "python",
+        ".engine/tools/close_linkage_preflight.py",
+        "check"
+      ],
+      "required": false
+    },
+    {
+      "id": "pr-contract",
+      "command": [],
+      "required": true
+    }
   ],
   "hard_holds": [
-    {"id": "plan-authority", "prevents": "work or review using a plan other than the one the operator approved"},
-    {"id": "approval", "prevents": "implementation before the operator approves the plan and review depth"},
-    {"id": "review-coverage", "prevents": "silently omitting review coverage the operator approved"},
-    {"id": "deliverable-review", "prevents": "submitting without an independent deliverable-review gate"},
-    {"id": "validation-freshness", "prevents": "submitting a commit other than the one that passed validation"},
-    {"id": "repair-judgment", "prevents": "post-review changes bypassing a proportional re-review decision"},
-    {"id": "blocking-finding", "prevents": "submitting a finding the orchestrator explicitly left blocking this PR"},
-    {"id": "preflights", "prevents": "skipping or ignoring a repository submission preflight"},
-    {"id": "pr-contract", "prevents": "presenting an incomplete merge surface to the operator"},
-    {"id": "draft-identity", "prevents": "building against the wrong, closed, or already-ready pull request"},
-    {"id": "human-merge", "prevents": "the coordinator crossing the operator-only merge boundary"}
-  ],
-  "obligations": [
-    {"id":"BO-01","intent":"Open one draft PR as the Build claim and keep construction draft.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_bind_initializes_only_for_the_matching_draft_pr_head"},
-    {"id":"BO-02","intent":"Plan work as an ordered sequence before implementation.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/schemas/build-plan.v1.json","anchor":"test_plan_work_items_are_ordered_and_unique"},
-    {"id":"BO-03","intent":"Store same-session plans locally and require durable authority for unattended continuation.","classification":"recovery-behavior","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_unattended_bind_requires_durable_issue_plan"},
-    {"id":"BO-04","intent":"Derive review coverage from installed persona role and lens metadata.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_thorough_requires_every_installed_lens"},
-    {"id":"BO-05","intent":"Disclose zero installed reviewers rather than claim a green review.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"No installed reviewer is a disclosed no-extra-review result"},
-    {"id":"BO-06","intent":"Judge Codex adapter changes against the governing decision and live validation procedure.","classification":"advisory-practice","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"Codex adapter surfaces"},
-    {"id":"BO-07","intent":"Title PRs using the Kind prefix contract.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"using the kinds"},
-    {"id":"BO-08","intent":"Use impact, installed coverage, neighbours, and nearby trouble to propose review depth.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Run the knowledge impact check"},
-    {"id":"BO-09","intent":"Derive suggested depth from risk rather than prior operator preference.","classification":"ai-judgment","disposition":"prose","owner":".engine/templates/risk-assessment.md","anchor":"never lowered by a depth"},
-    {"id":"BO-10","intent":"Relay a plain-language risk surface without invented time or cost.","classification":"operator-authority","disposition":"prose","owner":".engine/templates/risk-assessment.md","anchor":"Never a time or a cost figure"},
-    {"id":"BO-11","intent":"Reserve guardrail acknowledgement to the operator and distinguish killswitch from disclosure tiers.","classification":"operator-authority","disposition":"prose","owner":".engine/templates/risk-assessment.md","anchor":"KILLSWITCH-tier"},
-    {"id":"BO-12","intent":"Approve plan and review depth together before implementation.","classification":"operator-authority","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_checkpoint_requires_approval"},
-    {"id":"BO-13","intent":"Retain a one-headline fast path for genuinely trivial reversible no-spec work.","classification":"advisory-practice","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_trivial_profile_preserves_one_glance_floor"},
-    {"id":"BO-14","intent":"Run cold plan review before implementation at approved coverage.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_plan_packet_contains_exact_referents"},
-    {"id":"BO-15","intent":"Require every reported finding to receive an orchestrator disposition.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_review_receipt_inventory_drives_disposition_completeness"},
-    {"id":"BO-16","intent":"Treat reviewer severity and proposed remedy as advice.","classification":"ai-judgment","disposition":"prose","owner":".engine/policies/finding-disposition.md","anchor":"Reviewer severity is advice"},
-    {"id":"BO-17","intent":"Choose inline, isolated-worker, or Routine implementation according to cohesion and context pressure.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Choose an implementation strategy"},
-    {"id":"BO-18","intent":"Keep the orchestrator as single writer and integrate worker output for cohesion.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"judges cohesion"},
-    {"id":"BO-19","intent":"Re-dispatch or complete a failed worker's missing work without phantom workflow state.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"worker fails"},
-    {"id":"BO-20","intent":"List and disposition deferred-work markers in touched areas.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"engine_todo.py list"},
-    {"id":"BO-21","intent":"Use focused tests during implementation and the full suite once on the cohesive candidate.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"focused tests"},
-    {"id":"BO-22","intent":"Reconcile the live base before submission.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_submission_requires_live_base_containment"},
-    {"id":"BO-23","intent":"Regenerate knowledge graph and self-map last; never side-pick derived conflicts.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"knowledge/graph.json"},
-    {"id":"BO-24","intent":"Disclose regenerated-index count and that no work was lost.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"generated index files changed"},
-    {"id":"BO-25","intent":"Validate before spending cold deliverable review.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_deliverable_packet_requires_green_validation"},
-    {"id":"BO-26","intent":"Run frozen CI validation and serial self-tests.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_validation_runs_only_registered_commands"},
-    {"id":"BO-27","intent":"Preserve complete validation diagnostics and readable self-test logs.","classification":"recovery-behavior","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_validation_preserves_complete_logs"},
-    {"id":"BO-28","intent":"Record the exact commit reviewed by deliverable reviewers.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_deliverable_packet_records_reviewed_commit"},
-    {"id":"BO-29","intent":"Invalidate validation after every code change.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_status_requires_validation_for_current_head"},
-    {"id":"BO-30","intent":"Measure reviewed-to-final divergence and require a none, scoped, or full engineering judgment.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_repair_assessment_records_diff_and_judgment"},
-    {"id":"BO-31","intent":"Allow scoped repair review and a terminating no-review judgment without recursion.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_prescribed_change_after_re_review_uses_latest_reviewed_commit"},
-    {"id":"BO-32","intent":"Apply the same proportional judgment after base reconciliation.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"target-branch reconciliation"},
-    {"id":"BO-33","intent":"Run plan-derived conformance even without a settled specification.","classification":"ai-judgment","disposition":"prose","owner":".claude/agents/engine-qa-review-spec-conformance.md","anchor":"It is not a no-op"},
-    {"id":"BO-34","intent":"Re-derive every applicable hard-check not-applicable declaration during deliverable review.","classification":"ai-judgment","disposition":"prose","owner":".claude/agents/engine-qa-review-spec-conformance.md","anchor":"re-derive the bound yourself"},
-    {"id":"BO-35","intent":"Read and fill the literal PR template including its consent preamble.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"fill its literal contract"},
-    {"id":"BO-36","intent":"Run close-linkage comparison and disclose or narrowly defang contradictions.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_preflight_runs_close_linkage_and_contract"},
-    {"id":"BO-37","intent":"Render the report-only change profile and falsifiable Behaviors.","classification":"operator-authority","disposition":"prose","owner":".github/pull_request_template.md","anchor":"scope_profile.py"},
-    {"id":"BO-38","intent":"Provide an operator-runnable demonstration or an honest non-behavioral reason.","classification":"operator-authority","disposition":"prose","owner":".github/pull_request_template.md","anchor":"Demonstration"},
-    {"id":"BO-39","intent":"Mark ready only with current validation, review, findings, repair judgment, preflights, and PR contract.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_submit_preview_requires_complete_current_evidence"},
-    {"id":"BO-40","intent":"Never merge; readiness hands the claim to the operator.","classification":"operator-authority","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_submit_apply_can_only_mark_ready"},
-    {"id":"BO-41","intent":"Make the Review record operator-readable and disclose review code execution.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"discarded copy"},
-    {"id":"BO-42","intent":"State reviewed and final commits, divergence, consequence, and re-review result.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"measured divergence"},
-    {"id":"BO-43","intent":"Include the unresolved-conversation pre-arm before merge.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"unresolved-conversation notice"},
-    {"id":"BO-44","intent":"Keep every installed review lens connected to a Build stage.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/operations/build-orchestration.md","anchor":"test_consumed_review_lenses_remain_connected"},
-    {"id":"BO-45","intent":"Offer lossless stranded-PR reconciliation at the next session.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/boot-session-start.md","anchor":"A stranded pull request"},
-    {"id":"BO-46","intent":"Use the same workflow across unattended Routine fires with planned cohesion restored at Finalize.","classification":"special-delivery-path","disposition":"mechanical","owner":".engine/operations/routine-entry.md","anchor":"test_routine_progress_restores_from_handoff"},
-    {"id":"BO-47","intent":"Keep Routine decomposability an explicit Plan-time judgment.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Routine follows"},
-    {"id":"BO-48","intent":"Represent ordered Routine items and permitted scope durably without changing the plan digest for progress.","classification":"recovery-behavior","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_routine_progress_does_not_change_plan_digest"},
-    {"id":"BO-49","intent":"Emit product build-order milestones and check phase readiness when applicable.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-product-grounding.md","anchor":"milestone_emit.py emit"},
-    {"id":"BO-50","intent":"Resolve settled descriptions and map every canonical criterion before approval.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_omitted_settled_criterion_prevents_approval"},
-    {"id":"BO-51","intent":"Use the same exact settled criteria in plan review, deliverable review, and operator acceptance steps.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_packets_and_review_steps_share_canonical_spec"},
-    {"id":"BO-52","intent":"Route product-description authoring to product intake rather than informal Build prose.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/build-product-grounding.md","anchor":"through product intake"},
-    {"id":"BO-53","intent":"Use direct verified worktrees for products the operator owns.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"isolated worktree"},
-    {"id":"BO-54","intent":"Run product tools inside the product worktree and pin GitHub writes to the verified slug.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"GITHUB_REPOSITORY"},
-    {"id":"BO-55","intent":"Scan mechanic-local references before owned-product submission.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"tools/local_references.py scan"},
-    {"id":"BO-56","intent":"Clean completed owned-product worktrees safely and stale sprawl only with consent.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"Never remove it while it has unpushed commits"},
-    {"id":"BO-57","intent":"Preserve non-reflexivity while allowing unmerged product work to be built.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"Non-reflexivity governs"},
-    {"id":"BO-58","intent":"Use the contribution path for targets the operator does not own and disclose review honestly.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/external-contribution-submit.md","anchor":"--standalone"},
-    {"id":"BO-59","intent":"Disclose recognized-automation PR-body checks as not applicable without confusing guardrail acknowledgement.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"recognized automation"},
-    {"id":"BO-60","intent":"Surface open fail-open findings distinctly in Validation.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"fail-open"},
-    {"id":"BO-61","intent":"Surface unavailable live helpers using the canonical provider diagnosis.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"MCP"},
-    {"id":"BO-62","intent":"Build every touched slice to full agreed capability and record explicit deferrals.","classification":"ai-judgment","disposition":"prose","owner":".engine/conduct/defaults.md","anchor":"full agreed capability"},
-    {"id":"BO-63","intent":"Write genuine deferred work at the code site using the governed marker grammar.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"governed marker grammar"},
-    {"id":"BO-64","intent":"Ground load-bearing claims and delegated findings against first-hand authority.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"first-hand authority"}
+    {
+      "id": "plan-authority",
+      "prevents": "work or review using a plan other than the one the operator approved"
+    },
+    {
+      "id": "approval",
+      "prevents": "implementation before the operator approves the plan and review depth"
+    },
+    {
+      "id": "review-coverage",
+      "prevents": "silently omitting review coverage the operator approved"
+    },
+    {
+      "id": "deliverable-review",
+      "prevents": "submitting without an independent deliverable-review gate"
+    },
+    {
+      "id": "validation-freshness",
+      "prevents": "submitting a commit other than the one that passed validation"
+    },
+    {
+      "id": "repair-judgment",
+      "prevents": "post-review changes bypassing a proportional re-review decision"
+    },
+    {
+      "id": "blocking-finding",
+      "prevents": "submitting a finding the orchestrator explicitly left blocking this PR"
+    },
+    {
+      "id": "preflights",
+      "prevents": "skipping or ignoring a repository submission preflight"
+    },
+    {
+      "id": "pr-contract",
+      "prevents": "presenting an incomplete merge surface to the operator"
+    },
+    {
+      "id": "draft-identity",
+      "prevents": "building against the wrong, closed, or already-ready pull request"
+    },
+    {
+      "id": "human-merge",
+      "prevents": "the coordinator crossing the operator-only merge boundary"
+    }
   ]
 }

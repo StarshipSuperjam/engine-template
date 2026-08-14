@@ -9,10 +9,12 @@
     "build": {"type": "object"},
     "plan": {
       "type": "object", "additionalProperties": false,
-      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue"],
+      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue", "profile", "bound_head", "promotion_nonce"],
       "properties": {
         "source": {"const": "issue"}, "digest": {"type": "string"}, "intent_digest": {"type": "string"},
-        "spec_digest": {"type": ["string", "null"]}, "durable_issue": {"type": "integer", "minimum": 1}
+        "spec_digest": {"type": ["string", "null"]}, "durable_issue": {"type": "integer", "minimum": 1},
+        "profile": {"enum": ["normal", "routine"]}, "bound_head": {"type": "string"},
+        "promotion_nonce": {"type": ["string", "null"]}
       }
     },
     "approval": {"type": ["object", "null"]},
@@ -21,13 +23,14 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["id", "stage", "lens", "packet_digest", "commit", "disposition", "escalation_kind", "blocks_this_pr", "summary"],
+        "required": ["id", "stage", "lens", "packet_digest", "lens_packet_digest", "commit", "disposition", "escalation_kind", "blocks_this_pr", "summary", "operator_summary", "private_reference"],
         "properties": {
           "id": {"type": "string"}, "stage": {"enum": ["plan", "deliverable", "repair"]},
-          "lens": {"type": "string"}, "packet_digest": {"type": "string"}, "commit": {"type": ["string", "null"]},
+          "lens": {"type": "string"}, "packet_digest": {"type": "string"}, "lens_packet_digest": {"type": "string"}, "commit": {"type": ["string", "null"]},
           "disposition": {"type": "string"},
           "escalation_kind": {"type": ["string", "null"], "enum": [null, "design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
-          "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}
+          "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1},
+          "operator_summary": {"type": ["string", "null"]}, "private_reference": {"type": ["string", "null"]}
         }
       }
     },

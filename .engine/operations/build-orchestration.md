@@ -1,23 +1,17 @@
 ---
 title: Build orchestration — from approved intent to a ready pull request
 ---
-
 ## Purpose
-
 Build turns an operator-approved plan into one coherent pull request. The orchestrating AI acts as the
 senior engineer: it frames the problem, challenges assumptions, chooses the implementation, adjudicates
 review findings, and decides whether repairs deserve more review. The Build coordinator is its instrument
 panel. It preserves the exact plan and current evidence, prepares cold-review packets, records what commit
 was checked, runs validation and preflights, and reports what remains. It never decides whether the work is
 good, and it never merges.
-
 The protected-branch merge remains the only binding gate. The coordinator may change an open draft pull
 request to ready only after the evidence described here is complete. The operator alone merges it.
-
 ## Steps
-
 ### Responsibility boundary
-
 The coordinator owns mechanical facts: Build and draft-PR identity, plan source and digest, approved review
 depth, installed reviewer discovery, exact packets and receipts, finding-disposition completeness, reviewed
 and final commits, validation and preflight freshness, recorded repair judgment, PR-contract completeness,
@@ -121,7 +115,9 @@ guardrail weakening, second item or commit, settled referent, or cold continuati
 
 `review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
 plan, cited evidence supplied as impact input, settled criteria when present, installed and required lenses,
-and protocol digest. The approved depth determines required coverage; Thorough runs every installed lens.
+protocol digest, and each required reviewer's source path and content digest. The approved depth determines
+required coverage; Thorough runs every installed lens. A changed reviewer contract invalidates only that
+lens's receipt; unchanged lenses remain current against the same referent.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
 
 Cold reviewers judge product intent, architecture, feasibility, and risk/governance within their independent
@@ -132,8 +128,12 @@ operator decision. Record separately whether it still blocks this PR. Severity a
 
 Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
 leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
+Normal and Routine implementation checkpoints remain closed until this review's required receipts and
+finding dispositions are complete and no plan finding remains explicitly blocking.
 When a completed implementation is adopted after this before-code gate, the operator may explicitly waive the
-now-retrospective plan review with a reason; record the waiver, disclose it, and never fabricate receipts.
+now-retrospective plan review only for a same-session normal Build bound to that already-implemented commit;
+record the commit and reason, disclose the waiver, and never fabricate receipts. Routine and prospective work
+cannot use the waiver.
 
 ### 4. Implement and reground
 

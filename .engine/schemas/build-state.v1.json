@@ -19,13 +19,16 @@
     },
     "plan": {
       "type": "object", "additionalProperties": false,
-      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue"],
+      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue", "profile", "bound_head", "promotion_nonce"],
       "properties": {
         "source": {"enum": ["session", "issue"]},
         "digest": {"$ref": "#/$defs/digest"},
         "intent_digest": {"$ref": "#/$defs/digest"},
         "spec_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
-        "durable_issue": {"type": ["integer", "null"], "minimum": 1}
+        "durable_issue": {"type": ["integer", "null"], "minimum": 1},
+        "profile": {"enum": ["trivial", "normal", "routine"]},
+        "bound_head": {"$ref": "#/$defs/commit"},
+        "promotion_nonce": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"}
       }
     },
     "approval": {
@@ -57,6 +60,8 @@
           "summary": {"type": "string", "minLength": 1}, "judgment": {"enum": ["none", "scoped", "full"]},
           "rationale": {"type": "string", "minLength": 1}, "lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
           "packet_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+          "referent_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+          "reviewer_contracts": {"type": "array", "items": {"$ref": "#/$defs/reviewer_contract"}},
           "receipts": {"type": "array", "items": {"$ref": "#/$defs/review_receipt"}}
         }}
       ]
@@ -65,26 +70,28 @@
     "pr_contract": {
       "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "body_digest", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "body_digest": {"$ref": "#/$defs/digest"}, "complete": {"type": "boolean"}}}]
     },
-    "submission": {"enum": ["draft", "ready"]}
+    "submission": {"enum": ["draft", "ready", "unknown"]}
   },
   "$defs": {
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "review_stage": {
       "type": "object", "additionalProperties": false,
-      "required": ["packet_digest", "required_lenses", "installed_lenses", "receipts", "reviewed_commit", "base_commit", "waiver"],
+      "required": ["packet_digest", "referent_digest", "required_lenses", "installed_lenses", "reviewer_contracts", "receipts", "reviewed_commit", "base_commit", "waiver"],
       "properties": {
         "packet_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "referent_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
         "required_lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "installed_lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "reviewer_contracts": {"type": "array", "items": {"$ref": "#/$defs/reviewer_contract"}},
         "receipts": {"type": "array", "items": {"$ref": "#/$defs/review_receipt"}},
         "reviewed_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "base_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "waiver": {"oneOf": [
           {"type": "null"},
-          {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth", "reason"], "properties": {
+          {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth", "reason", "adopted_commit"], "properties": {
             "plan_digest": {"$ref": "#/$defs/digest"}, "depth": {"enum": ["quick", "standard", "thorough"]},
-            "reason": {"type": "string", "minLength": 1}
+            "reason": {"type": "string", "minLength": 1}, "adopted_commit": {"$ref": "#/$defs/commit"}
           }}
         ]}
       }
@@ -94,6 +101,7 @@
       "required": ["lens", "packet_digest", "commit", "finding_ids"],
       "properties": {
         "lens": {"type": "string", "minLength": 1}, "packet_digest": {"$ref": "#/$defs/digest"},
+        "referent_digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"},
         "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
@@ -103,13 +111,23 @@
       "required": ["id", "stage", "lens", "packet_digest", "commit", "severity", "summary", "disposition", "rationale", "escalation_kind", "blocks_this_pr", "handoff_summary"],
       "properties": {
         "id": {"type": "string", "minLength": 1}, "stage": {"enum": ["plan", "deliverable", "repair"]}, "lens": {"type": "string", "minLength": 1},
-        "packet_digest": {"$ref": "#/$defs/digest"}, "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
+        "packet_digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"}, "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "severity": {"enum": ["blocking", "serious", "nit"]}, "summary": {"type": "string", "minLength": 1},
         "disposition": {"enum": ["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]},
         "rationale": {"type": "string", "minLength": 1},
         "escalation_kind": {"type": ["string", "null"], "enum": [null, "design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
         "blocks_this_pr": {"type": "boolean"},
-        "handoff_summary": {"type": ["string", "null"], "minLength": 1}
+        "handoff_summary": {"type": ["string", "null"], "minLength": 1},
+        "operator_summary": {"type": ["string", "null"], "minLength": 1},
+        "private_reference": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "reviewer_contract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lens", "path", "digest", "lens_packet_digest"],
+      "properties": {
+        "lens": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"}
       }
     },
     "checkpoint": {

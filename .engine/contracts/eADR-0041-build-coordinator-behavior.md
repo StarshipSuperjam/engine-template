@@ -32,14 +32,14 @@ machine.
 | BC-03 | mechanical fact | The exact approved plan reaches checkpoints and reviewers. | Plan and both review gates | Receipt events multiplied copies and identities without improving the referent. | Canonical digest plus exact input verification; same-session content stays in the harness. |
 | BC-04 | recovery behavior | A same-session plan may remain session-local; cold continuation requires an exact durable plan. | Build proportionality notes | Created or assumed a GitHub Issue for every Build. | Promote only when handoff is needed; reuse a suitable Issue before creating a Build Issue. |
 | BC-05 | explicit non-goal | GitHub comments are not a lifecycle database. | Operator correction during StarshipSuperjam/engine-template#964 | Used append-only PR comments as an event ledger. | One local atomic snapshot; one bounded handoff block in the PR contract only for intentional handoff. |
-| BC-06 | mechanical fact | The installed reviewer roster and omissions are discoverable. | Consumed-review-lenses record | Review identity became a recursive protocol. | Derive personas from committed metadata and record the exact packet and completed receipt. |
+| BC-06 | mechanical fact | The installed reviewer roster and omissions are discoverable, and receipts stay bound to the reviewer contract that produced them. | Consumed-review-lenses record | Review identity became a recursive protocol. | Derive personas from committed metadata; bind each receipt to the shared referent plus that lens's source path and digest, so one prompt change invalidates only its dependent receipt. |
 | BC-07 | AI judgment | Reviewer severity and proposed remedies are advice; the orchestrator critically adjudicates both. | Reviewer boundaries; historical cases 865, 924, 955 | Severity effectively selected the response and encouraged blind repair. | Findings record disposition, rationale, and `blocks_this_pr`; severity never decides readiness. |
 | BC-08 | operator authority | Only genuine design, law, scope-boundary, authority, or unresolved blocking decisions return to the operator. | Conduct and Build gate | Routine leaves and audit nits repeatedly stopped the Build. | `escalated` is available, but ordinary engineering leaves remain the orchestrator's work. |
 | BC-09 | advisory practice | Unexpected paths, assumptions, and nearby risks should be shown to the engineer. | Impact check and checkpoints | Path policing turned every surprise into an interlock. | Status and checkpoint highlight them without forbidding progress. |
 | BC-10 | AI judgment | An implementation discovery revises the plan only when it changes intent, outcome, capability boundary, non-goals, settled criteria, authority, or agreed scope. | Plan settlement; historical cases 886 and 924 | Leaf changes invalidated approvals and reviews. | The orchestrator explicitly selects aligned, revision, or operator-decision posture. |
 | BC-11 | submission prerequisite | The authoritative plan must be reproducible and match the approved digest. | Both review gates | Event repair attempted to reconstruct authority. | Missing or mismatched plan is a hard hold; no transcript reconstruction. |
 | BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission unless the operator explicitly waives a now-retrospective plan review with a disclosed reason. Deliverable review cannot be waived. |
-| BC-13 | submission prerequisite | Deliverable review must run against a recorded commit. | Build step 6 | Multiple packet generations obscured the actual reviewed commit. | One reviewed commit and packet digest per lens. |
+| BC-13 | submission prerequisite | Deliverable review must run against a recorded commit. | Build step 6 | Multiple packet generations obscured the actual reviewed commit. | One reviewed commit, shared referent digest, and contract-specific lens-packet digest per receipt. |
 | BC-14 | submission prerequisite | Findings must be dispositioned, and only findings explicitly left blocking hold submission. | Finding policy and human merge gate | `blocking`/`serious` labels automatically drove more work. | Completeness is mechanical; correctness of rationale and `blocks_this_pr` is engineering judgment. |
 | BC-15 | submission prerequisite | Validation and required registered preflights must be green for the final commit; advisory checks remain visible. | Build steps 6–7 | Receipts could be current while the substantive commit changed. | Results bind to commit and PR-body digest as applicable; advisory close-linkage evidence cannot masquerade as a merge wall. |
 | BC-16 | AI judgment | Reviewed-to-final divergence receives one proportional `none`, `scoped`, or `full` re-review judgment. | Build step 6; historical cases 681, 685, 955 | Invalidation rules produced recursive cold audits. | The coordinator measures and records the choice but never selects it. |
@@ -75,11 +75,12 @@ No other condition is a hard hold. In particular, reviewer severity, unexpected 
 unresolved non-blocking findings, and the size of a diff are inputs to judgment rather than mechanical stop
 conditions.
 
-### Historical replay rule
+### Historical scenario traceability
 
-The eight normalized cases are not benchmarks for reproducing one model's prose. A scenario passes when the
-coordinator permits the competent workflow outcome recorded in `expected` and does not impose any behavior
-listed in `must_not`. Mechanical tests may construct the minimum snapshot needed to demonstrate that result.
+The eight normalized cases are not benchmarks for reproducing one model's prose, and their presence is not
+itself a behavioral replay. They trace observed competent outcomes into named expectations and prohibitions.
+Only an expectation actually exercised by a focused test is behavioral evidence; otherwise it remains
+scenario traceability for independent source-contract review.
 The fixtures must remain stable, source-linked, free of transcript text, and broad enough to cover planning
 correction, remedy rejection, ordinary discoveries, operator decisions, proportional re-review, base
 reconciliation, network loss, and ready delivery.

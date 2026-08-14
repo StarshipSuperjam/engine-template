@@ -29,6 +29,13 @@ reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic 
 Record separately whether the finding still blocks this PR. A `blocking` or `serious` reviewer label never
 sets that field by itself, and accepting a concern never means accepting its proposed remedy.
 
+This supersedes the older automatic rule that every unresolved reviewer-labelled `blocking` finding returns
+to the operator. When the orchestrator judges a reviewer-labelled blocking concern does not block this PR,
+the disagreement is mandatory merge-surface evidence: the PR Review record names the finding and gives a
+safe operator-facing summary of the concern and adjudication. Sensitive details stay in local evidence; the
+public line may instead name a bounded private security reference. This preserves operator visibility without
+making reviewer severity or a proposed remedy authoritative.
+
 A "not urgent, we'll get to it" aside with no record created is a violation of this rule.
 
 ## Scope

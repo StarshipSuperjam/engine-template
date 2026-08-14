@@ -316,6 +316,7 @@ _CI_REQUIRED_INDEXES = frozenset({".engine/knowledge/graph.json", ".engine/self-
 # .deployed.md files retired with the greenfield swap).
 _HOME_TRAVEL_FILES = frozenset({
     ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json", ".engine/build-protocol.json",
+    ".engine/build-orchestration-obligations.json",
     ".gitignore", "AGENTS.md", "CLAUDE.md",
 })
 
