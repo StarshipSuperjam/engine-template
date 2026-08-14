@@ -3,7 +3,7 @@
   "title": "build-state.v1 — current local evidence for one Build",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "revision", "build", "plan", "approval", "reviews", "findings", "checkpoint", "validation", "repair", "preflights", "pr_contract", "submission"],
+  "required": ["schema_version", "revision", "build", "plan", "approval", "reviews", "findings", "checkpoint", "progress", "validation", "repair", "preflights", "pr_contract", "submission"],
   "properties": {
     "schema_version": {"const": "build-state.v1"},
     "revision": {"type": "integer", "minimum": 1},
@@ -31,7 +31,7 @@
     "approval": {
       "oneOf": [
         {"type": "null"},
-        {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth"], "properties": {"plan_digest": {"$ref": "#/$defs/digest"}, "depth": {"enum": ["quick", "standard", "thorough"]}}}
+        {"type": "object", "additionalProperties": false, "required": ["plan_digest", "spec_digest", "depth"], "properties": {"plan_digest": {"$ref": "#/$defs/digest"}, "spec_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]}, "depth": {"enum": ["quick", "standard", "thorough"]}}}
       ]
     },
     "reviews": {
@@ -41,6 +41,13 @@
     },
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
     "checkpoint": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/checkpoint"}]},
+    "progress": {
+      "type": "object", "additionalProperties": false, "required": ["current_item", "completed"],
+      "properties": {
+        "current_item": {"type": ["string", "null"]},
+        "completed": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "commit"], "properties": {"id": {"type": "string"}, "commit": {"$ref": "#/$defs/commit"}}}}
+      }
+    },
     "validation": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/result_set"}]},
     "repair": {
       "oneOf": [
@@ -86,31 +93,35 @@
     },
     "finding": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "stage", "lens", "packet_digest", "commit", "severity", "summary", "disposition", "rationale", "blocks_this_pr", "handoff_summary"],
+      "required": ["id", "stage", "lens", "packet_digest", "commit", "severity", "summary", "disposition", "rationale", "escalation_kind", "blocks_this_pr", "handoff_summary"],
       "properties": {
         "id": {"type": "string", "minLength": 1}, "stage": {"enum": ["plan", "deliverable", "repair"]}, "lens": {"type": "string", "minLength": 1},
         "packet_digest": {"$ref": "#/$defs/digest"}, "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "severity": {"enum": ["blocking", "serious", "nit"]}, "summary": {"type": "string", "minLength": 1},
         "disposition": {"enum": ["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]},
-        "rationale": {"type": "string", "minLength": 1}, "blocks_this_pr": {"type": "boolean"},
+        "rationale": {"type": "string", "minLength": 1},
+        "escalation_kind": {"type": ["string", "null"], "enum": [null, "design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
+        "blocks_this_pr": {"type": "boolean"},
         "handoff_summary": {"type": ["string", "null"], "minLength": 1}
       }
     },
     "checkpoint": {
       "type": "object", "additionalProperties": false,
-      "required": ["plan_digest", "objective", "current_work", "assumptions", "non_goals", "planned_scope", "changed_paths", "remaining_verification", "judgment"],
+      "required": ["plan_digest", "objective", "current_work", "work_item", "assumptions", "non_goals", "planned_scope", "changed_paths", "remaining_verification", "judgment", "progress"],
       "properties": {
         "plan_digest": {"$ref": "#/$defs/digest"}, "objective": {"type": "string", "minLength": 1}, "current_work": {"type": "string", "minLength": 1},
+        "work_item": {"type": "string", "minLength": 1},
         "assumptions": {"type": "array", "items": {"type": "string"}}, "non_goals": {"type": "array", "items": {"type": "string"}},
         "planned_scope": {"type": "array", "items": {"type": "string"}}, "changed_paths": {"type": "array", "items": {"type": "string"}},
         "remaining_verification": {"type": "array", "items": {"type": "string"}},
-        "judgment": {"enum": ["aligned", "plan_revision_required", "operator_decision_required"]}
+        "judgment": {"enum": ["aligned", "plan_revision_required", "operator_decision_required"]},
+        "progress": {"type": "string", "minLength": 1}
       }
     },
     "result": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "commit", "passed", "summary"],
-      "properties": {"id": {"type": "string", "minLength": 1}, "commit": {"$ref": "#/$defs/commit"}, "passed": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}}
+      "properties": {"id": {"type": "string", "minLength": 1}, "commit": {"$ref": "#/$defs/commit"}, "passed": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}, "log_path": {"type": "string", "minLength": 1}, "log_digest": {"$ref": "#/$defs/digest"}}
     },
     "result_set": {
       "type": "object", "additionalProperties": false,

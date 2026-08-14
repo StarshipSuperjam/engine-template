@@ -10,9 +10,11 @@ Every concern the AI raises while working must reach exactly one durable outcome
 
 For an ordinary concern discovered during work:
 
-- If it blocks the work at hand → stop and surface it for a decision (escalate).
-- If it is small and directly related to the current work → fix it in line.
-- If it is real but outside the current work → open a tracked issue and move on.
+- If it is an engineering blocker inside the approved design and scope → solve it as part of the work.
+- If resolving it would change design, law, authority, the agreed capability boundary, require a guardrail
+  acknowledgement, or require another operator-only choice → surface that boundary for a decision.
+- If it is real but outside the current work → open a tracked issue and move on without asking permission to
+  absorb it into this Build.
 
 For a cold-review finding, the orchestrator first judges whether the concern is correct and whether the
 reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic response. Record one of:
@@ -21,7 +23,8 @@ reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic 
 - **Accepted and tracked** — the concern is correct but is deliberately outside this PR, with a durable Issue.
 - **Partially accepted** — the underlying concern is real, but a bounded remedy fits better than the proposal.
 - **Rejected** — the concern or proposed consequence does not hold, with grounded rationale.
-- **Escalated** — a genuine design, law, authority, capability-boundary, or operator-only decision remains.
+- **Escalated** — a genuine design, law, authority, capability-boundary, guardrail-acknowledgement, or
+  operator-only decision remains; record which boundary is implicated.
 
 Record separately whether the finding still blocks this PR. A `blocking` or `serious` reviewer label never
 sets that field by itself, and accepting a concern never means accepting its proposed remedy.

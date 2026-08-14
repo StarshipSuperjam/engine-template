@@ -47,6 +47,11 @@ non-goals, important risks, implementation outline, and review strategy. Include
 one exists. Otherwise disclose that there is no settled spec; the plan's success obligations still govern
 conformance review.
 
+Follow [Build product grounding](build-product-grounding.md): retain advisory milestone and readiness
+evidence, resolve settled descriptions without degrading failed reads to no-spec, map every selected
+canonical criterion, and derive its review steps. Build consumes settled intent; missing product description
+work returns through product intake instead of being improvised here.
+
 Planning is deliberative, not form filling. Check the strongest case against the change, smaller or no-build
 alternatives, likely failure modes, and whether the plan quietly turns uncertainty into certainty. Use the
 active codes of conduct: preserve intent, ground claims, prefer the smallest safe change, deliver the full
@@ -106,6 +111,12 @@ coverage. Progress prose does neither.
 An ordinary implementation leaf does not revise the plan. Revision is warranted only when intent, outcome,
 capability boundary, non-goals, settled criteria, authority, or agreed scope changes.
 
+The `trivial` profile is the one-entry fast path: same-session, session-local, no settled spec, quick depth,
+no cold lenses, one reversible work item, and at most one commit. One headline and the plan/depth approval are
+its only operator ceremony; full validation and human merge remain. A schema or guarded-enforcement change,
+guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to
+`normal` and renewed approval.
+
 ### 3. Run one cold plan review
 
 `review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
@@ -128,6 +139,13 @@ Choose an implementation strategy proportionate to the work: orchestrator-inline
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
 writer and judges cohesion.
+
+Routine follows [Routine entry](routine-entry.md): the immutable Issue plan supplies ordered work items while
+the snapshot, bounded PR handoff, and git record completed commits and `N of M` progress. Owned product work
+follows [Owned-product Build](owned-product-build.md). Work for a repository the operator does not own follows
+[external contribution submission](external-contribution-submit.md), where exact review packets may run
+before an upstream PR exists. If a worker fails, inspect what returned, repair cohesion, and re-dispatch or
+complete the missing work without inventing workflow state.
 
 Before each commit, run `checkpoint` with the exact plan and a short JSON note containing objective, current
 work, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:
@@ -180,6 +198,11 @@ findings were dispositioned, and—when final differs from reviewed—the commit
 focused result. Keep reviewer-internal names out of operator-facing prose. Include the standing unresolved
 conversation notice, spec-derived acceptance steps or honest no-spec line, change profile, and a genuinely
 operator-runnable demonstration (or the real reason none is observable).
+
+Follow [Build submission evidence](build-submission-evidence.md) for complete logs, index and scope-profile
+disclosure, spec-derived review steps, hard-check declarations, unresolved conversations, recognized
+automation, fail-open findings, unavailable live helpers, reviewer code execution, and the demonstration.
+Deterministic results are coordinator evidence; truthfulness remains the orchestrator's responsibility.
 
 Run `preflight`. It reads the live draft body, evaluates the existing PR-body completeness rule, and runs the
 close-linkage preflight. Results and PR-contract completeness bind to the final commit. Resolve any emitted

@@ -34,11 +34,12 @@ of every routine fire; the build's actual work follows the distributed-implement
    checkout — the never-strand-main floor, enforced here at entry rather than by prose. If it declines (not an
    isolated worktree, or the session cannot be identified), do not write: report the reason in the run output
    and stop. A visible-in-app safety refusal, not a filed Issue.
-4. **Read git state and the frozen scope-locked build Issue, then decide which of three situations holds.**
-   The build Issue holds the ordered commit-sequence checklist (the durable plan a cold session reads) and
-   the permitted write-scope alongside it.
+4. **Restore the Build from git, the frozen Issue plan, and the bounded PR handoff, then decide which of three
+   situations holds.** The Issue holds the exact immutable `build-plan.v1` and its ordered work items. Progress
+   is not written back into that plan: completed item/commit pairs live in the coordinator snapshot and
+   bounded PR handoff, corroborated by git. The next item is derived from those three sources.
    - **GitHub is unreachable** — there is no plan to read: exit without proceeding (fail-safe), no Issue.
-   - **The build is finished** — every checklist item is already done, or its pull request has been
+   - **The build is finished** — every work item is already done, or its pull request has been
      finalized or closed. There is nothing to do: exit cleanly (step 7) and **file no Issue — completion is
      never an alarm.** A completed build whose schedule keeps firing simply no-ops each run until the
      operator stops the routine or points it at a new build.
@@ -49,10 +50,11 @@ of every routine fire; the build's actual work follows the distributed-implement
      surfaces **once**, never as a fresh Issue every fire.
 5. **On the first fire, echo the build Issue this routine locked onto** — "starting the routine on #N —
    <title>" — so a mis-aimed target surfaces on the first cycle rather than after a wasted batch.
-6. **Advance one chunk within the scope-lock.** Find the next unchecked checklist item and its scope;
-   execute it so that every write stays inside the permitted write-scope, re-checking scope before each
-   commit; add the commit(s) to the open pull request; and report progress derived from git and the
-   checklist ("commit X landed — N of M planned done"). Never close or merge the pull request.
+6. **Advance one chunk within the scope-lock.** Ask coordinator status for the next incomplete named work
+   item and treat its intended paths as scope posture, not an infallible path wall. Checkpoint before the
+   commit, record the completing commit, update the bounded handoff, push the open pull request, and report
+   progress derived from the immutable plan and recorded commits ("commit X landed — N of M planned done").
+   Never rewrite the approved plan merely to mark progress, and never close or merge the pull request.
 7. **Escalate anything that needs a human, because this run cannot ask.** An out-of-scope observation
    files an Issue and the run continues; a genuine blocker or a decision needing a human files an Issue and
    halts this task, leaving a plain-language status that names the next step ("stopped at N of M — I need a
@@ -84,6 +86,6 @@ unbypassable wall is the protected-branch merge, which Routine never performs; t
 is the cohesion backstop. Single-flight — skipping a fire while one is already in progress — is the scheduler's
 behavior where it provides it (the Claude Desktop routine does), so two overlapping fires are bounded by the no-merge wall and
 the Finalize review, not by a lease; orphan recovery is reading git state — a run that dies mid-task leaves its
-commits (or none) and the PR open, and the next run resumes from git and the checklist. The non-interactive
+commits (or none) and the PR open, and the next run resumes from git, the Issue plan, and the PR handoff. The non-interactive
 posture and the worktree isolation are operator-side settings in the scheduling app, set during setup; this
 procedure confirms them (step 1's hooks check, step 3's mechanical isolation gate) but never sets them.

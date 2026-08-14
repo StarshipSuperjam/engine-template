@@ -3,7 +3,7 @@
   "title": "build-handoff.v1 — bounded cold-session continuation evidence",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "build", "plan", "approval", "reviews", "finding_summaries", "validation", "repair", "preflights", "pr_contract"],
+  "required": ["schema_version", "build", "plan", "approval", "reviews", "finding_summaries", "progress", "validation", "repair", "preflights", "pr_contract"],
   "properties": {
     "schema_version": {"const": "build-handoff.v1"},
     "build": {"type": "object"},
@@ -21,14 +21,17 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["id", "stage", "lens", "packet_digest", "commit", "disposition", "blocks_this_pr", "summary"],
+        "required": ["id", "stage", "lens", "packet_digest", "commit", "disposition", "escalation_kind", "blocks_this_pr", "summary"],
         "properties": {
           "id": {"type": "string"}, "stage": {"enum": ["plan", "deliverable", "repair"]},
           "lens": {"type": "string"}, "packet_digest": {"type": "string"}, "commit": {"type": ["string", "null"]},
-          "disposition": {"type": "string"}, "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}
+          "disposition": {"type": "string"},
+          "escalation_kind": {"type": ["string", "null"], "enum": [null, "design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
+          "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1}
         }
       }
     },
+    "progress": {"type": "object"},
     "validation": {"type": ["object", "null"]},
     "repair": {"type": ["object", "null"]},
     "preflights": {"type": "array"},

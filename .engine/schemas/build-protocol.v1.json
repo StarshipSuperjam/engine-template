@@ -3,7 +3,7 @@
   "title": "build-protocol.v1 — declarative Build mechanics",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "plan_review", "deliverable_review", "preflights", "hard_holds"],
+  "required": ["schema_version", "plan_review", "deliverable_review", "preflights", "hard_holds", "obligations"],
   "properties": {
     "schema_version": {"const": "build-protocol.v1"},
     "plan_review": {"$ref": "#/$defs/depths"},
@@ -32,6 +32,11 @@
           "prevents": {"type": "string", "minLength": 1}
         }
       }
+    },
+    "obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/obligation"}
     }
   },
   "$defs": {
@@ -45,6 +50,19 @@
         "thorough": {"$ref": "#/$defs/lenses"}
       }
     },
-    "lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+    "lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "intent", "classification", "disposition", "owner", "anchor"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^BO-[0-9]{2}$"},
+        "intent": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["mechanical-fact", "ai-judgment", "operator-authority", "advisory-practice", "recovery-behavior", "special-delivery-path"]},
+        "disposition": {"enum": ["mechanical", "prose", "superseded"]},
+        "owner": {"type": "string", "minLength": 1},
+        "anchor": {"type": "string", "minLength": 1}
+      }
+    }
   }
 }
