@@ -167,6 +167,24 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertNotIn("plan-review packet", status["required_evidence"])
         self.assertNotIn("deliverable-review packet", status["required_evidence"])
 
+    def test_trivial_plan_uses_the_reduced_document_shape(self):
+        value = {
+            "schema_version": "build-plan.v1", "profile": "trivial",
+            "intent_source": {"kind": "direct"}, "raw_intent": "Correct one typo.",
+            "objective": "Correct the typo.",
+            "success_obligations": [{"outcome": "Text is correct.", "verification": "Read it."}],
+            "work_items": [{"id": "W1", "description": "Correct it", "paths": ["README.md"],
+                            "verification": ["Read the changed line"]}],
+            "spec": {"posture": "none", "selection_basis": "Copy-only change.",
+                     "disclosure": "No settled specification applies."},
+        }
+        self.write_plan(value)
+        self.assertEqual(bc._plan(str(self.plan_path))["profile"], "trivial")
+        value["profile"] = "normal"
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "interpretation.*required"):
+            bc._plan(str(self.plan_path))
+
     def test_trivial_guarded_change_requires_normal_promotion(self):
         value = plan(); value["profile"] = "trivial"
         state = bc._initial_state("owner/repo", 7, BASE, "session", value, None)
@@ -174,6 +192,19 @@ class TestPlanAndSnapshot(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_changed_paths", return_value=[".engine/schemas/x.json"]), mock.patch.object(bc, "_must_run", return_value="1"):
             status = bc._status(state, value)
         self.assertTrue(any("promote the trivial Build" in item for item in status["engineering_judgment"]))
+
+    def test_trivial_uses_the_canonical_guarded_file_classifier(self):
+        value = plan(); value["profile"] = "trivial"
+        state = bc._initial_state("owner/repo", 7, BASE, "session", value, None)
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        guarded = [".engine/uv.lock", ".engine/suites.json", ".claude/settings.json",
+                   ".codex/hooks.json", ".github/dependabot.yml", ".engine/schemas/new.json"]
+        for path in guarded:
+            with self.subTest(path=path), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                    mock.patch.object(bc, "_changed_paths", return_value=[path]), \
+                    mock.patch.object(bc, "_must_run", return_value="1"):
+                status = bc._status(state, value)
+                self.assertTrue(any("promote the trivial Build" in item for item in status["engineering_judgment"]))
 
     def test_trivial_cannot_promote_to_cold_continuation(self):
         value = plan(); value["profile"] = "trivial"; self.write_plan(value)
@@ -233,6 +264,14 @@ class TestIssueDurability(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "fresh plan bind"):
             bc.cmd_handoff_restore(argparse.Namespace(input=str(path)), bc.StateStore(str(Path(self.temp.name) / "new.json")))
 
+    def test_dedicated_build_issue_is_authored_and_then_receives_the_plan(self):
+        self.seed()
+        args = argparse.Namespace(input=str(self.plan_path), issue=None, create_issue="Durable coordinator work", ack_visibility=True)
+        with mock.patch.object(bc, "_create_build_issue", return_value=42) as create, contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_promote(args, self.store)
+        create.assert_called_once_with("owner/repo", "Durable coordinator work", plan())
+        self.assertEqual(self.state()["plan"]["durable_issue"], 42)
+
 
 class TestReviewAndFindings(CoordinatorCase):
     def setUp(self):
@@ -282,6 +321,39 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         self.assertEqual(packet["schema_version"], "build-review-packet.v1")
         self.assertEqual(packet["plan"]["spec"]["posture"], "none")
+
+    def test_operator_can_waive_only_retrospective_plan_review(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_waive(argparse.Namespace(stage="plan", reason="Implementation preceded the coordinator."), self.store)
+        state = self.state()
+        self.assertEqual(state["reviews"]["plan"]["waiver"]["plan_digest"], state["plan"]["digest"])
+        with self.assertRaisesRegex(bc.CoordinatorError, "only retrospective plan review"):
+            bc.cmd_review_waive(argparse.Namespace(stage="deliverable", reason="not allowed"), self.store)
+
+    def test_standalone_packet_needs_no_pr_or_snapshot(self):
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, standalone=True,
+                                  repository="owner/repo", commit=HEAD_A, base=BASE, depth="thorough",
+                                  output=None, json=False)
+        output = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), \
+                mock.patch.object(bc, "_hard_check_declarations", return_value=[]), \
+                contextlib.redirect_stdout(output):
+            bc._packet(args, None)
+        self.assertIn("review packet sha256:", output.getvalue())
+        self.assertNotIn('"raw_intent"', output.getvalue())
+
+    def test_default_packet_output_is_concise_and_json_is_explicit(self):
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None, standalone=False,
+                                  output=None, json=False)
+        concise = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(concise):
+            bc._packet(args, self.store)
+        self.assertEqual(len(concise.getvalue().splitlines()), 1)
+        args.json = True
+        verbose = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(verbose):
+            bc._packet(args, self.store)
+        self.assertIn('"raw_intent"', verbose.getvalue())
 
     def test_retrying_identical_packet_preserves_receipts_and_findings(self):
         packet = self.packet()
@@ -481,6 +553,23 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(self.state()["plan"]["digest"], before)
         self.assertEqual(self.state()["progress"]["completed"], [{"id": "W1", "commit": HEAD_A}])
 
+    def test_routine_enforces_order_and_reports_n_of_m(self):
+        value = plan(); value["profile"] = "routine"; value["intent_source"] = {"kind": "issue", "issue": 11}
+        value["work_items"].append({"id": "W2", "description": "Second", "paths": ["README.md"],
+                                    "verification": ["Read it"]})
+        self.write_plan(value)
+        state = bc._initial_state("owner/repo", 7, BASE, "issue", value, 11, "unattended")
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        self.store = bc.StateStore(str(Path(self.temp.name) / "routine.json")); self.store.create(state)
+        note = {"objective": "x", "current_work": "second", "work_item": "W2", "assumptions": [],
+                "non_goals": [], "planned_scope": ["README.md"], "remaining_verification": [], "judgment": "aligned"}
+        note_path = Path(self.temp.name) / "routine-note.json"; note_path.write_text(json.dumps(note))
+        with mock.patch.object(bc, "_assert_spec_boundary", return_value={}), self.assertRaisesRegex(bc.CoordinatorError, "next incomplete work item W1"):
+            bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(note_path), complete_item="W2", json=False), self.store)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_installed", return_value=[]):
+            status = bc._status(self.state(), value)
+        self.assertEqual(status["progress"], {"completed": [], "total": 2, "current": None, "next": "W1"})
+
 
 class TestPreflightHandoffAndSubmission(CoordinatorCase):
     def test_handoff_redacts_private_rationale(self):
@@ -518,13 +607,37 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         close = subprocess.CompletedProcess([], 0, json.dumps({"lines": [], "defang": None}), "")
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_run", return_value=close), mock.patch.object(bc, "_pr_contract", return_value=(True, "complete")), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_preflight(args, self.store)
-        self.assertEqual(self.state()["pr_contract"], {"commit": HEAD_A, "complete": True})
+        self.assertEqual(self.state()["pr_contract"], {"commit": HEAD_A, "body_digest": bc._digest(b"complete"), "complete": True})
         self.assertEqual({x["commit"] for x in self.state()["preflights"]}, {HEAD_A})
         self.assertIn("scope-profile", {x["id"] for x in self.state()["preflights"]})
         self.assertIn("hard-check-declarations", {x["id"] for x in self.state()["preflights"]})
 
     def test_preflight_runs_close_linkage_and_contract(self):
         self.test_preflight_binds_contract_and_results_to_head()
+
+    def test_close_linkage_is_advisory_but_pr_contract_is_required(self):
+        self.seed()
+        args = argparse.Namespace(pr_body=None, json=False)
+        pr = {"body": "complete", "baseRefOid": BASE}
+        close = subprocess.CompletedProcess([], 1, "conflicting close line", "")
+        profile = subprocess.CompletedProcess([], 0, "scope", "")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_run", side_effect=[close, profile]), \
+                mock.patch.object(bc, "_pr_contract", return_value=(True, "complete")), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_preflight(args, self.store)
+        result = {row["id"]: row for row in self.state()["preflights"]}
+        self.assertFalse(result["close-linkage"]["passed"])
+        self.assertTrue(self.state()["pr_contract"]["complete"])
+
+    def test_pr_body_change_after_preflight_blocks_submission(self):
+        self.seed()
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"old"), "complete": True}}))
+        ready = {"phase": "ready", "head_commit": HEAD_A, "required_evidence": [], "engineering_judgment": []}
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A,
+              "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "new"}
+        with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc, "_gh_json", return_value=pr), \
+                self.assertRaisesRegex(bc.CoordinatorError, "body changed after preflight"):
+            bc._submit_preview(self.store, str(self.plan_path))
 
     def test_submit_apply_can_only_mark_ready(self):
         self.seed()
@@ -545,8 +658,9 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
 
     def test_submit_preview_requires_live_base_to_be_ancestor_of_final_commit(self):
         self.seed()
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"complete"), "complete": True}}))
         ready = {"phase": "ready", "head_commit": HEAD_A, "required_evidence": [], "engineering_judgment": []}
-        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE, "mergeable": "MERGEABLE"}
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "complete"}
         not_ancestor = subprocess.CompletedProcess([], 1, "", "")
         with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc, "_gh_json", return_value=pr), mock.patch.object(bc, "_run", return_value=not_ancestor), self.assertRaisesRegex(bc.CoordinatorError, "live target-branch base"):
             bc._submit_preview(self.store, str(self.plan_path))
@@ -556,10 +670,11 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
 
     def test_submit_preview_requires_complete_current_evidence(self):
         self.seed()
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"complete"), "complete": True}}))
         incomplete = {"phase": "implementation", "head_commit": HEAD_A,
                       "required_evidence": ["green validation"], "engineering_judgment": []}
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A,
-              "baseRefOid": BASE, "mergeable": "MERGEABLE"}
+              "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "complete"}
         ancestor = subprocess.CompletedProcess([], 0, "", "")
         with mock.patch.object(bc, "_status", return_value=incomplete), mock.patch.object(bc, "_gh_json", return_value=pr), mock.patch.object(bc, "_run", return_value=ancestor), self.assertRaisesRegex(bc.CoordinatorError, "incomplete"):
             bc._submit_preview(self.store, str(self.plan_path))
@@ -687,11 +802,27 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
         external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
         evidence = (bc.ROOT / ".engine/operations/build-submission-evidence.md").read_text()
-        for phrase in ("verified slug", "local-reference scan", "remove only the verified", "worker fails"):
+        for phrase in ("mechanic_build.py worktree", "tools/local_references.py scan", "unpushed commits", "worker fails"):
             self.assertIn(phrase, owned)
         self.assertIn("no draft PR is", external)
-        for phrase in ("recognized automation", "fail-open", "MCP", "unresolved-conversation", "operator-runnable demonstration"):
+        for phrase in ("recognized automation", "fail-open", "mcp_availability_check", "unresolved-conversation", "operator-runnable demonstration"):
             self.assertIn(phrase, evidence)
+
+    def test_runbook_stays_within_the_250_line_cap(self):
+        text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
+        self.assertLessEqual(len(text.splitlines()), 250)
+
+    def test_preservation_map_is_bound_to_the_exact_historical_runbook(self):
+        protocol = bc._protocol()
+        source = protocol["preservation_source"]
+        self.assertEqual(source["lines"], 448)
+        self.assertEqual(source["words"], 6296)
+        self.assertIn("structural", source["assurance"])
+
+    def test_home_only_obligations_are_explicitly_scoped(self):
+        protocol = bc._protocol()
+        rows = [row for row in protocol["obligations"] if row.get("scope") == "home-only"]
+        self.assertEqual({row["id"] for row in rows}, {"BO-06", "BO-63", "BO-64"})
 
     def test_source_linked_scenarios_cover_recovery_behaviors(self):
         fixture = json.loads((bc.ROOT / ".engine" / "_fixtures" / "build-coordinator-scenarios" / "scenarios.v1.json").read_text())

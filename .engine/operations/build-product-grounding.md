@@ -11,9 +11,12 @@ inform engineering judgment; they do not become a second merge gate.
 
 ## Steps
 
-1. Run the build-order helper for the initiating Issue or request and retain its milestone output in the risk
-   evidence. Run the phase-readiness helper when the work belongs to a described product phase. Milestones
-   and readiness are advisory: explain a surprising result, but do not turn it into an automatic hold.
+1. When `docs/spec/build-plan.md` exists, run `.engine/tools/milestone_emit.py emit`: it consumes the product
+   module's build order, creates one native GitHub milestone per named phase idempotently, and never invents
+   Engine/review vocabulary for those plain-language names. Assign each open work Issue with `gh issue edit
+   <number> --milestone <phase>`. Before starting a phase, run `.engine/tools/build_readiness.py check --phase
+   <phase>` and retain any unsettled scheduled work in the risk evidence. Both signals are advisory. Without a
+   committed build order there is nothing to emit; the Build plans its own phase and does not fabricate one.
 2. Resolve any settled-description pointer through `spec_referent`. Distinguish three outcomes:
    - no authority is declared, so the plan carries an explicit no-spec disclosure and local obligations;
    - one settled document resolves, so it and every semantically affected settled document are selected;

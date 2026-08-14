@@ -4,7 +4,7 @@
   "description": "A reasoning referent whose settled-spec coverage is re-derived before approval.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "profile", "intent_source", "raw_intent", "interpretation", "evidence", "assumptions", "objective", "success_obligations", "scope_boundary", "non_goals", "risks", "work_items", "review_strategy", "spec"],
+  "required": ["schema_version", "profile", "intent_source", "raw_intent", "objective", "success_obligations", "work_items", "spec"],
   "properties": {
     "schema_version": {"const": "build-plan.v1"},
     "profile": {"enum": ["trivial", "normal", "routine"]},
@@ -39,6 +39,7 @@
   },
   "allOf": [
     {"if": {"properties": {"profile": {"const": "trivial"}}}, "then": {"properties": {"work_items": {"maxItems": 1}, "spec": {"properties": {"posture": {"const": "none"}}}}}},
+    {"if": {"properties": {"profile": {"enum": ["normal", "routine"]}}}, "then": {"required": ["interpretation", "evidence", "assumptions", "scope_boundary", "non_goals", "risks", "review_strategy"]}},
     {"if": {"properties": {"profile": {"const": "routine"}}}, "then": {"properties": {"intent_source": {"properties": {"kind": {"const": "issue"}}}}}}
   ],
   "$defs": {

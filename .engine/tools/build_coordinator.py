@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import subprocess
 import sys
 import tempfile
@@ -178,11 +179,28 @@ def _assert_spec_current(state: dict, plan: dict, *, check_issue: bool = False) 
     return canonical
 
 
+def _assert_spec_boundary(state: dict, plan: dict, *, allow_same_session_offline: bool = False) -> dict:
+    try:
+        return _assert_spec_current(state, plan, check_issue=True)
+    except CoordinatorError as exc:
+        message = str(exc).lower()
+        offline = any(token in message for token in ("network", "offline", "timed out", "could not resolve host", "gh issue view failed"))
+        if allow_same_session_offline and state["build"]["mode"] == "same-session" and offline:
+            return _assert_spec_current(state, plan, check_issue=False)
+        raise
+
+
 def _hard_check_declarations() -> list[dict]:
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import repo_identity
+
+    home = repo_identity.is_home_repo(str(ROOT))
     out = []
     root = ROOT / ".engine" / "_fixtures"
     for name in ("not-applicable.json", "construction-scoped.json", "requires.json"):
         for path in sorted(root.rglob(name)):
+            if name == "construction-scoped.json" and home:
+                continue
             try:
                 value = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
@@ -192,12 +210,27 @@ def _hard_check_declarations() -> list[dict]:
 
 
 def _protocol() -> dict:
-    """Load the protocol and prove every original-runbook obligation still has one live owner."""
+    """Load the traceability map and verify its structural claims.
+
+    This proves owners and anchors exist. Semantic equivalence to the historical runbook remains an
+    independent QA judgment; the map must never describe its own phrase census as that assurance.
+    """
     value = _json(PROTOCOL_PATH)
     _validate(value, ROOT / ".engine" / "schemas" / "build-protocol.v1.json")
+    source = value["preservation_source"]
+    historical = _run(["git", "show", source["git_object"]])
+    if historical.returncode == 0:
+        payload = historical.stdout.encode()
+        if _digest(payload) != source["digest"] or len(historical.stdout.splitlines()) != source["lines"] or len(historical.stdout.split()) != source["words"]:
+            raise CoordinatorError("the recorded original Build runbook source does not match its preservation metadata")
     test_text = (ROOT / ".engine" / "tools" / "test_build_coordinator.py").read_text(encoding="utf-8")
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import repo_identity
+    home = repo_identity.is_home_repo(str(ROOT))
     for obligation in value["obligations"]:
         owner = ROOT / obligation["owner"]
+        if obligation.get("scope") == "home-only" and not home:
+            continue
         if not owner.is_file():
             raise CoordinatorError(f"{obligation['id']} names missing owner {obligation['owner']}")
         anchor = obligation["anchor"]
@@ -214,15 +247,27 @@ def _run(argv: list[str], *, cwd: Path = ROOT, input_text: str | None = None) ->
 
 
 def _run_validation(command: list[str], log_path: Path) -> int:
-    """Stream a registered validation command while retaining its complete merged output."""
+    """Retain complete output while relaying only bounded heartbeats to the orchestrator."""
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(command, cwd=ROOT, text=True, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, bufsize=1)
         assert process.stdout is not None
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        last_heartbeat = time.monotonic()
+        while process.poll() is None:
+            ready = selector.select(timeout=5)
+            if ready:
+                line = process.stdout.readline()
+                if line:
+                    log.write(line)
+                    log.flush()
+            if time.monotonic() - last_heartbeat >= 30:
+                print(f"validation still running; complete output is being retained at {log_path}", flush=True)
+                last_heartbeat = time.monotonic()
         for line in process.stdout:
             log.write(line)
-            log.flush()
-            print(line, end="", flush=True)
+        selector.close()
         return process.wait()
 
 
@@ -317,7 +362,7 @@ class StateStore:
 
 
 def _empty_review() -> dict:
-    return {"packet_digest": None, "required_lenses": [], "installed_lenses": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
+    return {"packet_digest": None, "required_lenses": [], "installed_lenses": [], "receipts": [], "reviewed_commit": None, "base_commit": None, "waiver": None}
 
 
 def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
@@ -391,6 +436,28 @@ def _publish_issue(repo: str, issue: int, plan: dict) -> None:
         raise CoordinatorError("GitHub did not preserve the exact durable plan; cold handoff is not safe")
 
 
+def _create_build_issue(repo: str, title: str, plan: dict) -> int:
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import issue_author
+
+    ordered = "\n".join(f"- {index + 1}. `{item['id']}` — {item['description']}"
+                         for index, item in enumerate(plan["work_items"]))
+    body = issue_author.render_engine_issue_body(
+        what_this_is=(f"This is the durable coordination surface for one Build: {plan['objective']}\n\n"
+                      f"**Approved ordered scope**\n{ordered}"),
+        whats_next=("The Build follows the exact machine-marked plan below. Progress stays in git and the "
+                    "pull-request handoff; this Issue preserves authority for a cold or unattended session."),
+    )
+    created = _must_run(["gh", "issue", "create", "--repo", repo, "--title", title,
+                         "--label", "engine", "--body-file", "-"], input_text=body).strip()
+    match = re.search(r"/issues/([0-9]+)(?:\s*)$", created)
+    if not match:
+        raise CoordinatorError("GitHub created no recognizable Build Issue; no plan was published")
+    issue = int(match.group(1))
+    _publish_issue(repo, issue, plan)
+    return issue
+
+
 def _installed(stage: str) -> list[str]:
     role = "plan-review" if stage == "plan" else "pre-submission-review"
     found = []
@@ -434,12 +501,6 @@ def _missing_receipts(stage: dict) -> list[str]:
     return [lens for lens in stage["required_lenses"] if lens not in done]
 
 
-TRIVIAL_GUARDED_PREFIXES = (
-    ".engine/check/", ".engine/schemas/", ".engine/tools/", ".github/workflows/",
-    ".github/CODEOWNERS", ".codex/config.toml",
-)
-
-
 def _trivial_violations(state: dict, plan: dict) -> list[str]:
     if plan["profile"] != "trivial":
         return []
@@ -449,7 +510,9 @@ def _trivial_violations(state: dict, plan: dict) -> list[str]:
     if len(plan["work_items"]) != 1:
         violations.append("the Build no longer has exactly one work item")
     paths = _changed_paths(state["build"]["base_at_bind"])
-    guarded = [path for path in paths if path.startswith(TRIVIAL_GUARDED_PREFIXES)]
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import weakening_guard
+    guarded = [path for path in paths if path.startswith(".engine/schemas/") or weakening_guard.is_guardrail(path)]
     if guarded:
         violations.append("guarded enforcement or schema surfaces changed: " + ", ".join(guarded))
     commit_count = int(_must_run(["git", "rev-list", "--count", f"{state['build']['base_at_bind']}..HEAD"]).strip())
@@ -472,9 +535,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     trivial_violations = _trivial_violations(state, plan) if plan else []
     if plan and state["approval"]:
         _assert_spec_current(state, plan)
-    if plan_stage["packet_digest"] is None and not fast_path:
+    plan_waived = bool(plan_stage.get("waiver") and state.get("approval")
+                        and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
+                        and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
+    if plan_stage["packet_digest"] is None and not fast_path and not plan_waived:
         required_evidence.append("plan-review packet")
-    else:
+    elif not plan_waived:
         required_evidence.extend(f"plan-review receipt: {x}" for x in _missing_receipts(plan_stage))
     required_evidence.extend(f"finding disposition: {x}" for x in missing_findings)
     if blocking:
@@ -501,35 +567,38 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         current_delivery = _required(protocol, "deliverable", depth, _installed("deliverable"))
         plan_coverage_current = not (set(current_plan) - set(plan_stage["required_lenses"]))
         delivery_coverage_current = not (set(current_delivery) - set(delivery["required_lenses"]))
-        if not plan_coverage_current:
+        if not plan_coverage_current and not plan_waived:
             required_evidence.append("refresh plan-review coverage for the currently installed reviewers")
         if delivery["packet_digest"] and not delivery_coverage_current:
             required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
     else:
         plan_coverage_current = delivery_coverage_current = True
     passed = {x["id"] for x in state["preflights"] if x["commit"] == head and x["passed"]}
-    required_evidence.extend(f"green preflight: {x['id']}" for x in protocol["preflights"] if x["id"] not in passed)
+    required_preflights = [x for x in protocol["preflights"] if x["required"]]
+    required_evidence.extend(f"green preflight: {x['id']}" for x in required_preflights if x["id"] not in passed)
     if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"]:
         required_evidence.append("complete PR contract for the final commit")
     if state["plan"]["source"] == "session":
         warnings.append("plan is session-local; promote it before intentional cold-session handoff")
+    if plan_waived:
+        warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
     if plan:
-        unresolved_assumptions = [x["claim"] for x in plan["assumptions"] if x["status"] == "unresolved"]
-        accepted = [x["claim"] for x in plan["assumptions"] if x["status"] == "accepted-risk"]
+        unresolved_assumptions = [x["claim"] for x in plan.get("assumptions", []) if x["status"] == "unresolved"]
+        accepted = [x["claim"] for x in plan.get("assumptions", []) if x["status"] == "accepted-risk"]
         judgments.extend("investigate unresolved assumption: " + value for value in unresolved_assumptions)
         warnings.extend("accepted plan risk: " + value for value in accepted)
     if trivial_violations:
         judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
-    plan_ready = fast_path or (plan_stage["packet_digest"] is not None and not _missing_receipts(plan_stage) and plan_coverage_current)
+    plan_ready = fast_path or plan_waived or (plan_stage["packet_digest"] is not None and not _missing_receipts(plan_stage) and plan_coverage_current)
     dispositions_ready = not missing_findings and not blocking
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         not [x for x in state["repair"]["lenses"] if x not in {r["lens"] for r in state["repair"]["receipts"]}]))
-    preflight_ready = not [x for x in protocol["preflights"] if x["id"] not in passed]
+    preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
 
     if not approval_ready:
@@ -550,9 +619,14 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         phase, next_one, available = "submission-preflight", "run submission preflights", []
     else:
         phase, next_one, available = "ready", "preview submission", []
+    ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
+    completed_items = [item["id"] for item in state["progress"]["completed"]]
+    next_item = next((item for item in ordered_items if item not in completed_items), None)
     return {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
             "required_evidence": required_evidence, "engineering_judgment": judgments,
-            "warnings": warnings, "suggested_next": next_one, "available_activities": available}
+            "warnings": warnings, "suggested_next": next_one, "available_activities": available,
+            "progress": {"completed": completed_items, "total": len(ordered_items),
+                         "current": state["progress"]["current_item"], "next": next_item}}
 
 
 def cmd_plan_bind(args, store: StateStore) -> None:
@@ -587,9 +661,13 @@ def cmd_plan_promote(args, store: StateStore) -> None:
     _assert_plan(state, plan)
     if plan["profile"] == "trivial":
         raise CoordinatorError("revise a trivial Build to the normal profile and renew approval before durable continuation")
-    _publish_issue(state["build"]["repository"], args.issue, plan)
-    store.mutate(lambda s: s["plan"].update({"source": "issue", "durable_issue": args.issue}))
-    print(f"promoted exact plan {state['plan']['digest']} to Issue #{args.issue}")
+    issue = args.issue
+    if issue is None:
+        issue = _create_build_issue(state["build"]["repository"], args.create_issue, plan)
+    else:
+        _publish_issue(state["build"]["repository"], issue, plan)
+    store.mutate(lambda s: s["plan"].update({"source": "issue", "durable_issue": issue}))
+    print(f"promoted exact plan {state['plan']['digest']} to Issue #{issue}")
 
 
 def _reset_after_revision(state: dict, plan: dict) -> None:
@@ -647,6 +725,10 @@ def cmd_status(args, store: StateStore) -> None:
         print(json.dumps(result, indent=2, sort_keys=True))
         return
     print(f"Phase: {result['phase']} (snapshot r{result['snapshot_revision']})")
+    progress = result["progress"]
+    if progress["total"]:
+        print(f"Progress: {len(progress['completed'])} of {progress['total']} complete"
+              + (f"; next {progress['next']}" if progress["next"] else "; all planned items complete"))
     for label, key in (("Missing evidence", "required_evidence"), ("Engineering judgment", "engineering_judgment"), ("Warnings", "warnings")):
         values = result[key]
         if values:
@@ -661,18 +743,64 @@ def cmd_status(args, store: StateStore) -> None:
             print(f"  - {value}")
 
 
-def _packet(args, store: StateStore) -> None:
+def _write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
+    digest = _digest(value)
+    path = Path(tempfile.gettempdir()) / f"{prefix}-{digest.split(':', 1)[1][:16]}.json"
+    rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    if not path.exists() or path.read_text(encoding="utf-8") != rendered:
+        path.write_text(rendered, encoding="utf-8")
+    return str(path), digest
+
+
+def _emit_packet(packet: dict, args) -> None:
+    if getattr(args, "json", None) is True or not hasattr(args, "output"):
+        print(json.dumps(packet, indent=2, sort_keys=True))
+        return
+    path = getattr(args, "output", None)
+    if path:
+        Path(path).write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    else:
+        path, _ = _write_json_artifact("build-review-packet", packet)
+    print(f"review packet {packet['packet_digest']} written to {path}; "
+          f"{len(packet['required_lenses'])} required lens(es), commit {packet.get('commit') or 'plan'}")
+
+
+def _packet(args, store: StateStore | None) -> None:
     plan = _plan(args.plan)
     impact = json.loads(_input(args.impact)) if args.impact else {}
-    state = store.read()
-    _assert_plan(state, plan)
-    canonical_spec = _assert_spec_current(state, plan)
-    if not state["approval"]:
-        raise CoordinatorError("approve the plan and depth before preparing review packets")
     protocol = _protocol()
     stage = args.stage
     roster_stage = "plan" if stage == "plan" else "deliverable"
     installed = _installed(roster_stage)
+    if getattr(args, "standalone", False):
+        if stage == "repair":
+            raise CoordinatorError("standalone packets support plan or deliverable review, not repair state")
+        canonical_spec = _canonical_spec(plan, repository=args.repository, check_issue=True)
+        required = _required(protocol, stage, args.depth, installed)
+        commit = None if stage == "plan" else args.commit
+        if stage == "deliverable" and (not commit or not args.base):
+            raise CoordinatorError("standalone deliverable packets require --commit and --base")
+        packet = {"schema_version": "build-review-packet.v1", "stage": stage,
+                  "raw_intent": plan["raw_intent"], "plan": plan, "plan_digest": _digest(plan),
+                  "intent_digest": _digest(plan["raw_intent"].encode()), "spec": canonical_spec,
+                  "commit": commit, "base_commit": args.base if commit else None, "impact": impact,
+                  "protocol_digest": _digest(protocol), "installed_lenses": installed,
+                  "required_lenses": required, "standalone": True}
+        if stage == "deliverable":
+            declarations = _hard_check_declarations()
+            path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
+            packet["hard_check_declarations"] = {"path": path, "digest": digest, "count": len(declarations),
+                                                  "for_lens": "spec-conformance"}
+        packet["packet_digest"] = _digest(packet)
+        _emit_packet(packet, args)
+        return
+    if store is None:
+        raise CoordinatorError("--state is required unless --standalone constructs a pre-PR review packet")
+    state = store.read()
+    _assert_plan(state, plan)
+    canonical_spec = _assert_spec_current(state, plan, check_issue=True)
+    if not state["approval"]:
+        raise CoordinatorError("approve the plan and depth before preparing review packets")
     if stage == "repair":
         repair = state["repair"]
         if not repair or repair["judgment"] == "none":
@@ -695,11 +823,14 @@ def _packet(args, store: StateStore) -> None:
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed, "required_lenses": required}
     if stage != "plan":
-        packet["hard_check_declarations"] = _hard_check_declarations()
+        declarations = _hard_check_declarations()
+        path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
+        packet["hard_check_declarations"] = {"path": path, "digest": digest, "count": len(declarations),
+                                              "for_lens": "spec-conformance"}
     packet["packet_digest"] = _digest(packet)
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     if current and current.get("packet_digest") == packet["packet_digest"]:
-        print(json.dumps(packet, indent=2, sort_keys=True))
+        _emit_packet(packet, args)
         return
     def change(s):
         if stage == "repair":
@@ -710,10 +841,26 @@ def _packet(args, store: StateStore) -> None:
             target = s["reviews"][stage]
             target.update({"packet_digest": packet["packet_digest"], "required_lenses": required,
                            "installed_lenses": installed, "receipts": [], "reviewed_commit": commit,
-                           "base_commit": packet["base_commit"]})
+                           "base_commit": packet["base_commit"], "waiver": None})
             s["findings"] = [f for f in s["findings"] if f["stage"] != stage]
     store.mutate(change)
-    print(json.dumps(packet, indent=2, sort_keys=True))
+    _emit_packet(packet, args)
+
+
+def cmd_review_waive(args, store: StateStore) -> None:
+    if args.stage != "plan":
+        raise CoordinatorError("only retrospective plan review may be waived; deliverable review remains required")
+    def change(state):
+        if not state["approval"]:
+            raise CoordinatorError("approve the Build gate before recording an operator review waiver")
+        stage = state["reviews"]["plan"]
+        stage.update({"packet_digest": None, "required_lenses": [], "installed_lenses": [],
+                      "receipts": [], "reviewed_commit": None, "base_commit": None,
+                      "waiver": {"plan_digest": state["plan"]["digest"],
+                                 "depth": state["approval"]["depth"], "reason": args.reason}})
+        state["findings"] = [f for f in state["findings"] if f["stage"] != "plan"]
+    store.mutate(change)
+    print("recorded explicit operator waiver of retrospective plan review; no review receipt was synthesized")
 
 
 def cmd_review_record(args, store: StateStore) -> None:
@@ -777,30 +924,46 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         note = json.loads(_input(args.input))
     except ValueError as exc:
         raise CoordinatorError(f"checkpoint input is not JSON: {exc}") from exc
-    required = {"objective", "current_work", "work_item", "assumptions", "non_goals", "planned_scope", "remaining_verification", "judgment"}
+    required = {"current_work", "work_item", "remaining_verification", "judgment"}
+    if plan["profile"] != "trivial":
+        required.update({"objective", "assumptions", "non_goals", "planned_scope"})
     if not required.issubset(note):
         raise CoordinatorError("checkpoint is missing: " + ", ".join(sorted(required - set(note))))
     def change(state):
         _assert_plan(state, plan)
-        _assert_spec_current(state, plan)
+        _assert_spec_boundary(state, plan, allow_same_session_offline=True)
         if not state["approval"]:
             raise CoordinatorError("the Build gate is not approved")
         items = {item["id"]: item for item in plan["work_items"]}
         if note["work_item"] not in items:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
+        ordered = [item["id"] for item in plan["work_items"]]
         completed = {item["id"] for item in state["progress"]["completed"]}
+        next_item = next((item for item in ordered if item not in completed), None)
+        if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
+            raise CoordinatorError(f"Routine must advance the next incomplete work item {next_item}")
         if args.complete_item:
             if args.complete_item not in items:
                 raise CoordinatorError(f"completed work item {args.complete_item} is not in the approved plan")
             if args.complete_item not in completed:
+                if plan["profile"] == "routine" and args.complete_item != next_item:
+                    raise CoordinatorError(f"Routine must complete the next incomplete work item {next_item}")
                 state["progress"]["completed"].append({"id": args.complete_item, "commit": _head()})
                 completed.add(args.complete_item)
         state["progress"]["current_item"] = note["work_item"]
+        note.setdefault("objective", plan["objective"])
+        note.setdefault("assumptions", [])
+        note.setdefault("non_goals", [])
+        note.setdefault("planned_scope", items[note["work_item"]]["paths"])
         note.update({"plan_digest": state["plan"]["digest"], "changed_paths": _changed_paths(state["build"]["base_at_bind"]),
                      "progress": f"{len(completed)} of {len(items)} planned work items complete"})
         state["checkpoint"] = note
     store.mutate(change)
-    print(json.dumps(note, indent=2, sort_keys=True))
+    if getattr(args, "json", False):
+        print(json.dumps(note, indent=2, sort_keys=True))
+    else:
+        print(f"checkpoint {note['judgment']}: {note['work_item']}; {note['progress']}; "
+              f"{len(note['changed_paths'])} changed path(s), {len(note['remaining_verification'])} verification item(s) remain")
 
 
 def cmd_validate(args, store: StateStore) -> None:
@@ -865,16 +1028,11 @@ def cmd_preflight(args, store: StateStore) -> None:
     close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"), "check", "--pr", str(pr), "--base", pr_data.get("baseRefOid") or state["build"]["base_at_bind"], "--head", head])
     close_passed = close.returncode == 0
     close_summary = (close.stdout or close.stderr or "no close-linkage output").strip()
-    if close_passed:
-        try:
-            close_payload = json.loads(close.stdout)
-            close_passed = close_payload.get("defang") is None
-        except ValueError:
-            close_passed = False
     contract_passed, contract_summary = _pr_contract(body)
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), pr_data.get("baseRefOid") or state["build"]["base_at_bind"]])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
+    declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
     results = [
         {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
         {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
@@ -882,15 +1040,22 @@ def cmd_preflight(args, store: StateStore) -> None:
          "passed": profile.returncode == 0 and "could not read the diff" not in profile_summary.lower(),
          "summary": profile_summary},
         {"id": "hard-check-declarations", "commit": head, "passed": True,
-         "summary": json.dumps(declarations, sort_keys=True) if declarations else "no hard-check declarations apply"},
+         "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
+                     f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
     ]
     def change(s):
         s["preflights"] = results
-        s["pr_contract"] = {"commit": head, "complete": contract_passed}
+        s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
     store.mutate(change)
-    print(json.dumps(results, indent=2, sort_keys=True))
-    if not close_passed or not contract_passed:
-        raise CoordinatorError("one or more submission preflights need attention")
+    if getattr(args, "json", False):
+        print(json.dumps(results, indent=2, sort_keys=True))
+    else:
+        required_failures = [item["id"] for item in results if item["id"] == "pr-contract" and not item["passed"]]
+        advisory = [item["id"] for item in results if item["id"] != "pr-contract" and not item["passed"]]
+        print(f"preflight recorded for {head[:12]}: required failures {len(required_failures)}, "
+              f"advisory findings {len(advisory)}, {len(declarations)} applicable hard-check declaration(s)")
+    if not contract_passed:
+        raise CoordinatorError("the required PR-contract preflight needs attention")
 
 
 def _handoff(state: dict) -> dict:
@@ -919,7 +1084,13 @@ def _handoff(state: dict) -> dict:
 
 
 def cmd_handoff_export(args, store: StateStore) -> None:
-    value = _handoff(store.read())
+    state = store.read()
+    if state["plan"]["source"] != "issue" or not state["plan"]["durable_issue"]:
+        raise CoordinatorError("promote the exact plan to a suitable Issue before cold-session handoff")
+    durable = _durable_plan(_issue_body(state["build"]["repository"], state["plan"]["durable_issue"]))
+    _assert_plan(state, durable)
+    _assert_spec_boundary(state, durable)
+    value = _handoff(state)
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
     if args.publish:
         if not args.ack_visibility:
@@ -1008,6 +1179,9 @@ def _submit_preview(store: StateStore, plan_path: str) -> dict:
         raise CoordinatorError("the expected pull request is not open")
     if pr.get("headRefOid") != status["head_commit"]:
         raise CoordinatorError("the PR head does not match the local final commit")
+    contract = state.get("pr_contract")
+    if not contract or contract.get("body_digest") != _digest((pr.get("body") or "").encode()):
+        raise CoordinatorError("the PR body changed after preflight; rerun preflight against the current contract")
     if pr.get("mergeable") != "MERGEABLE":
         raise CoordinatorError("the PR is not currently confirmed mergeable; reconcile or retry the live check before submission")
     base = pr.get("baseRefOid")
@@ -1033,25 +1207,26 @@ def cmd_submit_apply(args, store: StateStore) -> None:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--state", required=True, help="path to the harness-owned local Build snapshot")
+    p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
-    promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); promote.add_argument("--issue", type=int, required=True); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
+    promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); destination = promote.add_mutually_exclusive_group(required=True); destination.add_argument("--issue", type=int); destination.add_argument("--create-issue"); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
-    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.set_defaults(func=_packet)
+    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
     record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--finding", action="append"); record.set_defaults(func=cmd_review_record)
+    waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.set_defaults(func=cmd_finding_record)
-    checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.set_defaults(func=cmd_checkpoint)
+    checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
-    preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.set_defaults(func=cmd_preflight)
+    preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.add_argument("--publish", action="store_true"); export.add_argument("--ack-visibility", action="store_true"); export.set_defaults(func=cmd_handoff_export)
     restore = handoff.add_parser("restore"); restore.add_argument("--input"); restore.add_argument("--repository"); restore.add_argument("--pr", type=int); restore.set_defaults(func=cmd_handoff_restore)
@@ -1063,8 +1238,13 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    store = StateStore(args.state, args.expect_revision)
     try:
+        standalone = args.command == "review" and args.review_command == "packet" and args.standalone
+        if not args.state and not standalone:
+            raise CoordinatorError("--state is required for this command")
+        if standalone and (not args.repository or not args.depth):
+            raise CoordinatorError("standalone review packets require --repository and --depth")
+        store = None if standalone else StateStore(args.state, args.expect_revision)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

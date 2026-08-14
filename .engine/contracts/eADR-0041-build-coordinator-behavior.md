@@ -38,10 +38,10 @@ machine.
 | BC-09 | advisory practice | Unexpected paths, assumptions, and nearby risks should be shown to the engineer. | Impact check and checkpoints | Path policing turned every surprise into an interlock. | Status and checkpoint highlight them without forbidding progress. |
 | BC-10 | AI judgment | An implementation discovery revises the plan only when it changes intent, outcome, capability boundary, non-goals, settled criteria, authority, or agreed scope. | Plan settlement; historical cases 886 and 924 | Leaf changes invalidated approvals and reviews. | The orchestrator explicitly selects aligned, revision, or operator-decision posture. |
 | BC-11 | submission prerequisite | The authoritative plan must be reproducible and match the approved digest. | Both review gates | Event repair attempted to reconstruct authority. | Missing or mismatched plan is a hard hold; no transcript reconstruction. |
-| BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates | Coverage was entangled with phase advancement. | A manifest names required lenses; absent required receipts hold submission and omitted installed coverage is disclosed. |
+| BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission unless the operator explicitly waives a now-retrospective plan review with a disclosed reason. Deliverable review cannot be waived. |
 | BC-13 | submission prerequisite | Deliverable review must run against a recorded commit. | Build step 6 | Multiple packet generations obscured the actual reviewed commit. | One reviewed commit and packet digest per lens. |
 | BC-14 | submission prerequisite | Findings must be dispositioned, and only findings explicitly left blocking hold submission. | Finding policy and human merge gate | `blocking`/`serious` labels automatically drove more work. | Completeness is mechanical; correctness of rationale and `blocks_this_pr` is engineering judgment. |
-| BC-15 | submission prerequisite | Validation and registered preflights must be green for the final commit. | Build steps 6–7 | Receipts could be current while the substantive commit changed. | Results bind to commit and become stale on commit change. |
+| BC-15 | submission prerequisite | Validation and required registered preflights must be green for the final commit; advisory checks remain visible. | Build steps 6–7 | Receipts could be current while the substantive commit changed. | Results bind to commit and PR-body digest as applicable; advisory close-linkage evidence cannot masquerade as a merge wall. |
 | BC-16 | AI judgment | Reviewed-to-final divergence receives one proportional `none`, `scoped`, or `full` re-review judgment. | Build step 6; historical cases 681, 685, 955 | Invalidation rules produced recursive cold audits. | The coordinator measures and records the choice but never selects it. |
 | BC-17 | explicit non-goal | A focused re-review's repair does not automatically trigger another review. | Historical case 685; operator correction during StarshipSuperjam/engine-template#964 | Every audit-created change created another audit obligation. | A fresh proportional judgment may be `none`, terminating the loop. |
 | BC-18 | recovery behavior | Local implementation remains usable during GitHub or network loss. | Same-session posture | GitHub comments were required for every transition. | Local commands use the atomic snapshot; GitHub is required only for bind verification, durable handoff, and submission. |
@@ -61,12 +61,12 @@ to this table with equivalent evidence before it can become mandatory.
 |---|---|
 | Plan missing or digest mismatch | Checkpoint or review proceeds against a different plan than the one approved; StarshipSuperjam/engine-template#964 exposed this exact-artifact risk. |
 | Plan/depth approval absent | Implementation spends work and review effort before the operator has approved the Build gate. |
-| Required reviewer silently omitted | The operator approves coverage that never runs, creating a false review claim. |
+| Required reviewer silently omitted | The operator approves coverage that never runs or carries no explicit plan-review waiver, creating a false review claim. |
 | Deliverable review absent | A draft is submitted with only author and test-suite judgment. |
 | Validation absent or stale | The final commit differs from the commit that passed the checks. |
 | Reviewed commit differs and no re-review judgment exists | Repairs or base reconciliation bypass the required proportional engineering decision. |
 | Finding explicitly left blocking | The orchestrator knowingly submits a concern it said prevents this PR from shipping. |
-| Registered preflight absent or failed | A repository-specific submission rule, such as close linkage, is skipped or known red. |
+| Required registered preflight absent or failed | A repository-specific hard submission rule is skipped or known red; advisory close-linkage output is still recorded but does not block. |
 | PR contract incomplete | The operator receives an unreadable or materially incomplete merge surface. |
 | PR is not the expected open draft during construction | Evidence is attached to the wrong or already-submitted claim. |
 | Operation would merge | The coordinator crosses the human-only merge boundary. |

@@ -50,11 +50,13 @@ of every routine fire; the build's actual work follows the distributed-implement
      surfaces **once**, never as a fresh Issue every fire.
 5. **On the first fire, echo the build Issue this routine locked onto** — "starting the routine on #N —
    <title>" — so a mis-aimed target surfaces on the first cycle rather than after a wasted batch.
-6. **Advance one chunk within the scope-lock.** Ask coordinator status for the next incomplete named work
-   item and treat its intended paths as scope posture, not an infallible path wall. Checkpoint before the
-   commit, record the completing commit, update the bounded handoff, push the open pull request, and report
-   progress derived from the immutable plan and recorded commits ("commit X landed — N of M planned done").
-   Never rewrite the approved plan merely to mark progress, and never close or merge the pull request.
+6. **Advance one chunk within the scope-lock.** Run coordinator `status --plan <durable-plan>`; its progress
+   block names completed items, current item, the next incomplete ordered item, and `N of M`. Treat that item's
+   intended paths as scope posture, not an infallible path wall. Run `checkpoint` before committing to begin
+   that item. After the commit exists, run `checkpoint --complete-item <id>` again so the recorded completing
+   commit is the new commit, not its parent. Update the bounded handoff, push the open pull request, and report
+   “commit X landed — N of M planned done.” The coordinator refuses out-of-order Routine completion. Never
+   rewrite the approved plan merely to mark progress, and never close or merge the pull request.
 7. **Escalate anything that needs a human, because this run cannot ask.** An out-of-scope observation
    files an Issue and the run continues; a genuine blocker or a decision needing a human files an Issue and
    halts this task, leaving a plain-language status that names the next step ("stopped at N of M — I need a

@@ -63,7 +63,7 @@
     },
     "preflights": {"type": "array", "items": {"$ref": "#/$defs/result"}},
     "pr_contract": {
-      "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "complete": {"type": "boolean"}}}]
+      "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "body_digest", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "body_digest": {"$ref": "#/$defs/digest"}, "complete": {"type": "boolean"}}}]
     },
     "submission": {"enum": ["draft", "ready"]}
   },
@@ -72,14 +72,21 @@
     "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "review_stage": {
       "type": "object", "additionalProperties": false,
-      "required": ["packet_digest", "required_lenses", "installed_lenses", "receipts", "reviewed_commit", "base_commit"],
+      "required": ["packet_digest", "required_lenses", "installed_lenses", "receipts", "reviewed_commit", "base_commit", "waiver"],
       "properties": {
         "packet_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
         "required_lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "installed_lenses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "receipts": {"type": "array", "items": {"$ref": "#/$defs/review_receipt"}},
         "reviewed_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
-        "base_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}
+        "base_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
+        "waiver": {"oneOf": [
+          {"type": "null"},
+          {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth", "reason"], "properties": {
+            "plan_digest": {"$ref": "#/$defs/digest"}, "depth": {"enum": ["quick", "standard", "thorough"]},
+            "reason": {"type": "string", "minLength": 1}
+          }}
+        ]}
       }
     },
     "review_receipt": {

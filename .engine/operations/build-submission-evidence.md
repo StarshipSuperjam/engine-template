@@ -22,14 +22,23 @@ write a flattering story about the change.
 4. The Review record names the approved depth and checks performed in operator language. Disclose whether a
    reviewer executed code and that execution was confined to a discarded copy. Include reviewed and final
    commits, measured divergence, the proportional re-review judgment, and any focused result.
-5. Include the standing unresolved-conversation notice and report each relevant submission condition:
-   recognized automation that did not apply; canonical hard-check not-applicable declarations; open fail-open
-   findings; unavailable live helper or MCP checks; and any submission check that could not obtain evidence.
-   “Could not check” is never rendered as “clean.”
-6. Run the registered preflights against the live PR body and final commit: close linkage, PR-contract
-   completeness, scope-profile evidence, spec review-step projection, declaration inventory, automation and
-   fail-open disclosures, and local-reference checks where applicable. Deterministic facts are recorded;
-   prose claims receive completeness checks only.
+5. Include the standing unresolved-conversation notice and report each applicable conditional lane exactly:
+   - A recognized automation PR says its body-completeness result was **not applicable**, not verified. Keep
+     that distinct from any separately required `guardrail-ack`; automation never supplies the operator's
+     acknowledgement.
+   - An open fail-open finding goes in Validation as: “a safety check could not run on this change: what it
+     would have checked; this work was not verified for X.” It informs consent and does not become a new gate.
+   - Reuse boot's provider-specific `.engine/tools/boot.py` `mcp_availability_check` result. If it did not run,
+     run that canonical procedure; never infer health from the visible tool list. Distinguish an undiscovered
+     helper (trust/approval and restart) from one registered but not answering (diagnosis). Say nothing when
+     helpers are healthy.
+   - Carry exact spec review steps, applicable hard-check declarations, and any owned/unowned local-reference
+     result. “Could not check” is never rendered as “clean.”
+6. Run registered preflights against the live PR body and final commit. PR-contract completeness is the hard
+   mechanical prerequisite. Close linkage is detect-and-surface posture: record its lines and bounded defang
+   advice but do not turn a contradiction into a readiness wall. Record the scope profile and applicable
+   declaration inventory. Truthfulness-dependent conditional lanes remain orchestrator prose checked by cold
+   review; mechanics must not claim they semantically proved the prose.
 7. Preview submission and inspect the resulting action. Apply may mark the draft ready. No coordinator path
    may merge, approve on behalf of the operator, or weaken protected-branch review.
 

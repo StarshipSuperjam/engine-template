@@ -38,14 +38,14 @@ deployed project never carries it. The codes of conduct load every session throu
    raise it with the maintainer and record the decision as an eADR. The Codex adapter surfaces (`AGENTS.md`,
    `.agents/`, `.codex/`, the provider seam) are governed by eADR-0034; cold reviewers judge Codex work there.
 4. **Plan the one next step and run the PLAN GATE** — enter `.engine/operations/build-orchestration.md`, plan
-   the change, then cold-context audit that plan **before** executing it: is it sound, and buildable from the
-   record without inventing? Launch **≥4 independent agents sharing no session context** (adversarial,
-   technical-feasibility, non-engineer-operator, architect).
+   the change, and use the coordinator's installed roster at the operator-approved depth. Cold reviewers share
+   no session context and challenge whether the plan is sound and buildable without invention. Do not add a
+   second fixed reviewer-count rule here; Build's approved-depth protocol owns coverage.
 5. **Build the step to its full capability** — one step at a time, each finished and re-grounded from merged
    disk before the next. A partial or deferred build is a divergence, not a smaller change.
-6. **Run the DELIVERABLE GATE** — cold-context audit the built PR **again before merge**: does what got built
-   match what was asked? ≥4 independent lenses plus the conformance reviewer and the adversarial
-   divergence-hunter (which defaults to divergent under doubt). Tag findings **blocking / serious / nit**;
+6. **Run the DELIVERABLE GATE** — use Build's installed roster at the approved depth to cold-context audit the
+   built PR before merge: does what got built match what was asked? Include plan-derived conformance and the
+   adversarial divergence sweep required by that roster. Tag findings **blocking / serious / nit**;
    resolve or explicitly reject every blocking and serious one with logged rationale before proceeding.
    Orchestrator disciplines (non-delegable): **ground-truth every concrete finding against the source before
    recording**, and **re-adjudicate a high-confirm lens** — adjudication raises confidence, never confers it.

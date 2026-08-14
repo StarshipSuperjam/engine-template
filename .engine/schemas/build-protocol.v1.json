@@ -3,9 +3,20 @@
   "title": "build-protocol.v1 — declarative Build mechanics",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "plan_review", "deliverable_review", "preflights", "hard_holds", "obligations"],
+  "required": ["schema_version", "preservation_source", "plan_review", "deliverable_review", "preflights", "hard_holds", "obligations"],
   "properties": {
     "schema_version": {"const": "build-protocol.v1"},
+    "preservation_source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["git_object", "digest", "lines", "words", "assurance"],
+      "properties": {
+        "git_object": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "lines": {"type": "integer", "minimum": 1},
+        "words": {"type": "integer", "minimum": 1},
+        "assurance": {"type": "string", "minLength": 1}
+      }
+    },
     "plan_review": {"$ref": "#/$defs/depths"},
     "deliverable_review": {"$ref": "#/$defs/depths"},
     "preflights": {
@@ -13,10 +24,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "command"],
+        "required": ["id", "command", "required"],
         "properties": {
           "id": {"type": "string", "minLength": 1},
-          "command": {"type": "array", "items": {"type": "string"}}
+          "command": {"type": "array", "items": {"type": "string"}},
+          "required": {"type": "boolean"}
         }
       }
     },
@@ -60,6 +72,7 @@
         "intent": {"type": "string", "minLength": 1},
         "classification": {"enum": ["mechanical-fact", "ai-judgment", "operator-authority", "advisory-practice", "recovery-behavior", "special-delivery-path"]},
         "disposition": {"enum": ["mechanical", "prose", "superseded"]},
+        "scope": {"enum": ["all", "home-only"]},
         "owner": {"type": "string", "minLength": 1},
         "anchor": {"type": "string", "minLength": 1}
       }

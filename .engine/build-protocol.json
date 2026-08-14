@@ -1,5 +1,12 @@
 {
   "schema_version": "build-protocol.v1",
+  "preservation_source": {
+    "git_object": "7b0af413b2f684fed541f0c5ef0aee07b0364b6a:.engine/operations/build-orchestration.md",
+    "digest": "sha256:60010bac9cb0ab4b48a6d56627800df2f965d17c4235ddc25f82487b1b247f55",
+    "lines": 448,
+    "words": 6296,
+    "assurance": "The map is structural traceability, not proof of semantic equivalence. Independent QA reconstructs the source obligations and judges current mechanics and prose."
+  },
   "plan_review": {
     "quick": [],
     "standard": ["product-intent", "architecture"],
@@ -11,8 +18,8 @@
     "thorough": ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"]
   },
   "preflights": [
-    {"id": "close-linkage", "command": ["python", ".engine/tools/close_linkage_preflight.py", "check"]},
-    {"id": "pr-contract", "command": []}
+    {"id": "close-linkage", "command": ["python", ".engine/tools/close_linkage_preflight.py", "check"], "required": false},
+    {"id": "pr-contract", "command": [], "required": true}
   ],
   "hard_holds": [
     {"id": "plan-authority", "prevents": "work or review using a plan other than the one the operator approved"},
@@ -33,7 +40,7 @@
     {"id":"BO-03","intent":"Store same-session plans locally and require durable authority for unattended continuation.","classification":"recovery-behavior","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_unattended_bind_requires_durable_issue_plan"},
     {"id":"BO-04","intent":"Derive review coverage from installed persona role and lens metadata.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_thorough_requires_every_installed_lens"},
     {"id":"BO-05","intent":"Disclose zero installed reviewers rather than claim a green review.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"No installed reviewer is a disclosed no-extra-review result"},
-    {"id":"BO-06","intent":"Judge Codex adapter changes against the governing decision and live validation procedure.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/engine-development.md","anchor":"Codex adapter surfaces"},
+    {"id":"BO-06","intent":"Judge Codex adapter changes against the governing decision and live validation procedure.","classification":"advisory-practice","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"Codex adapter surfaces"},
     {"id":"BO-07","intent":"Title PRs using the Kind prefix contract.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"using the kinds"},
     {"id":"BO-08","intent":"Use impact, installed coverage, neighbours, and nearby trouble to propose review depth.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Run the knowledge impact check"},
     {"id":"BO-09","intent":"Derive suggested depth from risk rather than prior operator preference.","classification":"ai-judgment","disposition":"prose","owner":".engine/templates/risk-assessment.md","anchor":"never lowered by a depth"},
@@ -43,7 +50,7 @@
     {"id":"BO-13","intent":"Retain a one-headline fast path for genuinely trivial reversible no-spec work.","classification":"advisory-practice","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_trivial_profile_preserves_one_glance_floor"},
     {"id":"BO-14","intent":"Run cold plan review before implementation at approved coverage.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_plan_packet_contains_exact_referents"},
     {"id":"BO-15","intent":"Require every reported finding to receive an orchestrator disposition.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_review_receipt_inventory_drives_disposition_completeness"},
-    {"id":"BO-16","intent":"Treat reviewer severity and proposed remedy as advice.","classification":"ai-judgment","disposition":"superseded","owner":".engine/policies/finding-disposition.md","anchor":"Reviewer severity is advice"},
+    {"id":"BO-16","intent":"Treat reviewer severity and proposed remedy as advice.","classification":"ai-judgment","disposition":"prose","owner":".engine/policies/finding-disposition.md","anchor":"Reviewer severity is advice"},
     {"id":"BO-17","intent":"Choose inline, isolated-worker, or Routine implementation according to cohesion and context pressure.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Choose an implementation strategy"},
     {"id":"BO-18","intent":"Keep the orchestrator as single writer and integrate worker output for cohesion.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"judges cohesion"},
     {"id":"BO-19","intent":"Re-dispatch or complete a failed worker's missing work without phantom workflow state.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"worker fails"},
@@ -60,8 +67,8 @@
     {"id":"BO-30","intent":"Measure reviewed-to-final divergence and require a none, scoped, or full engineering judgment.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_repair_assessment_records_diff_and_judgment"},
     {"id":"BO-31","intent":"Allow scoped repair review and a terminating no-review judgment without recursion.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_prescribed_change_after_re_review_uses_latest_reviewed_commit"},
     {"id":"BO-32","intent":"Apply the same proportional judgment after base reconciliation.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"target-branch reconciliation"},
-    {"id":"BO-33","intent":"Run plan-derived conformance even without a settled specification.","classification":"ai-judgment","disposition":"superseded","owner":".claude/agents/engine-qa-review-spec-conformance.md","anchor":"It is not a no-op"},
-    {"id":"BO-34","intent":"Re-derive every hard-check not-applicable declaration during deliverable review.","classification":"ai-judgment","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_hard_check_carveouts_reach_deliverable_packet"},
+    {"id":"BO-33","intent":"Run plan-derived conformance even without a settled specification.","classification":"ai-judgment","disposition":"prose","owner":".claude/agents/engine-qa-review-spec-conformance.md","anchor":"It is not a no-op"},
+    {"id":"BO-34","intent":"Re-derive every applicable hard-check not-applicable declaration during deliverable review.","classification":"ai-judgment","disposition":"prose","owner":".claude/agents/engine-qa-review-spec-conformance.md","anchor":"re-derive the bound yourself"},
     {"id":"BO-35","intent":"Read and fill the literal PR template including its consent preamble.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"fill its literal contract"},
     {"id":"BO-36","intent":"Run close-linkage comparison and disclose or narrowly defang contradictions.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_preflight_runs_close_linkage_and_contract"},
     {"id":"BO-37","intent":"Render the report-only change profile and falsifiable Behaviors.","classification":"operator-authority","disposition":"prose","owner":".github/pull_request_template.md","anchor":"scope_profile.py"},
@@ -76,21 +83,21 @@
     {"id":"BO-46","intent":"Use the same workflow across unattended Routine fires with planned cohesion restored at Finalize.","classification":"special-delivery-path","disposition":"mechanical","owner":".engine/operations/routine-entry.md","anchor":"test_routine_progress_restores_from_handoff"},
     {"id":"BO-47","intent":"Keep Routine decomposability an explicit Plan-time judgment.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"Routine follows"},
     {"id":"BO-48","intent":"Represent ordered Routine items and permitted scope durably without changing the plan digest for progress.","classification":"recovery-behavior","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_routine_progress_does_not_change_plan_digest"},
-    {"id":"BO-49","intent":"Emit product build-order milestones and check phase readiness when applicable.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-product-grounding.md","anchor":"build-order helper"},
+    {"id":"BO-49","intent":"Emit product build-order milestones and check phase readiness when applicable.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-product-grounding.md","anchor":"milestone_emit.py emit"},
     {"id":"BO-50","intent":"Resolve settled descriptions and map every canonical criterion before approval.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_omitted_settled_criterion_prevents_approval"},
     {"id":"BO-51","intent":"Use the same exact settled criteria in plan review, deliverable review, and operator acceptance steps.","classification":"mechanical-fact","disposition":"mechanical","owner":".engine/tools/build_coordinator.py","anchor":"test_packets_and_review_steps_share_canonical_spec"},
     {"id":"BO-52","intent":"Route product-description authoring to product intake rather than informal Build prose.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/build-product-grounding.md","anchor":"through product intake"},
     {"id":"BO-53","intent":"Use direct verified worktrees for products the operator owns.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"isolated worktree"},
-    {"id":"BO-54","intent":"Run product tools inside the product worktree and pin GitHub writes to the verified slug.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"verified slug"},
-    {"id":"BO-55","intent":"Scan mechanic-local references before owned-product submission.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"local-reference scan"},
-    {"id":"BO-56","intent":"Clean completed owned-product worktrees safely and stale sprawl only with consent.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"remove only the verified"},
-    {"id":"BO-57","intent":"Preserve non-reflexivity while allowing unmerged product work to be built.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"as a separate owned product"},
-    {"id":"BO-58","intent":"Use the contribution path for targets the operator does not own and disclose review honestly.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/external-contribution-submit.md","anchor":"Exact plan and deliverable packets"},
+    {"id":"BO-54","intent":"Run product tools inside the product worktree and pin GitHub writes to the verified slug.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"GITHUB_REPOSITORY"},
+    {"id":"BO-55","intent":"Scan mechanic-local references before owned-product submission.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"tools/local_references.py scan"},
+    {"id":"BO-56","intent":"Clean completed owned-product worktrees safely and stale sprawl only with consent.","classification":"recovery-behavior","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"Never remove it while it has unpushed commits"},
+    {"id":"BO-57","intent":"Preserve non-reflexivity while allowing unmerged product work to be built.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/owned-product-build.md","anchor":"Non-reflexivity governs"},
+    {"id":"BO-58","intent":"Use the contribution path for targets the operator does not own and disclose review honestly.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/external-contribution-submit.md","anchor":"--standalone"},
     {"id":"BO-59","intent":"Disclose recognized-automation PR-body checks as not applicable without confusing guardrail acknowledgement.","classification":"special-delivery-path","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"recognized automation"},
     {"id":"BO-60","intent":"Surface open fail-open findings distinctly in Validation.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"fail-open"},
     {"id":"BO-61","intent":"Surface unavailable live helpers using the canonical provider diagnosis.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"MCP"},
     {"id":"BO-62","intent":"Build every touched slice to full agreed capability and record explicit deferrals.","classification":"ai-judgment","disposition":"prose","owner":".engine/conduct/defaults.md","anchor":"full agreed capability"},
-    {"id":"BO-63","intent":"Write genuine deferred work at the code site using the governed marker grammar.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/engine-development.md","anchor":"A deferral is written where the work is"},
-    {"id":"BO-64","intent":"Ground load-bearing claims and delegated findings against first-hand authority.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/engine-development.md","anchor":"ground-truth every concrete finding"}
+    {"id":"BO-63","intent":"Write genuine deferred work at the code site using the governed marker grammar.","classification":"advisory-practice","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"A deferral is written where the work is"},
+    {"id":"BO-64","intent":"Ground load-bearing claims and delegated findings against first-hand authority.","classification":"ai-judgment","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"ground-truth every concrete finding"}
   ]
 }

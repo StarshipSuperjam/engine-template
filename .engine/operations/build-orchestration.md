@@ -85,9 +85,9 @@ Before intentional cold-session or unattended continuation, promote the exact pl
 Issue. Promotion appends or replaces one bounded machine block in the Issue body while preserving the
 human-authored text and GitHub's edit history. It requires an explicit visibility acknowledgement, compares
 the Issue body again immediately before writing, aborts on concurrent edits, and verifies the written bytes.
-Reuse an originating Issue that represents exactly this Build. Create a dedicated Build Issue only when no
-suitable Issue exists. A broad epic, read-only external Issue, or Issue spanning independent PRs is not a
-suitable single-Build authority.
+Reuse an originating Issue that represents exactly this Build. When none is suitable, `plan promote --create-issue
+<title>` uses `.engine/tools/issue_author.py`, applies the `engine` label, states ordered scope and recovery purpose, then publishes the bounded plan. A broad epic,
+read-only external Issue, or Issue spanning independent PRs is not suitable authority.
 
 No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. A
 deleted durable plan blocks only cold continuation; never reconstruct an approved plan from a summary,
@@ -111,9 +111,9 @@ coverage. Progress prose does neither.
 An ordinary implementation leaf does not revise the plan. Revision is warranted only when intent, outcome,
 capability boundary, non-goals, settled criteria, authority, or agreed scope changes.
 
-The `trivial` profile is the one-entry fast path: same-session, session-local, no settled spec, quick depth,
-no cold lenses, one reversible work item, and at most one commit. One headline and the plan/depth approval are
-its only operator ceremony; full validation and human merge remain. A schema or guarded-enforcement change,
+The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success
+obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one
+commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change,
 guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to
 `normal` and renewed approval.
 
@@ -132,6 +132,8 @@ operator decision. Record separately whether it still blocks this PR. Severity a
 
 Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
 leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
+When a completed implementation is adopted after this before-code gate, the operator may explicitly waive the
+now-retrospective plan review with a reason; record the waiver, disclose it, and never fabricate receipts.
 
 ### 4. Implement and reground
 
@@ -148,7 +150,7 @@ before an upstream PR exists. If a worker fails, inspect what returned, repair c
 complete the missing work without inventing workflow state.
 
 Before each commit, run `checkpoint` with the exact plan and a short JSON note containing objective, current
-work, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:
+work, named `work_item`, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:
 `aligned`, `plan_revision_required`, or `operator_decision_required`. The coordinator adds changed paths.
 Unexpected paths are highlighted for judgment, not automatically forbidden. A missing or mismatched plan
 blocks commit recording. A non-aligned judgment requires resolution before submission.

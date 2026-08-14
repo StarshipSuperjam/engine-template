@@ -4194,7 +4194,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:1610cf44eda659af2e5866dd996fee21338dbea2b35e006f9f66b74928ffead5",
+        "fingerprint": "sha256:dbb6e858fc58cb49f8c629c127170df675076dac3d440e65e89d519d7e69c164",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:bbe01d7ca32b6bd2c7988fcca22e239e3a65137ad051f00772d425e5009db20e",
+        "fingerprint": "sha256:95fff1f2ef1bbe83bfda1aecc3cf4bb241af56f26bc2be89987d1a9c389466e3",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4644,7 +4644,7 @@
       },
       "slug": "build-product-grounding",
       "source": {
-        "fingerprint": "sha256:8c8d9489656970f9ecac67e8d03bb38b26e4c14ec293caa2ae02188d0c137df0",
+        "fingerprint": "sha256:c9d37a524d041049346894118d3a54de324d1bef6b1135d954ec27fe887f7e7f",
         "path": ".engine/operations/build-product-grounding.md"
       },
       "status": "active",
@@ -4664,7 +4664,7 @@
       },
       "slug": "build-submission-evidence",
       "source": {
-        "fingerprint": "sha256:b54fe003f84289b74b2484b5ed0a1575d2b8be7228b250b5b41787dad02a10e9",
+        "fingerprint": "sha256:b011c83aabbc49d3939f220fe9b45ad1d4bf4caad67af22aa2ccc957e4de67a2",
         "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
@@ -4804,7 +4804,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:e47338f7af33182b03e8dba5c3882fa4ad05c726cda6c403197a5208396a9bf1",
+        "fingerprint": "sha256:b52fcdd58b4b836520b48f0296436062e31d4a4a5d69c5eb431cb1895337ad62",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -4924,7 +4924,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:7224d9fbd0255cc2ac04683648f20c5785880458385989f10b0a41bb1c696ca8",
+        "fingerprint": "sha256:dbf6776f16b6c4627eca749356b8d048947dc9efa18687968ae4ae127e959225",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -5084,7 +5084,7 @@
       },
       "slug": "owned-product-build",
       "source": {
-        "fingerprint": "sha256:d7211d4b6ce34ca987170f2ba9b59c8411f6e1ebe3f377b443fbb2a021818dce",
+        "fingerprint": "sha256:1b93d34307096b496179a018cea3b3738b9f5c74ed27219c6bf9f2533c679924",
         "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
@@ -5164,7 +5164,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:0125f013757f20b05f8a2195f80f8ba70892ef097a683bc45be2fcc9c4ac2e72",
+        "fingerprint": "sha256:f219e22edde16ace63e4d895ac4aa2851de1e2765add7c97081f0a2e58dbaa34",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -5578,7 +5578,7 @@
       },
       "slug": "build-plan.v1",
       "source": {
-        "fingerprint": "sha256:c3a46e47b04fe46feb9e730736d1764c3ae15d035b83518acee441f1900885f4",
+        "fingerprint": "sha256:c3719753073eb566279851e2f41bd2538cda05eecbd6bc19cc14694e1c2b7c96",
         "path": ".engine/schemas/build-plan.v1.json"
       },
       "status": "active",
@@ -5595,7 +5595,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:2b7bc28bf9aaad00c0c0168202068ef9883393ecfe10934771c476845fc46698",
+        "fingerprint": "sha256:d798ae39d107404ba49f9594dc15d5268b6bde3d09cbd5cdfc5a3c4d1c58ca4f",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -5612,7 +5612,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:86ffaf6e0012ff6cd2d774a0a95a225f421ffe2d8ce591fec038bfdb13b0b34c",
+        "fingerprint": "sha256:5171ee2b4306f767076591b10e232c679bf1c21cf1f92428574f90dd17b8efa7",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -6953,8 +6953,11 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:issue_author",
+          "tool:repo_identity",
           "tool:spec_referent",
-          "tool:validate"
+          "tool:validate",
+          "tool:weakening_guard"
         ],
         "provided_by": [
           "module:core"
@@ -6962,7 +6965,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:b23ef831d247114bbfb8b221ec89e4e25c1a33279181537c3f803fc49ad19562",
+        "fingerprint": "sha256:2b80a03b9cdf7b902b275c7e219460c587b25d75a7e1fe6c46b7762938592382",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11762,7 +11765,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:6a67b57245f7fdef752ae4bf6c118d0577963a16b62f1651ca6104ad855b19ef",
+        "fingerprint": "sha256:0a4f31867c549b0909ab861314c71620d02e812cce5d4e3acf2999cfefce9f8f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
