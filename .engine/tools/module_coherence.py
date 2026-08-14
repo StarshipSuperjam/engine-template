@@ -315,7 +315,7 @@ _CI_REQUIRED_INDEXES = frozenset({".engine/knowledge/graph.json", ".engine/self-
 # floors (the root CLAUDE.md/AGENTS.md, which since StarshipSuperjam/engine-template#323 ARE the fenced adopter floor — the separate
 # .deployed.md files retired with the greenfield swap).
 _HOME_TRAVEL_FILES = frozenset({
-    ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json",
+    ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json", ".engine/build-protocol.json",
     ".gitignore", "AGENTS.md", "CLAUDE.md",
 })
 

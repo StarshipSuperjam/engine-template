@@ -14,7 +14,9 @@ good, and it never merges.
 The protected-branch merge remains the only binding gate. The coordinator may change an open draft pull
 request to ready only after the evidence described here is complete. The operator alone merges it.
 
-## The responsibility boundary
+## Steps
+
+### Responsibility boundary
 
 The coordinator owns mechanical facts: Build and draft-PR identity, plan source and digest, approved review
 depth, installed reviewer discovery, exact packets and receipts, finding-disposition completeness, reviewed
@@ -31,7 +33,7 @@ authority, or the agreed capability boundary, guardrail acknowledgements, and me
 
 Reviewer severity is advice. It never selects a remedy and never makes a finding block automatically.
 
-## 1. Plan and open the claim
+### 1. Plan and open the claim
 
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
@@ -85,7 +87,7 @@ deleted durable plan blocks only cold continuation; never reconstruct an approve
 transcript fragments, or implementation. `handoff export` produces a bounded, redacted snapshot for the PR
 contract; `handoff restore` accepts only the current shape and verifies the durable Issue plan.
 
-## 2. Assess risk and approve the Build gate
+### 2. Assess risk and approve the Build gate
 
 Run the knowledge impact check and inspect installed review personas. Fill
 `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, exactly what review and
@@ -100,7 +102,7 @@ coverage. Progress prose does neither.
 An ordinary implementation leaf does not revise the plan. Revision is warranted only when intent, outcome,
 capability boundary, non-goals, settled criteria, authority, or agreed scope changes.
 
-## 3. Run one cold plan review
+### 3. Run one cold plan review
 
 `review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
 plan, cited evidence supplied as impact input, settled criteria when present, installed and required lenses,
@@ -116,7 +118,7 @@ operator decision. Record separately whether it still blocks this PR. Severity a
 Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
 leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
 
-## 4. Implement and reground
+### 4. Implement and reground
 
 Choose an implementation strategy proportionate to the work: orchestrator-inline for small or coupled work,
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
@@ -139,7 +141,7 @@ the change. Regenerate `.engine/knowledge/graph.json` and `.engine/self-map.md` 
 their textual conflicts are resolved by regeneration, never by choosing a side. The original base is
 disclosed evidence, not immutable authority.
 
-## 5. Validate, review the deliverable, and repair proportionately
+### 5. Validate, review the deliverable, and repair proportionately
 
 When the implementation is cohesive, run `validate`. Its default commands are the CI suite and self-tests,
 and every result is bound to the current commit. Use focused tests while building; run the full project
@@ -165,7 +167,7 @@ judgment; `none` is valid and terminates the loop. There is no automatic audit r
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
 
-## 6. Preflight and submit
+### 6. Preflight and submit
 
 Read `.github/pull_request_template.md` in full and fill its literal contract, including the consent preamble,
 Scope/Behaviors, Validation, operator-readable Review record, Demonstration, and AI involvement. The Review
@@ -184,7 +186,7 @@ validation and preflights, proportional repair judgment, and complete PR contrac
 `submit apply` can invoke only `gh pr ready`. It has no merge command or merge API path. Marking ready submits
 the claim to the operator; the Build ends there.
 
-## Coordinator status and holds
+### Coordinator status and holds
 
 `status [--json]` returns derived phase, missing submission evidence, items needing engineering judgment,
 warnings, and either one mechanically unique next prerequisite or unordered engineering activities. Its
@@ -194,11 +196,11 @@ Hard holds are limited to: unavailable or mismatched plan authority; absent plan
 omitted approved reviewer coverage; absent deliverable review; validation stale or red for final; post-review
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
-would merge. Each is tied to a demonstrated failure in `.engine/contracts/build-coordinator-behavior.md`.
+would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0041-build-coordinator-behavior.md`.
 Assumptions, unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or
 judgment inputs.
 
-## Notes
+### Review roster
 
 The consumed-review-lenses record below is machine-read. It keeps installed personas connected to a Build
 stage; the coordinator still derives actual coverage from the installed roster and approved depth.
@@ -217,3 +219,8 @@ finding has an orchestrator disposition; final validation and registered preflig
 reviewed-to-final change has a recorded proportional judgment and required focused receipts; the PR contract
 truthfully explains the delivered behavior and evidence; the reconciled PR is mergeable; and the coordinator
 has marked the draft ready for the operator. Nothing merged automatically.
+
+## Notes
+
+The `Review roster` subsection above contains the machine-read consumed-review-lenses record. It stays under
+Steps so the operation keeps the required Purpose → Steps → Done when → Notes shape.

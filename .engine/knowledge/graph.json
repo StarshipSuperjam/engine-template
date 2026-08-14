@@ -884,7 +884,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-frontmatter",
@@ -950,7 +951,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-shape",
@@ -1017,7 +1019,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-threshold",
@@ -3392,26 +3395,6 @@
       "type": "conduct"
     },
     {
-      "id": "contract:build-coordinator-behavior",
-      "name": ".engine/contracts/build-coordinator-behavior.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "build-coordinator-behavior",
-      "source": {
-        "fingerprint": "sha256:fa365c012bf18591fea133e90ab9c55c9e132a4c2fa95549d042eab08964f2a0",
-        "path": ".engine/contracts/build-coordinator-behavior.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
       "id": "contract:eADR-0001-versioned-template",
       "name": ".engine/contracts/eADR-0001-versioned-template.md",
       "owner": "core",
@@ -4192,6 +4175,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0041-build-coordinator-behavior",
+      "name": ".engine/contracts/eADR-0041-build-coordinator-behavior.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0041-build-coordinator-behavior",
+      "source": {
+        "fingerprint": "sha256:1b7e3bdbf6490ff8a0b6ec39f31a86b8c1df149d8eeb7f7c0aaa473a77a58cc5",
+        "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -4615,7 +4618,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:71d817ec651c55cf5d231e709f7eadd98892cca4fc04bf7b8fb8552e65b46d58",
+        "fingerprint": "sha256:7e9ac25b6842c191fa6768fb2a61013caf248b9444365ee59ab4de9d0180edd7",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -9942,7 +9945,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:2a0ddf4cf8863e91b2154f8fba870874bd25baabb62b735535072c24a2a4f802",
+        "fingerprint": "sha256:cccb310a186e3272a76ea7bcb25a489660dc943f3e38c44628af55f1921edeba",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -12240,7 +12243,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:579da3fc3f17c2d73567b312f3e2f6ae43afca6fbd4cf4d7b8d9f936e61812e1",
+        "fingerprint": "sha256:c269abf4e3a811dc8703541e531a966470c6e8d11df3362e30ec6422c50f8339",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
