@@ -606,6 +606,12 @@
   ".engine/operations/build-orchestration.md": [
    "core"
   ],
+  ".engine/operations/build-product-grounding.md": [
+   "core"
+  ],
+  ".engine/operations/build-submission-evidence.md": [
+   "core"
+  ],
   ".engine/operations/close-turn.md": [
    "core"
   ],
@@ -664,6 +670,9 @@
    "core"
   ],
   ".engine/operations/operating-modes.md": [
+   "core"
+  ],
+  ".engine/operations/owned-product-build.md": [
    "core"
   ],
   ".engine/operations/product-intake.md": [

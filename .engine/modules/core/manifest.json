@@ -20,6 +20,8 @@
     "operation": [
       ".engine/operations/boot-session-start.md",
       ".engine/operations/build-orchestration.md",
+      ".engine/operations/build-product-grounding.md",
+      ".engine/operations/build-submission-evidence.md",
       ".engine/operations/close-turn.md",
       ".engine/operations/codex-settings.md",
       ".engine/operations/codex-validation.md",
@@ -37,6 +39,7 @@
       ".engine/operations/module-add.md",
       ".engine/operations/module-remove.md",
       ".engine/operations/onboarding-read.md",
+      ".engine/operations/owned-product-build.md",
       ".engine/operations/operating-modes.md",
       ".engine/operations/tune-policy.md"
     ],

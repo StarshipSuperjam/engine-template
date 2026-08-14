@@ -1728,6 +1728,8 @@
         "targets": [
           "operation:boot-session-start",
           "operation:build-orchestration",
+          "operation:build-product-grounding",
+          "operation:build-submission-evidence",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -1748,6 +1750,7 @@
           "operation:module-remove",
           "operation:onboarding-read",
           "operation:operating-modes",
+          "operation:owned-product-build",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -1782,6 +1785,8 @@
         "targets": [
           "operation:boot-session-start",
           "operation:build-orchestration",
+          "operation:build-product-grounding",
+          "operation:build-submission-evidence",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -1802,6 +1807,7 @@
           "operation:module-remove",
           "operation:onboarding-read",
           "operation:operating-modes",
+          "operation:owned-product-build",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -4367,7 +4373,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:bc5b4db12eaf8c03f1de4776bd385a355042f237e629bbb7ff8c82b71d779158",
+        "fingerprint": "sha256:aa85bb902d87417871a4644220d0c5cd3efb98d55a836af8d279bd1886830116",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4620,6 +4626,46 @@
       "source": {
         "fingerprint": "sha256:bbe01d7ca32b6bd2c7988fcca22e239e3a65137ad051f00772d425e5009db20e",
         "path": ".engine/operations/build-orchestration.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-product-grounding",
+      "name": ".engine/operations/build-product-grounding.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-product-grounding",
+      "source": {
+        "fingerprint": "sha256:8c8d9489656970f9ecac67e8d03bb38b26e4c14ec293caa2ae02188d0c137df0",
+        "path": ".engine/operations/build-product-grounding.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-submission-evidence",
+      "name": ".engine/operations/build-submission-evidence.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-submission-evidence",
+      "source": {
+        "fingerprint": "sha256:b54fe003f84289b74b2484b5ed0a1575d2b8be7228b250b5b41787dad02a10e9",
+        "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
       "type": "operation"
@@ -5020,6 +5066,26 @@
       "source": {
         "fingerprint": "sha256:5af9afb4f4c980ff2165b78f3abd92fbcede92a2c34a6f914c41f1a1a21c7213",
         "path": ".engine/operations/operating-modes.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:owned-product-build",
+      "name": ".engine/operations/owned-product-build.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "owned-product-build",
+      "source": {
+        "fingerprint": "sha256:d7211d4b6ce34ca987170f2ba9b59c8411f6e1ebe3f377b443fbb2a021818dce",
+        "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
       "type": "operation"
