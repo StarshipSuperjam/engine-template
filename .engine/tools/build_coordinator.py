@@ -115,7 +115,7 @@ def _canonical_spec(plan: dict, *, repository: str | None = None, check_issue: b
         except spec_referent.SpecReferentError as exc:
             raise CoordinatorError(f"could not resolve the originating Issue's settled specification: {exc}") from exc
 
-    authority_failures = {"ambiguous-pointer", "pointer-not-under-docs-spec", "doc-missing", "doc-not-locked", "no-criteria"}
+    authority_failures = {"ambiguous-pointer", "doc-missing", "doc-not-locked", "no-criteria"}
     if issue_result and not issue_result.get("ok") and (spec["posture"] == "settled" or issue_result.get("no_op_reason") in authority_failures):
         raise CoordinatorError("the originating Issue's specification authority is unusable: " + issue_result["detail"])
 
@@ -505,7 +505,8 @@ def _missing_findings(state: dict) -> list[str]:
     expected = []
     for stage_name, stage in state["reviews"].items():
         for receipt in stage["receipts"]:
-            expected.extend((finding_id, stage_name, receipt) for finding_id in receipt["finding_ids"])
+            receipt_stage = "repair" if stage_name == "deliverable" and receipt["packet_digest"] != stage["packet_digest"] else stage_name
+            expected.extend((finding_id, receipt_stage, receipt) for finding_id in receipt["finding_ids"])
     if state["repair"]:
         for receipt in state["repair"]["receipts"]:
             expected.extend((finding_id, "repair", receipt) for finding_id in receipt["finding_ids"])
@@ -616,7 +617,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
-        state["repair"] is not None and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
+        state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
+        and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
         not [x for x in state["repair"]["lenses"] if x not in {r["lens"] for r in state["repair"]["receipts"]}]))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
@@ -898,6 +900,10 @@ def cmd_review_record(args, store: StateStore) -> None:
                 raise CoordinatorError(f"{args.lens} was not requested for this repair review")
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest, "commit": target["final_commit"], "finding_ids": finding_ids}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
+            delivery = state["reviews"]["deliverable"]
+            delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
+            if not [lens for lens in target["lenses"] if lens not in {r["lens"] for r in target["receipts"]}]:
+                delivery["reviewed_commit"] = target["final_commit"]
         else:
             target = state["reviews"][args.stage]
             if target["packet_digest"] != args.packet_digest:

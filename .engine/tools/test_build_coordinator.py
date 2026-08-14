@@ -531,7 +531,8 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             bc.cmd_review_record(argparse.Namespace(stage="repair", lens="usability", packet_digest=packet["packet_digest"], finding=["R-1"]), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
-        self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], None)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"][0]["packet_digest"], packet["packet_digest"])
 
     def test_prescribed_change_after_re_review_uses_latest_reviewed_commit(self):
         def completed_re_review(state):
@@ -542,6 +543,19 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_C), mock.patch.object(bc, "_must_run", return_value="1 file changed, 1 insertion(+)"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Direct verification covers the prescribed repair.", lens=None), self.store)
         self.assertEqual(self.state()["repair"]["reviewed_commit"], HEAD_B)
+
+    def test_none_after_completed_scoped_review_terminates_the_chain(self):
+        def reviewed(state):
+            state["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64,
+                "reviewed_commit": HEAD_B, "required_lenses": [], "installed_lenses": [], "receipts": []})
+            state["validation"] = {"commit": HEAD_C, "results": [{"id": "ci", "commit": HEAD_C, "passed": True, "summary": "ok"}]}
+            state["repair"] = {"reviewed_commit": HEAD_B, "final_commit": HEAD_C, "summary": "small repair",
+                "judgment": "none", "rationale": "Direct verification is sufficient.", "lenses": [],
+                "packet_digest": None, "receipts": []}
+        self.store.mutate(reviewed)
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), mock.patch.object(bc, "_installed", return_value=[]):
+            status = bc._status(self.state())
+        self.assertNotIn("choose none, scoped, or full re-review", status["engineering_judgment"])
 
     def test_non_aligned_checkpoint_prevents_ready_phase(self):
         self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
@@ -802,6 +816,17 @@ status: locked
         body = "See [settled description](docs/spec/example.md)."
         with mock.patch.object(bc, "ROOT", root), mock.patch.object(bc, "_issue_body", return_value=body), self.assertRaisesRegex(bc.CoordinatorError, "cannot declare no spec"):
             bc._canonical_spec(value, repository="owner/repo", check_issue=True)
+
+    def test_unrelated_markdown_link_does_not_invent_spec_authority(self):
+        value = plan(); value["intent_source"] = {"kind": "issue", "issue": 770}
+        unrelated = {"ok": False, "no_op_reason": "pointer-not-under-docs-spec",
+                     "detail": "this change is not linked to a settled description"}
+        sys.path.insert(0, str(bc.ROOT / ".engine" / "tools"))
+        import spec_referent
+        with mock.patch.object(bc, "_issue_body", return_value="[operation](.engine/operations/build-orchestration.md)"), \
+                mock.patch.object(spec_referent, "resolve_from_body", return_value=unrelated):
+            canonical = bc._canonical_spec(value, repository="owner/repo", check_issue=True)
+        self.assertEqual(canonical["posture"], "none")
 
     def test_failed_spec_read_never_degrades_to_no_spec(self):
         value = plan(); value["intent_source"] = {"kind": "issue", "issue": 770}
