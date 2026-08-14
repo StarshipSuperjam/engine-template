@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:a8efa30484f7f70e060d0cbb51bd0a1baeb1c41c4805fc9ebb202a28d09def23",
+        "fingerprint": "sha256:7b2a6e6710111615f0d753002ce4feaea74742a9115c23a6539d333c32fc0246",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:1b245ed1c9c0aa6339f9befa3b0791c2a43c83dcb879071f04993cdad72903d0",
+        "fingerprint": "sha256:42cc44bf03c51137be43d20b7a586610c2b713f4f052fa6da87fd2c2a8d1f105",
         "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:07daf3af21e84d5fdd85225f26d05ce83d1eda275e53aecc8375e9529b9bd4c7",
+        "fingerprint": "sha256:bba9ddd4cf0d76f77634f8a92a6fb27e73e22c4524e02ff9451a5d3b22438284",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:37a9df7d2e1cf7503f56dcc7d19d36f2e9b7a3868325a9a96b585e39a08149c4",
+        "fingerprint": "sha256:e6d2ea04e265034a9fbbdca71ee8e0e695ff4e3fd8b8144dea6ce61080de2e42",
         "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:98ed1d7d8628858b91287c1c5bf54b80d9623c89c79432d7b16588bdb5083e14",
+        "fingerprint": "sha256:b03847f9936cf4ffcf0ce21c0bae261e283dfd00c1db67a8d88027357d197043",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:96a274fcf495b0db12ce53100be0f36f1fba9d409255c27c4be0051a6c1b02db",
+        "fingerprint": "sha256:d829817dc6b54e95dcb9de0da76632cccc4cf190371e99b0eb90751a06f259f2",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:98441045b440f4cffb112b2bb3231b12f468b37f1601e27da8dc44e3b94d10b5",
+        "fingerprint": "sha256:2d08fd29b71c1417078a8dff29626a6e4fd58563a2cbe2f632b85a462571f183",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:ac54347d3a032dcb234e6db5b9ad325e813eb19d755206f31308f7277e4e6237",
+        "fingerprint": "sha256:5af2f7df690051d4f6edf33bd7420b9c31390804a971b917b9f2fc8d1288e179",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -223,7 +223,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:7816c421aa3c17b2323f2d7d64e279d3c9f34e5a2575da13907d153049d3bd56",
+        "fingerprint": "sha256:0d2871fbdcc0773697615cb80235cf9d1ea7d4243ccf65333f40d6096c6f52dd",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -2685,7 +2685,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:fe7b683b18ad5382d4a6cbcc0ebb587a9acb8eef090c76c7f2a0e52bb0f08218",
+        "fingerprint": "sha256:f30ec5fb16e5bb608ac41cd1127f74b4e8d4572da7a964dab5d4ce8d714ef780",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -2705,7 +2705,7 @@
       },
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:0fd1e8532caeac6003624fadabeba9d27747e0ae60dfae4ec235121689d31ee8",
+        "fingerprint": "sha256:e460cdd04b8a9afb32bab806d9542ec38c520b728ce1fb8b106e34ba33ed4780",
         "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
@@ -2725,7 +2725,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:08c0c87fbef0f26cd95cd00b031f27491c51edad292f50ecc9679bdd40b7239d",
+        "fingerprint": "sha256:183d7bbe948d792e33381699a5e0d88cc379dafa813b72a998adefabbdb951fa",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -2745,7 +2745,7 @@
       },
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:c2964ddc141e8be66501c73c523f40ebb5314cc77d3a49ddea38bf5eb605c627",
+        "fingerprint": "sha256:ea975584d8909ba9fd5e8c802fd1430792ce99a4729025078b21967eb8f70bfb",
         "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
@@ -2765,7 +2765,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:71b1d57c33274bcfad9f0d1be63ea33df575d2110b0c2cc355c042f88c690135",
+        "fingerprint": "sha256:2b5599cf1ecafa4078edf5bc0b6228cd0bf5f1f86141c0f0c26ccc011b581870",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -2785,7 +2785,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:3495499a4b06450215fc0e55d46c338a6f2e0572ff7f26038423a118d775308f",
+        "fingerprint": "sha256:9c4ea0c3dc704ca98117e6b7cfe30dc00eb2238df9feb87d610fb8119635444d",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -2805,7 +2805,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:c4b088829ab9dbf6f3cd508856bdc805d1892f112675195de36a7a27d8cbc52f",
+        "fingerprint": "sha256:7976e56b0abfe4d2a80a33845e4d4d51a7dab8d222e86dd210a0954f80c832d1",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -2825,7 +2825,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:d31ea7b7372319039f2600100d0b52e5118339a4a5e885ea085499f606509373",
+        "fingerprint": "sha256:96ac4f4506733127fc84c9fd09f083daa980d1062225d5ac9feb33896fc71e6f",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -2845,7 +2845,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:a677f8ea89803d347fe8ba09d0dae79e5ec21ccc8625bf0c10627f3f5889060c",
+        "fingerprint": "sha256:85432825fc88e6a26a721e9bfbf65e9f8d6619546c22825ded3c34e0c049d656",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -3390,6 +3390,26 @@
       },
       "status": "active",
       "type": "conduct"
+    },
+    {
+      "id": "contract:build-coordinator-behavior",
+      "name": ".engine/contracts/build-coordinator-behavior.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-coordinator-behavior",
+      "source": {
+        "fingerprint": "sha256:fa365c012bf18591fea133e90ab9c55c9e132a4c2fa95549d042eab08964f2a0",
+        "path": ".engine/contracts/build-coordinator-behavior.md"
+      },
+      "status": "accepted",
+      "type": "contract"
     },
     {
       "id": "contract:eADR-0001-versioned-template",
@@ -4344,7 +4364,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:580612eebea17cfa99a04ffd436a6e9cf7bb50ca5a742acae4540307135bc1bb",
+        "fingerprint": "sha256:bc5b4db12eaf8c03f1de4776bd385a355042f237e629bbb7ff8c82b71d779158",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4595,7 +4615,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:60010bac9cb0ab4b48a6d56627800df2f965d17c4235ddc25f82487b1b247f55",
+        "fingerprint": "sha256:71d817ec651c55cf5d231e709f7eadd98892cca4fc04bf7b8fb8552e65b46d58",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5241,7 +5261,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:59ae156cf215f1ab51c892b5e7ee3f19f79ec3436563aab1b8aca8cdbd46ae85",
+        "fingerprint": "sha256:43f97987627d3c8cc92c5904d318b9fd472ed828730e39ab4cd65ce37c0b1290",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -5457,6 +5477,74 @@
       "source": {
         "fingerprint": "sha256:792f40706e0ee10408bf308d7a17fd52d6fe6f5b32f7117bc095b91e416bab0f",
         "path": ".engine/schemas/audit-finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-handoff.v1",
+      "name": ".engine/schemas/build-handoff.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-handoff.v1",
+      "source": {
+        "fingerprint": "sha256:5519932ca45bc8ff747daed4ab9e790c76d62a77073c4def20dfbfcb9bf1c560",
+        "path": ".engine/schemas/build-handoff.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-plan.v1",
+      "name": ".engine/schemas/build-plan.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-plan.v1",
+      "source": {
+        "fingerprint": "sha256:85f3d60928dbc0ade94ca86c54bff307571875e79bbff0fd49b76fbd2c8ea7d5",
+        "path": ".engine/schemas/build-plan.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-protocol.v1",
+      "name": ".engine/schemas/build-protocol.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-protocol.v1",
+      "source": {
+        "fingerprint": "sha256:5c5143b9e44a51058b8fbbf77ed1c300a8ea681beab6d5c00d2b0aa9d505d8f6",
+        "path": ".engine/schemas/build-protocol.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-state.v1",
+      "name": ".engine/schemas/build-state.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-state.v1",
+      "source": {
+        "fingerprint": "sha256:0178948282c4feb3ac5fe50aee188fce5e04b727c9431cedde45585c868e336d",
+        "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -6786,6 +6874,29 @@
       },
       "status": "active",
       "summary": "Control-plane bootstrap — the permanent, re-runnable operation that turns the protected-branch",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:build_coordinator",
+      "name": ".engine/tools/build_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator",
+      "source": {
+        "fingerprint": "sha256:4f94f2e2d27d0148a7a160b0bcc0a046a768d738198c5f5a4ab143c566c3e00f",
+        "path": ".engine/tools/build_coordinator.py"
+      },
+      "status": "active",
+      "summary": "A small instrument panel for one PR-shaped Build.",
       "type": "tool"
     },
     {
@@ -11562,6 +11673,29 @@
       },
       "status": "active",
       "summary": "Tests for the control-plane bootstrap.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator",
+      "name": ".engine/tools/test_build_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator",
+      "source": {
+        "fingerprint": "sha256:592cec0ad338bcb30167179de0ae5028e6cf68f2e4bd5c4755e69603a39d857e",
+        "path": ".engine/tools/test_build_coordinator.py"
+      },
+      "status": "active",
+      "summary": "Focused mechanical tests for the Build coordinator instrument panel.",
       "type": "tool"
     },
     {
