@@ -7051,7 +7051,7 @@
       },
       "slug": "build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:75b69ea8d7cce5337a274be610b107075e8a29a4a4c6e393fb102a79ecc4fb98",
+        "fingerprint": "sha256:a76b65d9126e7f38dfcc1af1163caebb869ff7a7f8039faed4fff88fb7e4bc3a",
         "path": ".engine/tools/build_coordinator_preservation.py"
       },
       "status": "active",
@@ -11899,7 +11899,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:23e5cb9a70c382f4878e7dfb20eb40279f3c48d36d0c9e8e4172b414942d1a6e",
+        "fingerprint": "sha256:7ff699b18edff01148b0a17aaea4942a1de2b3e7c9d5e1a66cef3fb04d04881a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -11971,7 +11971,7 @@
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:4cfc1d733324764b082e221d4c086c5c0dcd26a968fb0449188be49a33f3dce6",
+        "fingerprint": "sha256:e6e996532b9ac442264578846f9209efb81815bf77a9d55f1868ed02c7a00162",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",

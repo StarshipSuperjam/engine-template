@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestPreservationTraceability(unittest.TestCase):
-    def test_every_original_obligation_has_one_live_structural_disposition(self):
+    def test_every_mapped_obligation_has_one_live_structural_disposition(self):
         value = preservation.validate_map(ROOT)
         self.assertEqual(len(value["obligations"]), 65)
         self.assertEqual(len({row["id"] for row in value["obligations"]}), 65)

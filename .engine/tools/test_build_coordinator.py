@@ -1043,7 +1043,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
                      "spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"):
             self.assertIn(lens, text)
 
-    def test_every_original_obligation_has_one_live_disposition(self):
+    def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
         self.assertEqual(len(obligations["obligations"]), 65)
         self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 65)
@@ -1062,7 +1062,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
         self.assertLessEqual(len(text.splitlines()), 250)
 
-    def test_preservation_map_is_bound_to_the_exact_historical_runbook(self):
+    def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
         self.assertEqual(source["lines"], 448)
         self.assertEqual(source["words"], 6296)
