@@ -236,7 +236,8 @@ class TestIssueDurability(CoordinatorCase):
             return ""
 
         args = argparse.Namespace(input=str(self.plan_path), issue=11, ack_visibility=True)
-        with mock.patch.object(bc, "_issue_body", side_effect=issue_body), mock.patch.object(bc, "_must_run", side_effect=must_run), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_issue_body", side_effect=issue_body), mock.patch.object(bc, "_must_run", side_effect=must_run), \
+                mock.patch.object(bc, "_ensure_pr_closes_issue"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_promote(args, self.store)
         self.assertTrue(written["body"].startswith("Human issue body\n"))
         self.assertIn(bc.PLAN_BEGIN + bc._digest(plan()), written["body"])
@@ -267,10 +268,24 @@ class TestIssueDurability(CoordinatorCase):
     def test_dedicated_build_issue_is_authored_and_then_receives_the_plan(self):
         self.seed()
         args = argparse.Namespace(input=str(self.plan_path), issue=None, create_issue="Durable coordinator work", ack_visibility=True)
-        with mock.patch.object(bc, "_create_build_issue", return_value=42) as create, contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_create_build_issue", return_value=42) as create, \
+                mock.patch.object(bc, "_ensure_pr_closes_issue") as link, contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_promote(args, self.store)
         create.assert_called_once_with("owner/repo", "Durable coordinator work", plan())
+        link.assert_called_once_with("owner/repo", 7, 42)
         self.assertEqual(self.state()["plan"]["durable_issue"], 42)
+
+    def test_durable_build_issue_is_linked_to_close_with_the_pr(self):
+        bodies = iter(["PR body", "PR body", "PR body\n\nCloses #42\n"])
+        written = {}
+        def draft(repo, pr):
+            return {"body": next(bodies)}
+        def write(argv, input_text=None):
+            written["body"] = input_text
+            return ""
+        with mock.patch.object(bc, "_verify_draft", side_effect=draft), mock.patch.object(bc, "_must_run", side_effect=write):
+            bc._ensure_pr_closes_issue("owner/repo", 7, 42)
+        self.assertEqual(written["body"], "PR body\n\nCloses #42\n")
 
 
 class TestReviewAndFindings(CoordinatorCase):
@@ -329,6 +344,11 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(state["reviews"]["plan"]["waiver"]["plan_digest"], state["plan"]["digest"])
         with self.assertRaisesRegex(bc.CoordinatorError, "only retrospective plan review"):
             bc.cmd_review_waive(argparse.Namespace(stage="deliverable", reason="not allowed"), self.store)
+
+    def test_plan_review_waiver_cannot_erase_started_review(self):
+        self.packet()
+        with self.assertRaisesRegex(bc.CoordinatorError, "already started"):
+            bc.cmd_review_waive(argparse.Namespace(stage="plan", reason="too late"), self.store)
 
     def test_standalone_packet_needs_no_pr_or_snapshot(self):
         args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, standalone=True,
@@ -453,6 +473,16 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         for result in self.state()["validation"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
             self.assertEqual(result["log_digest"], bc._digest(payload.encode()))
+
+    def test_validation_log_is_exclusive_and_owner_only(self):
+        path = Path(self.temp.name) / "validation.log"
+        self.assertEqual(bc._run_validation(["/usr/bin/true"], path), 0)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        link = Path(self.temp.name) / "link.log"; target = Path(self.temp.name) / "target"
+        target.write_text("unchanged"); link.symlink_to(target)
+        with self.assertRaisesRegex(bc.CoordinatorError, "private validation log"):
+            bc._run_validation(["true"], link)
+        self.assertEqual(target.read_text(), "unchanged")
 
     def test_validate_cli_has_no_arbitrary_command_input(self):
         parsed = bc.parser().parse_args(["--state", self.state_path, "validate"])
@@ -754,6 +784,17 @@ status: locked
             with self.assertRaisesRegex(bc.CoordinatorError, "stale"):
                 bc._assert_spec_current(state, value)
 
+    def test_deleted_issue_pointer_invalidates_a_settled_plan(self):
+        root = Path(self.temp.name) / "repo"
+        value = self.settled(root); value["intent_source"] = {"kind": "issue", "issue": 770}
+        no_pointer = {"ok": False, "no_op_reason": "no-issue-pointer", "detail": "no settled pointer"}
+        sys.path.insert(0, str(bc.ROOT / ".engine" / "tools"))
+        import spec_referent
+        with mock.patch.object(bc, "ROOT", root), mock.patch.object(bc, "_issue_body", return_value="body"), \
+                mock.patch.object(spec_referent, "resolve_from_body", return_value=no_pointer), \
+                self.assertRaisesRegex(bc.CoordinatorError, "authority is unusable"):
+            bc._canonical_spec(value, repository="owner/repo", check_issue=True)
+
     def test_issue_linked_settled_authority_cannot_hide_behind_no_spec(self):
         root = Path(self.temp.name) / "repo"
         self.settled(root)
@@ -822,7 +863,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_home_only_obligations_are_explicitly_scoped(self):
         protocol = bc._protocol()
         rows = [row for row in protocol["obligations"] if row.get("scope") == "home-only"]
-        self.assertEqual({row["id"] for row in rows}, {"BO-06", "BO-63", "BO-64"})
+        self.assertEqual({row["id"] for row in rows}, {"BO-06"})
+
+    def test_json_artifacts_are_owner_only_and_not_reused(self):
+        first, digest = bc._write_json_artifact("packet-test", {"secret": "plan"})
+        second, second_digest = bc._write_json_artifact("packet-test", {"secret": "plan"})
+        self.assertEqual(digest, second_digest)
+        self.assertNotEqual(first, second)
+        self.assertEqual(Path(first).stat().st_mode & 0o777, 0o600)
 
     def test_source_linked_scenarios_cover_recovery_behaviors(self):
         fixture = json.loads((bc.ROOT / ".engine" / "_fixtures" / "build-coordinator-scenarios" / "scenarios.v1.json").read_text())

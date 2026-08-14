@@ -155,10 +155,10 @@ work, named `work_item`, assumptions and accepted risks, non-goals, planned scop
 Unexpected paths are highlighted for judgment, not automatically forbidden. A missing or mismatched plan
 blocks commit recording. A non-aligned judgment requires resolution before submission.
 
-Run `engine_todo.py list` in touched areas and disposition covered deferred work. Iterate with focused tests,
-not the full suite. Investigate new uncertainty instead of treating status's suggestion as an order. During
-implementation, `status` deliberately reports unordered activities such as continue work, run focused checks,
-or validate when cohesive; it cannot know which engineering activity is best.
+Write genuine deferrals at the code site with the governed marker grammar, run `engine_todo.py list` in touched
+areas, and disposition covered work. Verify specifications, harness capability, and delegated findings against
+first-hand authority. Iterate with focused tests; `status` reports unordered activities and cannot know which
+engineering activity is best.
 
 Reconcile the target branch before final validation. If it advanced, resolve according to the substance of
 the change. Regenerate `.engine/knowledge/graph.json` and `.engine/self-map.md` last from the reconciled tree;

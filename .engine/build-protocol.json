@@ -97,7 +97,7 @@
     {"id":"BO-60","intent":"Surface open fail-open findings distinctly in Validation.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"fail-open"},
     {"id":"BO-61","intent":"Surface unavailable live helpers using the canonical provider diagnosis.","classification":"operator-authority","disposition":"prose","owner":".engine/operations/build-submission-evidence.md","anchor":"MCP"},
     {"id":"BO-62","intent":"Build every touched slice to full agreed capability and record explicit deferrals.","classification":"ai-judgment","disposition":"prose","owner":".engine/conduct/defaults.md","anchor":"full agreed capability"},
-    {"id":"BO-63","intent":"Write genuine deferred work at the code site using the governed marker grammar.","classification":"advisory-practice","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"A deferral is written where the work is"},
-    {"id":"BO-64","intent":"Ground load-bearing claims and delegated findings against first-hand authority.","classification":"ai-judgment","disposition":"prose","scope":"home-only","owner":".engine/operations/engine-development.md","anchor":"ground-truth every concrete finding"}
+    {"id":"BO-63","intent":"Write genuine deferred work at the code site using the governed marker grammar.","classification":"advisory-practice","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"governed marker grammar"},
+    {"id":"BO-64","intent":"Ground load-bearing claims and delegated findings against first-hand authority.","classification":"ai-judgment","disposition":"prose","owner":".engine/operations/build-orchestration.md","anchor":"first-hand authority"}
   ]
 }

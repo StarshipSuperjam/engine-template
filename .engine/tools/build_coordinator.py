@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import selectors
 import subprocess
 import sys
@@ -114,8 +115,8 @@ def _canonical_spec(plan: dict, *, repository: str | None = None, check_issue: b
         except spec_referent.SpecReferentError as exc:
             raise CoordinatorError(f"could not resolve the originating Issue's settled specification: {exc}") from exc
 
-    authority_failures = {"ambiguous-pointer", "doc-missing", "doc-not-locked", "no-criteria"}
-    if issue_result and not issue_result.get("ok") and issue_result.get("no_op_reason") in authority_failures:
+    authority_failures = {"ambiguous-pointer", "pointer-not-under-docs-spec", "doc-missing", "doc-not-locked", "no-criteria"}
+    if issue_result and not issue_result.get("ok") and (spec["posture"] == "settled" or issue_result.get("no_op_reason") in authority_failures):
         raise CoordinatorError("the originating Issue's specification authority is unusable: " + issue_result["detail"])
 
     if spec["posture"] == "none":
@@ -248,7 +249,12 @@ def _run(argv: list[str], *, cwd: Path = ROOT, input_text: str | None = None) ->
 
 def _run_validation(command: list[str], log_path: Path) -> int:
     """Retain complete output while relaying only bounded heartbeats to the orchestrator."""
-    with log_path.open("w", encoding="utf-8") as log:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(log_path, flags, 0o600)
+    except OSError as exc:
+        raise CoordinatorError(f"could not create private validation log {log_path}: {exc}") from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as log:
         process = subprocess.Popen(command, cwd=ROOT, text=True, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, bufsize=1)
         assert process.stdout is not None
@@ -268,6 +274,7 @@ def _run_validation(command: list[str], log_path: Path) -> int:
         for line in process.stdout:
             log.write(line)
         selector.close()
+        process.stdout.close()
         return process.wait()
 
 
@@ -456,6 +463,19 @@ def _create_build_issue(repo: str, title: str, plan: dict) -> int:
     issue = int(match.group(1))
     _publish_issue(repo, issue, plan)
     return issue
+
+
+def _ensure_pr_closes_issue(repo: str, pr: int, issue: int) -> None:
+    before = _verify_draft(repo, pr).get("body") or ""
+    line = f"Closes #{issue}"
+    if re.search(rf"(?im)^\s*closes\s+#{issue}\s*$", before):
+        return
+    after = before.rstrip() + ("\n\n" if before.strip() else "") + line + "\n"
+    if (_verify_draft(repo, pr).get("body") or "") != before:
+        raise CoordinatorError("PR contract changed while linking the durable Build Issue; no write was made")
+    _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=after)
+    if (_verify_draft(repo, pr).get("body") or "") != after:
+        raise CoordinatorError("GitHub did not preserve the durable Build Issue closing link")
 
 
 def _installed(stage: str) -> list[str]:
@@ -666,6 +686,7 @@ def cmd_plan_promote(args, store: StateStore) -> None:
         issue = _create_build_issue(state["build"]["repository"], args.create_issue, plan)
     else:
         _publish_issue(state["build"]["repository"], issue, plan)
+    _ensure_pr_closes_issue(state["build"]["repository"], state["build"]["pr"], issue)
     store.mutate(lambda s: s["plan"].update({"source": "issue", "durable_issue": issue}))
     print(f"promoted exact plan {state['plan']['digest']} to Issue #{issue}")
 
@@ -745,10 +766,11 @@ def cmd_status(args, store: StateStore) -> None:
 
 def _write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
     digest = _digest(value)
-    path = Path(tempfile.gettempdir()) / f"{prefix}-{digest.split(':', 1)[1][:16]}.json"
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
-    if not path.exists() or path.read_text(encoding="utf-8") != rendered:
-        path.write_text(rendered, encoding="utf-8")
+    fd, raw_path = tempfile.mkstemp(prefix=f"{prefix}-", suffix=".json")
+    path = Path(raw_path)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(rendered)
     return str(path), digest
 
 
@@ -854,6 +876,8 @@ def cmd_review_waive(args, store: StateStore) -> None:
         if not state["approval"]:
             raise CoordinatorError("approve the Build gate before recording an operator review waiver")
         stage = state["reviews"]["plan"]
+        if stage["packet_digest"] or stage["receipts"] or any(f["stage"] == "plan" for f in state["findings"]):
+            raise CoordinatorError("plan review already started; disposition its findings instead of erasing evidence with a waiver")
         stage.update({"packet_digest": None, "required_lenses": [], "installed_lenses": [],
                       "receipts": [], "reviewed_commit": None, "base_commit": None,
                       "waiver": {"plan_digest": state["plan"]["digest"],
@@ -971,7 +995,7 @@ def cmd_validate(args, store: StateStore) -> None:
     head = _head()
     results = []
     for item in VALIDATION_COMMANDS:
-        stamp = f"{int(time.time())}-{item['id']}-{head[:12]}.log"
+        stamp = f"{int(time.time())}-{item['id']}-{head[:12]}-{secrets.token_hex(6)}.log"
         log_path = Path(tempfile.gettempdir()) / stamp
         returncode = _run_validation(item["command"], log_path)
         log_digest = _digest(log_path.read_bytes())
