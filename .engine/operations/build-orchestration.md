@@ -200,18 +200,6 @@ would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0
 Assumptions, unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or
 judgment inputs.
 
-### Review roster
-
-The consumed-review-lenses record below is machine-read. It keeps installed personas connected to a Build
-stage; the coordinator still derives actual coverage from the installed roster and approved depth.
-
-```text
-consumed-review-lenses:
-  plan-review gate: product-intent, architecture, feasibility, risk-governance
-  product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance
-  pre-submission gate: spec-conformance, divergence-hunter, usability, technical-integrity, security-governance
-```
-
 ## Done when
 
 The exact approved plan and depth are recorded; required plan and deliverable review ran; every reported
@@ -222,5 +210,12 @@ has marked the draft ready for the operator. Nothing merged automatically.
 
 ## Notes
 
-The `Review roster` subsection above contains the machine-read consumed-review-lenses record. It stays under
-Steps so the operation keeps the required Purpose → Steps → Done when → Notes shape.
+The consumed-review-lenses record below is machine-read. It keeps installed personas connected to a Build
+stage; the coordinator still derives actual coverage from the installed roster and approved depth.
+
+```text
+consumed-review-lenses:
+  plan-review gate: product-intent, architecture, feasibility, risk-governance
+  product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance
+  pre-submission gate: spec-conformance, divergence-hunter, usability, technical-integrity, security-governance
+```
