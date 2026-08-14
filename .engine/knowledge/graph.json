@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:e7706b69e4936a4a3e62a2088afb351b8ed2a42435c4ae6e160273344d7fea82",
+        "fingerprint": "sha256:c1e93a2ec40677a768922e276e9baa76c7b74390a9ab8999acb83079bad56d09",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5164,7 +5164,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:f219e22edde16ace63e4d895ac4aa2851de1e2765add7c97081f0a2e58dbaa34",
+        "fingerprint": "sha256:682e1ddc3c796491bf65f5ba1c308ec61182b8ddac5b0cb5321264b68ad38976",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -5561,7 +5561,7 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:b7d346356282ed7c57dd69bc97cf055db54df78a3d23f37c71cfe6a1e91c16b6",
+        "fingerprint": "sha256:f722f8a0a2c134f04f76ad30281198d577f9c702418430194b08d8f72dfdb63e",
         "path": ".engine/schemas/build-handoff.v1.json"
       },
       "status": "active",
@@ -6974,6 +6974,7 @@
           "tool:build_coordinator_github",
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
+          "tool:repo_identity",
           "tool:validate",
           "tool:weakening_guard"
         ],
@@ -6983,7 +6984,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:f373ef8e1ecb96d0ca7e3e9965a285d1cc1dfd66d50135155e97d40b95e27d51",
+        "fingerprint": "sha256:d583244d3aaba0fde9b9f53e4784fc55f6b1c110c0cc4a32b467726095c25338",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11898,7 +11899,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:5fbb8a46b5b4a967acc7f537e5c33b4ffc8858e167ba1c06fbeefacca6970210",
+        "fingerprint": "sha256:23e5cb9a70c382f4878e7dfb20eb40279f3c48d36d0c9e8e4172b414942d1a6e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -11946,7 +11947,7 @@
       },
       "slug": "test_build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:05dd0cdb004ec02483ad92a14e32a9ff91ef59782b3cc8c6289d3a158dabcf83",
+        "fingerprint": "sha256:c0896a57f235c57c2e5083362994aa2f3111db4240e23795251b4d5ef601004a",
         "path": ".engine/tools/test_build_coordinator_github.py"
       },
       "status": "active",
@@ -11970,7 +11971,7 @@
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:0f14bd1ab5ff9a8bf239dbfc9c7e43562a09f02aa29ea5cf0e87c006901e719b",
+        "fingerprint": "sha256:4cfc1d733324764b082e221d4c086c5c0dcd26a968fb0449188be49a33f3dce6",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",
@@ -11995,7 +11996,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:57396f8785db137eb842303b118e7e65d2b7d0c290d8738c3864c97d761bd4c9",
+        "fingerprint": "sha256:a21b33f6bda78d53bd4cd843f42ad534c2a966a503234393a123975ab27120b1",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",

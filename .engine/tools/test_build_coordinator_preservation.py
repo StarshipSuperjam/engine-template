@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 class TestPreservationTraceability(unittest.TestCase):
     def test_every_original_obligation_has_one_live_structural_disposition(self):
         value = preservation.validate_map(ROOT)
-        self.assertEqual(len(value["obligations"]), 64)
-        self.assertEqual(len({row["id"] for row in value["obligations"]}), 64)
+        self.assertEqual(len(value["obligations"]), 65)
+        self.assertEqual(len({row["id"] for row in value["obligations"]}), 65)
 
     def test_preservation_assurance_does_not_claim_semantic_proof(self):
         assurance = preservation.validate_map(ROOT)["preservation_source"]["assurance"].lower()

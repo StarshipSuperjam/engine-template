@@ -64,6 +64,27 @@ class TestReadyTransitionRace(CoordinatorCase):
         redraft.assert_called_once()
         self.assertEqual(self.state()["submission"], "draft")
 
+    def test_final_local_stability_failure_reverses_recorded_ready_state(self):
+        self.seed()
+        preview = {"repository": "owner/repo", "pr": 7, "commit": HEAD_A, "base": BASE,
+                   "body_digest": bc._digest(b"body"), "snapshot_revision": self.state()["revision"],
+                   "action": "mark-ready", "merge": False}
+        ready = {"state": "OPEN", "isDraft": False, "headRefOid": HEAD_A,
+                 "baseRefOid": BASE, "body": "body"}
+        draft = {**ready, "isDraft": True}
+        class ChangedAfter:
+            def __enter__(self): return HEAD_A
+            def __exit__(self, *unused): raise bc.CoordinatorError("working tree changed after ready")
+        with mock.patch.object(bc.core, "StableCommit", return_value=ChangedAfter()), \
+                mock.patch.object(bc, "_submit_preview", return_value=preview), \
+                mock.patch.object(bc.github, "set_ready"), \
+                mock.patch.object(bc.github, "set_draft") as redraft, \
+                mock.patch.object(bc.github, "pr_state", side_effect=[ready, draft]), \
+                self.assertRaisesRegex(bc.CoordinatorError, "changed after ready"):
+            bc.cmd_submit_apply(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        redraft.assert_called_once()
+        self.assertEqual(self.state()["submission"], "draft")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,9 +33,10 @@ Open one draft pull request for the Build and keep it draft throughout construct
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
 be one session.
 
-Turn the initiating request or Issue into a structured JSON `build-plan.v1` document and present that exact
-document for approval in the harness; never approve prose and translate it into JSON afterward. Keep the operator's raw intent distinct
-from the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
+Turn the initiating request or Issue into a structured JSON `build-plan.v1` document. Present a readable
+harness projection generated directly from that exact document; it is a view, not a second authority, and
+must never be independently edited or translated back into JSON after approval. Keep raw intent distinct from
+the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
 verified, accepted risk, or unresolved, and state the objective, checkable success obligations, scope,
 non-goals, important risks, implementation outline, and review strategy. Include settled-spec mapping when
 one exists. Otherwise disclose that there is no settled spec; the plan's success obligations still govern
@@ -116,8 +117,7 @@ guardrail weakening, second item or commit, settled referent, or cold continuati
 `review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
 plan, cited evidence supplied as impact input, settled criteria when present, installed and required lenses,
 protocol digest, and each required reviewer's source path and content digest. The approved depth determines
-required coverage; Thorough runs every installed lens. A changed reviewer contract invalidates only that
-lens's receipt; unchanged lenses remain current against the same referent.
+required coverage; Thorough runs every installed lens. A changed reviewer contract invalidates only that lens's receipt; unchanged lenses remain current against the same referent.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
 
 Cold reviewers judge product intent, architecture, feasibility, and risk/governance within their independent
@@ -125,7 +125,8 @@ mandates. Record each receipt and its finding IDs. Then critically adjudicate ev
 policy. Accepting a concern does not mean accepting its remedy. A finding may be accepted and fixed, accepted
 and tracked, partly accepted with a bounded remedy, rejected with rationale, or escalated for a genuine
 operator decision. Record separately whether it still blocks this PR. Severity alone never blocks.
-
+Before involving the operator, synthesize the plan-review findings into one recommended call and state its
+tradeoff; never relay a stack of raw reviewer outputs as the decision surface.
 Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
 leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
 Normal and Routine implementation checkpoints remain closed until this review's required receipts and
@@ -155,8 +156,7 @@ work, named `work_item`, assumptions and accepted risks, non-goals, planned scop
 Unexpected paths are highlighted for judgment, not automatically forbidden. A missing or mismatched plan
 blocks commit recording. A non-aligned judgment requires resolution before submission.
 
-Write genuine deferrals at the code site with the governed marker grammar, run `engine_todo.py list` in touched
-areas, and disposition covered work. Verify specifications, harness capability, and delegated findings against
+Write genuine deferrals at the code site with the governed [`ENGINE-TODO` marker grammar](../contracts/eADR-0035-deferred-work-marker.md)—which requires no Issue merely to record one—run `engine_todo.py list` in touched areas, and disposition covered work. Verify specifications, harness capability, and delegated findings against
 first-hand authority. Iterate with focused tests; `status` reports unordered activities and cannot know which
 engineering activity is best.
 

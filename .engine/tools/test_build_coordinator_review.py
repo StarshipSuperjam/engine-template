@@ -51,9 +51,12 @@ class TestPlanReviewOrdering(CoordinatorCase):
                 contextlib.redirect_stdout(io.StringIO()):
             bc._packet(args, self.store)
         packet = self.state()["reviews"]["plan"]["packet_digest"]
+        contract = self.state()["reviews"]["plan"]["reviewer_contracts"][0]
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(argparse.Namespace(stage="plan", lens="product-intent",
-                                                    packet_digest=packet, finding=[]), self.store)
+                                                    packet_digest=packet,
+                                                    lens_packet_digest=contract["lens_packet_digest"],
+                                                    finding=[]), self.store)
         changed = {**reviewer, "digest": "sha256:" + "2" * 64}
         with mock.patch.object(bc, "_installed", return_value=[changed]), \
                 self.assertRaisesRegex(bc.CoordinatorError, "refresh plan-review contract"):

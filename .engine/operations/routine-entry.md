@@ -57,8 +57,10 @@ of every routine fire; the build's actual work follows the distributed-implement
    commit is the new commit, not its parent. Update the bounded handoff, push the open pull request, and report
    “commit X landed — N of M planned done.” The coordinator refuses out-of-order Routine completion. Never
    rewrite the approved plan merely to mark progress, and never close or merge the pull request.
-7. **Escalate anything that needs a human, because this run cannot ask.** An out-of-scope observation
-   files an Issue and the run continues; a genuine blocker or a decision needing a human files an Issue and
+7. **Escalate only operator-owned boundaries, because this run cannot ask.** An out-of-scope observation
+   files an Issue and the run continues; an engineering blocker inside the approved design and scope is solved
+   by the orchestrator. A blocker involving design, law, authority, the agreed capability boundary, guardrail
+   acknowledgement, or another operator-only choice files an Issue and
    halts this task, leaving a plain-language status that names the next step ("stopped at N of M — I need a
    decision on X; I opened Issue #K. Answer there, then re-run the routine."). Author every such Issue —
    misfire, out-of-scope, or blocker — through the shared engine issue-authoring helper

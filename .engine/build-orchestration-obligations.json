@@ -512,7 +512,7 @@
       "classification": "advisory-practice",
       "disposition": "prose",
       "owner": ".engine/operations/build-orchestration.md",
-      "anchor": "governed marker grammar"
+      "anchor": "ENGINE-TODO` marker grammar"
     },
     {
       "id": "BO-64",
@@ -521,6 +521,14 @@
       "disposition": "prose",
       "owner": ".engine/operations/build-orchestration.md",
       "anchor": "first-hand authority"
+    },
+    {
+      "id": "BO-65",
+      "intent": "Synthesize plan-review findings into one recommended call with its tradeoff before involving the operator.",
+      "classification": "ai-judgment",
+      "disposition": "prose",
+      "owner": ".engine/operations/build-orchestration.md",
+      "anchor": "one recommended call"
     }
   ]
 }

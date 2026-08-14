@@ -20,6 +20,7 @@ import build_coordinator_core as core
 import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
+import repo_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -522,6 +523,18 @@ def _packet(args, store: StateStore | None) -> None:
         commit = None if stage == "plan" else args.commit
         if stage == "deliverable" and (not commit or not args.base):
             raise CoordinatorError("standalone deliverable packets require --commit and --base")
+        packet_root = Path.cwd().resolve()
+        stable = core.StableCommit(packet_root, "standalone deliverable review-packet construction") if commit else None
+        if stable:
+            stable_head = stable.__enter__()
+            try:
+                if stable_head != commit:
+                    raise CoordinatorError("standalone deliverable packet commit must equal the clean worktree HEAD")
+                if core.run(["git", "cat-file", "-e", f"{args.base}^{{commit}}"], root=packet_root).returncode:
+                    raise CoordinatorError("standalone deliverable packet base is not a commit in this worktree")
+            except BaseException as exc:
+                stable.__exit__(type(exc), exc, exc.__traceback__)
+                raise
         referent = {"schema_version": "build-review-packet.v1", "stage": stage,
                   "raw_intent": plan["raw_intent"], "plan": plan, "plan_digest": _digest(plan),
                   "intent_digest": _digest(plan["raw_intent"].encode()), "spec": canonical_spec,
@@ -531,12 +544,16 @@ def _packet(args, store: StateStore | None) -> None:
         if stage == "deliverable":
             declarations = _hard_check_declarations()
             path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
-            referent["hard_check_declarations"] = {"path": path, "digest": digest, "count": len(declarations),
+            referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
                                                     "for_lens": "spec-conformance"}
         referent_digest = _digest(referent)
         packet = {**referent, "referent_digest": referent_digest,
                   "reviewer_contracts": review.lens_packets(referent_digest, required_contracts)}
         packet["packet_digest"] = _digest(packet)
+        if stage == "deliverable":
+            packet["artifacts"] = {"hard_check_declarations": {"path": path}}
+        if stable:
+            stable.__exit__(None, None, None)
         _emit_packet(packet, args)
         return
     if store is None:
@@ -562,6 +579,11 @@ def _packet(args, store: StateStore | None) -> None:
         commit = None if stage == "plan" else _head()
         if stage == "deliverable" and (not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"])):
             raise CoordinatorError("green validation for the current commit is required before deliverable review")
+    stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
+    if stable:
+        stable_head = stable.__enter__()
+        if stable_head != commit:
+            raise CoordinatorError(f"{stage} review packet is not bound to the current clean commit")
     missing = [lens for lens in required if lens not in installed_names]
     if missing:
         raise CoordinatorError("required reviewers are not installed: " + ", ".join(missing))
@@ -573,16 +595,16 @@ def _packet(args, store: StateStore | None) -> None:
     if stage != "plan":
         declarations = _hard_check_declarations()
         path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
-        referent["hard_check_declarations"] = {"path": path, "digest": digest, "count": len(declarations),
+        referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
                                                 "for_lens": "spec-conformance"}
     referent_digest = _digest(referent)
     contracts = review.lens_packets(referent_digest, required_contracts)
     packet = {**referent, "referent_digest": referent_digest, "reviewer_contracts": contracts}
     packet["packet_digest"] = _digest(packet)
+    if stage != "plan":
+        packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
-    if current and current.get("packet_digest") == packet["packet_digest"]:
-        _emit_packet(packet, args)
-        return
+    unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
@@ -605,13 +627,9 @@ def _packet(args, store: StateStore | None) -> None:
                            "base_commit": packet["base_commit"], "waiver": None})
             s["findings"] = [f for f in s["findings"] if f["stage"] != stage
                              or f["packet_digest"] in preserved_packets]
-    stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
     if stable:
-        with stable as stable_head:
-            if stable_head != commit:
-                raise CoordinatorError(f"{stage} review packet is not bound to the current clean commit")
-            store.mutate(change, from_revision=revision)
-    else:
+        stable.__exit__(None, None, None)
+    if not unchanged:
         store.mutate(change, from_revision=revision)
     _emit_packet(packet, args)
 
@@ -659,6 +677,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             contract = next((item for item in target["reviewer_contracts"] if item["lens"] == args.lens), None)
             if not contract:
                 raise CoordinatorError(f"no current reviewer contract for {args.lens}")
+            if getattr(args, "lens_packet_digest", None) != contract["lens_packet_digest"]:
+                raise CoordinatorError("review receipt does not attest the current reviewer contract packet")
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
@@ -666,6 +686,9 @@ def cmd_review_record(args, store: StateStore) -> None:
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
+            delivery["reviewer_contracts"] = [
+                item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
+            ] + [contract]
             if not [lens for lens in target["lenses"] if lens not in {r["lens"] for r in target["receipts"]}]:
                 delivery["reviewed_commit"] = target["final_commit"]
         else:
@@ -677,6 +700,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             contract = next((item for item in target["reviewer_contracts"] if item["lens"] == args.lens), None)
             if not contract:
                 raise CoordinatorError(f"no current reviewer contract for {args.lens}")
+            if getattr(args, "lens_packet_digest", None) != contract["lens_packet_digest"]:
+                raise CoordinatorError("review receipt does not attest the current reviewer contract packet")
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
@@ -793,8 +818,8 @@ def cmd_validate(args, store: StateStore) -> None:
             summary = f"exit {returncode}; complete log at {log_path} ({log_digest})"
             results.append({"id": item["id"], "commit": head, "passed": returncode == 0,
                             "summary": summary, "log_path": str(log_path), "log_digest": log_digest})
-        store.mutate(lambda s: s.update({"validation": {"commit": head, "results": results}}),
-                     from_revision=revision)
+    store.mutate(lambda s: s.update({"validation": {"commit": head, "results": results}}),
+                 from_revision=revision)
     print(json.dumps({"commit": head, "results": results}, indent=2, sort_keys=True))
     if not all(x["passed"] for x in results):
         raise CoordinatorError("validation failed; the failed results remain recorded")
@@ -870,7 +895,7 @@ def cmd_preflight(args, store: StateStore) -> None:
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
-        store.mutate(change, from_revision=revision)
+    store.mutate(change, from_revision=revision)
     if getattr(args, "json", False):
         print(json.dumps(results, indent=2, sort_keys=True))
     else:
@@ -892,13 +917,15 @@ def _handoff(state: dict) -> dict:
         summaries.append({"id": finding["id"], "stage": finding["stage"], "lens": finding["lens"],
                           "packet_digest": finding["packet_digest"],
                           "lens_packet_digest": finding.get("lens_packet_digest", finding["packet_digest"]), "commit": finding["commit"],
-                          "disposition": finding["disposition"], "escalation_kind": finding["escalation_kind"],
+                          "severity": finding["severity"], "disposition": finding["disposition"], "escalation_kind": finding["escalation_kind"],
                           "blocks_this_pr": finding["blocks_this_pr"], "summary": finding["handoff_summary"],
                           "operator_summary": finding.get("operator_summary"),
                           "private_reference": finding.get("private_reference")})
     validation = None if not state["validation"] else {
         "commit": state["validation"]["commit"],
-        "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["validation"]["results"]],
+        "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"],
+                     **({"log_digest": x["log_digest"]} if x.get("log_digest") else {})}
+                    for x in state["validation"]["results"]],
     }
     repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
     preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
@@ -912,6 +939,7 @@ def _handoff(state: dict) -> dict:
 
 def cmd_handoff_export(args, store: StateStore) -> None:
     state = store.read()
+    revision = state["revision"]
     if state["plan"]["source"] != "issue" or not state["plan"]["durable_issue"]:
         raise CoordinatorError("promote the exact plan to a suitable Issue before cold-session handoff")
     durable = _durable_plan(_issue_body(state["build"]["repository"], state["plan"]["durable_issue"]))
@@ -925,12 +953,21 @@ def cmd_handoff_export(args, store: StateStore) -> None:
         repo, pr = value["build"]["repository"], value["build"]["pr"]
         before = _verify_draft(repo, pr).get("body") or ""
         after = github.replace_handoff_block(before, value)
+        if store.read()["revision"] != revision:
+            raise CoordinatorError("Build evidence changed while preparing handoff; rerun export")
         if (_verify_draft(repo, pr).get("body") or "") != before:
             raise CoordinatorError("PR contract changed while preparing handoff; no write was made")
         _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=after)
         confirmed = _verify_draft(repo, pr).get("body") or ""
         if confirmed != after:
             raise CoordinatorError("GitHub did not preserve the exact handoff block")
+        if store.read()["revision"] != revision:
+            latest = _verify_draft(repo, pr).get("body") or ""
+            if latest == after:
+                _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=before)
+                if (_verify_draft(repo, pr).get("body") or "") != before:
+                    raise CoordinatorError("Build evidence changed during handoff publication and the stale block could not be rolled back")
+            raise CoordinatorError("Build evidence changed during handoff publication; the stale block was rolled back")
         print(f"published bounded handoff snapshot in {repo}#{pr}")
         return
     if args.output == "-":
@@ -975,6 +1012,21 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
     _validate(value, HANDOFF_SCHEMA)
     repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
+    if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):
+        raise CoordinatorError("handoff repository does not match the selected repository")
+    if getattr(args, "pr", None) and args.pr != value["build"]["pr"]:
+        raise CoordinatorError("handoff PR does not match the selected pull request")
+    if not repo_identity.slug_eq(repo_identity.origin_slug(str(ROOT)), repo):
+        raise CoordinatorError("handoff repository does not match this worktree's origin")
+    pr = github.pr_state(ROOT, repo, value["build"]["pr"])
+    if pr.get("number") != value["build"]["pr"] or pr.get("state") != "OPEN" or pr.get("headRefOid") != _head():
+        raise CoordinatorError("handoff PR is not the open claim at this worktree's current HEAD")
+    for completed in value["progress"].get("completed", []):
+        commit = completed.get("commit")
+        if (not isinstance(commit, str)
+                or _run(["git", "cat-file", "-e", f"{commit}^{{commit}}"]).returncode
+                or _run(["git", "merge-base", "--is-ancestor", commit, pr["headRefOid"]]).returncode):
+            raise CoordinatorError(f"handoff progress commit for {completed.get('id', 'unknown item')} is not contained by the live PR head")
     plan = _durable_plan(_issue_body(repo, issue))
     if _digest(plan) != value["plan"]["digest"]:
         raise CoordinatorError("durable plan is missing or changed; cold continuation is blocked")
@@ -982,7 +1034,7 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
              "approval": value["approval"], "reviews": value["reviews"],
              "findings": [{"id": f["id"], "stage": f["stage"], "lens": f["lens"], "packet_digest": f["packet_digest"],
                            "lens_packet_digest": f["lens_packet_digest"],
-                           "commit": f["commit"], "severity": "nit", "summary": f["summary"], "disposition": f["disposition"],
+                           "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
                            "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
                            "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
                            "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
@@ -1036,48 +1088,68 @@ def _submit_preview(store: StateStore, plan_path: str) -> dict:
 
 
 def cmd_submit_preview(args, store: StateStore) -> None:
-    print(json.dumps(_submit_preview(store, args.plan), indent=2, sort_keys=True))
+    with core.StableCommit(ROOT, "submission preview"):
+        preview = _submit_preview(store, args.plan)
+    print(json.dumps(preview, indent=2, sort_keys=True))
 
 
 def cmd_submit_apply(args, store: StateStore) -> None:
-    with core.StableCommit(ROOT, "ready transition"):
-        preview = _submit_preview(store, args.plan)
-        if preview["action"] == "mark-ready":
-            github.set_ready(ROOT, preview["repository"], preview["pr"])
-        try:
-            after = github.pr_state(ROOT, preview["repository"], preview["pr"])
-        except Exception as exc:
+    preview = None
+    try:
+        with core.StableCommit(ROOT, "ready transition"):
+            preview = _submit_preview(store, args.plan)
+            if preview["action"] == "mark-ready":
+                github.set_ready(ROOT, preview["repository"], preview["pr"])
             try:
-                store.mutate(lambda s: s.update({"submission": "unknown"}),
-                             from_revision=preview["snapshot_revision"])
-            except CoordinatorError:
-                pass
-            raise CoordinatorError(f"ready transition state is unknown after GitHub verification failed: {exc}") from exc
-        try:
-            unchanged = (after.get("state") == "OPEN" and after.get("isDraft") is False
-                         and after.get("headRefOid") == preview["commit"]
-                         and after.get("baseRefOid") == preview["base"]
-                         and _digest((after.get("body") or "").encode()) == preview["body_digest"])
-            if not unchanged:
-                raise CoordinatorError("pull-request evidence changed during the ready transition")
-            store.mutate(lambda s: s.update({"submission": "ready"}),
-                         from_revision=preview["snapshot_revision"])
-        except CoordinatorError as exc:
-            try:
-                github.set_draft(ROOT, preview["repository"], preview["pr"])
-                confirmed = github.pr_state(ROOT, preview["repository"], preview["pr"])
-                if confirmed.get("isDraft") is not True:
-                    raise RuntimeError("GitHub did not confirm draft recovery")
-                store.mutate(lambda s: s.update({"submission": "draft"}),
-                             from_revision=preview["snapshot_revision"])
-            except Exception as recovery_exc:
+                after = github.pr_state(ROOT, preview["repository"], preview["pr"])
+            except Exception as exc:
                 try:
                     store.mutate(lambda s: s.update({"submission": "unknown"}),
                                  from_revision=preview["snapshot_revision"])
                 except CoordinatorError:
                     pass
-                raise CoordinatorError(f"ready transition could not be reversed: {exc}; recovery: {recovery_exc}") from exc
-            raise CoordinatorError(f"ready transition was reversed: {exc}") from exc
+                raise CoordinatorError(f"ready transition state is unknown after GitHub verification failed: {exc}") from exc
+            try:
+                unchanged = (after.get("state") == "OPEN" and after.get("isDraft") is False
+                             and after.get("headRefOid") == preview["commit"]
+                             and after.get("baseRefOid") == preview["base"]
+                             and _digest((after.get("body") or "").encode()) == preview["body_digest"])
+                if not unchanged:
+                    raise CoordinatorError("pull-request evidence changed during the ready transition")
+                store.mutate(lambda s: s.update({"submission": "ready"}),
+                             from_revision=preview["snapshot_revision"])
+            except CoordinatorError as exc:
+                try:
+                    github.set_draft(ROOT, preview["repository"], preview["pr"])
+                    confirmed = github.pr_state(ROOT, preview["repository"], preview["pr"])
+                    if confirmed.get("isDraft") is not True:
+                        raise RuntimeError("GitHub did not confirm draft recovery")
+                    store.mutate(lambda s: s.update({"submission": "draft"}),
+                                 from_revision=preview["snapshot_revision"])
+                except Exception as recovery_exc:
+                    try:
+                        store.mutate(lambda s: s.update({"submission": "unknown"}),
+                                     from_revision=preview["snapshot_revision"])
+                    except CoordinatorError:
+                        pass
+                    raise CoordinatorError(f"ready transition could not be reversed: {exc}; recovery: {recovery_exc}") from exc
+                raise CoordinatorError(f"ready transition was reversed: {exc}") from exc
+    except CoordinatorError:
+        if preview and store.read().get("submission") != "draft":
+            try:
+                github.set_draft(ROOT, preview["repository"], preview["pr"])
+                confirmed = github.pr_state(ROOT, preview["repository"], preview["pr"])
+                recovered = confirmed.get("isDraft") is True
+                current_revision = store.read()["revision"]
+                store.mutate(lambda s: s.update({"submission": "draft" if recovered else "unknown"}),
+                             from_revision=current_revision)
+            except Exception:
+                try:
+                    current_revision = store.read()["revision"]
+                    store.mutate(lambda s: s.update({"submission": "unknown"}), from_revision=current_revision)
+                except CoordinatorError:
+                    pass
+        raise
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
 
 
@@ -1094,7 +1166,7 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--finding", action="append"); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.set_defaults(func=cmd_review_record)
     waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference"); frecord.set_defaults(func=cmd_finding_record)
