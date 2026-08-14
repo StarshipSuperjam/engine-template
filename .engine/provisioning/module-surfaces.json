@@ -186,6 +186,12 @@
   ".engine/audits/self-review-setup.md": [
    "audit-library"
   ],
+  ".engine/build-orchestration-obligations.json": [
+   "core"
+  ],
+  ".engine/build-protocol.json": [
+   "core"
+  ],
   ".engine/check/agent-coherence.json": [
    "validators-core"
   ],
@@ -537,6 +543,9 @@
   ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0041-build-coordinator-behavior.md": [
+   "core"
+  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],
@@ -600,6 +609,12 @@
   ".engine/operations/build-orchestration.md": [
    "core"
   ],
+  ".engine/operations/build-product-grounding.md": [
+   "core"
+  ],
+  ".engine/operations/build-submission-evidence.md": [
+   "core"
+  ],
   ".engine/operations/close-turn.md": [
    "core"
   ],
@@ -658,6 +673,9 @@
    "core"
   ],
   ".engine/operations/operating-modes.md": [
+   "core"
+  ],
+  ".engine/operations/owned-product-build.md": [
    "core"
   ],
   ".engine/operations/product-intake.md": [
@@ -739,6 +757,21 @@
    "core"
   ],
   ".engine/schemas/audit-finding.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-handoff.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-orchestration-obligations.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-plan.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-protocol.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-state.v1.json": [
    "core"
   ],
   ".engine/schemas/check.v1.json": [
@@ -931,6 +964,24 @@
    "core"
   ],
   ".engine/tools/bootstrap.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_core.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_github.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_preservation.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_review.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_spec.py": [
    "core"
   ],
   ".engine/tools/build_readiness.py": [
@@ -1642,6 +1693,21 @@
    "core"
   ],
   ".engine/tools/test_bootstrap.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_core.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_github.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_preservation.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_review.py": [
    "core"
   ],
   ".engine/tools/test_build_readiness.py": [

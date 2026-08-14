@@ -66,12 +66,13 @@ becomes a plain question. The tool is `tools/external_contribution/submit.py`.
      or one too short to be a reference — **the engine says that too, and offers to put it right.** It never
      reports those as clean: "I couldn't look" and "I looked and it's clean" are not the same thing, and
      neither is "you wrote something I had to throw away."
-6. **Have the change looked over before you submit.** For a change to the engine's *own* project, the engine
-   runs a second, independent review that hunts for mistakes the tests can miss. That review does **not** run
-   by itself on a contribution to another project — so for anything beyond a trivial change, ask the engine to
-   run it before you send this (it uses the same review it runs on its own work). If it isn't run, the engine
-   says so plainly — on the prepared pull request and in a note in the pull-request text — rather than letting
-   the change look as reviewed as any other; **that note is a backstop, not a substitute for the review**.
+6. **Have the change looked over before you submit.** From the source harness run `build_coordinator.py review
+   packet --standalone --stage plan|deliverable --plan <exact-plan> --repository <source-owner/repo> --depth
+   <approved-depth> [--commit <reviewed-commit> --base <measured-base>]`. This constructs an exact packet from
+   raw intent, the approved plan, settled criteria, and reviewed commit without a coordinator snapshot or PR.
+   The target repository need not contain the coordinator and no draft PR is required. For anything beyond a
+   trivial change, run the applicable cold review before asking to submit. If it did not run, the prepared
+   request says so plainly; **that disclosure is a backstop, not a substitute for review**.
 7. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
    template** when it has one (a contributor follows the host's conventions), or a plain fallback shape when
    it doesn't. For a project whose template has sections to fill and a check that the pull-request text is

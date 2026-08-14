@@ -6,11 +6,35 @@ date: 2026-06-03
 
 ## Rule
 
-Every concern the AI raises while working must reach exactly one durable outcome — never a "maybe later" left floating in the conversation:
+Every concern the AI raises while working must reach exactly one durable outcome — never a "maybe later" left floating in the conversation.
 
-- If it blocks the work at hand → stop and surface it for a decision (escalate).
-- If it is small and directly related to the current work → fix it in line.
-- If it is real but outside the current work → open a tracked issue and move on.
+For an ordinary concern discovered during work:
+
+- If it is an engineering blocker inside the approved design and scope → solve it as part of the work.
+- If resolving it would change design, law, authority, the agreed capability boundary, require a guardrail
+  acknowledgement, or require another operator-only choice → surface that boundary for a decision.
+- If it is real but outside the current work → open a tracked issue and move on without asking permission to
+  absorb it into this Build.
+
+For a cold-review finding, the orchestrator first judges whether the concern is correct and whether the
+reviewer's suggested remedy fits. Reviewer severity is advice, not an automatic response. Record one of:
+
+- **Accepted and fixed** — the concern is correct and the in-scope repair landed.
+- **Accepted and tracked** — the concern is correct but is deliberately outside this PR, with a durable Issue.
+- **Partially accepted** — the underlying concern is real, but a bounded remedy fits better than the proposal.
+- **Rejected** — the concern or proposed consequence does not hold, with grounded rationale.
+- **Escalated** — a genuine design, law, authority, capability-boundary, guardrail-acknowledgement, or
+  operator-only decision remains; record which boundary is implicated.
+
+Record separately whether the finding still blocks this PR. A `blocking` or `serious` reviewer label never
+sets that field by itself, and accepting a concern never means accepting its proposed remedy.
+
+This supersedes the older automatic rule that every unresolved reviewer-labelled `blocking` finding returns
+to the operator. When the orchestrator judges a reviewer-labelled blocking concern does not block this PR,
+the disagreement is mandatory merge-surface evidence: the PR Review record names the finding and gives a
+safe operator-facing summary of the concern and adjudication. Sensitive details stay in local evidence; the
+public line may instead name a bounded private security reference. This preserves operator visibility without
+making reviewer severity or a proposed remedy authoritative.
 
 A "not urgent, we'll get to it" aside with no record created is a violation of this rule.
 
@@ -20,7 +44,11 @@ Applies to anything the AI surfaces during a working session. The "fix it in lin
 
 ## Rationale
 
-The point is simple: no concern the AI raises should quietly disappear into a chat transcript nobody re-reads. By forcing every concern to a fix, a tracked issue, or an escalation, the operator can trust that nothing important was noticed and then silently dropped. Tracked issues are not a hidden backlog either — they are brought back to the operator in plain language the next time the engine starts up, so they surface on their own rather than waiting to be hunted down.
+The point is simple: no concern should disappear into a transcript, and no reviewer should silently become the
+engineer of record. Ordinary concerns still resolve to fix, track, or escalate. Review findings preserve the
+orchestrator's adjudication so the operator can see which concern was accepted, bounded, rejected, or raised
+for a real decision. Tracked issues are not a hidden backlog either — they return through normal Engine
+attention rather than waiting to be hunted down.
 
 ## Enforcement-tier
 

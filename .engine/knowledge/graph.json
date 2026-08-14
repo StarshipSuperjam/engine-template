@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:a8efa30484f7f70e060d0cbb51bd0a1baeb1c41c4805fc9ebb202a28d09def23",
+        "fingerprint": "sha256:3ab4cf3c52185f1e484a93108a3e95690d1f4d2821c88d94961c818b6232f318",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:1b245ed1c9c0aa6339f9befa3b0791c2a43c83dcb879071f04993cdad72903d0",
+        "fingerprint": "sha256:2e93dc989b53308df5c26143842cbdc05bea4a61ed5a02f9188e0cef9ac09209",
         "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:07daf3af21e84d5fdd85225f26d05ce83d1eda275e53aecc8375e9529b9bd4c7",
+        "fingerprint": "sha256:322b508c4c7f56646ca14d0a5d345ba95222e7452d6c544678cfaf18053b5eb7",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:37a9df7d2e1cf7503f56dcc7d19d36f2e9b7a3868325a9a96b585e39a08149c4",
+        "fingerprint": "sha256:35d0812e8c184894e055c3c3c53e9c0d894ecc4b9b468b04bb60dd9ab4623658",
         "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:98ed1d7d8628858b91287c1c5bf54b80d9623c89c79432d7b16588bdb5083e14",
+        "fingerprint": "sha256:ed19dcbf0c5829e42468a7707ddf42c5eeb5a2ac8c34364d3a0a3810edd77722",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:96a274fcf495b0db12ce53100be0f36f1fba9d409255c27c4be0051a6c1b02db",
+        "fingerprint": "sha256:62678995757a86e0442eadf0742a4ba5c27d4728d43702e5c43ea59d1c26409d",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:98441045b440f4cffb112b2bb3231b12f468b37f1601e27da8dc44e3b94d10b5",
+        "fingerprint": "sha256:edd58a7b6e6f1e26d80e8f3cf0fe5ee6327423173083c6b08214c694c17dcbd4",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:ac54347d3a032dcb234e6db5b9ad325e813eb19d755206f31308f7277e4e6237",
+        "fingerprint": "sha256:48184d63b9d379a3a8a0243155cbd2c96d45084da0a36e8d2dbdb785f8687ceb",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -223,7 +223,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:7816c421aa3c17b2323f2d7d64e279d3c9f34e5a2575da13907d153049d3bd56",
+        "fingerprint": "sha256:599543d0a97af47db1472972dd6ddc762d824daedd3474063f27d0f989143f73",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -884,7 +884,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-frontmatter",
@@ -950,7 +951,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-shape",
@@ -1017,7 +1019,8 @@
           "contract:eADR-0037-upgrade-overwrite-disclosure",
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier"
+          "contract:eADR-0040-guardrail-ack-two-tier",
+          "contract:eADR-0041-build-coordinator-behavior"
         ]
       },
       "slug": "contract-threshold",
@@ -1725,6 +1728,8 @@
         "targets": [
           "operation:boot-session-start",
           "operation:build-orchestration",
+          "operation:build-product-grounding",
+          "operation:build-submission-evidence",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -1745,6 +1750,7 @@
           "operation:module-remove",
           "operation:onboarding-read",
           "operation:operating-modes",
+          "operation:owned-product-build",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -1779,6 +1785,8 @@
         "targets": [
           "operation:boot-session-start",
           "operation:build-orchestration",
+          "operation:build-product-grounding",
+          "operation:build-submission-evidence",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -1799,6 +1807,7 @@
           "operation:module-remove",
           "operation:onboarding-read",
           "operation:operating-modes",
+          "operation:owned-product-build",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -1808,7 +1817,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:edaefcee48d235ac40f0c552f5fee09a96122cd071ee6a7b029036fc4cf895a4",
+        "fingerprint": "sha256:9d9d74ab1077db88ff978c01b583b0f34e258352e0dd050fc80ffb36ba214c26",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2685,7 +2694,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:fe7b683b18ad5382d4a6cbcc0ebb587a9acb8eef090c76c7f2a0e52bb0f08218",
+        "fingerprint": "sha256:47feca40dbb3e0b090f1e968dd2e287e0eaf05f99d68726c3fdfdf54def3597d",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -2705,7 +2714,7 @@
       },
       "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:0fd1e8532caeac6003624fadabeba9d27747e0ae60dfae4ec235121689d31ee8",
+        "fingerprint": "sha256:8ab89eeddcb14a5ca5ea66a6df14fb4ba171e400407abc928cc3b1a2744fa029",
         "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
@@ -2725,7 +2734,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:08c0c87fbef0f26cd95cd00b031f27491c51edad292f50ecc9679bdd40b7239d",
+        "fingerprint": "sha256:f5ad2a778bd69078dc06bc33c23fb619cee60bbb0e5166af4d2c919efd27e5e8",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -2745,7 +2754,7 @@
       },
       "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:c2964ddc141e8be66501c73c523f40ebb5314cc77d3a49ddea38bf5eb605c627",
+        "fingerprint": "sha256:bee451e9b7f05c761027f4a4cdfe738dbffb916d1a4a825455dd4f5b52b0e8df",
         "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
@@ -2765,7 +2774,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:71b1d57c33274bcfad9f0d1be63ea33df575d2110b0c2cc355c042f88c690135",
+        "fingerprint": "sha256:724284e2fca6ccd5826f5feb747c558150d47db6575bc0329b9cca81a40ebc7b",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -2785,7 +2794,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:3495499a4b06450215fc0e55d46c338a6f2e0572ff7f26038423a118d775308f",
+        "fingerprint": "sha256:b156ab9822cd3820e5dc215dd12d717eec00a0dc687c140196ab1b071decd389",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -2805,7 +2814,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:c4b088829ab9dbf6f3cd508856bdc805d1892f112675195de36a7a27d8cbc52f",
+        "fingerprint": "sha256:2c799c7427db96b919dc6fde217c7c0670b6fd0664b14590e869d50bd00f005c",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -2825,7 +2834,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:d31ea7b7372319039f2600100d0b52e5118339a4a5e885ea085499f606509373",
+        "fingerprint": "sha256:87f47eccb9f31f8930c5432f42c5517d36dfb0d069dbd7c791432cd077ae05b5",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -2845,7 +2854,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:a677f8ea89803d347fe8ba09d0dae79e5ec21ccc8625bf0c10627f3f5889060c",
+        "fingerprint": "sha256:c1f0ef1983472042083cd0fb4dd13684f1b639849d363907af4f1d715c378550",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -4172,6 +4181,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0041-build-coordinator-behavior",
+      "name": ".engine/contracts/eADR-0041-build-coordinator-behavior.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0041-build-coordinator-behavior",
+      "source": {
+        "fingerprint": "sha256:380fa12106cdcf60baea66716f4437f776f396d3f985c134817b6e12e7877a56",
+        "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -4344,7 +4373,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:580612eebea17cfa99a04ffd436a6e9cf7bb50ca5a742acae4540307135bc1bb",
+        "fingerprint": "sha256:e09c33de4242cd578ff29d4a8d1189d70983fed501c970149555b906b20b0adc",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4595,8 +4624,48 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:60010bac9cb0ab4b48a6d56627800df2f965d17c4235ddc25f82487b1b247f55",
+        "fingerprint": "sha256:c1e93a2ec40677a768922e276e9baa76c7b74390a9ab8999acb83079bad56d09",
         "path": ".engine/operations/build-orchestration.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-product-grounding",
+      "name": ".engine/operations/build-product-grounding.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-product-grounding",
+      "source": {
+        "fingerprint": "sha256:c9d37a524d041049346894118d3a54de324d1bef6b1135d954ec27fe887f7e7f",
+        "path": ".engine/operations/build-product-grounding.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-submission-evidence",
+      "name": ".engine/operations/build-submission-evidence.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-submission-evidence",
+      "source": {
+        "fingerprint": "sha256:b011c83aabbc49d3939f220fe9b45ad1d4bf4caad67af22aa2ccc957e4de67a2",
+        "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
       "type": "operation"
@@ -4735,7 +4804,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:e47338f7af33182b03e8dba5c3882fa4ad05c726cda6c403197a5208396a9bf1",
+        "fingerprint": "sha256:b52fcdd58b4b836520b48f0296436062e31d4a4a5d69c5eb431cb1895337ad62",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -4855,7 +4924,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:1457ea93ad6347045347d4d14550785a9664648f0fbb74396b914b1cff6173b1",
+        "fingerprint": "sha256:dbf6776f16b6c4627eca749356b8d048947dc9efa18687968ae4ae127e959225",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -5002,6 +5071,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:owned-product-build",
+      "name": ".engine/operations/owned-product-build.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "owned-product-build",
+      "source": {
+        "fingerprint": "sha256:1b93d34307096b496179a018cea3b3738b9f5c74ed27219c6bf9f2533c679924",
+        "path": ".engine/operations/owned-product-build.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:product-intake",
       "name": ".engine/operations/product-intake.md",
       "owner": "product-design",
@@ -5075,7 +5164,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:e749e2c1583bf9a68aa178bb8cb9f2369641705873232b43eda9288d4c841811",
+        "fingerprint": "sha256:682e1ddc3c796491bf65f5ba1c308ec61182b8ddac5b0cb5321264b68ad38976",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -5241,7 +5330,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:59ae156cf215f1ab51c892b5e7ee3f19f79ec3436563aab1b8aca8cdbd46ae85",
+        "fingerprint": "sha256:d1ef795c9eef11f4296033b259620a37a695e4090490d4085221f0032b59eb66",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -5457,6 +5546,91 @@
       "source": {
         "fingerprint": "sha256:792f40706e0ee10408bf308d7a17fd52d6fe6f5b32f7117bc095b91e416bab0f",
         "path": ".engine/schemas/audit-finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-handoff.v1",
+      "name": ".engine/schemas/build-handoff.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-handoff.v1",
+      "source": {
+        "fingerprint": "sha256:f722f8a0a2c134f04f76ad30281198d577f9c702418430194b08d8f72dfdb63e",
+        "path": ".engine/schemas/build-handoff.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-orchestration-obligations.v1",
+      "name": ".engine/schemas/build-orchestration-obligations.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-orchestration-obligations.v1",
+      "source": {
+        "fingerprint": "sha256:c18f83558f37e055427cd4c902aae7e8f362dbbb79599b973ea70eb01a7352fe",
+        "path": ".engine/schemas/build-orchestration-obligations.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-plan.v1",
+      "name": ".engine/schemas/build-plan.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-plan.v1",
+      "source": {
+        "fingerprint": "sha256:c3719753073eb566279851e2f41bd2538cda05eecbd6bc19cc14694e1c2b7c96",
+        "path": ".engine/schemas/build-plan.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-protocol.v1",
+      "name": ".engine/schemas/build-protocol.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-protocol.v1",
+      "source": {
+        "fingerprint": "sha256:c0948ad2b2bbe8b03bb250fd0c88642c03339e588506b84778c77b6a3ae19e74",
+        "path": ".engine/schemas/build-protocol.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-state.v1",
+      "name": ".engine/schemas/build-state.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-state.v1",
+      "source": {
+        "fingerprint": "sha256:e1ad8ca91f2149971fab78d8a70ca36ffaec8cd1e6fdbca1752dac9c6c678a3e",
+        "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -6786,6 +6960,150 @@
       },
       "status": "active",
       "summary": "Control-plane bootstrap — the permanent, re-runnable operation that turns the protected-branch",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:build_coordinator",
+      "name": ".engine/tools/build_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_github",
+          "tool:build_coordinator_review",
+          "tool:build_coordinator_spec",
+          "tool:repo_identity",
+          "tool:validate",
+          "tool:weakening_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator",
+      "source": {
+        "fingerprint": "sha256:d583244d3aaba0fde9b9f53e4784fc55f6b1c110c0cc4a32b467726095c25338",
+        "path": ".engine/tools/build_coordinator.py"
+      },
+      "status": "active",
+      "summary": "A small instrument panel for one PR-shaped Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_core",
+      "name": ".engine/tools/build_coordinator_core.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_core",
+      "source": {
+        "fingerprint": "sha256:815526a0be7228b9213ecbbff023cc7b41052695ff05c5de5070c3dc8471fb8e",
+        "path": ".engine/tools/build_coordinator_core.py"
+      },
+      "status": "active",
+      "summary": "Low-level, repository-local primitives for the Build coordinator.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_github",
+      "name": ".engine/tools/build_coordinator_github.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:issue_author"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_github",
+      "source": {
+        "fingerprint": "sha256:f329fc052617f977b4562eb0bc493f0895cf9afe0c430a9d85da84f16ecb7708",
+        "path": ".engine/tools/build_coordinator_github.py"
+      },
+      "status": "active",
+      "summary": "Low-level GitHub gateway and idempotent remote postconditions for Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_preservation",
+      "name": ".engine/tools/build_coordinator_preservation.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_preservation",
+      "source": {
+        "fingerprint": "sha256:a76b65d9126e7f38dfcc1af1163caebb869ff7a7f8039faed4fff88fb7e4bc3a",
+        "path": ".engine/tools/build_coordinator_preservation.py"
+      },
+      "status": "active",
+      "summary": "Engine-home validation for historical Build-orchestration traceability.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_review",
+      "name": ".engine/tools/build_coordinator_review.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_review",
+      "source": {
+        "fingerprint": "sha256:0c71bb740abb6acced55011bf1c5ca3e867d19678b00ce1c58f026503c00c812",
+        "path": ".engine/tools/build_coordinator_review.py"
+      },
+      "status": "active",
+      "summary": "Reviewer discovery, selective freshness, and finding disclosure for Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_spec",
+      "name": ".engine/tools/build_coordinator_spec.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:repo_identity",
+          "tool:spec_referent"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_spec",
+      "source": {
+        "fingerprint": "sha256:f0f2036206351ae0df1d859ef4dfef91a0cf552f5b0540fc75a6bf7e5da08a62",
+        "path": ".engine/tools/build_coordinator_spec.py"
+      },
+      "status": "active",
+      "summary": "Settled-specification and hard-check evidence services for Build.",
       "type": "tool"
     },
     {
@@ -9831,7 +10149,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:2a0ddf4cf8863e91b2154f8fba870874bd25baabb62b735535072c24a2a4f802",
+        "fingerprint": "sha256:fe92605efd895db2048c9962c208eb00fc543439f2c11167dfd1cc4bf493208c",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -9873,7 +10191,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:e116cf17de013ebfff2f795b9e26a5f1180110d16fab88c3d85e2a967272516d",
+        "fingerprint": "sha256:47be4d8af2dd149f41858860edbaca4efbc45c1bc5bec9f4222aae7808cd3e87",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -11567,6 +11885,127 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_build_coordinator",
+      "name": ".engine/tools/test_build_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:spec_referent"
+        ]
+      },
+      "slug": "test_build_coordinator",
+      "source": {
+        "fingerprint": "sha256:7ff699b18edff01148b0a17aaea4942a1de2b3e7c9d5e1a66cef3fb04d04881a",
+        "path": ".engine/tools/test_build_coordinator.py"
+      },
+      "status": "active",
+      "summary": "Focused mechanical tests for the Build coordinator instrument panel.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_core",
+      "name": ".engine/tools/test_build_coordinator_core.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core"
+        ]
+      },
+      "slug": "test_build_coordinator_core",
+      "source": {
+        "fingerprint": "sha256:f4dafcd642d3a91422cf8057c1a7b18790b6800a4bfea38b8e8808b772733e28",
+        "path": ".engine/tools/test_build_coordinator_core.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for commit evidence and snapshot transactions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_github",
+      "name": ".engine/tools/test_build_coordinator_github.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_github",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator_github",
+      "source": {
+        "fingerprint": "sha256:c0896a57f235c57c2e5083362994aa2f3111db4240e23795251b4d5ef601004a",
+        "path": ".engine/tools/test_build_coordinator_github.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for bounded and recoverable GitHub mutations.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_preservation",
+      "name": ".engine/tools/test_build_coordinator_preservation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_preservation"
+        ]
+      },
+      "slug": "test_build_coordinator_preservation",
+      "source": {
+        "fingerprint": "sha256:e6e996532b9ac442264578846f9209efb81815bf77a9d55f1868ed02c7a00162",
+        "path": ".engine/tools/test_build_coordinator_preservation.py"
+      },
+      "status": "active",
+      "summary": "Structural checks for the historical Build preservation artifact.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_review",
+      "name": ".engine/tools/test_build_coordinator_review.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_review",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator_review",
+      "source": {
+        "fingerprint": "sha256:a21b33f6bda78d53bd4cd843f42ad534c2a966a503234393a123975ab27120b1",
+        "path": ".engine/tools/test_build_coordinator_review.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for review ordering, contracts, and disagreement evidence.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_build_readiness",
       "name": ".engine/tools/test_build_readiness.py",
       "owner": "core",
@@ -12106,7 +12545,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:579da3fc3f17c2d73567b312f3e2f6ae43afca6fbd4cf4d7b8d9f936e61812e1",
+        "fingerprint": "sha256:3283b5ec78480f7b439bd89820d9fc4a1fdbeddc58fedecebbb7676c9cb063fe",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -13239,7 +13678,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:503603ebbd93ad9d7c9de4b3fee07b1cc3ac197ee2d2dca8f48a0503f8be92d3",
+        "fingerprint": "sha256:e57bdda65f8fddc483fd9fff3a1a671f9908fc5f51bbdaa6d3ad6498753aae62",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

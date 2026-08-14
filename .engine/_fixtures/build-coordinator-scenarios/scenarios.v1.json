@@ -1,0 +1,78 @@
+{
+  "schema_version": "build-scenarios.v1",
+  "normalization": "Workflow facts distilled from Engine memory and merged PR records. No transcript prose, private path, or runtime-specific internal state is retained.",
+  "scenarios": [
+    {
+      "id": "direct-no-spec-disposition",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 865, "memory_session": "f90d8b1b-92af-4754-8257-d5eda0a242e3"},
+      "shape": ["same-session", "direct-request", "no-settled-spec"],
+      "events": ["plan-held-in-session", "plan-derived-conformance", "review-findings-adjudicated"],
+      "mechanical_tests": ["TestPlanAndSnapshot.test_bind_initializes_only_for_the_matching_draft_pr_head", "TestReviewAndFindings.test_severity_does_not_choose_remedy_or_blocking_posture"],
+      "expected": ["no-issue-required", "exact-plan-remains-review-referent", "findings-may-use-different-dispositions"],
+      "must_not": ["invent-settled-spec", "create-issue-for-ceremony", "severity-selects-remedy"]
+    },
+    {
+      "id": "false-premise-corrected-before-code",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 886, "memory_session": "80cbfb46-8d2f-4fb1-b2bf-4ba3549159b6"},
+      "shape": ["same-session", "originating-issue"],
+      "events": ["premise-investigated", "plan-revised", "approval-bound-to-revised-plan"],
+      "mechanical_tests": ["TestPlanAndSnapshot.test_plan_revision_invalidates_approval_and_reviews_but_not_build_identity", "TestValidationRepairAndStatus.test_status_surfaces_unresolved_and_accepted_plan_assumptions"],
+      "expected": ["investigation-before-implementation", "old-approval-invalidated", "one-corrected-build-path"],
+      "must_not": ["structural-plan-completeness-implies-truth", "implement-known-false-premise"]
+    },
+    {
+      "id": "material-repair-focused-review-and-reconcile",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 681, "memory_session": "f73864f7-7231-484b-b7d4-97321f737052"},
+      "shape": ["same-session", "base-advanced"],
+      "events": ["deliverable-reviewed", "material-repair", "focused-re-review", "base-reconciled", "validation-rerun"],
+      "mechanical_tests": ["TestValidationRepairAndStatus.test_repair_review_requires_validation_for_repaired_commit", "TestPreflightHandoffAndSubmission.test_submit_preview_requires_live_base_to_be_ancestor_of_final_commit"],
+      "expected": ["scoped-review-is-valid", "base-is-evidence-not-authority", "final-commit-is-validated"],
+      "must_not": ["force-full-review-by-diff-size", "freeze-original-base"]
+    },
+    {
+      "id": "small-rereview-repair-terminates",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 685, "memory_session": "d9ae59f5-2309-40df-b525-4ef1ed8ef364"},
+      "shape": ["same-session", "post-review-repair"],
+      "events": ["focused-re-review", "one-line-prescribed-repair", "direct-verification", "no-further-review"],
+      "mechanical_tests": ["TestValidationRepairAndStatus.test_none_repair_judgment_is_valid_for_small_change", "TestValidationRepairAndStatus.test_repair_findings_are_dispositioned_in_the_repair_stage"],
+      "expected": ["none-judgment-is-valid", "review-loop-terminates", "validation-fresh-for-final-commit"],
+      "must_not": ["repair-automatically-invalidates-all-review", "recursive-audit"]
+    },
+    {
+      "id": "serious-findings-scoped-rereview",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 955, "memory_session": "08f90f17-976a-40a3-a70e-2b13044e6ffa"},
+      "shape": ["same-session", "security-sensitive"],
+      "events": ["serious-findings-received", "remedies-critically-adjudicated", "accepted-repairs", "scoped-re-review"],
+      "mechanical_tests": ["TestReviewAndFindings.test_partial_acceptance_keeps_bounded_remedy", "TestValidationRepairAndStatus.test_scoped_repair_requires_named_lens"],
+      "expected": ["severity-does-not-select-remedy", "accepted-concern-may-have-bounded-remedy", "affected-lenses-rerun"],
+      "must_not": ["blindly-apply-reviewer-remedy", "automatically-escalate-every-serious-finding"]
+    },
+    {
+      "id": "discovered-scope-and-operator-boundary",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 924, "memory_session": "d56725c5-dc04-4c28-84ef-4524dcfcff22"},
+      "shape": ["same-session", "complex-discovery"],
+      "events": ["ordinary-leaves-implemented", "out-of-scope-concern-tracked", "genuine-product-boundary-returned-to-operator"],
+      "mechanical_tests": ["TestValidationRepairAndStatus.test_implementation_status_offers_unordered_engineering_activities", "TestValidationRepairAndStatus.test_non_aligned_checkpoint_prevents_ready_phase"],
+      "expected": ["engineering-leaves-do-not-require-reapproval", "genuine-boundary-decision-does", "rejected-remedy-keeps-rationale"],
+      "must_not": ["unexpected-path-is-automatic-scope-violation", "every-review-note-stops-build"]
+    },
+    {
+      "id": "network-loss-keeps-local-work-usable",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 865, "memory_session": "f90d8b1b-92af-4754-8257-d5eda0a242e3"},
+      "shape": ["same-session", "network-unavailable"],
+      "events": ["plan-bound-locally", "checkpoint-recorded", "validation-recorded"],
+      "mechanical_tests": ["TestPlanAndSnapshot.test_atomic_snapshot_revision_and_compare_and_swap", "TestValidationRepairAndStatus.test_validation_records_every_result_against_head"],
+      "expected": ["local-status-remains-usable", "github-required-only-for-handoff-and-submission"],
+      "must_not": ["lifecycle-comment-required", "network-loss-invalidates-local-evidence"]
+    },
+    {
+      "id": "validated-draft-becomes-ready-not-merged",
+      "source": {"repository": "StarshipSuperjam/engine-template", "pull_request": 955, "memory_session": "08f90f17-976a-40a3-a70e-2b13044e6ffa"},
+      "shape": ["same-session", "ready-delivery"],
+      "events": ["final-validation", "preflights-green", "pr-contract-complete", "mark-ready"],
+      "mechanical_tests": ["TestPreflightHandoffAndSubmission.test_preflight_binds_contract_and_results_to_head", "TestPreflightHandoffAndSubmission.test_submit_apply_recovers_when_matching_pr_is_already_ready", "TestPreflightHandoffAndSubmission.test_cli_has_no_merge_command"],
+      "expected": ["ready-pr-is-human-merge-surface", "already-ready-retry-is-idempotent"],
+      "must_not": ["coordinator-merges", "submission-response-loss-deadlocks"]
+    }
+  ]
+}

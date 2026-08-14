@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build-orchestration-obligations.v1 — historical preservation traceability",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "preservation_source", "obligations"],
+  "properties": {
+    "schema_version": {"const": "build-orchestration-obligations.v1"},
+    "preservation_source": {"type": "object", "additionalProperties": false, "required": ["git_object", "digest", "lines", "words", "assurance"], "properties": {"git_object": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "lines": {"type": "integer", "minimum": 1}, "words": {"type": "integer", "minimum": 1}, "assurance": {"type": "string", "minLength": 1}}},
+    "obligations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/obligation"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "obligation": {"type": "object", "additionalProperties": false, "required": ["id", "intent", "classification", "disposition", "owner", "anchor"], "properties": {"id": {"type": "string", "pattern": "^BO-[0-9]{2}$"}, "intent": {"type": "string", "minLength": 1}, "classification": {"enum": ["mechanical-fact", "ai-judgment", "operator-authority", "advisory-practice", "recovery-behavior", "special-delivery-path"]}, "disposition": {"enum": ["mechanical", "prose", "superseded"]}, "scope": {"enum": ["all", "home-only"]}, "owner": {"type": "string", "minLength": 1}, "anchor": {"type": "string", "minLength": 1}, "replacement": {"type": "string", "minLength": 1}}}
+  }
+}

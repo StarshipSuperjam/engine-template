@@ -71,7 +71,8 @@ class TestHomeTravelClassification(unittest.TestCase):
 
     def test_known_product_travels(self):
         for p in (".engine/tools/boot.py", ".engine/check/upstream-clean.json", ".engine/schemas/state.v1.json",
-                  ".engine/knowledge/graph.json", ".engine/self-map.md",  # CI-required indexes
+                  ".engine/knowledge/graph.json", ".engine/self-map.md", ".engine/build-protocol.json",
+                  ".engine/build-orchestration-obligations.json",
                   ".engine/pyproject.toml", ".engine/uv.lock", "AGENTS.md", ".engine/conduct/defaults.md"):
             self.assertTrue(mc.travels_to_engine_home(p), f"{p} must travel to the engine's home")
 

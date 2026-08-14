@@ -1,0 +1,93 @@
+{
+  "schema_version": "build-protocol.v1",
+  "plan_review": {
+    "quick": [],
+    "standard": [
+      "product-intent",
+      "architecture"
+    ],
+    "thorough": [
+      "product-intent",
+      "architecture",
+      "feasibility",
+      "risk-governance"
+    ]
+  },
+  "deliverable_review": {
+    "quick": [],
+    "standard": [
+      "spec-conformance",
+      "divergence-hunter",
+      "usability"
+    ],
+    "thorough": [
+      "spec-conformance",
+      "divergence-hunter",
+      "usability",
+      "technical-integrity",
+      "security-governance"
+    ]
+  },
+  "preflights": [
+    {
+      "id": "close-linkage",
+      "command": [
+        "python",
+        ".engine/tools/close_linkage_preflight.py",
+        "check"
+      ],
+      "required": false
+    },
+    {
+      "id": "pr-contract",
+      "command": [],
+      "required": true
+    }
+  ],
+  "hard_holds": [
+    {
+      "id": "plan-authority",
+      "prevents": "work or review using a plan other than the one the operator approved"
+    },
+    {
+      "id": "approval",
+      "prevents": "implementation before the operator approves the plan and review depth"
+    },
+    {
+      "id": "review-coverage",
+      "prevents": "silently omitting review coverage the operator approved"
+    },
+    {
+      "id": "deliverable-review",
+      "prevents": "submitting without an independent deliverable-review gate"
+    },
+    {
+      "id": "validation-freshness",
+      "prevents": "submitting a commit other than the one that passed validation"
+    },
+    {
+      "id": "repair-judgment",
+      "prevents": "post-review changes bypassing a proportional re-review decision"
+    },
+    {
+      "id": "blocking-finding",
+      "prevents": "submitting a finding the orchestrator explicitly left blocking this PR"
+    },
+    {
+      "id": "preflights",
+      "prevents": "skipping or ignoring a repository submission preflight"
+    },
+    {
+      "id": "pr-contract",
+      "prevents": "presenting an incomplete merge surface to the operator"
+    },
+    {
+      "id": "draft-identity",
+      "prevents": "building against the wrong, closed, or already-ready pull request"
+    },
+    {
+      "id": "human-merge",
+      "prevents": "the coordinator crossing the operator-only merge boundary"
+    }
+  ]
+}
