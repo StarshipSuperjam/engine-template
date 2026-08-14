@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:f8e58961e4ad3ad860ff28c413a85de96bbc92e3be2f7411a068643b264c88ac",
+        "fingerprint": "sha256:322b508c4c7f56646ca14d0a5d345ba95222e7452d6c544678cfaf18053b5eb7",
         "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
@@ -2734,7 +2734,7 @@
       },
       "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:b48e946e077de5f6784ee2c29a91a1511def08c8a62a3f3e39da0521b9b0ce82",
+        "fingerprint": "sha256:f5ad2a778bd69078dc06bc33c23fb619cee60bbb0e5166af4d2c919efd27e5e8",
         "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
@@ -4194,7 +4194,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:dbb6e858fc58cb49f8c629c127170df675076dac3d440e65e89d519d7e69c164",
+        "fingerprint": "sha256:380fa12106cdcf60baea66716f4437f776f396d3f985c134817b6e12e7877a56",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -4373,7 +4373,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:aa85bb902d87417871a4644220d0c5cd3efb98d55a836af8d279bd1886830116",
+        "fingerprint": "sha256:e09c33de4242cd578ff29d4a8d1189d70983fed501c970149555b906b20b0adc",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:3ce765d76d51f330300ef77cf601641b33da755dffd6b0c88db1361583d52ab9",
+        "fingerprint": "sha256:e7706b69e4936a4a3e62a2088afb351b8ed2a42435c4ae6e160273344d7fea82",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5330,7 +5330,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:b31746a3cf0c3a76491ba3f16d0fad953287bc8833a1b803f4edb875b1d93c84",
+        "fingerprint": "sha256:d1ef795c9eef11f4296033b259620a37a695e4090490d4085221f0032b59eb66",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -5561,8 +5561,25 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:068da9a8ddadd0d70e32f3b73dce1cd5ceb57c7038bc959df974767dae2b01a6",
+        "fingerprint": "sha256:b7d346356282ed7c57dd69bc97cf055db54df78a3d23f37c71cfe6a1e91c16b6",
         "path": ".engine/schemas/build-handoff.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-orchestration-obligations.v1",
+      "name": ".engine/schemas/build-orchestration-obligations.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-orchestration-obligations.v1",
+      "source": {
+        "fingerprint": "sha256:c18f83558f37e055427cd4c902aae7e8f362dbbb79599b973ea70eb01a7352fe",
+        "path": ".engine/schemas/build-orchestration-obligations.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -5595,7 +5612,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:d798ae39d107404ba49f9594dc15d5268b6bde3d09cbd5cdfc5a3c4d1c58ca4f",
+        "fingerprint": "sha256:c0948ad2b2bbe8b03bb250fd0c88642c03339e588506b84778c77b6a3ae19e74",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -5612,7 +5629,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:5171ee2b4306f767076591b10e232c679bf1c21cf1f92428574f90dd17b8efa7",
+        "fingerprint": "sha256:e1ad8ca91f2149971fab78d8a70ca36ffaec8cd1e6fdbca1752dac9c6c678a3e",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -6953,9 +6970,10 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:issue_author",
-          "tool:repo_identity",
-          "tool:spec_referent",
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_github",
+          "tool:build_coordinator_review",
+          "tool:build_coordinator_spec",
           "tool:validate",
           "tool:weakening_guard"
         ],
@@ -6965,11 +6983,126 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:488d80bb0ee5de5525fecb0a9f06fdb36c73a120ba1a806bc31e32d525b91502",
+        "fingerprint": "sha256:f373ef8e1ecb96d0ca7e3e9965a285d1cc1dfd66d50135155e97d40b95e27d51",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
       "summary": "A small instrument panel for one PR-shaped Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_core",
+      "name": ".engine/tools/build_coordinator_core.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_core",
+      "source": {
+        "fingerprint": "sha256:815526a0be7228b9213ecbbff023cc7b41052695ff05c5de5070c3dc8471fb8e",
+        "path": ".engine/tools/build_coordinator_core.py"
+      },
+      "status": "active",
+      "summary": "Low-level, repository-local primitives for the Build coordinator.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_github",
+      "name": ".engine/tools/build_coordinator_github.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:issue_author"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_github",
+      "source": {
+        "fingerprint": "sha256:f329fc052617f977b4562eb0bc493f0895cf9afe0c430a9d85da84f16ecb7708",
+        "path": ".engine/tools/build_coordinator_github.py"
+      },
+      "status": "active",
+      "summary": "Low-level GitHub gateway and idempotent remote postconditions for Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_preservation",
+      "name": ".engine/tools/build_coordinator_preservation.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_preservation",
+      "source": {
+        "fingerprint": "sha256:75b69ea8d7cce5337a274be610b107075e8a29a4a4c6e393fb102a79ecc4fb98",
+        "path": ".engine/tools/build_coordinator_preservation.py"
+      },
+      "status": "active",
+      "summary": "Engine-home validation for historical Build-orchestration traceability.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_review",
+      "name": ".engine/tools/build_coordinator_review.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_review",
+      "source": {
+        "fingerprint": "sha256:0c71bb740abb6acced55011bf1c5ca3e867d19678b00ce1c58f026503c00c812",
+        "path": ".engine/tools/build_coordinator_review.py"
+      },
+      "status": "active",
+      "summary": "Reviewer discovery, selective freshness, and finding disclosure for Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_spec",
+      "name": ".engine/tools/build_coordinator_spec.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:repo_identity",
+          "tool:spec_referent"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_spec",
+      "source": {
+        "fingerprint": "sha256:f0f2036206351ae0df1d859ef4dfef91a0cf552f5b0540fc75a6bf7e5da08a62",
+        "path": ".engine/tools/build_coordinator_spec.py"
+      },
+      "status": "active",
+      "summary": "Settled-specification and hard-check evidence services for Build.",
       "type": "tool"
     },
     {
@@ -10015,7 +10148,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:cccb310a186e3272a76ea7bcb25a489660dc943f3e38c44628af55f1921edeba",
+        "fingerprint": "sha256:fe92605efd895db2048c9962c208eb00fc543439f2c11167dfd1cc4bf493208c",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -11765,11 +11898,108 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:95ac0f30729bac2f6952b549350b6ab87cd0f516e0f5c06a81e5c88d86e7c94b",
+        "fingerprint": "sha256:5fbb8a46b5b4a967acc7f537e5c33b4ffc8858e167ba1c06fbeefacca6970210",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
       "summary": "Focused mechanical tests for the Build coordinator instrument panel.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_core",
+      "name": ".engine/tools/test_build_coordinator_core.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core"
+        ]
+      },
+      "slug": "test_build_coordinator_core",
+      "source": {
+        "fingerprint": "sha256:f4dafcd642d3a91422cf8057c1a7b18790b6800a4bfea38b8e8808b772733e28",
+        "path": ".engine/tools/test_build_coordinator_core.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for commit evidence and snapshot transactions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_github",
+      "name": ".engine/tools/test_build_coordinator_github.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_github",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator_github",
+      "source": {
+        "fingerprint": "sha256:05dd0cdb004ec02483ad92a14e32a9ff91ef59782b3cc8c6289d3a158dabcf83",
+        "path": ".engine/tools/test_build_coordinator_github.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for bounded and recoverable GitHub mutations.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_preservation",
+      "name": ".engine/tools/test_build_coordinator_preservation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_preservation"
+        ]
+      },
+      "slug": "test_build_coordinator_preservation",
+      "source": {
+        "fingerprint": "sha256:0f14bd1ab5ff9a8bf239dbfc9c7e43562a09f02aa29ea5cf0e87c006901e719b",
+        "path": ".engine/tools/test_build_coordinator_preservation.py"
+      },
+      "status": "active",
+      "summary": "Structural checks for the historical Build preservation artifact.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_review",
+      "name": ".engine/tools/test_build_coordinator_review.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_review",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator_review",
+      "source": {
+        "fingerprint": "sha256:57396f8785db137eb842303b118e7e65d2b7d0c290d8738c3864c97d761bd4c9",
+        "path": ".engine/tools/test_build_coordinator_review.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for review ordering, contracts, and disagreement evidence.",
       "type": "tool"
     },
     {
@@ -12314,7 +12544,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:c269abf4e3a811dc8703541e531a966470c6e8d11df3362e30ec6422c50f8339",
+        "fingerprint": "sha256:3283b5ec78480f7b439bd89820d9fc4a1fdbeddc58fedecebbb7676c9cb063fe",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
