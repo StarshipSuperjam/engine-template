@@ -16,7 +16,8 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_work as work  # noqa: E402
-from test_build_coordinator import plan_v2, _work_item_v2, HEAD_A, BASE  # noqa: E402
+from test_build_coordinator import plan as plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE  # noqa: E402
+import build_coordinator_dag as dag  # noqa: E402
 
 
 class WorkCase(unittest.TestCase):
@@ -185,10 +186,41 @@ class TestWorkDispositions(WorkCase):
     def test_completed_dependency_unblocks_its_successor(self):
         attempt = self._return("shared")
         self._integrate("shared", attempt)
-        import build_coordinator_dag as dag
         lc = dag.derive_lifecycle(self.plan_value, self.state())
         self.assertEqual(lc["shared"]["state"], dag.COMPLETE)
         self.assertEqual(lc["adapter"]["state"], dag.READY)
+
+
+class TestStatusV2(WorkCase):
+    def test_status_exposes_the_work_section(self):
+        self.claim("shared")
+        result = bc._status(self.state(), self.plan_value)
+        self.assertIn("work", result)
+        w = result["work"]
+        self.assertEqual(w["slots_in_use"], 1)
+        self.assertEqual(w["max_concurrency"], 1)
+        self.assertEqual(w["nodes"]["shared"]["state"], "claimed")
+        self.assertEqual(w["nodes"]["shared"]["route"]["model"], "sonnet")
+        self.assertEqual(w["claimable"], [])  # serial slot busy
+
+    def test_status_and_checkpoint_share_one_next_derivation(self):
+        state = self.state()
+        self.assertEqual(bc._next_incomplete(self.plan_value, state), dag.ready_set(self.plan_value, state)[0])
+        self.assertEqual(bc._status(self.plan_value and state, self.plan_value)["progress"]["next"],
+                         bc._next_incomplete(self.plan_value, state))
+
+    def test_v1_status_has_no_work_section(self):
+        v1 = plan_v1()
+        state = bc._initial_state("owner/repo", 7, BASE, "session", v1, None)
+        state["approval"] = {"plan_digest": bc._digest(v1), "spec_digest": None, "depth": "thorough"}
+        result = bc._status(state, v1)
+        self.assertNotIn("work", result)
+
+    def test_reset_after_revision_clears_the_work_map(self):
+        self.claim("shared")
+        state = self.state()
+        bc._reset_after_revision(state, self.plan_value)
+        self.assertEqual(state["work"], {})
 
 
 class TestWorkRouting(unittest.TestCase):

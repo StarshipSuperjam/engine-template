@@ -277,6 +277,50 @@ def _trivial_violations(state: dict, plan: dict) -> list[str]:
     return violations
 
 
+def _next_incomplete(plan: dict, state: dict) -> str | None:
+    """The single next work item the linear v1 order or the v2 DAG readiness would advance.
+
+    v1 keeps its byte-identical linear scan; a v2 plan derives the next item from the graph's ready
+    set, so status and checkpoint read one shared derivation rather than duplicating the scan.
+    """
+    if _plan_version(plan) == "build-plan.v2":
+        ready = dag.ready_set(plan, state)
+        return ready[0] if ready else None
+    ordered = [item["id"] for item in plan["work_items"]]
+    completed = {item["id"] for item in state["progress"]["completed"]}
+    return next((item for item in ordered if item not in completed), None)
+
+
+def _work_projection(plan: dict, state: dict) -> dict:
+    """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
+    lifecycle = dag.derive_lifecycle(plan, state)
+    parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
+    nodes = {}
+    for node_id, node in lifecycle.items():
+        nw = (state.get("work") or {}).get(node_id) or {}
+        claim = nw.get("claim") or {}
+        integration = nw.get("integration") or {}
+        result = nw.get("latest_result") or {}
+        failure = nw.get("latest_failure") or {}
+        nodes[node_id] = {
+            "state": node["state"], "reasons": node["reasons"],
+            "attempt_count": nw.get("attempt_count", 0),
+            "route": claim.get("requested_route"),
+            "integration_commit": integration.get("commit"),
+            "focused_verification": integration.get("focused_verification"),
+            "artifact_digest": result.get("artifact_digest"),
+            "failure": {"class": failure.get("class"), "disposition": failure.get("disposition")} if failure else None,
+        }
+    return {
+        "ready": dag.ready_set(plan, state),
+        "claimable": dag.claimable_set(plan, state),
+        "slots_in_use": dag.slots_in_use(plan, state),
+        "max_concurrency": parallelism.get("max_concurrency", 1),
+        "resource_holders": dag.resource_holders(plan, state),
+        "nodes": nodes,
+    }
+
+
 def _status(state: dict, plan: dict | None = None) -> dict:
     head = _head()
     required_evidence, judgments, warnings = [], [], []
@@ -384,12 +428,15 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         phase, next_one, available = "ready", "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
     completed_items = [item["id"] for item in state["progress"]["completed"]]
-    next_item = next((item for item in ordered_items if item not in completed_items), None)
-    return {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
-            "required_evidence": required_evidence, "engineering_judgment": judgments,
-            "warnings": warnings, "suggested_next": next_one, "available_activities": available,
-            "progress": {"completed": completed_items, "total": len(ordered_items),
-                         "current": state["progress"]["current_item"], "next": next_item}}
+    next_item = _next_incomplete(plan, state) if plan else None
+    result = {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
+              "required_evidence": required_evidence, "engineering_judgment": judgments,
+              "warnings": warnings, "suggested_next": next_one, "available_activities": available,
+              "progress": {"completed": completed_items, "total": len(ordered_items),
+                           "current": state["progress"]["current_item"], "next": next_item}}
+    if plan is not None and state.get("schema_version") == "build-state.v2":
+        result["work"] = _work_projection(plan, state)
+    return result
 
 
 def cmd_plan_bind(args, store: StateStore) -> None:
@@ -530,6 +577,19 @@ def cmd_status(args, store: StateStore) -> None:
         print("Available activities (unordered):")
         for value in result["available_activities"]:
             print(f"  - {value}")
+    if "work" in result:
+        w = result["work"]
+        print(f"DAG: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
+        print("  ready (unordered): " + (", ".join(w["ready"]) or "none"))
+        print("  claimable now: " + (", ".join(w["claimable"]) or "none"))
+        for node_id in sorted(w["nodes"]):
+            node = w["nodes"][node_id]
+            line = f"  {node_id}: {node['state']} (attempt {node['attempt_count']})"
+            if node["reasons"]:
+                line += " — " + "; ".join(node["reasons"])
+            print(line)
+        if w["resource_holders"]:
+            print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
 
 
 def _write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
@@ -818,9 +878,8 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         items = {item["id"]: item for item in plan["work_items"]}
         if note["work_item"] not in items:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
-        ordered = [item["id"] for item in plan["work_items"]]
         completed = {item["id"] for item in state["progress"]["completed"]}
-        next_item = next((item for item in ordered if item not in completed), None)
+        next_item = _next_incomplete(plan, state)
         if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
             raise CoordinatorError(f"Routine must advance the next incomplete work item {next_item}")
         if args.complete_item:
