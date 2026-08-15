@@ -63,6 +63,16 @@ FAILED = "failed"
 RECOVERY_REQUIRED = "recovery_required"
 COMPLETE = "complete"
 
+# The failure classes and the orchestrator's dispositions of a failed attempt — one shared home for
+# these machine-decidable sets (mirroring the state constants above) so a producer and the deriver
+# below cannot drift apart on a bare string literal. Kept in step with the enums in build-state.v2.json.
+FAILURE_CLASSES = ("dispatch", "worker", "contract", "verification", "integration")
+DISP_OPEN = "open"
+DISP_RETRY = "retry"
+DISP_ABANDONED = "abandoned"
+DISP_INLINE = "integrator-inline"
+DISPOSITIONS = (DISP_OPEN, DISP_RETRY, DISP_ABANDONED, DISP_INLINE)
+
 _GLOB_META = ("*", "?", "[")
 
 
@@ -90,14 +100,14 @@ def _node_state(nw: dict | None, deps_complete: bool) -> tuple[str, list[str]]:
     result = nw.get("latest_result") if nw else None
     if claim and claim.get("restored"):
         return RECOVERY_REQUIRED, ["restored claim awaits inspection"]
-    if failure and failure.get("disposition") == "open":
+    if failure and failure.get("disposition") == DISP_OPEN:
         reasons.append(f"attempt failed ({failure.get('class')}) awaiting disposition")
         return FAILED, reasons
     if claim and result and result.get("outcome") == "returned" and result.get("attempt_id") == claim.get("attempt_id"):
         return RETURNED, ["worker result awaits integrator inspection"]
     if claim:
         return CLAIMED, ["an attempt is dispatched"]
-    if failure and failure.get("disposition") == "abandoned":
+    if failure and failure.get("disposition") == DISP_ABANDONED:
         return BLOCKED, ["node abandoned; a fresh attempt must be started deliberately"]
     if not deps_complete:
         return BLOCKED, ["dependencies are not integrated"]

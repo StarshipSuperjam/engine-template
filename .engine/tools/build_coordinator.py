@@ -1555,7 +1555,7 @@ def cmd_work_reject(args, store: StateStore) -> None:
         attempt = claim["attempt_id"] if claim else (result or {}).get("attempt_id")
         if attempt != args.attempt:
             raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
-        nw["latest_failure"] = work.failure_record(args.attempt, args.rejection_class, args.reason, "open")
+        nw["latest_failure"] = work.failure_record(args.attempt, args.rejection_class, args.reason, dag.DISP_OPEN)
         nw["claim"] = None  # rejection releases the reserved resources
 
     _work_mutate(store, change)
@@ -1566,9 +1566,9 @@ def cmd_work_retry(args, store: StateStore) -> None:
     def change(state):
         nw = _node_work(state, args.item)
         failure = nw.get("latest_failure")
-        if not failure or failure.get("disposition") != "open":
+        if not failure or failure.get("disposition") != dag.DISP_OPEN:
             raise CoordinatorError(f"work item {args.item} has no failure awaiting a retry decision")
-        disposition = "integrator-inline" if args.strategy == "integrator-inline" else "retry"
+        disposition = dag.DISP_INLINE if args.strategy == "integrator-inline" else dag.DISP_RETRY
         failure["disposition"] = disposition
         nw["claim"] = None  # a fresh attempt id is minted on the next claim; attempt_count increments there
 
@@ -1585,7 +1585,7 @@ def cmd_work_abandon(args, store: StateStore) -> None:
         if attempt != args.attempt:
             raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
         nw["latest_failure"] = work.failure_record(args.attempt, (failure or {}).get("class", "worker"),
-                                                   args.reason, "abandoned")
+                                                   args.reason, dag.DISP_ABANDONED)
         nw["claim"] = None  # abandonment releases the reserved resources
 
     _work_mutate(store, change)

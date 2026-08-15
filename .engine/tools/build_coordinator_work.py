@@ -126,7 +126,9 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
             "evidence": evidence}
 
 
-def failure_record(attempt_id: str, failure_class: str, reason: str, disposition: str = "open") -> dict:
-    if failure_class not in ("dispatch", "worker", "contract", "verification", "integration"):
+def failure_record(attempt_id: str, failure_class: str, reason: str, disposition: str = dag.DISP_OPEN) -> dict:
+    if failure_class not in dag.FAILURE_CLASSES:
         raise CoordinatorError(f"unknown failure class {failure_class!r}")
+    if disposition not in dag.DISPOSITIONS:
+        raise CoordinatorError(f"unknown failure disposition {disposition!r}")
     return {"attempt_id": attempt_id, "class": failure_class, "reason": reason, "disposition": disposition}
