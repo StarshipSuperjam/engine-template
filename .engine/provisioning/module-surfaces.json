@@ -1275,6 +1275,9 @@
   ".engine/tools/issue_conformance_ci.py": [
    "core"
   ],
+  ".engine/tools/issue_event.py": [
+   "core"
+  ],
   ".engine/tools/issue_gate.py": [
    "core"
   ],
@@ -1807,6 +1810,9 @@
    "core"
   ],
   ".engine/tools/test_issue_conformance_ci.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_event.py": [
    "core"
   ],
   ".engine/tools/test_issue_gate.py": [

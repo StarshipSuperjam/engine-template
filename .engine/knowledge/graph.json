@@ -9479,6 +9479,7 @@
       "predicates": {
         "imports": [
           "tool:issue_author",
+          "tool:issue_event",
           "tool:issue_gate",
           "tool:issue_label_client"
         ],
@@ -9488,11 +9489,31 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:0f4465ab9289a089cfd9fa4021200f41806a0a3de58c2264650f3ef3524e7c4c",
+        "fingerprint": "sha256:e2bf0f6905c7087e732e55d96bc5028efb783659267db4b367cf54097c0b79b2",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
       "summary": "The engine-Issue conformance backstop — the on:issues CI safety-net for the body contract.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:issue_event",
+      "name": ".engine/tools/issue_event.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_event",
+      "source": {
+        "fingerprint": "sha256:199a8e96fafef84c5ff01a459f9b3492d02387f678f3f6f545e447698faac173",
+        "path": ".engine/tools/issue_event.py"
+      },
+      "status": "active",
+      "summary": "The shared GitHub issues-event parsing boundary — one defensive reader for the on:issues backstops.",
       "type": "tool"
     },
     {
@@ -9523,6 +9544,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:issue_event",
           "tool:issue_label_client"
         ],
         "provided_by": [
@@ -9531,7 +9553,7 @@
       },
       "slug": "issue_kind_label",
       "source": {
-        "fingerprint": "sha256:1f7e7e4ad55f54b9f914d714c038718c8906f4754d76f920ff9472515f089231",
+        "fingerprint": "sha256:9e94938e3b68b3e043c1130762e65009a0cd79eec04d61d657cc140beda9d9bc",
         "path": ".engine/tools/issue_kind_label.py"
       },
       "status": "active",
@@ -13145,6 +13167,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_issue_event",
+      "name": ".engine/tools/test_issue_event.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_event"
+        ]
+      },
+      "slug": "test_issue_event",
+      "source": {
+        "fingerprint": "sha256:487c9882a51e1cc92e9c02ad163d18c3add8ff30d7378cdd76c15a7dda3e905f",
+        "path": ".engine/tools/test_issue_event.py"
+      },
+      "status": "active",
+      "summary": "Tests for issue_event — the shared on:issues event-parsing boundary the two backstops route through.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_issue_gate",
       "name": ".engine/tools/test_issue_gate.py",
       "owner": "core",
@@ -13189,7 +13234,7 @@
       },
       "slug": "test_issue_kind_label",
       "source": {
-        "fingerprint": "sha256:f1efc45643f1665bae8f5076e5b38b90427d40914ca1c0d200a3686623f7f6ff",
+        "fingerprint": "sha256:63696489bdb752528b66ce258fd1ee59f0b85106a383a02bc1b48e50a08ce0e6",
         "path": ".engine/tools/test_issue_kind_label.py"
       },
       "status": "active",

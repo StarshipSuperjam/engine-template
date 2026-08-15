@@ -134,14 +134,6 @@ class TestApplyIsApplyOnlyAndIdempotent(unittest.TestCase):
                 client._http("POST", "/repos/o/r/issues/1/labels", {"labels": ["x"]})
 
 
-class TestScopeFilter(unittest.TestCase):
-    def test_partial_or_non_issue_events_are_out_of_scope(self):
-        self.assertIsNone(k._issue_or_none({"issue": None}))
-        self.assertIsNone(k._issue_or_none({"issue": {"number": "nan"}}))
-        self.assertIsNone(k._issue_or_none({}))
-        self.assertIsNone(k._issue_or_none("not a dict"))
-
-
 class TestRunFailContract(unittest.TestCase):
     """_run reads the event from $GITHUB_EVENT_PATH and applies the safety-net-not-a-gate fail contract
     (mirroring the conformance net's TestRunFailContract): no/partial/malformed event or an unmappable
