@@ -70,7 +70,20 @@
     "pr_contract": {
       "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "body_digest", "complete"], "properties": {"commit": {"$ref": "#/$defs/commit"}, "body_digest": {"$ref": "#/$defs/digest"}, "complete": {"type": "boolean"}}}]
     },
-    "submission": {"enum": ["draft", "ready", "unknown"]}
+    "submission": {"enum": ["draft", "ready", "unknown"]},
+    "checkout_snapshot": {
+      "type": ["object", "null"],
+      "description": "The review_integrity snapshot of the build worktree captured when the most recent deliverable/repair review packet was created (StarshipSuperjam/engine-template#947); the submission preflight verifies origin, branch, and stash have not moved since. Null until a deliverable-side review packet is created; not carried across a cold handoff (re-captured at the next review packet).",
+      "additionalProperties": false,
+      "properties": {
+        "checkout": {"type": "string"},
+        "origin": {"type": ["string", "null"]},
+        "branch": {"type": ["string", "null"]},
+        "head": {"type": ["string", "null"]},
+        "stash_count": {"type": ["integer", "null"]},
+        "worktrees": {"type": ["array", "null"]}
+      }
+    }
   },
   "$defs": {
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},

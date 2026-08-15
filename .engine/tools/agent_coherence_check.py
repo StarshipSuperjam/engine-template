@@ -17,11 +17,19 @@ agent_coherence_findings): ZERO personas shipped with the grammar, so the leg ha
 fire on; the review/audit personas now ship, so the guard has real subjects and runs every CI —
 arming its role/model-tier/lens legs live for the first time alongside the new permissions rule.
 
-HONEST LIMIT: the guard enforces the write-tool floor; it deliberately does NOT police `Bash`, which
-the execution role (pre-submission-review) legitimately keeps to run the suite in a scratch worktree.
-(The audit persona is read-only AND Bash-locked in its own frontmatter — it reports, never runs a
-command — so it is not among the Bash-keepers here.) Bash-via-shell confinement is the orchestration
-worktree's + the protected-branch merge gate's job, not a static frontmatter invariant this leg can see.
+GIT-SAFETY LEG (StarshipSuperjam/engine-template#947): a persona the platform would let run `Bash` can execute
+commands, and a review agent that runs commands has twice mutated a shared checkout's real git state
+(a `git stash` clobber; a `git worktree add` + remote repoint that rewrote a shared origin). So a
+second leg requires every Bash-keeping persona's body to carry the git-safety recipe — work only in a
+throwaway copy you make yourself, never `git worktree add` from an existing checkout, never repoint a
+remote, never stash/reset a checkout you did not create — so the recipe ships IN the pack rather than
+living in session memory. The design-review lenses and the audit persona are Bash-locked in their own
+frontmatter, so they are exempt.
+
+HONEST LIMIT: the write-tool leg enforces the Edit/Write/NotebookEdit floor and the git-safety leg
+enforces that the recipe is PRESENT; neither can police what a shell actually does at runtime. Runtime
+confinement of a Bash command to a throwaway copy is the orchestration worktree's + the protected-branch
+merge gate's job, not a static invariant these legs can see.
 
 Reads local committed files only — no network, no token — so it runs unchanged in the head-checkout
 engine-ci context. Emits finding.v1 JSON on stdout and returns 0 on a successful evaluation: an empty
@@ -43,6 +51,63 @@ _MESSAGE = ("A reviewer or audit persona declared read-only must be one the plat
             "the work it reviews. Correct the persona's frontmatter in .claude/agents/<name>.md so a "
             "read-only persona blocks the write tools — add Edit, Write, NotebookEdit to its "
             "disallowedTools (the design-review lenses also block Bash, since they never run code).")
+
+# Git-safety recipe tokens (StarshipSuperjam/engine-template#947). A persona the platform would let run Bash must
+# carry the git-safety recipe in its BODY, so a fresh session following the shipped pack cannot
+# innocently re-create the two real incidents (a `git stash` clobber; a `git worktree add` + remote
+# repoint that rewrote a shared origin). These two substrings anchor that recipe: the sanctioned copy
+# primitive, and the prohibition that caused the second incident. Their presence is what the git-safety
+# leg requires; the merge gate and the reviewer judge that the surrounding prose is real.
+_GIT_SAFETY_TOKENS = ("clone_engine", "git worktree add")
+_GIT_SAFETY_MESSAGE = (
+    "Persona '{name}' keeps the Bash shell but its body is missing the git-safety recipe a "
+    "shell-capable review persona must carry (missing: {missing}). A review agent that runs commands "
+    "must work only in a throwaway copy it makes itself; add the recipe to .claude/agents/{name}.md — "
+    "clone the tracked engine files into a fresh throwaway directory with engine_fixture.clone_engine() and "
+    "run only there, never `git worktree add` from an existing checkout (a worktree shares its .git/config, "
+    "so a remote change inside it repoints the real one), and never stash/checkout/switch/reset or "
+    "change a remote in a checkout you did not create.")
+
+
+def _keeps_bash(fm: dict) -> bool:
+    """True when the platform would let this persona run the Bash shell: an explicit `tools` allowlist
+    that includes Bash, a `disallowedTools` denylist (a list) that omits it, or neither (the inherit-all
+    default). Mirrors the write-tool leg's conservative list-form reading — a string-valued
+    tools/disallowedTools is treated as not-a-list, so it neither allows nor blocks and the fall-through
+    requires the recipe. This errs toward requiring the git-safety recipe, never toward exempting a
+    shell-capable persona from it."""
+    allow = fm.get("tools")
+    if isinstance(allow, list):
+        return "Bash" in allow
+    deny = fm.get("disallowedTools")
+    if isinstance(deny, list):
+        return "Bash" not in deny
+    return True
+
+
+def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | None = None) -> list:
+    """One finding per shell-capable persona whose body omits the git-safety recipe
+    (StarshipSuperjam/engine-template#947). Unlike the pure frontmatter leg in validate, this reads the persona
+    FILE — frontmatter to decide Bash access, body to check the recipe — so it lives here in the
+    consumer. A Bash-locked persona (the design-review lenses, the audit persona) is exempt. Honours the
+    same ENGINE_AGENT_FIXTURE_DIR seam so the negative-fixture meta-check can witness it biting."""
+    if agents_dir:
+        paths = sorted(glob.glob(os.path.join(agents_dir, "*.md")))
+    else:
+        base = root or validate.ROOT
+        paths = sorted(glob.glob(os.path.join(base, _AGENT_GLOB)))
+    findings = []
+    for path in paths:
+        fm = dict(validate.frontmatter(path))
+        name = fm.get("name") or os.path.splitext(os.path.basename(path))[0]
+        if not _keeps_bash(fm):
+            continue
+        body = validate._body_without_frontmatter(validate.read(path))
+        missing = [tok for tok in _GIT_SAFETY_TOKENS if tok not in body]
+        if missing:
+            findings.append(validate.finding(
+                tier, _GIT_SAFETY_MESSAGE.format(name=name, missing=", ".join(missing))))
+    return findings
 
 
 def engine_agents(root: str | None = None, agents_dir: str | None = None) -> list:
@@ -122,13 +187,44 @@ def _demo() -> int:
               f"until the lock is put back.")
     print("\nThat is the safety net: a read-only reviewer can't quietly drop the lock that blocks the "
           "file-writing tools — the check catches it before it could be merged.")
-    print("\nThe honest limit: this check confirms the lock on the file-writing tools "
-          "(Edit/Write/NotebookEdit) is declared. It does NOT police writes through other paths — the "
-          "Bash shell (which the qa lenses keep to run checks) or any write-capable MCP tools the session "
-          "exposes; confining those to a throwaway copy is the build's worktree isolation, and your merge "
-          "gate is the guarantee that nothing a reviewer touches reaches your main branch.")
+
+    # Git-safety leg (StarshipSuperjam/engine-template#947): every Bash-keeping persona must carry the recipe in its body.
+    import tempfile
+    live_gs = git_safety_findings(tier)
+    bash_keepers = [str(a.get("name")) for a in present if _keeps_bash(a)]
+    print(f"\nThe shell-capable review personas — {', '.join(bash_keepers) or '(none)'} — can run "
+          f"commands, so each must carry the git-safety recipe in its own text (work only in a throwaway "
+          f"copy you make yourself; never worktree-add from, or repoint a remote on, a checkout you did "
+          f"not create):")
+    if live_gs:
+        print("  -> the git-safety check is RED (see engine-ci): a shell-capable persona is missing the recipe.")
+    else:
+        print("  -> the git-safety check: all clear — every shell-capable persona carries the recipe.")
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "shell-persona-without-recipe.md"), "w") as fh:
+            fh.write("---\nname: shell-persona-without-recipe\nrole: pre-submission-review\n"
+                     "lens: spec-conformance\nmodel-tier: judgment\npermissions: read-only\n"
+                     "disallowedTools: [Edit, Write, NotebookEdit]\n---\n\nA reviewer that keeps the shell "
+                     "but never states the git-safety recipe.\n")
+        gs = git_safety_findings(tier, agents_dir=tmp)
+    print("\nNow suppose a new reviewer kept the shell but never stated that recipe (written to a "
+          "throwaway folder here — your files are untouched):")
+    if gs:
+        print("  -> the git-safety check turns RED: nothing in the persona tells it to stay in a throwaway "
+              "copy, so it could innocently run a command against your real checkout. The build is blocked "
+              "until the recipe is added.")
+
+    print("\nThe honest limit: these checks confirm two things are DECLARED — the lock on the file-writing "
+          "tools (Edit/Write/NotebookEdit), and the git-safety recipe in each shell-capable persona's text. "
+          "They do NOT police what a shell actually does at runtime, nor writes through any write-capable "
+          "MCP tools the session exposes; confining those to a throwaway copy is the build's worktree "
+          "isolation, and your merge gate is the guarantee that nothing a reviewer touches reaches your "
+          "main branch.")
     if not found:
         print("\nDEMO UNEXPECTED: the guard did not flag the removed tool lock.", file=sys.stderr)
+        return 1
+    if not gs:
+        print("\nDEMO UNEXPECTED: the git-safety leg did not flag the recipe-less shell persona.", file=sys.stderr)
         return 1
     return 0
 
@@ -140,8 +236,11 @@ def main(argv: list) -> int:
     # ENGINE_AGENT_FIXTURE_DIR (unset in production) lets the negative-fixture meta-check point the persona
     # scan at a seeded non-.claude fixture dir, so the coherence gate is witnessed biting a real bad input
     # (StarshipSuperjam/engine-template#286) without the fixture being loaded as a real persona by Claude Code's own loader.
-    agents = engine_agents(agents_dir=validate.env_override_path("ENGINE_AGENT_FIXTURE_DIR"))
-    return emit(validate.agent_coherence_findings(agents, tier, _MESSAGE))
+    fixture_dir = validate.env_override_path("ENGINE_AGENT_FIXTURE_DIR")
+    agents = engine_agents(agents_dir=fixture_dir)
+    findings = validate.agent_coherence_findings(agents, tier, _MESSAGE)
+    findings += git_safety_findings(tier, agents_dir=fixture_dir)
+    return emit(findings)
 
 
 if __name__ == "__main__":
