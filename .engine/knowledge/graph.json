@@ -7059,7 +7059,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:bfbc13dd62bd94f96a413e5033662b89865e09cf3138ff8b92e6bdee6b1f32a0",
+        "fingerprint": "sha256:574a671d0e5ddef7b3146f79a9637cd00e51440ff6653d8393cf8c188fc0e77e",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -7102,7 +7102,7 @@
       },
       "slug": "build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:def523362cf106f44cf15ada939722a9d48737639e5d656471002c10af8d9819",
+        "fingerprint": "sha256:275b654390b50908ede52d9bda6e2ae0766fa854f7326173ff2e3a4d63dc521f",
         "path": ".engine/tools/build_coordinator_dag.py"
       },
       "status": "active",
@@ -7212,7 +7212,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:build_coordinator_core"
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_dag"
         ],
         "provided_by": [
           "module:core"
@@ -7220,7 +7221,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:2ecaaee7160164d062b4991426b5df75ab80ff7d6776bee38660d2df98b6692a",
+        "fingerprint": "sha256:389a840678150b79ce9986b063a9ab9bbd31296eb71d6dda5ccd7b3ca71faa45",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -12020,7 +12021,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:96c66a44c400db4bcf803cbc5f608584e0250bbd755064c613bc4020841f97af",
+        "fingerprint": "sha256:093c292a4dcb022533769d603bd259ec50447e4b165a0073635954771f4ce6a0",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -12066,7 +12067,7 @@
       },
       "slug": "test_build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:e5a94c8e07b95734c0bf445b63a1d3eb3da2ebbc7a224cdbe95ffe47f0d7fd25",
+        "fingerprint": "sha256:3b47515a77ac466498c60874524909503d0014c473be0ef1517dbc326a526865",
         "path": ".engine/tools/test_build_coordinator_dag.py"
       },
       "status": "active",
@@ -12167,7 +12168,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:f87f052370ea65dc58b98cbb0638b0b4c7639b8bf43302ff4e21978ce6bac0f6",
+        "fingerprint": "sha256:160909638cd10fe553c0170d804a627e49740aa49ae27600c33aeeba2c992034",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -12336,6 +12337,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:codex_agent_coherence_check",
           "tool:codex_gen",
           "tool:codex_skill_coherence_check",
           "tool:validate"
@@ -12343,7 +12345,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:bf7b6f8444051a17295e45a82dbc978c6db9bb2bb3dd271489a69b0ab507f70e",
+        "fingerprint": "sha256:d02e5ae7b515273717608953185fd42f83b860080eb92085a8a98daf2f5fe8e9",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",

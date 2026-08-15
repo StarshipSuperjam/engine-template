@@ -103,6 +103,20 @@ class TestResourceAdmission(unittest.TestCase):
     def test_metachar_leading_pattern_conflicts_with_everything(self):
         self.assertTrue(dag.paths_conflict(["*.py"], ["totally/unrelated.txt"]))
 
+    def test_glob_mid_component_conflicts_with_a_matching_file(self):
+        # a glob that falls INSIDE a filename component must still conflict with a file it matches
+        self.assertTrue(dag.paths_conflict(["src/report_*.py"], ["src/report_final.py"]))
+        self.assertTrue(dag.paths_conflict(["a*.py"], ["axyz.py"]))
+        # but a genuinely non-matching file stays disjoint
+        self.assertFalse(dag.paths_conflict(["src/report_*.py"], ["src/summary.py"]))
+
+    def test_path_within_declared(self):
+        self.assertTrue(dag.path_within_declared(".claude/agents/x.md", [".claude/**"]))
+        self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/a.py"]))
+        self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/*.py"]))
+        self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/"]))
+        self.assertFalse(dag.path_within_declared("etc/passwd", [".engine/tools/*.py"]))
+
     def test_named_resources_conflict(self):
         self.assertTrue(dag.resources_conflict(item("a", paths=["x/a"], resources=["db"]),
                                                 item("b", paths=["y/b"], resources=["db"])))

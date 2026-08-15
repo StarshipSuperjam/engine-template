@@ -86,7 +86,7 @@ class TestWorkClaims(WorkCase):
     def test_result_binds_to_attempt_and_rejects_a_stale_attempt(self):
         packet = self.claim("shared")
         attempt = packet["attempt_id"]
-        evidence = {"changed_paths": ["x"], "verification_results": ["ok"]}
+        evidence = {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}
         self.result("shared", attempt, {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
         self.assertEqual(self.state()["work"]["shared"]["latest_result"]["outcome"], "returned")
         with self.assertRaisesRegex(bc.CoordinatorError, "does not match the active claim"):
@@ -105,6 +105,28 @@ class TestWorkClaims(WorkCase):
             self.result("shared", packet["attempt_id"],
                         {"outcome": "returned", "base_sha": HEAD_A, "evidence": {"changed_paths": ["x"]}})
 
+    def test_claim_refusal_names_the_cause(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "not claimable now: it is blocked"):
+            self.claim("adapter")  # blocked on shared
+
+    def test_packet_preview_reports_claimability(self):
+        args = argparse.Namespace(item="adapter", provider="claude", plan=str(self.plan_path), worktree="/tmp/wt")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_work_packet(args, self.store)
+        preview = json.loads(out.getvalue())["preview"]
+        self.assertFalse(preview["claimable_now"])
+        self.assertIn("blocked", preview["refusal_reason"])
+
+    def test_result_verb_guards_with_compare_and_swap(self):
+        packet = self.claim("shared")   # revision advances to 2
+        path = Path(self.temp.name) / "r.json"
+        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A,
+                                    "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}}))
+        stale = bc.StateStore(self.state_path, expected_revision=1)
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], plan=str(self.plan_path), input=str(path))
+        with self.assertRaisesRegex(bc.CoordinatorError, "reload status"):
+            bc.cmd_work_result(args, stale)
+
     def test_attach_records_the_worker_reference(self):
         packet = self.claim("shared")
         args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], worker_ref="task-123")
@@ -120,12 +142,44 @@ class TestWorkClaims(WorkCase):
             bc.cmd_work_attach(args, stale)
 
 
+class TestResultEdges(WorkCase):
+    def test_worker_failed_report_records_failure_and_derives_failed(self):
+        packet = self.claim("shared")
+        self.result("shared", packet["attempt_id"],
+                    {"outcome": "failed", "base_sha": HEAD_A, "class": "worker", "reason": "boom", "evidence": {}})
+        nw = self.state()["work"]["shared"]
+        self.assertEqual(nw["latest_failure"]["disposition"], "open")
+        self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.FAILED)
+
+    def test_returned_after_failed_clears_the_stale_failure(self):
+        packet = self.claim("shared"); a = packet["attempt_id"]
+        self.result("shared", a, {"outcome": "failed", "base_sha": HEAD_A, "reason": "x", "evidence": {}})
+        self.result("shared", a, {"outcome": "returned", "base_sha": HEAD_A,
+                    "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}})
+        nw = self.state()["work"]["shared"]
+        self.assertIsNone(nw["latest_failure"])
+        self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.RETURNED)
+
+    def test_malformed_evidence_fails_closed_not_crashes(self):
+        packet = self.claim("shared")
+        with self.assertRaisesRegex(bc.CoordinatorError, "evidence must be an object"):
+            self.result("shared", packet["attempt_id"],
+                        {"outcome": "failed", "base_sha": HEAD_A, "evidence": ["not-a-dict"]})
+
+    def test_returned_paths_outside_declared_scope_are_rejected(self):
+        packet = self.claim("shared")
+        with self.assertRaisesRegex(bc.CoordinatorError, "outside the node's declared scope"):
+            self.result("shared", packet["attempt_id"],
+                        {"outcome": "returned", "base_sha": HEAD_A,
+                         "evidence": {"changed_paths": ["etc/passwd"], "verification_results": ["ok"]}})
+
+
 class TestWorkDispositions(WorkCase):
     def _return(self, item):
         packet = self.claim(item)
         self.result(item, packet["attempt_id"],
                     {"outcome": "returned", "base_sha": HEAD_A,
-                     "evidence": {"changed_paths": ["x"], "verification_results": ["ok"]}})
+                     "evidence": {"changed_paths": [f".engine/tools/{item}.py"], "verification_results": ["ok"]}})
         return packet["attempt_id"]
 
     def _reject(self, item, attempt, cls="worker"):
@@ -190,6 +244,29 @@ class TestWorkDispositions(WorkCase):
         lc = dag.derive_lifecycle(self.plan_value, self.state())
         self.assertEqual(lc["shared"]["state"], dag.COMPLETE)
         self.assertEqual(lc["adapter"]["state"], dag.READY)
+
+    def test_reject_names_the_current_attempt_on_mismatch(self):
+        attempt = self._return("shared")
+        args = argparse.Namespace(item="shared", attempt="f" * 32, rejection_class="worker", reason="x")
+        with self.assertRaisesRegex(bc.CoordinatorError, f"current attempt \\({attempt}\\)"):
+            bc.cmd_work_reject(args, self.store)
+
+    def test_integrate_requires_a_focused_verification_summary(self):
+        attempt = self._return("shared")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit=HEAD_A, verification_input="   ")
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True):
+            with self.assertRaisesRegex(bc.CoordinatorError, "focused-verification"):
+                bc.cmd_work_integrate(args, self.store)
+
+    def test_stale_result_after_an_explicit_retry_is_rejected(self):
+        old = self._return("shared")
+        self._reject("shared", old)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch", reason="again"), self.store)
+        self.claim("shared")  # a fresh attempt supersedes the old one
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not match the active claim"):
+            self.result("shared", old, {"outcome": "returned", "base_sha": HEAD_A,
+                        "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}})
 
 
 class TestStatusV2(WorkCase):

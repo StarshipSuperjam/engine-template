@@ -9,6 +9,7 @@ and later coordinator services consume it, so the ready-set/refusal logic lives 
 """
 from __future__ import annotations
 
+import fnmatch
 import graphlib
 
 import build_coordinator_core as core
@@ -149,23 +150,51 @@ def _components(prefix: str) -> list[str]:
     return [c for c in prefix.strip("/").split("/") if c]
 
 
-def _prefixes_conflict(a: str | None, b: str | None) -> bool:
-    """Two path prefixes conflict when equal, or when one is an ancestor of the other.
+def _has_glob(pattern: str) -> bool:
+    return any(m in pattern for m in _GLOB_META)
 
-    Component-wise comparison, so foo/bar does not falsely contain foo/barbaz. A None prefix (an
-    unbounded metacharacter-leading pattern) conflicts with everything.
+
+def _pair_conflict(pa: str, pb: str) -> bool:
+    """Whether two path patterns are NOT provably disjoint.
+
+    A None prefix (a metacharacter-leading pattern with no safe literal) reaches anywhere, so it
+    conflicts with everything. When EITHER pattern carries a glob, the glob can bridge a partial
+    filename component, so the literal prefixes are compared at the CHARACTER level — they conflict
+    when one is a prefix of the other (``a*.py`` vs ``axyz.py`` conflict; the glob's ``a`` prefixes
+    the file). Two COMPLETE literal paths (no glob on either side) compare COMPONENT-wise, so distinct
+    files never collide (``foo/bar.py`` vs ``foo/barbaz.py`` do not, while ``foo/`` vs ``foo/bar.py``
+    do as ancestor/descendant).
     """
-    if a is None or b is None:
+    la, lb = resource_prefix(pa), resource_prefix(pb)
+    if la is None or lb is None:
         return True
-    ca, cb = _components(a), _components(b)
+    if _has_glob(pa) or _has_glob(pb):
+        return la.startswith(lb) or lb.startswith(la)
+    ca, cb = _components(la), _components(lb)
     shorter, longer = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
     return longer[: len(shorter)] == shorter
 
 
 def paths_conflict(paths_a: list[str], paths_b: list[str]) -> bool:
-    for pa in paths_a:
-        for pb in paths_b:
-            if _prefixes_conflict(resource_prefix(pa), resource_prefix(pb)):
+    return any(_pair_conflict(pa, pb) for pa in paths_a for pb in paths_b)
+
+
+def path_within_declared(changed: str, declared: list[str]) -> bool:
+    """Whether one changed path falls within a node's declared path patterns.
+
+    Covered when the change equals or glob-matches a declared pattern, or sits beneath a declared
+    literal prefix (a declared directory or glob root). Used to give a worker's scoped-write posture
+    teeth at the evidence layer: a returned result whose changed paths escape the node's declared
+    scope is a contract failure. (The orchestrator's own integration inspection is the deeper
+    backstop; this catches an honest worker reporting out-of-scope writes.)
+    """
+    for pattern in declared:
+        if changed == pattern or fnmatch.fnmatch(changed, pattern):
+            return True
+        prefix = resource_prefix(pattern)
+        if prefix:
+            root = prefix.rstrip("/")
+            if root and (changed == root or changed.startswith(root + "/")):
                 return True
     return False
 
@@ -198,7 +227,10 @@ def resource_holders(plan: dict, state: dict) -> dict:
     for node_id, item in by_id.items():
         nw = _node_work(state, node_id)
         if _holds_claim(nw):
-            holders[node_id] = {"exclusive_resources": item.get("exclusive_resources", []),
+            # Prefer the named resources the claim actually recorded when it was acquired; fall back
+            # to the plan item. The paths axis is not stored on the claim, so it comes from the item.
+            acquired = (nw.get("claim") or {}).get("acquired_resources")
+            holders[node_id] = {"exclusive_resources": acquired if acquired is not None else item.get("exclusive_resources", []),
                                 "paths": item.get("paths", [])}
     return holders
 
@@ -213,9 +245,11 @@ def claimable_set(plan: dict, state: dict) -> list[str]:
     """The ready nodes that admission currently permits a fresh claim on.
 
     A ready node is claimable only when a worker slot is free under the plan's max_concurrency AND its
-    resources do not conflict with any resources a DIFFERENT node currently holds. A node's own held
-    resources never exclude it from itself, so an explicit retry can re-claim a node that still
-    reserves its resources.
+    resources do not conflict with any resources a DIFFERENT node currently holds. The
+    holder_id == node_id guard is defensive: a node in ready_set has no active claim (an active claim
+    derives claimed/returned/failed/recovery_required, never ready), so it is never its own holder
+    today; the guard keeps the intent explicit if the state machine ever lets a node be ready while a
+    claim of its own persists (an explicit retry that reserved resources across the boundary).
     """
     parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
     max_concurrency = parallelism.get("max_concurrency", 1)

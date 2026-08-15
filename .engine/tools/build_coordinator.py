@@ -285,8 +285,11 @@ def _trivial_violations(state: dict, plan: dict) -> list[str]:
 def _next_incomplete(plan: dict, state: dict) -> str | None:
     """The single next work item the linear v1 order or the v2 DAG readiness would advance.
 
-    v1 keeps its byte-identical linear scan; a v2 plan derives the next item from the graph's ready
+    v1 keeps its byte-identical linear scan; a v2 plan derives the next item from the graph's READY
     set, so status and checkpoint read one shared derivation rather than duplicating the scan.
+    Deliberately ready_set, not claimable_set: a checkpoint records completion and reserves no worker
+    slot, so a busy slot or a resource hold (which claimable_set subtracts) must not change which item
+    is "next" to advance — only dependency readiness does.
     """
     if _plan_version(plan) == "build-plan.v2":
         ready = dag.ready_set(plan, state)
@@ -444,14 +447,31 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     return result
 
 
+def _confidently_home() -> bool:
+    """True only when this checkout can be CONFIDENTLY placed as the Engine's own home repo.
+
+    is_home_repo fails TOWARD home when the origin or manifest cannot be read — the safe direction for
+    a check that RUNS, but the wrong direction for a governance carve-out whose quiet verdict SKIPS a
+    refusal. So this requires both the on-disk origin and the recorded home to be readable AND equal;
+    an unreadable or malformed either side is NOT confidently home, so the v1-bind refusal fails toward
+    enforcing rather than being silently bypassed in a deployed repo.
+    """
+    own = repo_identity.origin_slug(str(ROOT))
+    try:
+        home = repo_identity.home_repository(str(ROOT))
+    except Exception:  # noqa: BLE001 — a malformed manifest cannot confirm home; not confidently home
+        home = None
+    return own is not None and home is not None and repo_identity.slug_eq(own, home)
+
+
 def cmd_plan_bind(args, store: StateStore) -> None:
     plan = _plan(args.input)
     mode = getattr(args, "mode", "same-session")
     # Once build-plan.v2 exists, a deployed Engine refuses a NEW session-sourced v1 bind and directs
     # the operator to migrate. An issue-sourced bind is the exempt path: it resumes an in-flight v1
-    # Build from its durable Issue plan. The refusal no-ops in the Engine's own home repo, where v1 is
-    # still dogfooded to build v2, so this Build never walls itself out of re-binding its own plan.
-    if _plan_version(plan) == "build-plan.v1" and args.source == "session" and not repo_identity.is_home_repo(ROOT):
+    # Build from its durable Issue plan. The refusal no-ops ONLY in the Engine's own home repo, where
+    # v1 is still dogfooded to build v2; an uncertain checkout fails toward enforcing the refusal.
+    if _plan_version(plan) == "build-plan.v1" and args.source == "session" and not _confidently_home():
         raise CoordinatorError(
             "new session-sourced build-plan.v1 binds are refused now that build-plan.v2 is available; "
             "migrate this plan with 'plan migrate-v1' or resume an existing v1 Build from its durable "
@@ -630,7 +650,7 @@ def cmd_status(args, store: StateStore) -> None:
             print(f"  - {value}")
     if "work" in result:
         w = result["work"]
-        print(f"DAG: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
+        print(f"Work graph: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
         print("  ready (unordered): " + (", ".join(w["ready"]) or "none"))
         print("  claimable now: " + (", ".join(w["claimable"]) or "none"))
         for node_id in sorted(w["nodes"]):
@@ -638,6 +658,11 @@ def cmd_status(args, store: StateStore) -> None:
             line = f"  {node_id}: {node['state']} (attempt {node['attempt_count']})"
             if node["reasons"]:
                 line += " — " + "; ".join(node["reasons"])
+            route = node.get("route")
+            if node["state"] == "claimed" and route:
+                line += f" [route {route.get('provider')}/{route.get('model')}]"
+            if node["state"] == "complete" and node.get("integration_commit"):
+                line += f" [integrated {node['integration_commit'][:12]}]"
             print(line)
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
@@ -1366,6 +1391,25 @@ def _node_work(state: dict, node_id: str) -> dict:
     return nw
 
 
+def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> str:
+    """The specific reason a ready-or-not node is not claimable, so the refusal is actionable."""
+    st = node.get("state")
+    if st != dag.READY:
+        reasons = "; ".join(node.get("reasons") or [])
+        return f"it is {st}" + (f" ({reasons})" if reasons else "")
+    max_concurrency = plan.get("parallelism", {}).get("max_concurrency", 1)
+    if dag.slots_in_use(plan, state) >= max_concurrency:
+        return f"all {max_concurrency} worker slot(s) are in use — free one by integrating, rejecting, or abandoning a claim"
+    item = work.node_item(plan, node_id)
+    for holder_id, held in dag.resource_holders(plan, state).items():
+        if holder_id == node_id:
+            continue
+        if set(item.get("exclusive_resources", [])) & set(held["exclusive_resources"]) \
+                or dag.paths_conflict(item.get("paths", []), held["paths"]):
+            return f"its paths or resources conflict with node {holder_id}, which currently holds them"
+    return "admission is currently blocked"
+
+
 def cmd_work_packet(args, store: StateStore) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
@@ -1373,6 +1417,13 @@ def cmd_work_packet(args, store: StateStore) -> None:
     item = work.node_item(plan, args.item)
     route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
     packet = work.build_packet(plan, state, args.item, route, _head(), "preview", args.worktree or "<worktree>")
+    node = dag.derive_lifecycle(plan, state).get(args.item, {})
+    claimable = args.item in dag.claimable_set(plan, state)
+    # A preview says nothing about the digest; it reports whether a claim would actually succeed now,
+    # so a clean preview is never followed by a surprise refusal.
+    packet["preview"] = {"state": node.get("state"), "reasons": node.get("reasons", []),
+                         "claimable_now": claimable,
+                         "refusal_reason": None if claimable else _claim_refusal_reason(plan, state, args.item, node)}
     print(json.dumps(packet))
 
 
@@ -1390,7 +1441,9 @@ def cmd_work_claim(args, store: StateStore) -> None:
         if not state["approval"]:
             raise CoordinatorError("the Build gate is not approved")
         if args.item not in dag.claimable_set(plan, state):
-            raise CoordinatorError(f"work item {args.item} is not claimable now")
+            node = dag.derive_lifecycle(plan, state).get(args.item, {})
+            raise CoordinatorError(
+                f"work item {args.item} is not claimable now: {_claim_refusal_reason(plan, state, args.item, node)}")
         nw = state["work"].get(args.item) or work.empty_node()
         nw["attempt_count"] = nw.get("attempt_count", 0) + 1
         nw["claim"] = work.new_claim(attempt_id, base_sha, args.worktree,
@@ -1439,6 +1492,10 @@ def cmd_work_result(args, store: StateStore) -> None:
             nw["latest_failure"] = work.failure_record(
                 args.attempt, payload.get("class", "worker"),
                 payload.get("reason", "worker reported a failure"))
+        else:
+            # A returned result supersedes any open failure for this attempt, so the node never
+            # derives as failed while holding a complete, contract-satisfying returned result.
+            nw["latest_failure"] = None
 
     _work_mutate(store, change)
     print(f"recorded {args.item} result for attempt {args.attempt}")
@@ -1457,7 +1514,7 @@ def cmd_work_reject(args, store: StateStore) -> None:
         result = nw.get("latest_result")
         attempt = claim["attempt_id"] if claim else (result or {}).get("attempt_id")
         if attempt != args.attempt:
-            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt")
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
         nw["latest_failure"] = work.failure_record(args.attempt, args.rejection_class, args.reason, "open")
         nw["claim"] = None  # rejection releases the reserved resources
 
@@ -1486,7 +1543,7 @@ def cmd_work_abandon(args, store: StateStore) -> None:
         failure = nw.get("latest_failure")
         attempt = (claim or {}).get("attempt_id") or (failure or {}).get("attempt_id")
         if attempt != args.attempt:
-            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt")
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
         nw["latest_failure"] = work.failure_record(args.attempt, (failure or {}).get("class", "worker"),
                                                    args.reason, "abandoned")
         nw["claim"] = None  # abandonment releases the reserved resources

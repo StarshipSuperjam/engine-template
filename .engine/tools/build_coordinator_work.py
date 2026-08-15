@@ -12,6 +12,7 @@ from __future__ import annotations
 import secrets
 
 import build_coordinator_core as core
+import build_coordinator_dag as dag
 
 CoordinatorError = core.CoordinatorError
 
@@ -105,11 +106,20 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
     if outcome not in ("returned", "failed"):
         raise CoordinatorError("result outcome must be 'returned' or 'failed'")
     supplied = payload.get("evidence") or {}
+    if not isinstance(supplied, dict):
+        raise CoordinatorError("result evidence must be an object")   # fail closed, never crash
     if outcome == "returned":
         missing = [k for k in item["output_contract"]["required_evidence"] if k not in supplied]
         if missing:
             raise CoordinatorError(
                 "returned result is missing output-contract evidence: " + ", ".join(sorted(missing)))
+        # Scoped-write teeth: a returned result whose reported changed paths escape the node's
+        # declared paths is a contract failure — the worker wrote outside the scope it was given.
+        declared = item.get("paths", [])
+        escaped = [c for c in (supplied.get("changed_paths") or []) if not dag.path_within_declared(c, declared)]
+        if escaped:
+            raise CoordinatorError(
+                "returned result changed paths outside the node's declared scope: " + ", ".join(sorted(escaped)))
     evidence = {k: list(supplied.get(k, [])) for k in _EVIDENCE_KEYS}
     return {"attempt_id": attempt_id, "base_sha": base_sha, "outcome": outcome,
             "artifact_ref": payload.get("artifact_ref"), "artifact_digest": payload.get("artifact_digest"),

@@ -1191,7 +1191,7 @@ class TestPlanV2Ingest(CoordinatorCase):
         stack = [
             mock.patch.object(bc, "_verify_draft", return_value=pr),
             mock.patch.object(bc, "_head", return_value=HEAD_A),
-            mock.patch.object(bc.repo_identity, "is_home_repo", return_value=home),
+            mock.patch.object(bc, "_confidently_home", return_value=home),
         ]
         if source == "issue":
             stack.append(mock.patch.object(bc, "_durable_plan", return_value=value))
@@ -1252,6 +1252,18 @@ class TestPlanV2Ingest(CoordinatorCase):
     def test_session_v1_bind_is_permitted_in_the_home_repo(self):
         self._bind(plan(), home=True)
         self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+    def test_confidently_home_requires_a_readable_matching_origin(self):
+        # The governance polarity fix: an unreadable/mismatched origin is NOT confidently home, so the
+        # v1-bind refusal fails toward ENFORCING rather than being silently skipped in a deployed repo.
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value=None):
+            self.assertFalse(bc._confidently_home())
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", return_value="other/repo"):
+            self.assertFalse(bc._confidently_home())
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
+            self.assertTrue(bc._confidently_home())
 
     def test_issue_sourced_v1_rebind_is_not_walled_by_the_refusal(self):
         # An issue-sourced bind is the exempt continuation path even in a deployed repo.
