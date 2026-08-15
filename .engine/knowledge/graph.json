@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:39899231b238e6df4337a52580d46d0a6751fefc240689f1f1050a3513cd6a21",
+        "fingerprint": "sha256:e75e1e26fbfaf199328b403f07a69b2a96bd7c96092a5da530055ba58b5f1c0a",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -2694,7 +2694,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:fc47992bcfb447b86d1163442370a70549bb7ae617e3468cf7698e51a007c934",
+        "fingerprint": "sha256:3df4dea8c1747de62f8411b4584759ae01841c662f45a210a9b161df9df38786",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -3394,7 +3394,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:ed352755f9ec64e46322781d4f31b34b8b71f93de76a09a4544e2aa26e87e2d3",
+        "fingerprint": "sha256:ec594c766f6bf0fe03faf472a2cf5af7160c04d580f96664ffd9b63862f3558f",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
