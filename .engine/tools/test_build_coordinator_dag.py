@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Pure-function tests for the DAG derivation and resource-admission service."""
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import build_coordinator_dag as dag  # noqa: E402
+
+SHA = "a" * 40
+ATTEMPT = "0" * 32
+
+
+def item(node_id, deps=(), *, paths=None, resources=None):
+    return {"id": node_id, "depends_on": list(deps),
+            "paths": list(paths) if paths is not None else [f"src/{node_id}.py"],
+            "exclusive_resources": list(resources or [])}
+
+
+def plan(items, mode="serial", max_concurrency=1):
+    return {"work_items": items, "parallelism": {"mode": mode, "max_concurrency": max_concurrency}}
+
+
+def node(*, claim=None, result=None, integration=None, failure=None, attempts=1):
+    return {"attempt_count": attempts, "claim": claim, "latest_result": result,
+            "integration": integration, "latest_failure": failure}
+
+
+def claim(resources=(), *, restored=False, attempt=ATTEMPT):
+    return {"attempt_id": attempt, "base_sha": SHA, "worktree": "/tmp/wt",
+            "acquired_resources": list(resources), "restored": restored,
+            "requested_route": {"executor_class": "builder", "provider": "claude",
+                                "model": "sonnet", "effort": "medium", "inline": False},
+            "worker_ref": None}
+
+
+def state(work):
+    return {"work": work}
+
+
+class TestValidateDag(unittest.TestCase):
+    def test_valid_graph_passes(self):
+        dag.validate_dag(plan([item("a"), item("b", ["a"])]))
+
+    def test_cycle_refused(self):
+        with self.assertRaisesRegex(dag.CoordinatorError, "cycle"):
+            dag.validate_dag(plan([item("a", ["b"]), item("b", ["a"])]))
+
+    def test_unknown_dependency_refused(self):
+        with self.assertRaisesRegex(dag.CoordinatorError, "unknown work item ghost"):
+            dag.validate_dag(plan([item("a", ["ghost"])]))
+
+    def test_self_dependency_refused(self):
+        with self.assertRaisesRegex(dag.CoordinatorError, "depend on itself"):
+            dag.validate_dag(plan([item("a", ["a"])]))
+
+
+class TestLifecycle(unittest.TestCase):
+    def test_root_ready_dependent_blocked(self):
+        lc = dag.derive_lifecycle(plan([item("a"), item("b", ["a"])]), state({}))
+        self.assertEqual(lc["a"]["state"], dag.READY)
+        self.assertEqual(lc["b"]["state"], dag.BLOCKED)
+
+    def test_dependent_ready_after_dependency_integrated(self):
+        work = {"a": node(integration={"attempt_id": ATTEMPT, "commit": SHA, "focused_verification": "ok"})}
+        lc = dag.derive_lifecycle(plan([item("a"), item("b", ["a"])]), state(work))
+        self.assertEqual(lc["a"]["state"], dag.COMPLETE)
+        self.assertEqual(lc["b"]["state"], dag.READY)
+
+    def test_claimed_returned_failed_recovery(self):
+        p = plan([item("a")])
+        self.assertEqual(dag.derive_lifecycle(p, state({"a": node(claim=claim())}))["a"]["state"], dag.CLAIMED)
+        returned = node(claim=claim(), result={"attempt_id": ATTEMPT, "base_sha": SHA, "outcome": "returned"})
+        self.assertEqual(dag.derive_lifecycle(p, state({"a": returned}))["a"]["state"], dag.RETURNED)
+        failed = node(claim=claim(), failure={"attempt_id": ATTEMPT, "class": "worker", "reason": "x", "disposition": "open"})
+        self.assertEqual(dag.derive_lifecycle(p, state({"a": failed}))["a"]["state"], dag.FAILED)
+        recov = node(claim=claim(restored=True))
+        self.assertEqual(dag.derive_lifecycle(p, state({"a": recov}))["a"]["state"], dag.RECOVERY_REQUIRED)
+
+    def test_independent_roots_both_ready_without_priority(self):
+        rs = dag.ready_set(plan([item("a"), item("b")]), state({}))
+        self.assertEqual(rs, ["a", "b"])
+
+
+class TestResourceAdmission(unittest.TestCase):
+    def test_prefix_extraction(self):
+        self.assertEqual(dag.resource_prefix(".claude/**"), ".claude/")
+        self.assertEqual(dag.resource_prefix(".engine/tools/*.py"), ".engine/tools/")
+        self.assertEqual(dag.resource_prefix("foo/bar.py"), "foo/bar.py")
+        self.assertIsNone(dag.resource_prefix("*.py"))
+
+    def test_equal_and_ancestor_prefixes_conflict(self):
+        self.assertTrue(dag.paths_conflict([".claude/**"], [".claude/agents/x.md"]))
+        self.assertTrue(dag.paths_conflict(["a/b.py"], ["a/b.py"]))
+
+    def test_distinct_files_and_prefixes_do_not_conflict(self):
+        self.assertFalse(dag.paths_conflict([".engine/tools/a.py"], [".engine/tools/b.py"]))
+        self.assertFalse(dag.paths_conflict([".engine/tools/"], [".engine/schemas/"]))
+        self.assertFalse(dag.paths_conflict(["foo/bar"], ["foo/barbaz"]))
+
+    def test_metachar_leading_pattern_conflicts_with_everything(self):
+        self.assertTrue(dag.paths_conflict(["*.py"], ["totally/unrelated.txt"]))
+
+    def test_named_resources_conflict(self):
+        self.assertTrue(dag.resources_conflict(item("a", paths=["x/a"], resources=["db"]),
+                                                item("b", paths=["y/b"], resources=["db"])))
+
+    def test_serial_admits_one_conditional_respects_max(self):
+        p_serial = plan([item("a", paths=["a/x"]), item("b", paths=["b/y"])], "serial", 1)
+        self.assertEqual(dag.claimable_set(p_serial, state({})), ["a", "b"])
+        # once one slot is in use, serial admits none
+        busy = state({"a": node(claim=claim())})
+        self.assertEqual(dag.claimable_set(p_serial, busy), [])
+        p_cond = plan([item("a", paths=["a/x"]), item("b", paths=["b/y"]), item("c", paths=["c/z"])], "conditional", 2)
+        self.assertEqual(dag.slots_in_use(p_cond, state({"a": node(claim=claim())})), 1)
+        self.assertEqual(dag.claimable_set(p_cond, state({"a": node(claim=claim())})), ["b", "c"])
+
+    def test_resource_conflict_excludes_a_ready_node(self):
+        p = plan([item("a", paths=["shared/x"]), item("b", paths=["shared/x"])], "conditional", 2)
+        held = state({"a": node(claim=claim(resources=[]))})
+        self.assertEqual(dag.claimable_set(p, held), [])  # b conflicts with a's held path
+
+    def test_returned_holds_resources_but_frees_the_slot(self):
+        p = plan([item("a", paths=["a/x"]), item("b", paths=["b/y"])], "conditional", 2)
+        returned = node(claim=claim(), result={"attempt_id": ATTEMPT, "base_sha": SHA, "outcome": "returned"})
+        st = state({"a": returned})
+        self.assertEqual(dag.slots_in_use(p, st), 0)  # slot freed
+        self.assertIn("a", dag.resource_holders(p, st))  # resources retained
+        self.assertEqual(dag.claimable_set(p, st), ["b"])
+
+    def test_failed_node_with_active_claim_still_admits_a_self_retry(self):
+        # ARCH-5: a node's own retained resources never exclude it from itself.
+        p = plan([item("a", paths=["a/x"])], "serial", 1)
+        failed = node(claim=claim(resources=["a/x"]),
+                      failure={"attempt_id": ATTEMPT, "class": "worker", "reason": "x", "disposition": "retry"},
+                      attempts=1)
+        # disposition retry clears the failed state; the node is ready and self-resources don't block it.
+        st = state({"a": {**failed, "claim": None}})
+        self.assertEqual(dag.claimable_set(p, st), ["a"])
+
+
+if __name__ == "__main__":
+    unittest.main()
