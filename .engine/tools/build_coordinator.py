@@ -1302,6 +1302,79 @@ def cmd_work_result(args, store: StateStore) -> None:
     print(f"recorded {args.item} result for attempt {args.attempt}")
 
 
+def _commit_on_branch(commit: str) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return False
+    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
+
+
+def cmd_work_reject(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        result = nw.get("latest_result")
+        attempt = claim["attempt_id"] if claim else (result or {}).get("attempt_id")
+        if attempt != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt")
+        nw["latest_failure"] = work.failure_record(args.attempt, args.rejection_class, args.reason, "open")
+        nw["claim"] = None  # rejection releases the reserved resources
+
+    _work_mutate(store, change)
+    print(f"rejected {args.item} attempt {args.attempt} ({args.rejection_class}); resources released")
+
+
+def cmd_work_retry(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        failure = nw.get("latest_failure")
+        if not failure or failure.get("disposition") != "open":
+            raise CoordinatorError(f"work item {args.item} has no failure awaiting a retry decision")
+        disposition = "integrator-inline" if args.strategy == "integrator-inline" else "retry"
+        failure["disposition"] = disposition
+        nw["claim"] = None  # a fresh attempt id is minted on the next claim; attempt_count increments there
+
+    _work_mutate(store, change)
+    print(f"retry recorded for {args.item} via {args.strategy}: {args.reason}")
+
+
+def cmd_work_abandon(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        failure = nw.get("latest_failure")
+        attempt = (claim or {}).get("attempt_id") or (failure or {}).get("attempt_id")
+        if attempt != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt")
+        nw["latest_failure"] = work.failure_record(args.attempt, (failure or {}).get("class", "worker"),
+                                                   args.reason, "abandoned")
+        nw["claim"] = None  # abandonment releases the reserved resources
+
+    _work_mutate(store, change)
+    print(f"abandoned {args.item} attempt {args.attempt}; resources released")
+
+
+def cmd_work_integrate(args, store: StateStore) -> None:
+    if not args.verification_input.strip():
+        raise CoordinatorError("integration requires a focused-verification summary")
+    if not _commit_on_branch(args.commit):
+        raise CoordinatorError(f"integration commit {args.commit} is not on the PR branch")
+
+    def change(state):
+        nw = _node_work(state, args.item)
+        result = nw.get("latest_result")
+        if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
+            raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
+        nw["integration"] = {"attempt_id": args.attempt, "commit": args.commit,
+                             "focused_verification": args.verification_input.strip()}
+        nw["claim"] = None  # integration releases the reserved resources
+        completed = {entry["id"] for entry in state["progress"]["completed"]}
+        if args.item not in completed:
+            state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
+
+    _work_mutate(store, change)
+    print(f"integrated {args.item} at {args.commit}; focused verification recorded")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1335,6 +1408,10 @@ def parser() -> argparse.ArgumentParser:
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
     wattach = work_p.add_parser("attach"); wattach.add_argument("--item", required=True); wattach.add_argument("--attempt", required=True); wattach.add_argument("--worker-ref", required=True); wattach.set_defaults(func=cmd_work_attach)
     wresult = work_p.add_parser("result"); wresult.add_argument("--item", required=True); wresult.add_argument("--attempt", required=True); wresult.add_argument("--plan", required=True); wresult.add_argument("--input", required=True); wresult.set_defaults(func=cmd_work_result)
+    wreject = work_p.add_parser("reject"); wreject.add_argument("--item", required=True); wreject.add_argument("--attempt", required=True); wreject.add_argument("--class", dest="rejection_class", choices=["dispatch", "worker", "contract", "verification", "integration"], required=True); wreject.add_argument("--reason", required=True); wreject.set_defaults(func=cmd_work_reject)
+    wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
+    wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
+    wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.set_defaults(func=cmd_work_integrate)
     return p
 
 

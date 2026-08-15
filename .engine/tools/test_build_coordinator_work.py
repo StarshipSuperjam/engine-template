@@ -118,6 +118,79 @@ class TestWorkClaims(WorkCase):
             bc.cmd_work_attach(args, stale)
 
 
+class TestWorkDispositions(WorkCase):
+    def _return(self, item):
+        packet = self.claim(item)
+        self.result(item, packet["attempt_id"],
+                    {"outcome": "returned", "base_sha": HEAD_A,
+                     "evidence": {"changed_paths": ["x"], "verification_results": ["ok"]}})
+        return packet["attempt_id"]
+
+    def _reject(self, item, attempt, cls="worker"):
+        args = argparse.Namespace(item=item, attempt=attempt, rejection_class=cls, reason="not cohesive")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_reject(args, self.store)
+
+    def _integrate(self, item, attempt, commit=HEAD_A, verification="focused tests pass"):
+        args = argparse.Namespace(item=item, attempt=attempt, commit=commit, verification_input=verification)
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_integrate(args, self.store)
+
+    def test_reject_releases_resources_and_marks_failed(self):
+        attempt = self._return("shared")
+        self._reject("shared", attempt)
+        nw = self.state()["work"]["shared"]
+        self.assertIsNone(nw["claim"])
+        self.assertEqual(nw["latest_failure"]["disposition"], "open")
+
+    def test_explicit_retry_reopens_the_node_and_increments_attempt_count(self):
+        attempt = self._return("shared")
+        self._reject("shared", attempt)
+        args = argparse.Namespace(item="shared", strategy="redispatch", reason="try again")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_retry(args, self.store)
+        packet2 = self.claim("shared")
+        self.assertNotEqual(packet2["attempt_id"], attempt)
+        self.assertEqual(self.state()["work"]["shared"]["attempt_count"], 2)
+
+    def test_abandon_releases_resources_and_blocks_the_node(self):
+        packet = self.claim("shared")
+        args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], reason="give up")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_abandon(args, self.store)
+        nw = self.state()["work"]["shared"]
+        self.assertIsNone(nw["claim"])
+        self.assertEqual(nw["latest_failure"]["disposition"], "abandoned")
+
+    def test_integrate_records_completion_and_mirrors_into_progress(self):
+        attempt = self._return("shared")
+        self._integrate("shared", attempt)
+        nw = self.state()["work"]["shared"]
+        self.assertEqual(nw["integration"]["commit"], HEAD_A)
+        self.assertIsNone(nw["claim"])
+        self.assertIn({"id": "shared", "commit": HEAD_A}, self.state()["progress"]["completed"])
+
+    def test_no_completion_without_a_returned_result(self):
+        packet = self.claim("shared")  # claimed, no result yet
+        with self.assertRaisesRegex(bc.CoordinatorError, "no returned result"):
+            self._integrate("shared", packet["attempt_id"])
+
+    def test_integration_off_branch_commit_is_refused(self):
+        attempt = self._return("shared")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit="c" * 40, verification_input="v")
+        with mock.patch.object(bc, "_commit_on_branch", return_value=False):
+            with self.assertRaisesRegex(bc.CoordinatorError, "not on the PR branch"):
+                bc.cmd_work_integrate(args, self.store)
+
+    def test_completed_dependency_unblocks_its_successor(self):
+        attempt = self._return("shared")
+        self._integrate("shared", attempt)
+        import build_coordinator_dag as dag
+        lc = dag.derive_lifecycle(self.plan_value, self.state())
+        self.assertEqual(lc["shared"]["state"], dag.COMPLETE)
+        self.assertEqual(lc["adapter"]["state"], dag.READY)
+
+
 class TestWorkRouting(unittest.TestCase):
     def setUp(self):
         self.bindings = bc._bindings()
