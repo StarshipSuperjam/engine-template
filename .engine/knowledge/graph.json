@@ -11633,7 +11633,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:b6f19bd557f7873fb94882ac41a8bd327732eb347bad34c92723bc514ceb7577",
+        "fingerprint": "sha256:c759837cd6227e2a12c038dfbd68a17b574dc3c5c46fa48a188d7b0a2e3e9d29",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
