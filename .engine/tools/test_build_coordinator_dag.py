@@ -115,7 +115,15 @@ class TestResourceAdmission(unittest.TestCase):
         self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/a.py"]))
         self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/*.py"]))
         self.assertTrue(dag.path_within_declared(".engine/tools/a.py", [".engine/tools/"]))
+        self.assertTrue(dag.path_within_declared(".engine/tools/sub/../a.py", [".engine/tools/*.py"]))  # normalizes in-scope
         self.assertFalse(dag.path_within_declared("etc/passwd", [".engine/tools/*.py"]))
+
+    def test_path_within_declared_rejects_traversal_and_absolute(self):
+        # the untrusted self-reported path must not escape declared scope via traversal or absoluteness
+        self.assertFalse(dag.path_within_declared(".engine/tools/../../../etc/passwd", [".engine/tools/"]))
+        self.assertFalse(dag.path_within_declared(".engine/tools/../../../etc/passwd.py", [".engine/tools/*.py"]))
+        self.assertFalse(dag.path_within_declared("/etc/passwd", [".engine/tools/*.py"]))
+        self.assertFalse(dag.path_within_declared("../secrets/prod.env", [".engine/tools/"]))
 
     def test_named_resources_conflict(self):
         self.assertTrue(dag.resources_conflict(item("a", paths=["x/a"], resources=["db"]),

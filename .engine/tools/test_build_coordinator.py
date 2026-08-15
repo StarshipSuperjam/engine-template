@@ -1262,6 +1262,9 @@ class TestPlanV2Ingest(CoordinatorCase):
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="other/repo"):
             self.assertFalse(bc._confidently_home())
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", side_effect=ValueError("malformed manifest")):
+            self.assertFalse(bc._confidently_home())   # a malformed manifest is not confidently home
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
             self.assertTrue(bc._confidently_home())
 

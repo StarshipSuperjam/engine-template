@@ -173,6 +173,15 @@ class TestResultEdges(WorkCase):
                         {"outcome": "returned", "base_sha": HEAD_A,
                          "evidence": {"changed_paths": ["etc/passwd"], "verification_results": ["ok"]}})
 
+    def test_returned_paths_using_traversal_are_rejected(self):
+        # a self-reported changed path that escapes declared scope via ../ must be refused
+        packet = self.claim("shared")
+        with self.assertRaisesRegex(bc.CoordinatorError, "outside the node's declared scope"):
+            self.result("shared", packet["attempt_id"],
+                        {"outcome": "returned", "base_sha": HEAD_A,
+                         "evidence": {"changed_paths": [".engine/tools/../../../.github/workflows/ci.yml"],
+                                      "verification_results": ["ok"]}})
+
 
 class TestWorkDispositions(WorkCase):
     def _return(self, item):

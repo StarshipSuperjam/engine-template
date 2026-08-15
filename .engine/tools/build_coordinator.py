@@ -1402,10 +1402,7 @@ def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> 
         return f"all {max_concurrency} worker slot(s) are in use — free one by integrating, rejecting, or abandoning a claim"
     item = work.node_item(plan, node_id)
     for holder_id, held in dag.resource_holders(plan, state).items():
-        if holder_id == node_id:
-            continue
-        if set(item.get("exclusive_resources", [])) & set(held["exclusive_resources"]) \
-                or dag.paths_conflict(item.get("paths", []), held["paths"]):
+        if holder_id != node_id and dag.resources_conflict(item, held):
             return f"its paths or resources conflict with node {holder_id}, which currently holds them"
     return "admission is currently blocked"
 

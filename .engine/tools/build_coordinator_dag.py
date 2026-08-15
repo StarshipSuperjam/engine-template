@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import fnmatch
 import graphlib
+import posixpath
 
 import build_coordinator_core as core
 
@@ -182,19 +183,25 @@ def paths_conflict(paths_a: list[str], paths_b: list[str]) -> bool:
 def path_within_declared(changed: str, declared: list[str]) -> bool:
     """Whether one changed path falls within a node's declared path patterns.
 
-    Covered when the change equals or glob-matches a declared pattern, or sits beneath a declared
-    literal prefix (a declared directory or glob root). Used to give a worker's scoped-write posture
-    teeth at the evidence layer: a returned result whose changed paths escape the node's declared
-    scope is a contract failure. (The orchestrator's own integration inspection is the deeper
-    backstop; this catches an honest worker reporting out-of-scope writes.)
+    The changed path is UNTRUSTED (a worker's self-report), so it is normalized and any path that
+    escapes the tree is rejected BEFORE matching: an absolute path, or one that normalizes to a
+    leading ``..`` traversal (``.engine/tools/../../etc/passwd`` -> ``../etc/passwd``), is never
+    within scope. Otherwise it is covered when the normalized change equals or glob-matches a declared
+    pattern, or sits beneath a declared literal prefix. Gives a worker's scoped-write posture teeth at
+    the evidence layer (the orchestrator's own integration inspection is the deeper backstop).
     """
+    if not changed or changed.startswith("/") or "\x00" in changed:
+        return False
+    norm = posixpath.normpath(changed)
+    if norm == ".." or norm.startswith("../"):
+        return False
     for pattern in declared:
-        if changed == pattern or fnmatch.fnmatch(changed, pattern):
+        if norm == pattern or fnmatch.fnmatch(norm, pattern):
             return True
         prefix = resource_prefix(pattern)
         if prefix:
-            root = prefix.rstrip("/")
-            if root and (changed == root or changed.startswith(root + "/")):
+            root = posixpath.normpath(prefix.rstrip("/"))
+            if root not in ("", ".") and (norm == root or norm.startswith(root + "/")):
                 return True
     return False
 
@@ -260,14 +267,8 @@ def claimable_set(plan: dict, state: dict) -> list[str]:
     claimable = []
     for node_id in ready_set(plan, state):
         item = by_id[node_id]
-        conflict = False
-        for holder_id, held in holders.items():
-            if holder_id == node_id:
-                continue
-            if set(item.get("exclusive_resources", [])) & set(held["exclusive_resources"]) \
-                    or paths_conflict(item.get("paths", []), held["paths"]):
-                conflict = True
-                break
+        conflict = any(holder_id != node_id and resources_conflict(item, held)
+                       for holder_id, held in holders.items())
         if not conflict:
             claimable.append(node_id)
     return sorted(claimable)
