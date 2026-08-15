@@ -22,6 +22,13 @@ adds no new title→shell or title→value path.
 
 Dependency-light by design (stdlib `os`/`json` only), so every per-issue CI hot path can import it without
 dragging a heavier stack in.
+
+GENERIC CORE, ISSUE-SPECIFIC EDGE. Two of these primitives — `load_event` and `resolve_repo_token` — are
+event-type-agnostic: a `pull_request`-event tool would read `$GITHUB_EVENT_PATH` and the repo/token pair the
+same way. Only `labels_of`/`issue_or_none` are issue-shaped. Scoping a general Actions-event framework OUT is
+deliberate here; but if a broader event home is ever built, those two are the generic core to lift into it —
+noted so a future PR-event tool finds them rather than re-copying `load_event` and reintroducing the drift this
+module exists to remove.
 """
 from __future__ import annotations
 

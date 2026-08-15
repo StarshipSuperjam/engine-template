@@ -9509,7 +9509,7 @@
       },
       "slug": "issue_event",
       "source": {
-        "fingerprint": "sha256:199a8e96fafef84c5ff01a459f9b3492d02387f678f3f6f545e447698faac173",
+        "fingerprint": "sha256:ad5981607fb3315a86ee351fb26407991c6096dd73123c8405c2dc20bdbfff71",
         "path": ".engine/tools/issue_event.py"
       },
       "status": "active",
