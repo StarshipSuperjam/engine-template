@@ -77,11 +77,25 @@ def _stamp(text: str, model: str, effort: str) -> str:
     out = []
     for line in body:
         out.append(line)
-        if line.startswith("model-tier:"):
+        # Reviewers anchor the stamp after model-tier; workers (no model-tier) after implementation-class.
+        if line.startswith("model-tier:") or line.startswith("implementation-class:"):
             out.append(f"model: {model}")
             out.append(f"effort: {effort}")
     rebuilt = "\n".join(["---", *out, "---", *lines[end + 1:]])
     return rebuilt + "\n" if text.endswith("\n") else rebuilt
+
+
+def _binding_for(fm: dict, bindings: dict) -> dict:
+    """The {model, effort} for one persona: a review/audit persona resolves through its model-tier;
+    a worker resolves through its implementation-class -> the Claude side of implementation_classes,
+    so both axes are single-sourced from the one bindings file."""
+    if fm.get("role") == "worker":
+        cls = fm.get("implementation-class")
+        provider = (bindings.get("implementation_classes", {}).get(cls) or {}).get("claude")
+        if not provider:
+            raise KeyError(f"no implementation_classes.{cls}.claude binding for worker persona")
+        return {"model": provider["model"], "effort": provider["effort"]}
+    return resolve(fm["name"], fm.get("model-tier"), bindings)
 
 
 def render(root: str | None = None) -> list[str]:
@@ -96,7 +110,7 @@ def render(root: str | None = None) -> list[str]:
         if not parsed:
             continue
         _, _, fm = parsed
-        binding = resolve(fm["name"], fm.get("model-tier"), bindings)
+        binding = _binding_for(fm, bindings)
         new = _stamp(text, binding["model"], binding["effort"])
         if new != text:
             with open(path, "w", encoding="utf-8") as fh:
@@ -118,7 +132,7 @@ def check(root: str | None = None) -> list[str]:
             continue
         _, _, fm = parsed
         names.add(fm["name"])
-        want = resolve(fm["name"], fm.get("model-tier"), bindings)
+        want = _binding_for(fm, bindings)
         got = {"model": fm.get("model"), "effort": fm.get("effort")}
         if got != want:
             problems.append(f"{fm['name']}: stamped {got} != binding {want} — run agent_bindings.py render")

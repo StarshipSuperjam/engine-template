@@ -67,6 +67,51 @@ class _FixtureTree(unittest.TestCase):
         self._tmp.cleanup()
 
 
+WORKER_SRC = """---
+name: engine-worker-widget
+description: Builds widgets.
+role: worker
+implementation-class: builder
+model: sonnet
+effort: medium
+permissions: scoped-write
+output-contract: worker-result.v1
+---
+
+## Mandate
+
+Build the widget node and return the work product.
+"""
+
+WORKER_BINDINGS = """{
+  "schema_version": 1,
+  "tiers": {"judgment": {"model": "opus", "effort": "high"}, "mechanical": {"model": "haiku", "effort": "low"}},
+  "implementation_classes": {
+    "builder": {"claude": {"model": "sonnet", "effort": "medium"}, "codex": {"model": "gpt-5.6-terra", "effort": "medium"}}
+  }
+}
+"""
+
+
+class TestWorkerRenders(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        _write(os.path.join(self.root, ".claude", "agents", "engine-worker-widget.md"), WORKER_SRC)
+        _write(os.path.join(self.root, ".engine", "policies", "model-bindings.json"), WORKER_BINDINGS)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_worker_render_emits_model_and_a_write_sandbox(self):
+        codex_gen.generate(self.root)
+        path = os.path.join(self.root, ".codex", "agents", "engine-worker-widget.toml")
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
+        self.assertEqual(data["model"], "gpt-5.6-terra")        # single-sourced from implementation_classes.codex
+        self.assertEqual(data["model_reasoning_effort"], "medium")
+        self.assertIn("scoped write", data["developer_instructions"])
+
+
 class TestRenderTransforms(_FixtureTree):
     def test_agent_render_carries_the_floor_and_pins_no_model(self):
         codex_gen.generate(self.root)

@@ -1420,6 +1420,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     roles = {"plan-review", "worker", "pre-submission-review", "audit"}
     lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
     tiers = {"judgment", "mechanical"}
+    impl_classes = {"builder", "bounded"}   # the dispatched worker classes (integrator is never a persona)
     write_tools = ("Edit", "Write", "NotebookEdit")   # the authoritative-write tools a read-only persona must block
     findings = []
     for a in agents:
@@ -1428,10 +1429,22 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         if role not in roles:
             findings.append(finding(tier, f"Persona '{name}' declares role '{role}', which is not a "
                             f"recognized role ({sorted(roles)}). {message}"))
-        mtier = a.get("model-tier")
-        if mtier not in tiers:
-            findings.append(finding(tier, f"Persona '{name}' declares model-tier '{mtier}', which is "
-                            f"not a recognized demand level ({sorted(tiers)}). {message}"))
+        # A worker resolves its per-provider model through implementation-class; a review/audit persona
+        # resolves through model-tier. Each axis belongs to exactly one side.
+        if role == "worker":
+            impl = a.get("implementation-class")
+            if impl not in impl_classes:
+                findings.append(finding(tier, f"Persona '{name}' is a worker but declares "
+                                f"implementation-class '{impl}', which is not a recognized worker class "
+                                f"({sorted(impl_classes)}). {message}"))
+        else:
+            mtier = a.get("model-tier")
+            if mtier not in tiers:
+                findings.append(finding(tier, f"Persona '{name}' declares model-tier '{mtier}', which is "
+                                f"not a recognized demand level ({sorted(tiers)}). {message}"))
+            if a.get("implementation-class") is not None:
+                findings.append(finding(tier, f"Persona '{name}' has role '{role}' but declares an "
+                                f"implementation-class; only the worker role carries one. {message}"))
         if a.get("lens") and role in lensless_roles:
             findings.append(finding(tier, f"Persona '{name}' has role '{role}', which carries no lens, "
                             f"but declares lens '{a.get('lens')}'; only the review roles carry a "

@@ -4,7 +4,15 @@
   "description": "The per-instance routing state carried in a persona's YAML frontmatter: the engine-governed-and-read routing fields the roster derivation and the coherence kind read (role, lens, model-tier, permissions, output-contract), alongside the platform passthrough keys Claude Code reads itself (name, description, tools, permissionMode, model, effort). This schema governs only the frontmatter's shape, presence, and types; the prose body (Mandate, How you work, What you produce, Boundaries) is the template's domain, checked separately by the agent-shape rule. CLOSED-SET MEMBERSHIP IS DELIBERATELY NOT ENCODED HERE: that 'role' is one of plan-review/worker/pre-submission-review/audit, that 'model-tier' is one of judgment/mechanical, and that a 'lens' appears only on the review roles, are coherence findings produced by the validation coherence kind, not schema constraints — so role/model-tier/lens are governed here as well-formed strings, and their membership and the lens/role symmetry are confirmed by the agent coherence leg. This keeps the closed sets in one place (the leg) rather than duplicated into an enum that could drift. The output-contract names which versioned finding-contract instance the persona reports on; those concrete .v1 instances are authored later with the review/worker suites, so this field is a reference string, not an inline schema. This file is enforced live: the agent-frontmatter check (a validators-core schema rule) validates each persona's parsed YAML frontmatter against it at the merge, routed through the surface catalog (the 'agent' surface), reading the frontmatter with the validation foundation's YAML reader; its own well-formedness and representative per-role instances are also fixture-tested by the surface's unit tests.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "description", "role", "model-tier", "permissions", "output-contract"],
+  "required": ["name", "description", "role", "permissions", "output-contract"],
+  "allOf": [
+    {
+      "description": "A review or audit persona resolves its model through model-tier (a single demand tier); a dispatched worker resolves its model per-provider through implementation-class instead, because Claude and Codex realize the same worker class with different models. Exactly one axis is required per persona, keyed on role.",
+      "if": {"properties": {"role": {"const": "worker"}}, "required": ["role"]},
+      "then": {"required": ["implementation-class"]},
+      "else": {"required": ["model-tier"]}
+    }
+  ],
   "properties": {
     "name": {
       "description": "The platform identity field Claude Code reads to discover and present the agent — the field that makes file-drop discovery work. A short, stable, lower-case slug.",
@@ -28,6 +36,11 @@
     },
     "model-tier": {
       "description": "The execution tier the work demands — careful judgment vs. mechanical work product — never a model name. The recognized values are judgment and mechanical (a closed demand vocabulary); a value outside that set is a coherence finding, not a schema rejection, so this field is a well-formed string here. The field keeps the name 'model-tier' though its members are demand levels; which model and effort realize the tier is platform passthrough (see model + effort).",
+      "type": "string",
+      "minLength": 1
+    },
+    "implementation-class": {
+      "description": "The dispatched worker class whose per-provider model+effort this worker persona is rendered from (the implementation_classes section of model-bindings). Present ONLY on the worker role — a review or audit persona resolves through model-tier instead. The recognized values are builder and bounded (integrator is never a dispatched persona); membership and the worker-only presence are coherence findings, not schema constraints, so this is a well-formed string here.",
       "type": "string",
       "minLength": 1
     },
