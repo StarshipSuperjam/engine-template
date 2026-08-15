@@ -37,6 +37,11 @@ HANDOFF_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-handoff.v2.json"
 PLAN_SCHEMAS = {"build-plan.v1": PLAN_SCHEMA, "build-plan.v2": PLAN_SCHEMA_V2}
 STATE_SCHEMAS = {"build-state.v1": STATE_SCHEMA, "build-state.v2": STATE_SCHEMA_V2}
 HANDOFF_SCHEMAS = {"build-handoff.v1": HANDOFF_SCHEMA, "build-handoff.v2": HANDOFF_SCHEMA_V2}
+# The Engine major at which the v1 Build reader is removed. Until then v1 stays readable and existing
+# v1 Builds run; new v1 binds are refused in deployed Engines (see cmd_plan_bind). A self-test fails
+# closed once the Engine major reaches this while the v1 reader still ships — the mechanical removal
+# trigger, so the legacy reader cannot become an indefinite disconnected artifact.
+PLAN_V1_REMOVE_AT_MAJOR = 1
 PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
 HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
@@ -470,6 +475,52 @@ def cmd_plan_bind(args, store: StateStore) -> None:
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue, mode)
     store.create(state)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
+
+
+def _migrate_v1_to_v2(v1: dict) -> dict:
+    """Transform a v1 plan into a v2 linear-chain DAG, preserving item order.
+
+    Each item depends on its predecessor (the linear chain reproduces v1's array-order execution),
+    every node is integrator-executed with a default output contract, and the plan is serial. The
+    result has a NEW digest, so it requires renewed approval and affected review — the migration is
+    never a silent receipt-preserving rename.
+    """
+    items = v1["work_items"]
+    migrated = []
+    for index, item in enumerate(items):
+        migrated.append({
+            "id": item["id"], "description": item["description"], "paths": item["paths"],
+            "verification": item["verification"],
+            "depends_on": [items[index - 1]["id"]] if index else [],
+            "exclusive_resources": [],
+            "executor_class": "integrator",
+            "output_contract": {"deliverable": item["description"],
+                                "artifact_kinds": ["integrated-commit"],
+                                "required_evidence": ["changed_paths", "verification_results"]},
+        })
+    v2 = {k: v for k, v in v1.items() if k != "work_items"}
+    v2["schema_version"] = "build-plan.v2"
+    v2["work_items"] = migrated
+    v2["parallelism"] = {"mode": "serial", "max_concurrency": 1}
+    return v2
+
+
+def cmd_plan_migrate_v1(args, store: StateStore | None) -> None:
+    v1 = _plan(args.input)
+    if _plan_version(v1) != "build-plan.v1":
+        raise CoordinatorError("plan migrate-v1 requires a build-plan.v1 document")
+    v2 = _migrate_v1_to_v2(v1)
+    _validate(v2, PLAN_SCHEMA_V2)
+    dag.validate_dag(v2)
+    rendered = json.dumps(v2, indent=2, sort_keys=True) + "\n"
+    if args.output and args.output != "-":
+        Path(args.output).write_text(rendered, encoding="utf-8")
+        target = args.output
+    else:
+        sys.stdout.write(rendered)
+        target = "stdout"
+    print(f"migrated to build-plan.v2 ({_digest(v2)}) at {target}; the new digest requires renewed "
+          f"operator approval and affected review before it can be bound", file=sys.stderr)
 
 
 def cmd_plan_promote(args, store: StateStore) -> None:
@@ -1475,6 +1526,7 @@ def parser() -> argparse.ArgumentParser:
     bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
     promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); destination = promote.add_mutually_exclusive_group(required=True); destination.add_argument("--issue", type=int); destination.add_argument("--create-issue"); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
+    migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
@@ -1510,11 +1562,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
-        if not args.state and not standalone:
+        stateless = args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1"
+        if not args.state and not standalone and not stateless:
             raise CoordinatorError("--state is required for this command")
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        store = None if standalone else StateStore(args.state, args.expect_revision)
+        store = None if (standalone or stateless) else StateStore(args.state, args.expect_revision)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

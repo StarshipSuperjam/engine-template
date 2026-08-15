@@ -1263,5 +1263,51 @@ class TestPlanV2Ingest(CoordinatorCase):
         self.assertEqual(self.state()["schema_version"], "build-state.v1")
 
 
+class TestV1Migration(CoordinatorCase):
+    def _v1_two_items(self):
+        value = plan()
+        value["work_items"] = [
+            {"id": "one", "description": "First", "paths": ["a/x.py"], "verification": ["run one"]},
+            {"id": "two", "description": "Second", "paths": ["a/y.py"], "verification": ["run two"]},
+        ]
+        return value
+
+    def test_migrate_produces_a_linear_chain_with_a_new_digest(self):
+        v1 = self._v1_two_items()
+        v2 = bc._migrate_v1_to_v2(v1)
+        self.assertEqual(v2["schema_version"], "build-plan.v2")
+        self.assertEqual(v2["work_items"][0]["depends_on"], [])
+        self.assertEqual(v2["work_items"][1]["depends_on"], ["one"])
+        self.assertTrue(all(i["executor_class"] == "integrator" for i in v2["work_items"]))
+        self.assertEqual(v2["parallelism"], {"mode": "serial", "max_concurrency": 1})
+        self.assertNotEqual(bc._digest(v1), bc._digest(v2))
+        bc.dag.validate_dag(v2)  # the chain is acyclic
+
+    def test_migrate_cli_emits_v2_and_requires_v1_input(self):
+        self.write_plan(self._v1_two_items())
+        args = argparse.Namespace(input=str(self.plan_path), output="-")
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_plan_migrate_v1(args, None)
+        emitted = json.loads(out.getvalue())
+        self.assertEqual(emitted["schema_version"], "build-plan.v2")
+        # a v2 input is refused
+        self.write_plan(plan_v2())
+        args = argparse.Namespace(input=str(self.plan_path), output="-")
+        with self.assertRaisesRegex(bc.CoordinatorError, "requires a build-plan.v1"):
+            bc.cmd_plan_migrate_v1(args, None)
+
+    def test_v1_reader_sunsets_at_the_removal_major(self):
+        # Fails closed once the Engine major reaches the sunset while the v1 reader still ships — the
+        # mechanical removal trigger. A no-op below the sunset (and at the 0.0.0 construction sentinel).
+        release = json.loads((bc.ROOT / ".engine" / "engine.json").read_text()).get("engine_release", "0.0.0")
+        if release == "0.0.0":
+            return
+        major = int(release.split(".")[0])
+        v1_reader_present = (bc.ROOT / ".engine" / "schemas" / "build-plan.v1.json").exists()
+        if major >= bc.PLAN_V1_REMOVE_AT_MAJOR and v1_reader_present:
+            self.fail(f"Engine major {major} has reached the v1 sunset ({bc.PLAN_V1_REMOVE_AT_MAJOR}) but the "
+                      f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
+
+
 if __name__ == "__main__":
     unittest.main()
