@@ -102,6 +102,17 @@ class TestVerify(unittest.TestCase):
             self.assertTrue(result["mutated"])
             self.assertTrue(any("HEAD moved" in c for c in result["changes"]))
 
+    def test_ignore_skips_named_facts(self):
+        before = {"origin": "o", "branch": "b", "head": "h1", "stash_count": 0, "worktrees": []}
+        after = {"origin": "o", "branch": "b", "head": "h2", "stash_count": 0, "worktrees": [["/w", "x"]]}
+        # head advanced and a worktree appeared — both legitimate across a build window
+        self.assertNotEqual(ri.compare(before, after), [], "unignored, head+worktree moves are flagged")
+        self.assertEqual(ri.compare(before, after, ignore={"head", "worktrees"}), [],
+                         "ignoring head and worktrees leaves origin/branch/stash, which did not move")
+        # but an origin repoint is still caught even with head/worktrees ignored
+        after2 = {**after, "origin": "evil"}
+        self.assertTrue(any("origin" in c for c in ri.compare(before, after2, ignore={"head", "worktrees"})))
+
     def test_becoming_unreadable_fails_closed(self):
         # a real 'before' snapshot verified against a now-unreadable checkout reports mutation,
         # never a false all-clear.

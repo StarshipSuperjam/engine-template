@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c15f79f5f172d07408064858d72ee9a3b5a6b02814abfe2fb1889974a1308f53",
+        "fingerprint": "sha256:0e6196d82915b93736a8e579bc24357c23c85104b3c4c403fd09c7a6c20c93a7",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5629,7 +5629,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:e1ad8ca91f2149971fab78d8a70ca36ffaec8cd1e6fdbca1752dac9c6c678a3e",
+        "fingerprint": "sha256:e9e79dbddedddfa87c811d8d758e430c1566aa97b5ae624632c471cc05ab9f10",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -6975,6 +6975,7 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:repo_identity",
+          "tool:review_integrity",
           "tool:validate",
           "tool:weakening_guard"
         ],
@@ -6984,7 +6985,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:d583244d3aaba0fde9b9f53e4784fc55f6b1c110c0cc4a32b467726095c25338",
+        "fingerprint": "sha256:1913cec43ef240f777fb868167141c51f9c0f7d707c1f0bb69077f3cda0f60c9",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10956,7 +10957,7 @@
       },
       "slug": "review_integrity",
       "source": {
-        "fingerprint": "sha256:174699677cfa394a5d67155231e1c9a2c6ebb036d0ecbefbc05e7685f6de24da",
+        "fingerprint": "sha256:f32b1e0d7f5b600c17b522bcde5d17c395e8c16afabc9d6363e3c9c826eadaf7",
         "path": ".engine/tools/review_integrity.py"
       },
       "status": "active",
@@ -11919,7 +11920,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:7ff699b18edff01148b0a17aaea4942a1de2b3e7c9d5e1a66cef3fb04d04881a",
+        "fingerprint": "sha256:590a89774b59b2cdf5699a34ed536a1fa6221a9cf069f3442205f8e541038cb4",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -14511,7 +14512,7 @@
       },
       "slug": "test_review_integrity",
       "source": {
-        "fingerprint": "sha256:f7d7e481c27c99cc696ba76d2c8eef552bd5f4ecc43abf9af87178b53bbda3bc",
+        "fingerprint": "sha256:794ace60033754331ff6cff77bfe536ab2574d3ff275c4246c738d81548834a4",
         "path": ".engine/tools/test_review_integrity.py"
       },
       "status": "active",

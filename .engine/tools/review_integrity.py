@@ -98,23 +98,32 @@ def snapshot(checkout: str) -> dict:
     }
 
 
-def compare(before: dict, after: dict) -> list:
+def compare(before: dict, after: dict, ignore: "set | tuple" = ()) -> list:
     """Plain-language descriptions of every mutation-sensitive fact that moved between two snapshots.
     Empty when nothing moved. Each line names what changed in terms the StarshipSuperjam/engine-template#947 incidents used, so the
-    orchestrator (and the operator) can see at a glance whether a review disturbed the checkout."""
+    orchestrator (and the operator) can see at a glance whether a review disturbed the checkout.
+
+    `ignore` names facts to skip — any of {"origin", "branch", "head", "stash", "worktrees"}. A caller
+    that brackets a whole build (e.g. the coordinator across the review-and-repair window) ignores `head`,
+    which legitimately advances with repair commits, and `worktrees`, which a concurrent peer session may
+    legitimately add — leaving `origin`, `branch`, and `stash`, none of which a review ever legitimately
+    changes, so the delta stays free of false positives."""
+    ignore = set(ignore)
     changes: list = []
-    if before.get("origin") != after.get("origin"):
+    if "origin" not in ignore and before.get("origin") != after.get("origin"):
         changes.append(f"the origin remote URL changed from {before.get('origin')!r} to "
                        f"{after.get('origin')!r} (the incident-2 repoint)")
-    if before.get("branch") != after.get("branch"):
+    if "branch" not in ignore and before.get("branch") != after.get("branch"):
         changes.append(f"the checked-out branch changed from {before.get('branch')!r} to "
                        f"{after.get('branch')!r}")
-    if before.get("head") != after.get("head"):
+    if "head" not in ignore and before.get("head") != after.get("head"):
         changes.append(f"HEAD moved from {before.get('head')!r} to {after.get('head')!r}")
     bc, ac = before.get("stash_count"), after.get("stash_count")
-    if bc != ac:
+    if "stash" not in ignore and bc != ac:
         changes.append(f"the stash stack changed from {bc} entr{'y' if bc == 1 else 'ies'} to "
                        f"{ac} (the incident-1 stash)")
+    if "worktrees" in ignore:
+        return changes
     bw = {tuple(e) for e in (before.get("worktrees") or [])}
     aw = {tuple(e) for e in (after.get("worktrees") or [])}
     if (before.get("worktrees") is None) != (after.get("worktrees") is None):
@@ -133,11 +142,11 @@ def compare(before: dict, after: dict) -> list:
     return changes
 
 
-def verify(checkout: str, before: dict) -> dict:
-    """Re-snapshot the checkout and compare to `before`. Returns
-    {mutated, changes, before, after}. `mutated` is True when anything moved."""
+def verify(checkout: str, before: dict, ignore: "set | tuple" = ()) -> dict:
+    """Re-snapshot the checkout and compare to `before`, skipping any facts in `ignore` (see compare).
+    Returns {mutated, changes, before, after}. `mutated` is True when anything not ignored moved."""
     after = snapshot(checkout)
-    changes = compare(before, after)
+    changes = compare(before, after, ignore=ignore)
     return {"mutated": bool(changes), "changes": changes, "before": before, "after": after}
 
 
