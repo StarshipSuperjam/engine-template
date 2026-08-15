@@ -1397,11 +1397,11 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         HONEST LIMIT: this pure leg enforces only that the native file-writing tools
         (Edit/Write/NotebookEdit) are blocked. It does not read persona bodies, so the git-safety
         recipe a shell-capable persona must carry (StarshipSuperjam/engine-template#947) is a SEPARATE leg in the
-        consumer (`agent_coherence_check.git_safety_findings`), which reads the body — the execution
-        roles pre-submission-review/audit keep `Bash` to run the suite in a throwaway copy they make
-        themselves (never a worktree of the real checkout), and that recipe's presence is enforced
-        there. Neither leg polices any write-capable MCP tools the session may expose nor what a shell
-        does at runtime; confining those tool-/shell-side writes is the orchestration worktree's + the
+        consumer (`agent_coherence_check.git_safety_findings`), which reads the body — the
+        pre-submission-review lenses keep `Bash` to run the suite in a throwaway copy they make themselves
+        (never a worktree of the real checkout), so that recipe's presence is enforced there; the audit
+        persona is Bash-locked in its own frontmatter and needs no recipe. Neither leg polices any
+        write-capable MCP tools the session may expose nor what a shell does at runtime; confining those tool-/shell-side writes is the orchestration worktree's + the
         protected-branch merge gate's job, not a frontmatter invariant this static leg can see. A STRING-valued
         disallowedTools/tools is treated CONSERVATIVELY (a string denylist blocks nothing here; a
         string `tools` is not a write-excluding allowlist), so blocking must come from the list

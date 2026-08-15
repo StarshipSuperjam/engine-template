@@ -641,6 +641,11 @@ def _packet(args, store: StateStore | None) -> None:
         stable.__exit__(None, None, None)
     if not unchanged:
         store.mutate(change, from_revision=revision)
+    elif checkout_baseline is not None:
+        # The packet is unchanged, so receipts and findings stand — but a re-issue marks a fresh review
+        # fan-out, so refresh the checkout baseline to now (the documented "re-captured at the next review
+        # packet"); otherwise the preflight would compare against a stale, arbitrarily-old baseline.
+        store.mutate(lambda s: s.update({"checkout_snapshot": checkout_baseline}), from_revision=revision)
     _emit_packet(packet, args)
 
 
@@ -903,9 +908,17 @@ def cmd_preflight(args, store: StateStore) -> None:
             ci_passed = not ci["mutated"]
             ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
                           if ci_passed else "; ".join(ci["changes"]))
+            # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
+            # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
+            # SURFACED here, never used to block — the required leg above stays free of that false positive.
+            wt_changes = review_integrity.compare(ci_snap, ci["after"],
+                                                  ignore={"origin", "branch", "head", "stash"})
+            wt_passed = not wt_changes
+            wt_summary = ("worktree registry unchanged since the review packet"
+                          if wt_passed else "; ".join(wt_changes))
         else:
-            ci_passed = True
-            ci_summary = "no review-packet checkout snapshot captured (nothing to verify)"
+            ci_passed = wt_passed = True
+            ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
         results = [
             {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
             {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
@@ -916,6 +929,7 @@ def cmd_preflight(args, store: StateStore) -> None:
              "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
                          f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
             {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
+            {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
         ]
         def change(s):
             s["preflights"] = results

@@ -23,11 +23,14 @@ current branch, HEAD OID) plus the worktree registry the sprawl detector parses
 (`checkout_health.detect_product_build_sprawl`), but stays offline and checkout-agnostic so it can wrap
 any path.
 
-`verify` returns exit 3 when any captured fact moved, so a build step can fail closed. HONEST LIMIT:
+`verify` returns exit 3 when any captured fact moved, so a build step can fail closed. HONEST LIMITS:
 this is a backstop that detects a mutation after the fact, not a lock that prevents one; a concurrent
 peer session legitimately acting on the same shared checkout can also move these facts, so a flagged
-change is a signal for the orchestrator to investigate, not proof of a review's fault. The shipped
-recipe is the prevention and the protected-branch merge gate is the real guarantee.
+change is a signal for the orchestrator to investigate, not proof of a review's fault. And it is a
+before/after DELTA: a mutation fully reverted within the window (e.g. a `git stash` immediately popped
+back) leaves the counts identical and is invisible here — deliberately, since a reverted change left no
+lasting harm; the standing prohibition against it lives in the persona recipe, not this delta. The
+shipped recipe is the prevention and the protected-branch merge gate is the real guarantee.
 """
 from __future__ import annotations
 import json
@@ -142,11 +145,24 @@ def compare(before: dict, after: dict, ignore: "set | tuple" = ()) -> list:
     return changes
 
 
+def _unreadable(snap: dict) -> bool:
+    """True when every mutation-sensitive fact came back None — the checkout could not be read at all
+    (git missing, corrupted repo, path gone). A real checkout always yields at least a worktree list and
+    a HEAD, so all-None is a read failure, not a legitimate state."""
+    return all(snap.get(k) is None for k in ("origin", "branch", "head", "stash_count", "worktrees"))
+
+
 def verify(checkout: str, before: dict, ignore: "set | tuple" = ()) -> dict:
     """Re-snapshot the checkout and compare to `before`, skipping any facts in `ignore` (see compare).
-    Returns {mutated, changes, before, after}. `mutated` is True when anything not ignored moved."""
+    Returns {mutated, changes, before, after}. `mutated` is True when anything not ignored moved.
+
+    Fails closed on a total read failure: if the current snapshot is entirely unreadable, that is reported
+    as a mutation rather than a silent match, even against an equally-unreadable baseline — a symmetric
+    read failure must never read as 'unchanged'."""
     after = snapshot(checkout)
     changes = compare(before, after, ignore=ignore)
+    if not changes and _unreadable(after):
+        changes = ["the checkout could not be read at verification time — failing closed"]
     return {"mutated": bool(changes), "changes": changes, "before": before, "after": after}
 
 
@@ -203,7 +219,9 @@ def _demo() -> int:
 
 def _usage() -> int:
     print("usage: review_integrity.py snapshot <checkout>\n"
-          "       review_integrity.py verify <checkout> [<before-json-path>]   (before on stdin if omitted)\n"
+          "       review_integrity.py verify <checkout> [<before-json-path>] [--ignore head,worktrees]\n"
+          "         (before on stdin if the path is omitted; --ignore mirrors what a caller skips —\n"
+          "          the coordinator's required gate uses --ignore head,worktrees)\n"
           "       review_integrity.py demo", file=sys.stderr)
     return 2
 
@@ -220,16 +238,28 @@ def main(argv: list) -> int:
         print(json.dumps(snapshot(argv[1])))
         return 0
     if verb == "verify":
-        if len(argv) < 2:
+        rest = argv[1:]
+        ignore: set = set()
+        if "--ignore" in rest:
+            i = rest.index("--ignore")
+            if i + 1 >= len(rest):
+                return _usage()
+            ignore = {tok.strip() for tok in rest[i + 1].split(",") if tok.strip()}
+            rest = rest[:i] + rest[i + 2:]
+        if not rest:
             return _usage()
-        checkout = argv[1]
-        raw = open(argv[2], encoding="utf-8").read() if len(argv) >= 3 else sys.stdin.read()
+        checkout = rest[0]
+        if len(rest) >= 2:
+            with open(rest[1], encoding="utf-8") as fh:
+                raw = fh.read()
+        else:
+            raw = sys.stdin.read()
         try:
             before = json.loads(raw)
         except (ValueError, TypeError):
             print("review_integrity: could not read the 'before' snapshot JSON", file=sys.stderr)
             return 2
-        result = verify(checkout, before)
+        result = verify(checkout, before, ignore=ignore)
         if result["mutated"]:
             print("review_integrity: the checkout's git state moved during the review pass:")
             for line in result["changes"]:

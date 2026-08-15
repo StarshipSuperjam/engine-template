@@ -352,6 +352,19 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertIsNotNone(snap, "the deliverable packet captures a checkout baseline")
         self.assertEqual(snap["checkout"], str(bc.ROOT))
 
+    def test_unchanged_packet_reissue_refreshes_checkout_baseline(self):
+        # re-issuing an identical deliverable packet marks a fresh review fan-out, so the baseline must be
+        # re-captured even though receipts/findings are preserved (the unchanged path).
+        self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
+        self.packet(stage="deliverable")
+        self.store.mutate(lambda s: s.update({"checkout_snapshot": {
+            "checkout": "stale", "origin": None, "branch": None, "head": None,
+            "stash_count": None, "worktrees": None}}))
+        self.packet(stage="deliverable")  # identical digest -> unchanged path
+        self.assertEqual(self.state()["checkout_snapshot"]["checkout"], str(bc.ROOT),
+                         "the unchanged re-issue refreshed the checkout baseline")
+
     def test_deliverable_packet_records_reviewed_commit(self):
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [{"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
         packet = self.packet("deliverable", HEAD_A)
@@ -860,6 +873,31 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         result = {row["id"]: row for row in self.state()["preflights"]}
         self.assertFalse(result["checkout-integrity"]["passed"])
         self.assertIn("origin", result["checkout-integrity"]["summary"])
+
+    def test_checkout_worktrees_leg_is_advisory_not_blocking(self):
+        self.seed()
+        # baseline claims zero worktrees; the real checkout has at least this one -> worktree drift,
+        # but origin/branch/stash are unchanged, so the required leg passes and preflight does NOT raise.
+        baseline = {**bc.review_integrity.snapshot(str(bc.ROOT)), "worktrees": []}
+        self.store.mutate(lambda s: s.update({"checkout_snapshot": baseline}))
+        pr = {"body": "complete", "baseRefOid": BASE}
+        ok = subprocess.CompletedProcess([], 0, "ok", "")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_run", return_value=ok), \
+                mock.patch.object(bc, "_pr_contract", return_value=(True, "complete")), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_preflight(argparse.Namespace(pr_body=None, json=False), self.store)  # must NOT raise
+        result = {row["id"]: row for row in self.state()["preflights"]}
+        self.assertIn("checkout-worktrees", result)
+        self.assertFalse(result["checkout-worktrees"]["passed"], "the stray worktree is surfaced")
+        self.assertTrue(result["checkout-integrity"]["passed"], "the required leg is unaffected by worktrees")
+
+    def test_readiness_requires_the_checkout_integrity_preflight(self):
+        self.seed()
+        status = bc._status(self.state())
+        self.assertIn("green preflight: checkout-integrity", status["required_evidence"],
+                      "checkout-integrity is a required preflight the readiness gate blocks on")
+        self.assertNotIn("green preflight: checkout-worktrees", status["required_evidence"],
+                         "checkout-worktrees is advisory and never blocks readiness")
 
     def test_failed_final_stability_check_does_not_record_preflight(self):
         self.seed()

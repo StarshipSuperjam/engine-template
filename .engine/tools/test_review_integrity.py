@@ -124,6 +124,16 @@ class TestVerify(unittest.TestCase):
                      "stash_count": None, "worktrees": None}
             self.assertNotEqual(ri.compare(before, after), [])
 
+    def test_symmetric_unreadable_still_fails_closed(self):
+        # both snapshots entirely unreadable (git gone / path absent): verify must NOT report "unchanged"
+        with tempfile.TemporaryDirectory() as tmp:
+            gone = os.path.join(tmp, "does-not-exist")
+            before = ri.snapshot(gone)  # all fields None
+            self.assertTrue(ri._unreadable(before))
+            result = ri.verify(gone, before)
+            self.assertTrue(result["mutated"], "a symmetric read failure fails closed, never a silent pass")
+            self.assertTrue(any("could not be read" in c for c in result["changes"]))
+
 
 class TestCli(unittest.TestCase):
     def test_demo_runs(self):
@@ -131,6 +141,26 @@ class TestCli(unittest.TestCase):
         import contextlib
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(ri.main(["demo"]), 0)
+
+    def test_cli_verify_ignore_flag(self):
+        import io
+        import json
+        import contextlib
+        with tempfile.TemporaryDirectory() as tmp:
+            main = os.path.join(tmp, "c")
+            _new_repo(main)
+            snap_path = os.path.join(tmp, "before.json")
+            with open(snap_path, "w") as fh:
+                json.dump(ri.snapshot(main), fh)
+            # advance HEAD so a full verify would flag it, then confirm --ignore head suppresses that
+            with open(os.path.join(main, "g.txt"), "w") as fh:
+                fh.write("2\n")
+            _git(["add", "g.txt"], main)
+            _git(["commit", "-q", "-m", "two"], main)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ri.main(["verify", main, snap_path]), 3, "full verify flags the HEAD move")
+                self.assertEqual(ri.main(["verify", main, snap_path, "--ignore", "head,worktrees"]), 0,
+                                 "--ignore head,worktrees mirrors the gate and passes")
 
     def test_verify_exit_code_on_mutation(self):
         import io

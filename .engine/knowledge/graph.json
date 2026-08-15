@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:fc484d8f2bfb51feff64c1effb0c3c1a5db6b3565eaeec8be5d727d3258407a2",
+        "fingerprint": "sha256:6b78db27174511e7faa0d8d6a3f00596315c535b3d91dcd9e0783eb4e65bd5f5",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:85234df5e6959bf5e86e466482183f2d6bb1fdb3739de5bdb90a7834d99332c1",
+        "fingerprint": "sha256:623ac32f1e14457b2173ff7e804d34cdfc52b1950d2b495e21bfbee737d895f5",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:30800437e17235c638546a43b96ba81c3ad856d51eb19ec0b6f5005b0f3ed10f",
+        "fingerprint": "sha256:1eaa9b8ce33db5e6096b9d43449456ab4da5bbfce52de318b3cac8c52215b8ee",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:25a10d49f8fa94073f3168dca6fae3c5012ad04f3571a13c7ab628efdb564ada",
+        "fingerprint": "sha256:89014fabcdbcdf01cd265441c2448e74bb5ff92574d26df97099aaffda12003b",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -223,7 +223,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:24a4ba3085d58d98cbd279eb90334e8ed3cbb9825b82ce82f141551140451b4d",
+        "fingerprint": "sha256:da2fd00f890bfbea649aa2e635ef282deb388a5b70468560d07992f6e4b5f2d8",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -2774,7 +2774,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:a5c9e7d2f914559dfa3bcd7f32d775b938d9382643dc1a9ddf22624e5b15fbc4",
+        "fingerprint": "sha256:8c32da0e28a375c98a98aba4cffa9e5fe28a9ea35f871c758763007d16450ba6",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -2794,7 +2794,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:ded7adbc3f109c0db2dd1dce9304f1d02e39b99c9654be57beaa03ec127cfe65",
+        "fingerprint": "sha256:88f4e840cfc41d1450533a808cfb55f9490411ac34dcf717b4e16791235edefe",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -2814,7 +2814,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:3b9644d47107bb4ebb16ea5f2f3a12a16e328ef9a5728dba2963a8ded0e84085",
+        "fingerprint": "sha256:3ce59d444947aa28136927a76f75f7969a77d5cb5609c53b9fb6c21f1c17af5f",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -2834,7 +2834,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:feb428b09da3233ce325759b854b79e5353beee74db2fde669da19270b3de2d0",
+        "fingerprint": "sha256:03aacb8035a25354def5a080e18ccb2098c8a00f2498e2ec35cb148002c7c787",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -2854,7 +2854,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:ce4f565eb7eb7e5e31e4581a41f33f8e4205a40388254fcd045493c5e729c713",
+        "fingerprint": "sha256:39ec5855ac54c4b789223fbd32d9d79bb1c44ecd308f6785119174d35812d801",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:0e6196d82915b93736a8e579bc24357c23c85104b3c4c403fd09c7a6c20c93a7",
+        "fingerprint": "sha256:c83401fdf3dafe5191d177ac2f2968c2bd6f32ccb49a4ca09b7377ff9aecf723",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6570,7 +6570,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:1d12a2e2f3373f5dd8abcac22176c91962c5a84ccb85dd910d7d2be2f4c2dad9",
+        "fingerprint": "sha256:4038530d547857ae689c35d571254e19c3b39d3ff4b1cc640d29ad7c99147b30",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -6985,7 +6985,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:1913cec43ef240f777fb868167141c51f9c0f7d707c1f0bb69077f3cda0f60c9",
+        "fingerprint": "sha256:d89bd58185066c18eee4ec42ca3e71e5eb0ee33c1d565bba85870037e97e4bf9",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10957,7 +10957,7 @@
       },
       "slug": "review_integrity",
       "source": {
-        "fingerprint": "sha256:f32b1e0d7f5b600c17b522bcde5d17c395e8c16afabc9d6363e3c9c826eadaf7",
+        "fingerprint": "sha256:ac86d4f51e5e04e72f1f508ad0a85ff6cb6fe4e5f79cd6460be180c833417a4c",
         "path": ".engine/tools/review_integrity.py"
       },
       "status": "active",
@@ -11920,7 +11920,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:590a89774b59b2cdf5699a34ed536a1fa6221a9cf069f3442205f8e541038cb4",
+        "fingerprint": "sha256:4e3882929f7824d9878adc77e5a3e6c468c8df27cbddcc649c7ce3848bf74745",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -14512,7 +14512,7 @@
       },
       "slug": "test_review_integrity",
       "source": {
-        "fingerprint": "sha256:794ace60033754331ff6cff77bfe536ab2574d3ff275c4246c738d81548834a4",
+        "fingerprint": "sha256:fc0faf93e60d9a33aedd51b0fafdf410b976ae7f6396b47cb02d33058743c1d7",
         "path": ".engine/tools/test_review_integrity.py"
       },
       "status": "active",
@@ -15516,7 +15516,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:64803acf28e043d39f521a444097063c11483f1e328d49ea5a7246e0e296706c",
+        "fingerprint": "sha256:a9a5280b4c9648433940986e011ce5c108f551bd17d9aee72c6b217d2798a88f",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

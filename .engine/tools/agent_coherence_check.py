@@ -63,8 +63,8 @@ _GIT_SAFETY_MESSAGE = (
     "Persona '{name}' keeps the Bash shell but its body is missing the git-safety recipe a "
     "shell-capable review persona must carry (missing: {missing}). A review agent that runs commands "
     "must work only in a throwaway copy it makes itself; add the recipe to .claude/agents/{name}.md — "
-    "clone the tracked tree into a fresh throwaway directory with engine_fixture.clone_engine() and run "
-    "only there, never `git worktree add` from an existing checkout (a worktree shares its .git/config, "
+    "clone the tracked engine files into a fresh throwaway directory with engine_fixture.clone_engine() and "
+    "run only there, never `git worktree add` from an existing checkout (a worktree shares its .git/config, "
     "so a remote change inside it repoints the real one), and never stash/checkout/switch/reset or "
     "change a remote in a checkout you did not create.")
 

@@ -47,6 +47,11 @@
       "id": "checkout-integrity",
       "command": [],
       "required": true
+    },
+    {
+      "id": "checkout-worktrees",
+      "command": [],
+      "required": false
     }
   ],
   "hard_holds": [
