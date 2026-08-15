@@ -1608,6 +1608,9 @@
   ".engine/tools/repo_identity.py": [
    "core"
   ],
+  ".engine/tools/review_integrity.py": [
+   "core"
+  ],
   ".engine/tools/scent.py": [
    "core"
   ],
@@ -1921,6 +1924,9 @@
    "core"
   ],
   ".engine/tools/test_retired_settings.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_integrity.py": [
    "core"
   ],
   ".engine/tools/test_scent.py": [

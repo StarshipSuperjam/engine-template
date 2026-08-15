@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:ed19dcbf0c5829e42468a7707ddf42c5eeb5a2ac8c34364d3a0a3810edd77722",
+        "fingerprint": "sha256:fc484d8f2bfb51feff64c1effb0c3c1a5db6b3565eaeec8be5d727d3258407a2",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:62678995757a86e0442eadf0742a4ba5c27d4728d43702e5c43ea59d1c26409d",
+        "fingerprint": "sha256:85234df5e6959bf5e86e466482183f2d6bb1fdb3739de5bdb90a7834d99332c1",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:edd58a7b6e6f1e26d80e8f3cf0fe5ee6327423173083c6b08214c694c17dcbd4",
+        "fingerprint": "sha256:30800437e17235c638546a43b96ba81c3ad856d51eb19ec0b6f5005b0f3ed10f",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:48184d63b9d379a3a8a0243155cbd2c96d45084da0a36e8d2dbdb785f8687ceb",
+        "fingerprint": "sha256:25a10d49f8fa94073f3168dca6fae3c5012ad04f3571a13c7ab628efdb564ada",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -223,7 +223,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:599543d0a97af47db1472972dd6ddc762d824daedd3474063f27d0f989143f73",
+        "fingerprint": "sha256:24a4ba3085d58d98cbd279eb90334e8ed3cbb9825b82ce82f141551140451b4d",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -247,7 +247,7 @@
       },
       "slug": "agent-coherence",
       "source": {
-        "fingerprint": "sha256:c66350f46d20bc8c8eb406d0c9ab211d29da998c87d345e49fdf3c12c40f202e",
+        "fingerprint": "sha256:f358569688476701be54fff37d01f87df0147433673a928b74b64990da61ce74",
         "path": ".engine/check/agent-coherence.json"
       },
       "status": "active",
@@ -2774,7 +2774,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:724284e2fca6ccd5826f5feb747c558150d47db6575bc0329b9cca81a40ebc7b",
+        "fingerprint": "sha256:a5c9e7d2f914559dfa3bcd7f32d775b938d9382643dc1a9ddf22624e5b15fbc4",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -2794,7 +2794,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:b156ab9822cd3820e5dc215dd12d717eec00a0dc687c140196ab1b071decd389",
+        "fingerprint": "sha256:ded7adbc3f109c0db2dd1dce9304f1d02e39b99c9654be57beaa03ec127cfe65",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -2814,7 +2814,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:2c799c7427db96b919dc6fde217c7c0670b6fd0664b14590e869d50bd00f005c",
+        "fingerprint": "sha256:3b9644d47107bb4ebb16ea5f2f3a12a16e328ef9a5728dba2963a8ded0e84085",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -2834,7 +2834,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:87f47eccb9f31f8930c5432f42c5517d36dfb0d069dbd7c791432cd077ae05b5",
+        "fingerprint": "sha256:feb428b09da3233ce325759b854b79e5353beee74db2fde669da19270b3de2d0",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -2854,7 +2854,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:c1f0ef1983472042083cd0fb4dd13684f1b639849d363907af4f1d715c378550",
+        "fingerprint": "sha256:ce4f565eb7eb7e5e31e4581a41f33f8e4205a40388254fcd045493c5e729c713",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c1e93a2ec40677a768922e276e9baa76c7b74390a9ab8999acb83079bad56d09",
+        "fingerprint": "sha256:e4796ac6d62edf9f5eb018c736dadc3540ff340034c42d5dd0ab8aa4707a028a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6570,7 +6570,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:28d234a1512590c3c9a001047c6bc44e0409e54cd34e200b7b614e55c1dadd72",
+        "fingerprint": "sha256:1d12a2e2f3373f5dd8abcac22176c91962c5a84ccb85dd910d7d2be2f4c2dad9",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -10944,6 +10944,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:review_integrity",
+      "name": ".engine/tools/review_integrity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "review_integrity",
+      "source": {
+        "fingerprint": "sha256:249bfe6332dc5dcb8e7e5a8957cf20f88f56f7f1ec6a798f9327fc1ec59ff738",
+        "path": ".engine/tools/review_integrity.py"
+      },
+      "status": "active",
+      "summary": "Post-review checkout-integrity guard (StarshipSuperjam/engine-template#947).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:rollback",
@@ -11560,7 +11580,7 @@
       },
       "slug": "test_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:ae75dc0835152961153ec07febab694cd2f52b0b2d95f5bf9a03ffa0d7a8243f",
+        "fingerprint": "sha256:d55b252b0808315d1674c9df74a70f674e9fd3161ea67057df3134e5c28ba4ee",
         "path": ".engine/tools/test_agent_coherence_check.py"
       },
       "status": "active",
@@ -14478,6 +14498,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_review_integrity",
+      "name": ".engine/tools/test_review_integrity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:review_integrity"
+        ]
+      },
+      "slug": "test_review_integrity",
+      "source": {
+        "fingerprint": "sha256:f7d7e481c27c99cc696ba76d2c8eef552bd5f4ecc43abf9af87178b53bbda3bc",
+        "path": ".engine/tools/test_review_integrity.py"
+      },
+      "status": "active",
+      "summary": "Tests for the post-review checkout-integrity guard (StarshipSuperjam/engine-template#947). Builds throwaway git",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_rollback",
       "name": ".engine/tools/migration_discipline/test_rollback.py",
       "owner": "migration-discipline",
@@ -15449,7 +15492,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:1a66cf18e3363b8d56c022793fb1d11b55e5982ea1a2d3319e19035116100803",
+        "fingerprint": "sha256:64803acf28e043d39f521a444097063c11483f1e328d49ea5a7246e0e296706c",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
