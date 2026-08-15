@@ -4624,7 +4624,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:e4796ac6d62edf9f5eb018c736dadc3540ff340034c42d5dd0ab8aa4707a028a",
+        "fingerprint": "sha256:d18a7e7eaa966aa4328f438d07b3bf500d896d7c68694ade02c3ed7a0e323271",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10956,7 +10956,7 @@
       },
       "slug": "review_integrity",
       "source": {
-        "fingerprint": "sha256:249bfe6332dc5dcb8e7e5a8957cf20f88f56f7f1ec6a798f9327fc1ec59ff738",
+        "fingerprint": "sha256:174699677cfa394a5d67155231e1c9a2c6ebb036d0ecbefbc05e7685f6de24da",
         "path": ".engine/tools/review_integrity.py"
       },
       "status": "active",

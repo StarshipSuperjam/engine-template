@@ -6,7 +6,7 @@ A review fan-out must never mutate the git state of a checkout it did not create
 rewrote a shared checkout's `origin` (worktrees share `.git/config`) and left orphan worktree
 registrations behind. The durable defence is the copy-based recipe now required in every
 shell-capable review persona (agent_coherence_check.git_safety_findings). THIS tool is the mechanical
-backstop that promotes the #935 repair sequence into a step the orchestrator runs around the review
+backstop that promotes the StarshipSuperjam/engine-template#935 repair sequence into a step the orchestrator runs around the review
 gate: snapshot the mutation-sensitive git state before launching the passes, verify it unchanged
 after.
 
@@ -100,7 +100,7 @@ def snapshot(checkout: str) -> dict:
 
 def compare(before: dict, after: dict) -> list:
     """Plain-language descriptions of every mutation-sensitive fact that moved between two snapshots.
-    Empty when nothing moved. Each line names what changed in terms the #947 incidents used, so the
+    Empty when nothing moved. Each line names what changed in terms the StarshipSuperjam/engine-template#947 incidents used, so the
     orchestrator (and the operator) can see at a glance whether a review disturbed the checkout."""
     changes: list = []
     if before.get("origin") != after.get("origin"):
@@ -145,7 +145,7 @@ def _demo() -> int:
     """An operator-runnable demonstration over the REAL guard, in a throwaway git repo — nothing on
     disk outside the temp directory changes. It shows the guard staying silent when a checkout is
     untouched, and turning RED when a simulated bad review repoints origin, adds a stray worktree, and
-    stashes — the exact three mutations #947 is about."""
+    stashes — the exact three mutations StarshipSuperjam/engine-template#947 is about."""
     with tempfile.TemporaryDirectory() as tmp:
         main = os.path.join(tmp, "checkout")
         os.makedirs(main)
@@ -173,7 +173,7 @@ def _demo() -> int:
         print(f"  -> integrity check: {'RED' if clean['mutated'] else 'all clear'} "
               f"({'; '.join(clean['changes']) if clean['changes'] else 'the checkout is untouched'})\n")
 
-        # Simulate the #947 incidents: repoint origin, add a stray worktree, stash working state.
+        # Simulate the StarshipSuperjam/engine-template#947 incidents: repoint origin, add a stray worktree, stash working state.
         _git(["remote", "set-url", "origin", "https://github.com/attacker/fake.git"], main)
         _git(["worktree", "add", "-q", os.path.join(tmp, "stray"), "-b", "stray"], main)
         with open(os.path.join(main, "f.txt"), "w") as fh:

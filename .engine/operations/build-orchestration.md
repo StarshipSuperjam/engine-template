@@ -179,13 +179,10 @@ higher-authority comparison rather than enabling review. The divergence hunter r
 against intent, plan, non-goals, and any settled criteria. Other installed reviewers judge usability,
 technical integrity, and release safety according to approved depth.
 
-A review pass may run the operator's code, and each shell-capable persona is required to do so only in a
-throwaway copy it makes itself (never a worktree of, or a remote change to, a checkout it did not create).
-As the mechanical backstop to that recipe, snapshot the checkout's git state with
-`review_integrity.py snapshot <checkout>` before launching the passes and `review_integrity.py verify
-<checkout>` after; a flagged mutation — an origin repoint, a stray worktree registration, or an unexpected
-stash — is investigated before the deliverable is trusted. Offline and read-only, so it is safe to run
-against the shared checkout.
+A review pass may run the operator's code, so each shell-capable persona must run it only in a throwaway
+copy it makes itself — never worktree-ing or repointing a checkout it did not create. As the backstop,
+`review_integrity.py snapshot <checkout>` before the passes and `verify <checkout>` after (offline,
+read-only) flag an origin repoint, stray worktree, or stash to investigate before trusting the deliverable.
 
 Record the reviewed commit and critically adjudicate findings. After accepted repairs, measure
 reviewed-to-final divergence with `repair assess` and make one engineering judgment:
