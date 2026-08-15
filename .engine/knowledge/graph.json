@@ -14521,6 +14521,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_review_recipe_equivalence",
+      "name": ".engine/tools/test_review_recipe_equivalence.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:engine_fixture"
+        ]
+      },
+      "slug": "test_review_recipe_equivalence",
+      "source": {
+        "fingerprint": "sha256:64bd59494e7ef3817992776d74fee51efd85245b936f030d4f9b16c88e5efa11",
+        "path": ".engine/tools/test_review_recipe_equivalence.py"
+      },
+      "status": "active",
+      "summary": "Equivalence proof for the copy-based review recipe (StarshipSuperjam/engine-template#947, fix c).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_rollback",
       "name": ".engine/tools/migration_discipline/test_rollback.py",
       "owner": "migration-discipline",

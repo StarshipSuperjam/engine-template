@@ -1929,6 +1929,9 @@
   ".engine/tools/test_review_integrity.py": [
    "core"
   ],
+  ".engine/tools/test_review_recipe_equivalence.py": [
+   "core"
+  ],
   ".engine/tools/test_scent.py": [
    "core"
   ],
