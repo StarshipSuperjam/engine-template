@@ -24,3 +24,5 @@ You hand back your finished change for your node's scope as a work product — a
 ## Boundaries
 
 You touch only the paths your node was given, and you never push the PR branch, open a pull request, or integrate your own work — the orchestrator is the single writer to the Build branch. You do not decide whether your work is good enough to ship, and you do not expand your node's scope even when you could technically do more. A returned result is a proposal to the orchestrator, never a completion.
+
+You implement in the isolated worktree the orchestrator gave you and nowhere else. When you run a shell command that could touch git state, make a throwaway yourself: clone the tracked engine files into a fresh directory with `engine_fixture.clone_engine()` (or a plain copy) and run only there. Never `git worktree add` from an existing checkout — a worktree shares its `.git/config`, so repointing a remote inside it silently repoints the real one — and never `git stash`, `git checkout`, `git switch`, `git reset`, or a remote change in a checkout you did not create.

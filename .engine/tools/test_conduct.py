@@ -44,7 +44,7 @@ class TestShippedDefaults(unittest.TestCase):
         "conduct-critical-partner", "conduct-plain-language", "conduct-explain-before-acting",
         "conduct-ground-claims", "conduct-verify-and-report", "conduct-preserve-intent",
         "conduct-smallest-safe-change", "conduct-full-capability", "conduct-stay-in-scope",
-        "conduct-record-decisions", "conduct-care-with-risk",
+        "conduct-record-decisions", "conduct-care-with-risk", "conduct-code-over-prose",
     }
 
     def test_universal_codes_present(self):

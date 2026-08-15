@@ -23,6 +23,7 @@ import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
 import repo_identity
+import review_integrity
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
@@ -186,7 +187,8 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "approval": None, "reviews": {"plan": _empty_review(), "deliverable": _empty_review()},
         "findings": [], "checkpoint": None, "progress": {"current_item": None, "completed": []},
         "validation": None, "repair": None,
-        "preflights": [], "pr_contract": None, "submission": "draft"
+        "preflights": [], "pr_contract": None, "submission": "draft",
+        "checkout_snapshot": None
     }
     if _plan_version(plan) == "build-plan.v2":
         state["schema_version"] = "build-state.v2"
@@ -581,6 +583,7 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
         state["work"] = {}
     state["checkpoint"] = state["validation"] = state["repair"] = state["pr_contract"] = None
     state["preflights"] = []
+    state["checkout_snapshot"] = None
 
 
 def cmd_plan_revise(args, store: StateStore) -> None:
@@ -615,6 +618,7 @@ def cmd_approve(args, store: StateStore) -> None:
             state["findings"] = []
             state["validation"] = state["repair"] = state["pr_contract"] = None
             state["preflights"] = []
+            state["checkout_snapshot"] = None
         state["plan"]["spec_digest"] = canonical_spec["digest"]
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": canonical_spec["digest"], "depth": args.depth}
     store.mutate(change, from_revision=state["revision"])
@@ -786,6 +790,10 @@ def _packet(args, store: StateStore | None) -> None:
         packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
+    # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
+    # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
+    # implementation and drives no throwaway-copy execution, so it needs no baseline.
+    checkout_baseline = review_integrity.snapshot(str(ROOT)) if stage != "plan" else None
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
@@ -808,10 +816,17 @@ def _packet(args, store: StateStore | None) -> None:
                            "base_commit": packet["base_commit"], "waiver": None})
             s["findings"] = [f for f in s["findings"] if f["stage"] != stage
                              or f["packet_digest"] in preserved_packets]
+        if checkout_baseline is not None:
+            s["checkout_snapshot"] = checkout_baseline
     if stable:
         stable.__exit__(None, None, None)
     if not unchanged:
         store.mutate(change, from_revision=revision)
+    elif checkout_baseline is not None:
+        # The packet is unchanged, so receipts and findings stand — but a re-issue marks a fresh review
+        # fan-out, so refresh the checkout baseline to now (the documented "re-captured at the next review
+        # packet"); otherwise the preflight would compare against a stale, arbitrarily-old baseline.
+        store.mutate(lambda s: s.update({"checkout_snapshot": checkout_baseline}), from_revision=revision)
     _emit_packet(packet, args)
 
 
@@ -1062,6 +1077,28 @@ def cmd_preflight(args, store: StateStore) -> None:
         profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
         declarations = _hard_check_declarations()
         declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
+        # Checkout-integrity (StarshipSuperjam/engine-template#947): a required preflight that verifies the review fan-out did
+        # not mutate the build checkout's git state, comparing against the snapshot captured when the
+        # deliverable/repair review packet was created. `head` and `worktrees` are ignored — repair commits
+        # legitimately advance HEAD and a concurrent peer may add a worktree — leaving origin, branch, and
+        # stash, none of which a review ever legitimately changes. Inert (passes) until a baseline exists.
+        ci_snap = state.get("checkout_snapshot")
+        if ci_snap:
+            ci = review_integrity.verify(str(ROOT), ci_snap, ignore={"head", "worktrees"})
+            ci_passed = not ci["mutated"]
+            ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
+                          if ci_passed else "; ".join(ci["changes"]))
+            # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
+            # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
+            # SURFACED here, never used to block — the required leg above stays free of that false positive.
+            wt_changes = review_integrity.compare(ci_snap, ci["after"],
+                                                  ignore={"origin", "branch", "head", "stash"})
+            wt_passed = not wt_changes
+            wt_summary = ("worktree registry unchanged since the review packet"
+                          if wt_passed else "; ".join(wt_changes))
+        else:
+            ci_passed = wt_passed = True
+            ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
         results = [
             {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
             {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
@@ -1071,6 +1108,8 @@ def cmd_preflight(args, store: StateStore) -> None:
             {"id": "hard-check-declarations", "commit": head, "passed": True,
              "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
                          f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
+            {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
+            {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
         ]
         def change(s):
             s["preflights"] = results
@@ -1079,12 +1118,16 @@ def cmd_preflight(args, store: StateStore) -> None:
     if getattr(args, "json", False):
         print(json.dumps(results, indent=2, sort_keys=True))
     else:
-        required_failures = [item["id"] for item in results if item["id"] == "pr-contract" and not item["passed"]]
-        advisory = [item["id"] for item in results if item["id"] != "pr-contract" and not item["passed"]]
+        required_ids = {"pr-contract", "checkout-integrity"}
+        required_failures = [item["id"] for item in results if item["id"] in required_ids and not item["passed"]]
+        advisory = [item["id"] for item in results if item["id"] not in required_ids and not item["passed"]]
         print(f"preflight recorded for {head[:12]}: required failures {len(required_failures)}, "
               f"advisory findings {len(advisory)}, {len(declarations)} applicable hard-check declaration(s)")
     if not contract_passed:
         raise CoordinatorError("the required PR-contract preflight needs attention")
+    if not ci_passed:
+        raise CoordinatorError("the checkout-integrity preflight failed — a review pass appears to have "
+                               "mutated the build checkout: " + ci_summary)
 
 
 def _handoff(state: dict) -> dict:
@@ -1189,7 +1232,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
                          for f in value["finding_summaries"]],
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
-            "pr_contract": value["pr_contract"], "submission": "draft"}
+            "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None}
 
 
 def _restore_work(work_map: dict) -> dict:

@@ -123,6 +123,17 @@ class TestDesignReviewRosterCoherence(unittest.TestCase):
         self.assertTrue(LENSES.issubset(lenses),
                         f"the plan-review roster must carry all four lenses; saw {sorted(lenses)}")
 
+    def test_architecture_lens_owns_the_medium_boundary(self):
+        # Locks the load-bearing clause that makes deterministic-content-lodged-in-prose a structural
+        # finding the architecture lens must raise — together with its judgement carve-out, so the
+        # criterion cannot silently decay into a trigger that over-fires on judgement-carrying runbooks
+        # or on tier-3 conduct posture (both are prose's proper home).
+        body = validate.read(os.path.join(AGENTS_DIR, PERSONA_FILES["architecture"]))
+        self.assertIn("a machine could decide and check", body,
+                      "the architecture lens must own the deterministic-content-in-prose boundary")
+        self.assertIn("no per-case judgement", body,
+                      "the medium criterion must keep its judgement carve-out")
+
 
 class TestDesignReviewInstallRecord(unittest.TestCase):
     """The module is recorded three ways (manifest, engine.json, catalog), each valid against its schema."""

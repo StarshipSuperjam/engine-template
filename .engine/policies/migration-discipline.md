@@ -41,8 +41,11 @@ the risk, and at least one safer way to reach the same result (back up first, or
 the decision is yours, made with enough to judge it, not a blank "are you sure?".
 
 This protection is only as good as the engine *recognising* the risk in the moment — there is no automatic
-scanner watching your migrations. Its real backstop is the pull request you review and approve: nothing
-reaches your main branch without passing through you.
+scanner watching your migrations, and none reads your SQL to judge it destructive. So recognition rests on the
+engine noticing and stopping, not on a merge-time detector or on your reading the migration yourself. What the
+pull request adds is **visibility and consent**: every migration is in front of you at the merge gate before
+it can reach your main branch — you approve the change, and are not expected to audit the SQL for a danger the
+engine failed to flag.
 
 ## Enforcement-tier
 
@@ -57,8 +60,10 @@ reaches your main branch without passing through you.
   Prisma) and tools that keep the rollback inside the migration file (such as Rails, Django, or Alembic), it
   **says so plainly rather than passing silently**, and when there are no migrations yet it says that too. It
   looks only at whether a separate rollback file is *present*: it never reads your SQL, never judges whether a
-  migration is safe or destructive, and never checks whether a schema change has a migration at all — your
-  pull-request review and the standing posture above cover those. It never blocks a merge and never changes a
-  file; it is a hygiene nudge, not a guarantee.
-- **Your backstop, always:** every migration still appears in the pull request you review and approve — the
-  final human gate nothing merges without.
+  migration is safe or destructive, and never checks whether a schema change has a migration at all — the
+  standing posture above (the engine recognising the risk and stopping) is what covers those, not a review of
+  the SQL at merge. It never blocks a merge and never changes a file; it is a hygiene nudge, not a guarantee.
+- **Always in front of you:** every migration still appears in the pull request you approve — the consent gate
+  nothing reaches your main branch without. That visibility is real, but it is your consent to the change, not
+  a second reader who will catch a destructive migration the engine missed; recognising that danger rests on
+  the posture above, not on your reading the SQL.

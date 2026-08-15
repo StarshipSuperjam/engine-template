@@ -33,12 +33,12 @@ CLI (operator-runnable, falsifiable — the live net is what the workflow invoke
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import issue_event  # noqa: E402  (the shared on:issues event-parsing boundary)
 import issue_label_client  # noqa: E402  (the shared per-Issue label client + injectable transport)
 
 USER_AGENT = "engine-issue-kind-label"
@@ -83,11 +83,6 @@ def native_label_for_title(title) -> "str | None":
     return _NATIVE_BY_KIND[m.group(1).strip().lower()]
 
 
-def _labels_of(issue: dict) -> list:
-    """The label names on an issue event payload (`.issue.labels[].name`), defensively."""
-    return [lab.get("name") for lab in (issue.get("labels") or []) if isinstance(lab, dict)]
-
-
 def apply_kind_label(issue: dict, client) -> str:
     """Ensure the title-derived native label is present on one Issue, idempotently and WITHOUT ever creating it.
     Returns a short action word for the log/demo. Assumes `issue` has a numeric `number`. Any GitHub failure
@@ -96,7 +91,7 @@ def apply_kind_label(issue: dict, client) -> str:
     native = native_label_for_title(issue.get("title") or "")
     if native is None:
         return "no-kind"
-    if native in _labels_of(issue):
+    if native in issue_event.labels_of(issue):
         return "already"
     if not client.label_exists(native):
         return "absent"                      # the repo owner removed this default — skip, never mint
@@ -104,44 +99,19 @@ def apply_kind_label(issue: dict, client) -> str:
     return "labelled"
 
 
-def _issue_or_none(event):
-    """The issue dict from an issues-event payload IFF it has a numeric id; else None (the caller no-ops). Unlike
-    the conformance net, this applies to ANY Issue — the kind axis is orthogonal to the `engine` label."""
-    if not isinstance(event, dict):
-        return None
-    issue = event.get("issue")
-    if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
-        return None
-    return issue
-
-
-def _load_event():
-    """The issue event JSON from $GITHUB_EVENT_PATH (read from the file, never a shell-interpolated argument),
-    or None when unavailable/unreadable (a local run, a partial event) → the caller no-ops quietly."""
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path or not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return None
-
-
 def _run() -> int:
-    event = _load_event()
+    event = issue_event.load_event()
     if event is None:
         print("kind-label: no readable issue event — nothing to do.")
         return 0
-    issue = _issue_or_none(event)
-    if issue is None:
+    issue = issue_event.issue_or_none(event)   # scope-free: any Issue with a numeric id (the kind axis is
+    if issue is None:                          # orthogonal to the `engine` label — no label gate here)
         print("kind-label: no issue in the event — no action.")
         return 0
     if native_label_for_title(issue.get("title") or "") is None:
         print("kind-label: title has no mappable kind — no action.")
         return 0
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    token = os.environ.get("GITHUB_TOKEN")
+    repo, token = issue_event.resolve_repo_token()
     if not repo or not token:
         print("kind-label: GITHUB_REPOSITORY / GITHUB_TOKEN unset — cannot reach GitHub.", file=sys.stderr)
         return 1
@@ -229,7 +199,7 @@ def _demo() -> int:
           action4 == "already" and gh4.issue_label_adds() == [])
 
     # 5. out-of-scope events are filtered before any client is built
-    check("partial/malformed event: out of scope", _issue_or_none({"issue": None}) is None)
+    check("partial/malformed event: out of scope", issue_event.issue_or_none({"issue": None}) is None)
 
     # 6. the mapping itself — the load-bearing derivation, spot-checked across kinds + edge cases
     cases = {

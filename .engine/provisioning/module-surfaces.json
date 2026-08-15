@@ -1293,6 +1293,9 @@
   ".engine/tools/issue_conformance_ci.py": [
    "core"
   ],
+  ".engine/tools/issue_event.py": [
+   "core"
+  ],
   ".engine/tools/issue_gate.py": [
    "core"
   ],
@@ -1626,6 +1629,9 @@
   ".engine/tools/repo_identity.py": [
    "core"
   ],
+  ".engine/tools/review_integrity.py": [
+   "core"
+  ],
   ".engine/tools/scent.py": [
    "core"
   ],
@@ -1833,6 +1839,9 @@
   ".engine/tools/test_issue_conformance_ci.py": [
    "core"
   ],
+  ".engine/tools/test_issue_event.py": [
+   "core"
+  ],
   ".engine/tools/test_issue_gate.py": [
    "core"
   ],
@@ -1945,6 +1954,12 @@
    "core"
   ],
   ".engine/tools/test_retired_settings.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_integrity.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_recipe_equivalence.py": [
    "core"
   ],
   ".engine/tools/test_scent.py": [

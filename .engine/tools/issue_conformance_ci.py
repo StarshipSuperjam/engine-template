@@ -42,12 +42,12 @@ CLI (operator-runnable, falsifiable — the live net is what the workflow invoke
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
+import issue_event   # noqa: E402  (the shared on:issues event-parsing boundary)
 import issue_gate    # noqa: E402
 import issue_label_client  # noqa: E402  (the shared per-Issue label client + injectable transport)
 from issue_label_client import DegradedWriteError  # noqa: E402,F401  (re-exported: callers use icc.DegradedWriteError)
@@ -130,20 +130,14 @@ def skeleton_comment() -> str:
     )
 
 
-def _labels_of(issue: dict) -> list:
-    """The label names on an issue event payload (`.issue.labels[].name`), defensively."""
-    return [lab.get("name") for lab in (issue.get("labels") or []) if isinstance(lab, dict)]
-
-
 def engine_issue_or_none(event):
     """The issue dict from an issues-event payload IFF it is an engine-labelled Issue with a numeric id;
-    otherwise None (out of scope → the caller no-ops, no GitHub call). Defensive against a partial event."""
-    if not isinstance(event, dict):
+    otherwise None (out of scope → the caller no-ops, no GitHub call). This backstop's OWN scope: the
+    scope-free numeric-id extraction is shared (issue_event.issue_or_none), the `engine`-label gate is local."""
+    issue = issue_event.issue_or_none(event)
+    if issue is None:
         return None
-    issue = event.get("issue")
-    if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
-        return None
-    if issue_gate.ENGINE_LABEL not in _labels_of(issue):
+    if issue_gate.ENGINE_LABEL not in issue_event.labels_of(issue):
         return None
     return issue
 
@@ -153,7 +147,7 @@ def reconcile(issue: dict, client: IssueConformanceClient) -> str:
     short action word for the log/demo. Assumes `issue` is already known engine-labelled with a numeric id
     (engine_issue_or_none). Any GitHub failure propagates as DegradedWriteError (→ a red run)."""
     number = issue["number"]
-    labels = _labels_of(issue)
+    labels = issue_event.labels_of(issue)
     body = issue.get("body") or ""
     if _is_conforming(body):
         if NEEDS_REAUTHORING_LABEL in labels:   # a conform-after-edit: tidy the flag, never leave a chore
@@ -168,22 +162,8 @@ def reconcile(issue: dict, client: IssueConformanceClient) -> str:
     return "flagged"
 
 
-def _load_event():
-    """The issue event JSON from $GITHUB_EVENT_PATH (the safe pattern of validate.get_pr_body — read from the
-    file, never a shell-interpolated argument), or None when unavailable/unreadable (a local run, a partial
-    event) → the caller no-ops quietly."""
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path or not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return None
-
-
 def _run() -> int:
-    event = _load_event()
+    event = issue_event.load_event()
     if event is None:
         print("issue-conformance: no readable issue event — nothing to check.")
         return 0
@@ -191,8 +171,7 @@ def _run() -> int:
     if issue is None:
         print("issue-conformance: not an engine-labelled issue — no action.")
         return 0
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    token = os.environ.get("GITHUB_TOKEN")
+    repo, token = issue_event.resolve_repo_token()
     if not repo or not token:
         # An engine-labelled Issue we cannot act on (no token/repo): surface it as a red run, not a silent pass.
         print("issue-conformance: GITHUB_REPOSITORY / GITHUB_TOKEN unset — cannot reach GitHub.", file=sys.stderr)
