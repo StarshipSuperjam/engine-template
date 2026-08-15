@@ -1605,7 +1605,7 @@
       },
       "slug": "migration-rollback",
       "source": {
-        "fingerprint": "sha256:99cf615c1b3e87578d39f53f51b348db4627e998868c3d5784435304cdf2a506",
+        "fingerprint": "sha256:bf5b61657452753bb51f0a04e6546b0ee3b5de2152e201dd78c3dc2b6978d007",
         "path": ".engine/check/migration-rollback.json"
       },
       "status": "active",
@@ -4684,7 +4684,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:2fcab34c784f836cd2a8ea3d1115cd9f9fdc5388b7cbffb29fa6a03b664f8b67",
+        "fingerprint": "sha256:5a26629e3650f1910bcfe0f34083a1f5897c481d27ffa90460d5174d4b2bd3e1",
         "path": ".engine/operations/close-turn.md"
       },
       "status": "active",
@@ -5288,7 +5288,7 @@
       },
       "slug": "escalation",
       "source": {
-        "fingerprint": "sha256:1afa7a089840a32b3ece65f138e418dad06150e0f3863385c9e3f5ecf1becb22",
+        "fingerprint": "sha256:11a0007dc70b69d7bb86c637d8662c69027cd9e966ed6f10fa019834e020e006",
         "path": ".engine/policies/escalation.md"
       },
       "status": "active",
@@ -5330,7 +5330,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:d1ef795c9eef11f4296033b259620a37a695e4090490d4085221f0032b59eb66",
+        "fingerprint": "sha256:cfbd955e37d30c0a997d51af7c7d016a8baf2d8fc875a2f56cc962cfa195f921",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -5351,7 +5351,7 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:3a9e38d1cdb5cf67a4712380e1e23a8eef09b1d349b6dd40941368ab461f9ef3",
+        "fingerprint": "sha256:39280b56a17d3dea772fa3f9cdfab668b0e5d0da8460c6de14fe514a426257e1",
         "path": ".engine/policies/migration-discipline.md"
       },
       "status": "active",
@@ -5433,7 +5433,7 @@
       },
       "slug": "spec-structure-integrity",
       "source": {
-        "fingerprint": "sha256:92823596b1a938f11d3e738238d7d1f93a8d2691a23b27a69e7ab6e7a38ed782",
+        "fingerprint": "sha256:56c81668df38c9c2146ba1f1e963206a486a03d1f645b8639e1c0b25602d249c",
         "path": ".engine/policies/spec-structure-integrity.md"
       },
       "status": "active",

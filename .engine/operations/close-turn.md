@@ -43,8 +43,10 @@ handled — 1 fixed, 1 saved as a follow-up item" — instead of leaving you to 
 
 The gate is a **strong default over what was recorded, not an absolute guarantee** — stated honestly, never
 overstated. It can only hold a turn on a concern that was actually written down (writing concerns down is the
-session's discipline); a concern noticed but never recorded is not caught here. The one unbypassable backstop
-is **the human review when a change is merged** — the change set is reviewed there regardless of anything the
+session's discipline); a concern noticed but never recorded is not caught here — nor at the merge, where the
+operator consents on the evidence in front of them (the mechanical checks and the demonstrations they run,
+per eADR-0013) rather than reading the diff for a concern no one wrote down. What the protected-branch merge
+does guarantee is that the **recorded** change set passes through that consent gate regardless of anything the
 turn-end gate did. If the gate itself cannot run, it lets the turn **end** (it never strands you mid-turn) and
 says so, with the work flagged for a closer look.
 

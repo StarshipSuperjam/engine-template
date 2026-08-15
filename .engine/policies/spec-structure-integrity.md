@@ -42,5 +42,9 @@ dismantling the structure is not, and no phrasing of a "keep it light" instructi
   a missing backbone document is a hard finding; a description with no recorded depth is nudged, not blocked.
   It does **not** catch a session that authors a product description entirely outside the module (no structure
   to inspect) — that path is held by the intake being the default route and by the review below.
-- **The durable backstop is the human review at the protected-branch merge** — a structural collapse that
-  slips every step above is still caught there. No local check is the guarantee.
+- **The protected-branch merge is the durable gate — but it is the operator's consent on evidence, not a
+  structural audit.** The operator approves on the mechanical checks and the demonstrations they can run
+  (eADR-0013); they are not expected to read a description's structure to catch a collapse the form check
+  could not. So the one path the check cannot see — a product description authored entirely outside the
+  module — is held by the intake being the default route and by the authoring posture above, and is named
+  plainly as a residual that rests on posture, not on a reader at merge.
