@@ -208,16 +208,16 @@ def _replace_plan_block(body: str, plan: dict) -> str:
 
 
 def _durable_plan(body: str) -> dict:
-    return github.durable_plan(body, plan_schema=PLAN_SCHEMA)
+    return github.durable_plan(body, plan_schema=PLAN_SCHEMAS)
 
 
 def _publish_issue(repo: str, issue: int, plan: dict) -> None:
-    github.publish_issue(ROOT, repo, issue, plan, plan_schema=PLAN_SCHEMA)
+    github.publish_issue(ROOT, repo, issue, plan, plan_schema=PLAN_SCHEMAS)
 
 
 def _create_build_issue(repo: str, pr: int, title: str, plan: dict, nonce: str) -> int:
     return github.create_or_resume_build_issue(
-        ROOT, repo, pr, title, plan, nonce, plan_schema=PLAN_SCHEMA,
+        ROOT, repo, pr, title, plan, nonce, plan_schema=PLAN_SCHEMAS,
     )
 
 
@@ -1033,11 +1033,15 @@ def _handoff(state: dict) -> dict:
     }
     repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
     preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
-    value = {"schema_version": "build-handoff.v1", "build": state["build"], "plan": state["plan"],
+    is_v2 = state.get("schema_version") == "build-state.v2"
+    value = {"schema_version": "build-handoff.v2" if is_v2 else "build-handoff.v1",
+             "build": state["build"], "plan": state["plan"],
              "approval": state["approval"], "reviews": state["reviews"], "finding_summaries": summaries,
              "progress": state["progress"], "validation": validation, "repair": repair, "preflights": preflights,
              "pr_contract": state["pr_contract"]}
-    _validate(value, HANDOFF_SCHEMA)
+    if is_v2:
+        value["work"] = state.get("work", {})
+    _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
     return value
 
 
@@ -1097,24 +1101,59 @@ def _restore_repair(repair: dict | None) -> dict | None:
     return {**repair, "rationale": "private rationale redacted from durable handoff"}
 
 
+def _restore_base_state(value: dict, schema_version: str) -> dict:
+    return {"schema_version": schema_version, "revision": 1, "build": value["build"], "plan": value["plan"],
+            "approval": value["approval"], "reviews": value["reviews"],
+            "findings": [{"id": f["id"], "stage": f["stage"], "lens": f["lens"], "packet_digest": f["packet_digest"],
+                          "lens_packet_digest": f["lens_packet_digest"],
+                          "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
+                          "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
+                          "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
+                          "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
+                         for f in value["finding_summaries"]],
+            "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
+            "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
+            "pr_contract": value["pr_contract"], "submission": "draft"}
+
+
+def _restore_work(work_map: dict) -> dict:
+    """Reconstruct the per-node work map, marking any unfinished claim as restored.
+
+    A claim present without an integration is uncertain after a cold resume, so it derives
+    recovery_required and is never treated as still-running or auto-expired.
+    """
+    restored = {}
+    for node_id, nw in (work_map or {}).items():
+        nw = dict(nw)
+        if nw.get("claim") and not nw.get("integration"):
+            claim = dict(nw["claim"])
+            claim["restored"] = True
+            nw["claim"] = claim
+        restored[node_id] = nw
+    return restored
+
+
 def cmd_handoff_restore(args, store: StateStore) -> None:
     if args.input:
         rendered = _input(args.input)
+        value = json.loads(rendered)
     else:
         if not args.repository or not args.pr:
             raise CoordinatorError("restore needs --input or both --repository and --pr")
         body = _gh_json(["pr", "view", str(args.pr), "--repo", args.repository, "--json", "body"]).get("body") or ""
-        pattern = re.compile(re.escape(HANDOFF_BEGIN) + r"(sha256:[0-9a-f]{64}) -->\n```json\n(.*?)\n```\n" + re.escape(HANDOFF_END), re.DOTALL)
-        matches = list(pattern.finditer(body))
-        if len(matches) != 1:
-            raise CoordinatorError("PR contract has no unique engine-build-handoff:v1 block")
-        rendered = matches[0].group(2)
-        if _digest(json.loads(rendered)) != matches[0].group(1):
+        present = [(block, sv) for block, sv in
+                   ((github.find_handoff_block(body, "v1"), "build-handoff.v1"),
+                    (github.find_handoff_block(body, "v2"), "build-handoff.v2")) if block]
+        if len(present) != 1:
+            raise CoordinatorError("PR contract has no unique engine-build-handoff block")
+        (digest, rendered), _sv = present[0]
+        if _digest(json.loads(rendered)) != digest:
             raise CoordinatorError("PR handoff content does not match its marker digest")
-    value = json.loads(rendered)
-    if value.get("schema_version") != "build-handoff.v1":
+        value = json.loads(rendered)
+    version = value.get("schema_version")
+    if version not in ("build-handoff.v1", "build-handoff.v2"):
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
-    _validate(value, HANDOFF_SCHEMA)
+    _validate(value, HANDOFF_SCHEMA_V2 if version == "build-handoff.v2" else HANDOFF_SCHEMA)
     repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
     if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):
         raise CoordinatorError("handoff repository does not match the selected repository")
@@ -1134,18 +1173,11 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
     plan = _durable_plan(_issue_body(repo, issue))
     if _digest(plan) != value["plan"]["digest"]:
         raise CoordinatorError("durable plan is missing or changed; cold continuation is blocked")
-    state = {"schema_version": "build-state.v1", "revision": 1, "build": value["build"], "plan": value["plan"],
-             "approval": value["approval"], "reviews": value["reviews"],
-             "findings": [{"id": f["id"], "stage": f["stage"], "lens": f["lens"], "packet_digest": f["packet_digest"],
-                           "lens_packet_digest": f["lens_packet_digest"],
-                           "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
-                           "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
-                           "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
-                           "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
-                          for f in value["finding_summaries"]],
-             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
-             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
-             "pr_contract": value["pr_contract"], "submission": "draft"}
+    if version == "build-handoff.v2":
+        state = _restore_base_state(value, "build-state.v2")
+        state["work"] = _restore_work(value.get("work", {}))
+    else:
+        state = _restore_base_state(value, "build-state.v1")
     store.create(state)
     print(f"restored Build snapshot from durable Issue #{issue}")
 

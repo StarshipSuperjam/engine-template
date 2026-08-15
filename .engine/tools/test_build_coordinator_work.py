@@ -18,6 +18,7 @@ import build_coordinator as bc  # noqa: E402
 import build_coordinator_work as work  # noqa: E402
 from test_build_coordinator import plan as plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE  # noqa: E402
 import build_coordinator_dag as dag  # noqa: E402
+import build_coordinator_github as ghub  # noqa: E402
 
 
 class WorkCase(unittest.TestCase):
@@ -221,6 +222,50 @@ class TestStatusV2(WorkCase):
         state = self.state()
         bc._reset_after_revision(state, self.plan_value)
         self.assertEqual(state["work"], {})
+
+
+class TestMarkerVersioning(unittest.TestCase):
+    def test_v2_plan_block_reads_back_and_does_not_cross_match_v1(self):
+        v2 = plan_v2()
+        body = "prose\n\n" + ghub.plan_block(v2) + "\nmore prose\n"
+        got = ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
+        self.assertEqual(bc._digest(got), bc._digest(v2))
+        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
+            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMA)  # a legacy v1-only reader sees no block
+
+    def test_v1_and_v2_plan_blocks_together_are_rejected(self):
+        body = ghub.plan_block(plan_v1()) + "\n\n" + ghub.plan_block(plan_v2())
+        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
+            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
+
+    def test_handoff_markers_do_not_cross_match(self):
+        v2_handoff = {"schema_version": "build-handoff.v2", "x": 1}
+        body = ghub.handoff_block(v2_handoff)
+        self.assertIsNotNone(ghub.find_handoff_block(body, "v2"))
+        self.assertIsNone(ghub.find_handoff_block(body, "v1"))
+
+
+class TestHandoffV2(WorkCase):
+    def test_v2_handoff_carries_the_work_projection_and_validates(self):
+        self.claim("shared")
+        state = self.state()
+        state["plan"]["source"] = "issue"
+        state["plan"]["durable_issue"] = 11
+        value = bc._handoff(state)
+        self.assertEqual(value["schema_version"], "build-handoff.v2")
+        self.assertIn("shared", value["work"])
+
+    def test_restore_marks_an_unfinished_claim_recovery_required(self):
+        work_map = {"shared": {"attempt_count": 1, "latest_result": None, "integration": None,
+                               "latest_failure": None,
+                               "claim": {"attempt_id": "0" * 32, "base_sha": HEAD_A, "worktree": "/tmp/wt",
+                                         "acquired_resources": [], "restored": False, "worker_ref": None,
+                                         "requested_route": {"executor_class": "builder", "provider": "claude",
+                                                             "model": "sonnet", "effort": "medium", "inline": False}}}}
+        restored = bc._restore_work(work_map)
+        self.assertTrue(restored["shared"]["claim"]["restored"])
+        lc = dag.derive_lifecycle(self.plan_value, {"work": restored})
+        self.assertEqual(lc["shared"]["state"], dag.RECOVERY_REQUIRED)
 
 
 class TestWorkRouting(unittest.TestCase):
