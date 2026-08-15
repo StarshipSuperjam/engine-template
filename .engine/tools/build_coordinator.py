@@ -21,10 +21,12 @@ import build_coordinator_dag as dag
 import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
+import build_coordinator_work as work
 import repo_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
+BINDINGS_PATH = ROOT / ".engine" / "policies" / "model-bindings.json"
 PLAN_SCHEMA = ROOT / ".engine" / "schemas" / "build-plan.v1.json"
 STATE_SCHEMA = ROOT / ".engine" / "schemas" / "build-state.v1.json"
 HANDOFF_SCHEMA = ROOT / ".engine" / "schemas" / "build-handoff.v1.json"
@@ -1196,6 +1198,110 @@ def cmd_submit_apply(args, store: StateStore) -> None:
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
 
 
+def _bindings() -> dict:
+    return _json(BINDINGS_PATH)
+
+
+def _work_mutate(store: StateStore, change) -> Any:
+    """Every work verb reads the current revision and mutates under an explicit compare-and-swap.
+
+    A shared helper so no work verb repeats the legacy pattern of mutating without a from_revision;
+    a concurrent snapshot advance rejects the write rather than silently overwriting a sibling claim.
+    """
+    state = store.read()
+    return store.mutate(change, from_revision=state["revision"])
+
+
+def _require_dag_plan(plan: dict) -> None:
+    if _plan_version(plan) != "build-plan.v2":
+        raise CoordinatorError("work verbs require a build-plan.v2 Build")
+
+
+def _node_work(state: dict, node_id: str) -> dict:
+    nw = (state.get("work") or {}).get(node_id)
+    if not nw:
+        raise CoordinatorError(f"work item {node_id} has no recorded work")
+    return nw
+
+
+def cmd_work_packet(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    state = store.read()
+    item = work.node_item(plan, args.item)
+    route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
+    packet = work.build_packet(plan, state, args.item, route, _head(), "preview", args.worktree or "<worktree>")
+    print(json.dumps(packet))
+
+
+def cmd_work_claim(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    item = work.node_item(plan, args.item)
+    route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
+    base_sha = _head()
+    attempt_id = work.new_attempt_id()
+    emitted: dict = {}
+
+    def change(state):
+        _assert_plan(state, plan)
+        if not state["approval"]:
+            raise CoordinatorError("the Build gate is not approved")
+        if args.item not in dag.claimable_set(plan, state):
+            raise CoordinatorError(f"work item {args.item} is not claimable now")
+        nw = state["work"].get(args.item) or work.empty_node()
+        nw["attempt_count"] = nw.get("attempt_count", 0) + 1
+        nw["claim"] = work.new_claim(attempt_id, base_sha, args.worktree,
+                                     item.get("exclusive_resources", []), route)
+        nw["latest_result"] = None
+        nw["latest_failure"] = None
+        state["work"][args.item] = nw
+        emitted["packet"] = work.build_packet(plan, state, args.item, route, base_sha, attempt_id, args.worktree)
+
+    _work_mutate(store, change)
+    print(json.dumps(emitted["packet"]))
+
+
+def cmd_work_attach(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        if not claim:
+            raise CoordinatorError(f"work item {args.item} has no active claim")
+        if claim["attempt_id"] != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} does not match the active claim {claim['attempt_id']}")
+        claim["worker_ref"] = args.worker_ref
+
+    _work_mutate(store, change)
+    print(f"attached worker reference to {args.item} attempt {args.attempt}")
+
+
+def cmd_work_result(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    item = work.node_item(plan, args.item)
+    try:
+        payload = json.loads(_input(args.input))
+    except ValueError as exc:
+        raise CoordinatorError(f"work result input is not JSON: {exc}") from exc
+    base_sha = payload.get("base_sha")
+    if not base_sha:
+        raise CoordinatorError("work result must report the base_sha the worker built from")
+
+    def change(state):
+        _assert_plan(state, plan)
+        nw = _node_work(state, args.item)
+        result = work.bind_result(nw, item, args.attempt, base_sha, payload)
+        nw["latest_result"] = result
+        if result["outcome"] == "failed":
+            nw["latest_failure"] = work.failure_record(
+                args.attempt, payload.get("class", "worker"),
+                payload.get("reason", "worker reported a failure"))
+
+    _work_mutate(store, change)
+    print(f"recorded {args.item} result for attempt {args.attempt}")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1224,6 +1330,11 @@ def parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
+    work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
+    wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
+    wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
+    wattach = work_p.add_parser("attach"); wattach.add_argument("--item", required=True); wattach.add_argument("--attempt", required=True); wattach.add_argument("--worker-ref", required=True); wattach.set_defaults(func=cmd_work_attach)
+    wresult = work_p.add_parser("result"); wresult.add_argument("--item", required=True); wresult.add_argument("--attempt", required=True); wresult.add_argument("--plan", required=True); wresult.add_argument("--input", required=True); wresult.set_defaults(func=cmd_work_result)
     return p
 
 

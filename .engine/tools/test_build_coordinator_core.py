@@ -69,7 +69,7 @@ class TestModuleBoundaries(unittest.TestCase):
         tools = Path(__file__).resolve().parent
         for name in ("build_coordinator_core.py", "build_coordinator_spec.py",
                      "build_coordinator_review.py", "build_coordinator_github.py",
-                     "build_coordinator_dag.py"):
+                     "build_coordinator_dag.py", "build_coordinator_work.py"):
             with self.subTest(name=name):
                 self.assertNotIn("import build_coordinator\n", (tools / name).read_text())
 
