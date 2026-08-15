@@ -51,11 +51,12 @@ of every routine fire; the build's actual work follows the distributed-implement
 5. **On the first fire, echo the build Issue this routine locked onto** — "starting the routine on #N —
    <title>" — so a mis-aimed target surfaces on the first cycle rather than after a wasted batch.
 6. **Advance one chunk within the scope-lock.** Run coordinator `status --plan <durable-plan>`; its progress
-   block names completed items, current item, the next incomplete ordered item, and `N of M`. Treat that item's
+   block names completed items, current item, the next ready work item, and `N of M`. Treat that item's
    intended paths as scope posture, not an infallible path wall. Run `checkpoint` before committing to begin
    that item. After the commit exists, run `checkpoint --complete-item <id>` again so the recorded completing
    commit is the new commit, not its parent. Update the bounded handoff, push the open pull request, and report
-   “commit X landed — N of M planned done.” The coordinator refuses out-of-order Routine completion. Never
+   “commit X landed — N of M planned done.” The coordinator refuses completing a work item that is not the next
+   ready one (for a serial plan, the next in the graph's ready order). Never
    rewrite the approved plan merely to mark progress, and never close or merge the pull request.
 7. **Escalate only operator-owned boundaries, because this run cannot ask.** An out-of-scope observation
    files an Issue and the run continues; an engineering blocker inside the approved design and scope is solved

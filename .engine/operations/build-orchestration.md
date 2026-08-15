@@ -145,10 +145,10 @@ writer and judges cohesion.
 
 Routine follows [Routine entry](routine-entry.md): the immutable Issue plan supplies ordered work items while
 the snapshot, bounded PR handoff, and git record completed commits and `N of M` progress. Owned product work
-follows [Owned-product Build](owned-product-build.md). Work for a repository the operator does not own follows
-[external contribution submission](external-contribution-submit.md), where exact review packets may run
-before an upstream PR exists. If a worker fails, inspect what returned, repair cohesion, and re-dispatch or
-complete the missing work without inventing workflow state.
+follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
+follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
+follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair
+cohesion, and re-dispatch or complete the missing work without inventing workflow state.
 
 Before each commit, run `checkpoint` with the exact plan and a short JSON note containing objective, current
 work, named `work_item`, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:

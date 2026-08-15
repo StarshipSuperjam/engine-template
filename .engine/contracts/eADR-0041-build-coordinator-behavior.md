@@ -23,6 +23,11 @@ Build uses the following classified assertions as the coordinator's acceptance c
 remain limited to demonstrated failures; senior engineering and operator judgments stay outside the state
 machine.
 
+_Amended 2026-08-15 for the build-plan.v2 execution-DAG capability: BC-25–BC-27 add the new coordinator
+integrity guarantees (attempt/base result binding, compare-and-swap claim writes, and completion only through
+integration), each demonstrated by a focused test cited inline. The capability introduced no new submission
+hard hold — the graph's resource and slot admission is a derived refusal, not a merge-blocking condition._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
@@ -51,6 +56,9 @@ machine.
 | BC-22 | operator authority | No coordinator operation can merge. | Protected-branch human gate | Supported, but buried inside a large command protocol. | No merge command or API call exists. |
 | BC-23 | advisory practice | Status distinguishes missing evidence from decisions that need engineering judgment. | Conduct and recovery goal | A single "next legal action" overruled engineering context. | It returns missing evidence, judgment items, warnings, and either one unique prerequisite or unordered available activities. |
 | BC-24 | explicit non-goal | The coordinator does not certify plan quality, finding rationale, implementation coherence, or release value. | Reviewer and operator boundaries | Schema validity was treated as quality evidence. | These remain explicit judgment fields and reviewer/operator responsibilities. |
+| BC-25 | mechanical fact | A DAG worker result binds only to its claim's attempt id and base SHA. | build-plan.v2 work verbs; `test_build_coordinator_work.TestWorkClaims` | Without binding, a superseded worker's result could satisfy a replacement attempt or a wrong base and corrupt completion evidence. | The result is rejected unless its attempt id and reported base match the active claim. |
+| BC-26 | mechanical fact | Every claim and result write compare-and-swaps against the current snapshot revision. | Work-verb `_work_mutate`; `test_build_coordinator_work.TestWorkClaims` | Without it, a concurrent or stale write could overwrite a sibling claim or lose a snapshot update. | Each work verb writes under an explicit from-revision guard and refuses a stale write. |
+| BC-27 | mechanical fact | A DAG node is complete only with a recorded integration commit on the PR branch and focused verification. | Work integrate; `test_build_coordinator_work.TestWorkDispositions` | Without it, a returned worker artifact could be treated as completion without the orchestrator integrating and verifying it. | Completion requires an integration commit proven on the PR branch plus recorded focused verification; worker commits are transport, never completion. |
 
 ### Hard holds and demonstrated failures
 
