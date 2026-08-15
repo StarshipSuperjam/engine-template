@@ -24,6 +24,15 @@
       "description": "Per-persona bindings, keyed by the persona's name (its .claude/agents/<name>.md slug). An override wins over the persona's tier default — this is how a specific lens is tuned to a stronger or cheaper model without changing its declared capability tier. A key that names no installed persona is a stale override, caught by the agent-bindings coherence test.",
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/binding" }
+    },
+    "implementation_classes": {
+      "description": "Per-provider model/effort bindings for the DAG Build's DISPATCHED worker classes — the source of truth the coordinator renders into a worker's route and into the worker personas. This is a SEPARATE axis from the review `tiers`: reviewer personas resolve a name-free demand tier (judgment|mechanical) to one model, while a dispatched worker resolves its implementation class (builder|bounded) to a per-PROVIDER model+effort, because Claude and Codex realize the same class with different frontier/efficient models. The `integrator` class is never dispatched (it is the current senior session, so it carries no fixed binding here). A worker model alias MAY carry digits/dots (a provider-native family name like gpt-5.6-terra), so it uses its own grammar — the review `binding` anti-rot pattern is deliberately left untouched. Optional: a deployment with no DAG worker packs need not declare it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "builder": { "$ref": "#/$defs/implementation_binding" },
+        "bounded": { "$ref": "#/$defs/implementation_binding" }
+      }
     }
   },
   "$defs": {
@@ -40,6 +49,33 @@
         },
         "effort": {
           "description": "The reasoning-effort level that, with the model, realizes the tier. A bounded platform concept.",
+          "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "implementation_binding": {
+      "description": "One implementation class's bindings, one per provider. Both providers are present so a class renders explicitly for Claude and Codex from a single source, rather than one provider silently inheriting a frontier default.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claude", "codex"],
+      "properties": {
+        "claude": { "$ref": "#/$defs/provider_binding" },
+        "codex": { "$ref": "#/$defs/provider_binding" }
+      }
+    },
+    "provider_binding": {
+      "description": "One provider-native model + effort pairing for a dispatched worker class. Unlike the review `binding`, the model alias MAY carry digits/dots so a provider-native family name (gpt-5.6-terra) is expressible; it remains an operator-tunable alias, not a dated snapshot id.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "effort"],
+      "properties": {
+        "model": {
+          "description": "A provider-native model alias — lowercase alphanumerics separated by hyphen or dot (e.g. sonnet, haiku, gpt-5.6-terra). Digits are permitted here, unlike the review binding grammar.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$"
+        },
+        "effort": {
+          "description": "The reasoning-effort level for this worker class.",
           "enum": ["low", "medium", "high"]
         }
       }

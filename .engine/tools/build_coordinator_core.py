@@ -180,7 +180,7 @@ def run_validation(command: list[str], log_path: Path, *, root: Path) -> int:
 
 
 class StateStore:
-    def __init__(self, path: str, schema: Path, expected_revision: int | None = None):
+    def __init__(self, path: str, schema: "Path | Callable[[dict], Path]", expected_revision: int | None = None):
         self.path = Path(path).resolve()
         self.schema = schema
         temp_root = Path(tempfile.gettempdir()).resolve()
@@ -195,12 +195,23 @@ class StateStore:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         return handle
 
+    def _schema_for(self, state: dict) -> Path:
+        """Resolve the schema for one state document.
+
+        `schema` is normally a fixed Path (the single-version case, unchanged). When it is a
+        callable it is a version resolver `(state) -> Path`, so a versioned store selects the
+        right schema from the document itself, inside the lock, against the state being validated.
+        """
+        if callable(self.schema):
+            return self.schema(state)
+        return self.schema
+
     def read(self) -> dict:
         with self._locked():
             if not self.path.exists():
                 raise CoordinatorError(f"no Build snapshot at {self.path}; use 'plan bind' first")
             state = json_file(self.path)
-            validate(state, self.schema)
+            validate(state, self._schema_for(state))
             return state
 
     def create(self, state: dict) -> None:
@@ -214,7 +225,7 @@ class StateStore:
             if not self.path.exists():
                 raise CoordinatorError(f"no Build snapshot at {self.path}; use 'plan bind' first")
             state = json_file(self.path)
-            validate(state, self.schema)
+            validate(state, self._schema_for(state))
             expected = self.expected_revision if self.expected_revision is not None else from_revision
             if expected is not None and state["revision"] != expected:
                 raise CoordinatorError(f"snapshot revision is {state['revision']}, not expected {expected}; reload status")
@@ -224,7 +235,7 @@ class StateStore:
             return result
 
     def _write(self, state: dict) -> None:
-        validate(state, self.schema)
+        validate(state, self._schema_for(state))
         fd, temp_name = tempfile.mkstemp(prefix=self.path.name + ".", dir=self.path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:

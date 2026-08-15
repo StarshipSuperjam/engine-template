@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build-plan.v2 — the exact plan approved for one Build, as a static implementation DAG",
+  "description": "Extends build-plan.v1 with a dependency graph over work items (depends_on), logical resource occupancy (exclusive_resources), an executor class per node, an output contract per node, and a plan-level execution policy. Array order is presentation only; readiness is graph-derived. The graph is static: it is validated acyclic and closed at bind time and is immutable under an approved digest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile", "intent_source", "raw_intent", "objective", "success_obligations", "work_items", "parallelism", "spec"],
+  "properties": {
+    "schema_version": {"const": "build-plan.v2"},
+    "profile": {"enum": ["trivial", "normal", "routine"]},
+    "intent_source": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "direct"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "issue"], "properties": {"kind": {"const": "issue"}, "issue": {"type": "integer", "minimum": 1}}}
+      ]
+    },
+    "raw_intent": {"type": "string", "minLength": 1},
+    "interpretation": {"type": "string", "minLength": 1},
+    "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+    "assumptions": {"type": "array", "items": {"$ref": "#/$defs/assumption"}},
+    "objective": {"type": "string", "minLength": 1},
+    "success_obligations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/obligation"}},
+    "scope_boundary": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "non_goals": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "risks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "work_items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/work_item"}},
+    "parallelism": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "max_concurrency"],
+      "properties": {
+        "mode": {"enum": ["serial", "conditional"]},
+        "max_concurrency": {"type": "integer", "minimum": 1}
+      }
+    },
+    "review_strategy": {"type": "string", "minLength": 1},
+    "spec": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["posture", "selection_basis", "disclosure"], "properties": {
+          "posture": {"const": "none"}, "selection_basis": {"type": "string", "minLength": 1}, "disclosure": {"type": "string", "minLength": 1}
+        }},
+        {"type": "object", "additionalProperties": false, "required": ["posture", "selection_basis", "documents"], "properties": {
+          "posture": {"const": "settled"}, "selection_basis": {"type": "string", "minLength": 1},
+          "documents": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/spec_document"}}
+        }}
+      ]
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"profile": {"const": "trivial"}}}, "then": {"properties": {"work_items": {"maxItems": 1}, "spec": {"properties": {"posture": {"const": "none"}}}, "parallelism": {"properties": {"mode": {"const": "serial"}}}}}},
+    {"if": {"properties": {"profile": {"enum": ["normal", "routine"]}}}, "then": {"required": ["interpretation", "evidence", "assumptions", "scope_boundary", "non_goals", "risks", "review_strategy"]}},
+    {"if": {"properties": {"profile": {"const": "routine"}}}, "then": {"properties": {"intent_source": {"properties": {"kind": {"const": "issue"}}}}}},
+    {"if": {"properties": {"parallelism": {"properties": {"mode": {"const": "serial"}}}}}, "then": {"properties": {"parallelism": {"properties": {"max_concurrency": {"const": 1}}}}}}
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["claim", "basis", "kind"], "properties": {
+      "claim": {"type": "string", "minLength": 1}, "basis": {"type": "string", "minLength": 1}, "kind": {"enum": ["observed", "inferred"]}
+    }},
+    "assumption": {"type": "object", "additionalProperties": false, "required": ["claim", "status"], "properties": {
+      "claim": {"type": "string", "minLength": 1}, "status": {"enum": ["verified", "accepted-risk", "unresolved"]}
+    }},
+    "obligation": {"type": "object", "additionalProperties": false, "required": ["outcome", "verification"], "properties": {
+      "outcome": {"type": "string", "minLength": 1}, "verification": {"type": "string", "minLength": 1}
+    }},
+    "work_item": {"type": "object", "additionalProperties": false, "required": ["id", "description", "paths", "verification", "depends_on", "exclusive_resources", "executor_class", "output_contract"], "properties": {
+      "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}, "description": {"type": "string", "minLength": 1},
+      "paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+      "verification": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+      "depends_on": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+      "exclusive_resources": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+      "executor_class": {"enum": ["integrator", "builder", "bounded"]},
+      "output_contract": {"type": "object", "additionalProperties": false, "required": ["deliverable", "artifact_kinds", "required_evidence"], "properties": {
+        "deliverable": {"type": "string", "minLength": 1},
+        "artifact_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "required_evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }}
+    }},
+    "spec_document": {"type": "object", "additionalProperties": false, "required": ["path", "selection_reason", "digest", "criteria"], "properties": {
+      "path": {"type": "string", "pattern": "^docs/spec/.+\\.md$"}, "selection_reason": {"type": "string", "minLength": 1},
+      "digest": {"$ref": "#/$defs/digest"}, "criteria": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/criterion_mapping"}}
+    }},
+    "criterion_mapping": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["id", "digest", "text", "how_verified", "disposition", "work_item_ids", "planned_verification"], "properties": {
+        "id": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "text": {"type": "string", "minLength": 1},
+        "how_verified": {"type": "string", "minLength": 1}, "disposition": {"const": "mapped"},
+        "work_item_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "planned_verification": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }},
+      {"type": "object", "additionalProperties": false, "required": ["id", "digest", "text", "how_verified", "disposition", "reason"], "properties": {
+        "id": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "text": {"type": "string", "minLength": 1},
+        "how_verified": {"type": "string", "minLength": 1}, "disposition": {"const": "not_applicable"}, "reason": {"type": "string", "minLength": 1}
+      }}
+    ]}
+  }
+}

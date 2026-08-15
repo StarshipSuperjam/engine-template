@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 import build_coordinator_core as core
+import build_coordinator_dag as dag
 import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
@@ -27,6 +28,13 @@ PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
 PLAN_SCHEMA = ROOT / ".engine" / "schemas" / "build-plan.v1.json"
 STATE_SCHEMA = ROOT / ".engine" / "schemas" / "build-state.v1.json"
 HANDOFF_SCHEMA = ROOT / ".engine" / "schemas" / "build-handoff.v1.json"
+PLAN_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-plan.v2.json"
+STATE_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-state.v2.json"
+HANDOFF_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-handoff.v2.json"
+# schema_version -> the schema file that validates a document carrying it.
+PLAN_SCHEMAS = {"build-plan.v1": PLAN_SCHEMA, "build-plan.v2": PLAN_SCHEMA_V2}
+STATE_SCHEMAS = {"build-state.v1": STATE_SCHEMA, "build-state.v2": STATE_SCHEMA_V2}
+HANDOFF_SCHEMAS = {"build-handoff.v1": HANDOFF_SCHEMA, "build-handoff.v2": HANDOFF_SCHEMA_V2}
 PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
 HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
@@ -45,15 +53,26 @@ _canonical = core.canonical
 _digest = core.digest
 
 
+def _plan_version(plan: dict) -> str:
+    """The plan document's schema version, or v1 when unstated (the historical default)."""
+    return plan.get("schema_version", "build-plan.v1")
+
+
 def _plan(path: str) -> dict:
     try:
         value = json.loads(_input(path))
     except ValueError as exc:
         raise CoordinatorError(f"the Build plan is not valid JSON: {exc}") from exc
-    _validate(value, PLAN_SCHEMA)
+    version = _plan_version(value)
+    schema = PLAN_SCHEMAS.get(version)
+    if schema is None:
+        raise CoordinatorError(f"unrecognized Build plan version {version!r}; expected build-plan.v1 or build-plan.v2")
+    _validate(value, schema)
     ids = [item["id"] for item in value["work_items"]]
     if len(ids) != len(set(ids)):
         raise CoordinatorError("Build plan work-item ids must be unique")
+    if version == "build-plan.v2":
+        dag.validate_dag(value)
     return value
 
 
@@ -129,9 +148,18 @@ def _verify_draft(repo: str, pr: int) -> dict:
     return github.verify_draft(ROOT, repo, pr)
 
 
+def _state_schema_for(state: dict) -> Path:
+    """Select the snapshot schema from the document's own version (defaulting to v1)."""
+    version = state.get("schema_version", "build-state.v1")
+    schema = STATE_SCHEMAS.get(version)
+    if schema is None:
+        raise CoordinatorError(f"unrecognized Build snapshot version {version!r}")
+    return schema
+
+
 class StateStore(core.StateStore):
     def __init__(self, path: str, expected_revision: int | None = None):
-        super().__init__(path, STATE_SCHEMA, expected_revision)
+        super().__init__(path, _state_schema_for, expected_revision)
 
 
 def _empty_review() -> dict:
@@ -142,7 +170,7 @@ def _empty_review() -> dict:
 
 def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
                    mode: str = "same-session") -> dict:
-    return {
+    state = {
         "schema_version": "build-state.v1", "revision": 1,
         "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode},
         "plan": {"source": source, "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
@@ -153,6 +181,10 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "validation": None, "repair": None,
         "preflights": [], "pr_contract": None, "submission": "draft"
     }
+    if _plan_version(plan) == "build-plan.v2":
+        state["schema_version"] = "build-state.v2"
+        state["work"] = {}
+    return state
 
 
 def _assert_plan(state: dict, plan: dict) -> None:
@@ -361,6 +393,15 @@ def _status(state: dict, plan: dict | None = None) -> dict:
 def cmd_plan_bind(args, store: StateStore) -> None:
     plan = _plan(args.input)
     mode = getattr(args, "mode", "same-session")
+    # Once build-plan.v2 exists, a deployed Engine refuses a NEW session-sourced v1 bind and directs
+    # the operator to migrate. An issue-sourced bind is the exempt path: it resumes an in-flight v1
+    # Build from its durable Issue plan. The refusal no-ops in the Engine's own home repo, where v1 is
+    # still dogfooded to build v2, so this Build never walls itself out of re-binding its own plan.
+    if _plan_version(plan) == "build-plan.v1" and args.source == "session" and not repo_identity.is_home_repo(ROOT):
+        raise CoordinatorError(
+            "new session-sourced build-plan.v1 binds are refused now that build-plan.v2 is available; "
+            "migrate this plan with 'plan migrate-v1' or resume an existing v1 Build from its durable "
+            "Issue with --source issue")
     if mode == "unattended" and args.source != "issue":
         raise CoordinatorError("unattended Builds require an exact durable Issue plan")
     if plan["profile"] == "trivial" and (mode != "same-session" or args.source != "session"):
@@ -416,6 +457,8 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
     state["findings"] = []
     state["progress"] = {"current_item": None, "completed": []}
+    if "work" in state:
+        state["work"] = {}
     state["checkpoint"] = state["validation"] = state["repair"] = state["pr_contract"] = None
     state["preflights"] = []
 

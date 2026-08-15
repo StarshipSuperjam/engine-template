@@ -43,6 +43,41 @@ def plan(objective="Ship a small instrument panel"):
     }
 
 
+def _work_item_v2(node_id, deps, *, resources=None, executor="builder"):
+    return {
+        "id": node_id, "description": f"Build {node_id}",
+        "paths": [f".engine/tools/{node_id}.py"], "verification": [f"Run {node_id} tests"],
+        "depends_on": list(deps), "exclusive_resources": list(resources or []),
+        "executor_class": executor,
+        "output_contract": {"deliverable": f"{node_id} and its tests",
+                            "artifact_kinds": ["worker-commit", "integrated-commit"],
+                            "required_evidence": ["changed_paths", "verification_results"]},
+    }
+
+
+def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="serial", max_concurrency=1):
+    if items is None:
+        items = [_work_item_v2("shared", []), _work_item_v2("adapter", ["shared"])]
+    return {
+        "schema_version": "build-plan.v2",
+        "profile": "normal",
+        "intent_source": {"kind": "direct"},
+        "raw_intent": "Coordinate Build work as a static implementation DAG.",
+        "interpretation": "Derive readiness from a validated acyclic graph while keeping one integrator.",
+        "evidence": [{"claim": "graphlib is stdlib.", "basis": "Python standard library", "kind": "observed"}],
+        "assumptions": [{"claim": "The harness reproduces this JSON document.", "status": "verified"}],
+        "objective": objective,
+        "success_obligations": [{"outcome": "A cycle fails validation.", "verification": "TestPlanV2Ingest"}],
+        "scope_boundary": ["Build workflow evidence"],
+        "non_goals": ["A scheduler daemon"],
+        "risks": ["Version dispatch could regress v1."],
+        "work_items": items,
+        "parallelism": {"mode": mode, "max_concurrency": max_concurrency},
+        "review_strategy": "Operator-approved depth with one proportional repair judgment.",
+        "spec": {"posture": "none", "selection_basis": "No product spec governs the coordinator.", "disclosure": "No settled spec; plan obligations are the referent."},
+    }
+
+
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1145,6 +1180,87 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             text = (bc.ROOT / ".claude" / "agents" / name).read_text()
             self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)
             self.assertIn("operator-approved Build plan", text)
+
+
+class TestPlanV2Ingest(CoordinatorCase):
+    def _bind(self, value, *, source="session", issue=None, home=True):
+        self.write_plan(value)
+        args = argparse.Namespace(input=str(self.plan_path), source=source, repository="owner/repo",
+                                  pr=7, issue=issue, mode="same-session")
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        stack = [
+            mock.patch.object(bc, "_verify_draft", return_value=pr),
+            mock.patch.object(bc, "_head", return_value=HEAD_A),
+            mock.patch.object(bc.repo_identity, "is_home_repo", return_value=home),
+        ]
+        if source == "issue":
+            stack.append(mock.patch.object(bc, "_durable_plan", return_value=value))
+            stack.append(mock.patch.object(bc, "_issue_body", return_value="body"))
+        with contextlib.ExitStack() as es:
+            for p in stack:
+                es.enter_context(p)
+            es.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            bc.cmd_plan_bind(args, self.store)
+
+    def test_v2_plan_binds_with_a_versioned_snapshot_and_empty_work_map(self):
+        self._bind(plan_v2())
+        state = self.state()
+        self.assertEqual(state["schema_version"], "build-state.v2")
+        self.assertEqual(state["work"], {})
+
+    def test_v2_cycle_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["b"]), _work_item_v2("b", ["a"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "cycle"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_unknown_dependency_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["ghost"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "unknown work item ghost"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_self_dependency_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["a"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "cannot depend on itself"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_duplicate_ids_are_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", []), _work_item_v2("a", [])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "must be unique"):
+            bc._plan(str(self.plan_path))
+
+    def test_independent_roots_carry_no_ordering(self):
+        value = plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])])
+        self.write_plan(value)
+        loaded = bc._plan(str(self.plan_path))
+        self.assertEqual([i["id"] for i in loaded["work_items"]], ["a", "b"])
+
+    def test_unrecognized_plan_version_is_refused(self):
+        value = plan_v2()
+        value["schema_version"] = "build-plan.v9"
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "unrecognized Build plan version"):
+            bc._plan(str(self.plan_path))
+
+    def test_new_session_v1_bind_is_refused_in_a_deployed_repo(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "refused now that build-plan.v2"):
+            self._bind(plan(), home=False)
+
+    def test_session_v1_bind_is_permitted_in_the_home_repo(self):
+        self._bind(plan(), home=True)
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+    def test_issue_sourced_v1_rebind_is_not_walled_by_the_refusal(self):
+        # An issue-sourced bind is the exempt continuation path even in a deployed repo.
+        issue_plan = plan()
+        try:
+            self._bind(issue_plan, source="issue", issue=11, home=False)
+        except bc.CoordinatorError as exc:  # noqa: BLE001 — only the v1-refusal message must not appear
+            self.assertNotIn("refused now that build-plan.v2", str(exc))
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
 
 
 if __name__ == "__main__":
