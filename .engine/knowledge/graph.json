@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:3ab4cf3c52185f1e484a93108a3e95690d1f4d2821c88d94961c818b6232f318",
+        "fingerprint": "sha256:e75e1e26fbfaf199328b403f07a69b2a96bd7c96092a5da530055ba58b5f1c0a",
         "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
@@ -2694,7 +2694,7 @@
       },
       "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:47feca40dbb3e0b090f1e968dd2e287e0eaf05f99d68726c3fdfdf54def3597d",
+        "fingerprint": "sha256:3df4dea8c1747de62f8411b4584759ae01841c662f45a210a9b161df9df38786",
         "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
@@ -3394,7 +3394,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:8626d4077c02136c6942508a63b4b51d8f98ec9786febe26c80346264e305aee",
+        "fingerprint": "sha256:ec594c766f6bf0fe03faf472a2cf5af7160c04d580f96664ffd9b63862f3558f",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -12323,7 +12323,7 @@
       },
       "slug": "test_conduct",
       "source": {
-        "fingerprint": "sha256:d929fc9bf9be1ab42f76d32f5096feb67ab9137904d2c7f98bb03b3391b1760b",
+        "fingerprint": "sha256:b369a1782d7d775a51b60d2254124c47ccba595d86bf813aa5d38a0c9550bd71",
         "path": ".engine/tools/test_conduct.py"
       },
       "status": "active",
@@ -12493,7 +12493,7 @@
       },
       "slug": "test_design_review",
       "source": {
-        "fingerprint": "sha256:57f7162f6cd849ef9c7c2cd7e53aacf1844fa7b88a6e44954ec1defac27c5596",
+        "fingerprint": "sha256:e3ee060734ac7c43e93a01116ee267dfa76eb6c3ccfbf521d7d600e1b03461c2",
         "path": ".engine/tools/test_design_review.py"
       },
       "status": "active",
