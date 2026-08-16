@@ -140,6 +140,17 @@ class TestClaimValidation(unittest.TestCase):
         with self.assertRaises(bcc.ContractError):
             bcc.validate_claim(bad)
 
+    def test_validation_lists_every_problem_with_neutral_remediation(self):
+        bad = _good_claim()
+        bad["purpose"]["thesis"] = ""            # an empty slot
+        bad["scope"]["summary"] = "line a\nline b"  # a malformed (multiline) value, not empty
+        with self.assertRaises(bcc.ContractError) as ctx:
+            bcc.validate_claim(bad)
+        msg = str(ctx.exception)
+        self.assertIn("purpose/thesis", msg)     # both problems named, not just the first
+        self.assertIn("scope/summary", msg)
+        self.assertNotIn("null/empty slots", msg)  # remediation no longer misdescribes a malformed value
+
 
 class TestCompose(unittest.TestCase):
     def setUp(self):
@@ -349,6 +360,26 @@ class TestPreviewEvidence(unittest.TestCase):
             self._assemble(bc, self._state_with_receipts([{"lens": "usability"}]))  # predates the field
         self.assertIn("re-recorded", str(ctx.exception))
 
+    def test_index_regen_is_computed_from_the_diff(self):
+        # Drive the real index_regen computation (not the fixture): the git-diff leg names a generated index
+        # file, so the disclosure must be computed non-empty.
+        import build_coordinator as bc
+        from unittest import mock
+
+        def run(argv, **k):
+            if argv[:2] == ["git", "diff"]:
+                return mock.Mock(stdout=".engine/knowledge/graph.json\n.engine/tools/x.py\n", returncode=0)
+            return mock.Mock(stdout="**Change profile** — small", returncode=0)
+        with mock.patch.object(bc, "_run", side_effect=run), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "x"}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed", return_value=[]):
+            ev = bc._assemble_evidence(self._state(), {"intent_source": {"kind": "direct"}, "spec": {}},
+                                       _good_claim(), "c" * 40, {"body": "", "baseRefOid": "b" * 40})
+        self.assertIn("graph.json", ev["index_regen"])
+        self.assertIn("generated paths only", ev["index_regen"])
+
 
 @contextlib.contextmanager
 def _fake_stable_commit(root, label):
@@ -522,6 +553,29 @@ class TestContractApply(unittest.TestCase):
                 bc.cmd_contract_apply(args, store)
         self.assertIn("Build evidence changed", str(ctx.exception))
         self.assertEqual(pr["body"], "orig")                          # intermediate rolled back
+
+    def test_echo_mismatch_rolls_back_the_unconfirmed_write(self):
+        import build_coordinator as bc
+        pr, verify_draft, _ = self._env("orig")
+        edits = []
+        def must_run(argv, *, input_text=None):
+            if argv[:3] == ["gh", "pr", "edit"]:
+                edits.append(input_text)
+                # GitHub mangles our composed write (stores something other than what we sent); a rollback to
+                # "orig" is echoed faithfully.
+                pr["body"] = "orig" if input_text == "orig" else input_text + " [MANGLED BY GITHUB]"
+            return ""
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        args = self._args(bc._digest(b"orig"))
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
+                stack.enter_context(p)
+            with self.assertRaises(bc.CoordinatorError) as ctx:
+                bc.cmd_contract_apply(args, store)
+        self.assertIn("did not preserve", str(ctx.exception))
+        self.assertEqual(pr["body"], "orig")           # the unconfirmed (mangled) write was rolled back
+        self.assertEqual(edits[-1], "orig")            # last write was the rollback
 
     def test_mid_loop_external_edit_is_preserved_not_clobbered(self):
         import build_coordinator as bc

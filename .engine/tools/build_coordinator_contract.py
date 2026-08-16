@@ -120,11 +120,16 @@ def validate_claim(claim: dict) -> None:
     schema = _load_schema()
     errors = sorted(Draft202012Validator(schema).iter_errors(claim), key=lambda e: list(e.path))
     if errors:
-        first = errors[0]
-        where = "/".join(str(p) for p in first.path) or "(root)"
+        # List EVERY problem, not just the first — a session filling the claim should fix them in one pass,
+        # not discover them one round-trip at a time. Remediation is neutral: a problem may be an unfilled
+        # slot OR a malformed value (e.g. an embedded newline), so it never assumes "fill the null slots".
+        lines = []
+        for e in errors:
+            where = "/".join(str(p) for p in e.path) or "(root)"
+            lines.append(f"  - {where}: {e.message}")
         raise ContractError(
-            f"the claim does not satisfy pr-body-claim.v1 at {where}: {first.message} "
-            f"({len(errors)} problem(s); fill the template's null/empty slots)"
+            f"the claim does not satisfy pr-body-claim.v1 ({len(errors)} problem(s)); fix each below "
+            f"(fill an empty slot, or correct a malformed value):\n" + "\n".join(lines)
         )
     closes = set(claim["linkage"]["closes"])
     part_of = set(claim["linkage"]["part_of"])

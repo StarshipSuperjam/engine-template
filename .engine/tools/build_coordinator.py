@@ -1934,7 +1934,15 @@ def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revi
     _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=new_body)
     confirmed = _verify_draft(repo, pr).get("body") or ""
     if confirmed != new_body:
-        raise CoordinatorError("GitHub did not preserve the composed body exactly; the applied body was not confirmed")
+        # GitHub did not echo our exact bytes (a normalization, partial write, or transport hiccup). The
+        # mangled body would not be in the caller's `wrote` set — the loop-level restore cannot recognise it —
+        # so THIS write undoes itself here: roll the body back to what was there before this write, then raise.
+        # (The far likelier cause is a GitHub-side transform of OUR content, not an external edit landing in the
+        # sub-second read-after-write window, so undoing our own unconfirmed write is the correct default.)
+        if (_verify_draft(repo, pr).get("body") or "") != expected_before:
+            _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=expected_before)
+        raise CoordinatorError("GitHub did not preserve the composed body exactly; the unconfirmed write was "
+                               "rolled back")
     return new_body
 
 
@@ -2002,10 +2010,12 @@ def cmd_contract_apply(args, store: StateStore) -> None:
         written = source_body
         wrote: set = set()          # every candidate we sent to GitHub this run — the restore set
         converged = False
-        # A single rollback guard around the whole loop: ANY failure after a write (a mid-loop revision bump,
-        # a GitHub echo mismatch, an armed close, or non-convergence) restores the original body if the live
-        # body is still one we wrote — never leaving a coordinator-authored intermediate live, and never
-        # clobbering a genuine external edit (which is not in `wrote`).
+        # Rollback is two-layered so no coordinator-authored body is ever left live on a failure. Layer one:
+        # _apply_body undoes its OWN unconfirmed write on a GitHub echo mismatch (that mangled body is not a
+        # recognisable candidate, so only the writer can clean it). Layer two, here: on ANY failure after an
+        # earlier CONFIRMED write (a mid-loop revision bump, an armed close, or non-convergence) the live body
+        # is a candidate we wrote, so _restore_after_failure puts back the original — while a genuine external
+        # edit (not in `wrote`) is preserved, never clobbered.
         try:
             for _ in range(3):
                 evidence = {**base_evidence, "close_linkage_lines": close_lines}
