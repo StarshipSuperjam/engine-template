@@ -12,11 +12,12 @@ frontmatter lines it owns; the persona's prose and every other frontmatter field
 REVIEWER ROLES CARRY MODEL BUT NOT EFFORT (StarshipSuperjam/engine-template#677). A reviewer persona's effort is
 NOT stamped, because the operator's review-depth choice scales reviewer EFFORT at launch — on Claude via the
 session `--effort` (which governs a subagent only when its frontmatter does not pin an overriding effort), on
-Codex via `model_reasoning_effort` at spawn. So `render` stamps only `model:` for the reviewer roles and `check`
-expects no `effort:` line on them (model-drift is still caught; a stray reviewer effort line is flagged). A
-missing session `--effort` falls back to Claude Code's default effort (`high`), which equals the judgment-tier
-anchor — so an un-pinned reviewer never degrades below the anchor. Workers and the audit persona still carry
-BOTH stamps (their effort is not depth-scaled).
+Codex by spawning each cold reviewer as a non-full-history fork (`fork_turns="none"`) with `reasoning_effort`
+set from the resolved depth (so the un-pinned twin carries no `model_reasoning_effort` to override). So `render`
+stamps only `model:` for the reviewer roles and `check` expects no `effort:` line on them (model-drift is still
+caught; a stray reviewer effort line is flagged). A missing session `--effort` falls back to Claude Code's
+default effort (`high`), which equals the judgment-tier anchor — so an un-pinned reviewer never degrades below
+the anchor. Workers and the audit persona still carry BOTH stamps (their effort is not depth-scaled).
 """
 from __future__ import annotations
 import json
@@ -35,13 +36,14 @@ _OWNED = re.compile(r"^(model|effort):")   # the two lines this tool owns (not '
 # The reviewer roles whose EFFORT is depth-scaled at launch, so it is NOT stamped here (see the module
 # docstring). Keyed by role INCLUSION, never "everything but worker" — the audit persona (role: audit) keeps
 # its effort stamp, so an exclusion of workers alone would wrongly un-pin it.
-_EFFORT_UNPINNED_ROLES = frozenset({"plan-review", "pre-submission-review"})
+EFFORT_UNPINNED_ROLES = frozenset({"plan-review", "pre-submission-review"})
 
 
 def _stamps_effort(fm: dict) -> bool:
     """True when this persona's effort is stamped into frontmatter (workers, audit); False for the reviewer
-    roles whose effort the review-depth choice scales at launch."""
-    return fm.get("role") not in _EFFORT_UNPINNED_ROLES
+    roles whose effort the review-depth choice scales at launch. `codex_gen` reuses EFFORT_UNPINNED_ROLES so the
+    Codex twin omits `model_reasoning_effort` for exactly the same roles."""
+    return fm.get("role") not in EFFORT_UNPINNED_ROLES
 
 
 def _root(root: str | None = None) -> str:

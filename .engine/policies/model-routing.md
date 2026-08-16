@@ -57,7 +57,11 @@ and model bindings only; it never modulates a review gate.
 **Operator-chosen review depth is a separate axis from posture, and it scales reviewer EFFORT — not model.**
 The operator's Quick/Standard/Thorough choice sets how much reasoning effort the reviewers spend (the
 per-depth `review_depths` block in `.engine/policies/model-bindings.json`), realized on Claude by the session
-`--effort` governing the un-pinned reviewer roles and on Codex by `model_reasoning_effort` at spawn. This is
+`--effort` governing the un-pinned reviewer roles and on Codex by spawning each cold reviewer as a
+non-full-history fork (`fork_turns="none"`) with `reasoning_effort` set from the resolved depth. On both
+runtimes the reviewer twin/persona is un-pinned (carries no baked effort), so the launch value governs — a
+Codex full-history fork would instead inherit the parent task's effort, which is why cold review uses
+`fork_turns="none"`. `quick` spawns no cold reviewers, so it sets no effort. This is
 the operator's explicit, per-change consent, not the engine silently taking an environment shortcut, so it
 applies in **every** posture, including the conservative default: the "make no model-dependent shortcuts"
 instruction there is about the engine choosing a *model* on its own, which review depth never does — the model

@@ -45,12 +45,15 @@ def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster
                      efforts: dict) -> list[str]:
     """Which review depths the consent surface should OFFER, so the operator is never asked to choose a depth
     that buys nothing (StarshipSuperjam/engine-template#763, generalized under StarshipSuperjam/engine-template#677). A depth is offered when,
-    versus the last offered lighter depth, it runs MORE lenses OR the SAME non-empty lens-set at HIGHER effort;
-    empty-vs-empty never distinguishes, so with no installed reviewers only `quick` is offered (the operator's
-    own read plus the automatic checks). `efforts` maps each depth to its resolved effort (None where the depth
-    runs no reviewers). `quick` is always offered — it is the floor. Advisory only: this shapes what the
-    operator is shown; `required()` remains the sole mechanical lens authority, and a collapsed depth, if bound
-    anyway, still resolves to the same empty roster as quick."""
+    versus the last offered lighter depth, it runs AT LEAST ONE lens the lighter one does not, OR the SAME
+    non-empty lens-set at HIGHER effort; empty-vs-empty never distinguishes, so with no installed reviewers only
+    `quick` is offered (the operator's own read plus the automatic checks). Keyed on the set DIFFERENCE, not a
+    strict superset, so a depth that runs genuinely unique coverage is offered even if the lens tables are ever
+    non-monotonic (a heavier depth that both adds and drops a lens still surfaces its addition, rather than being
+    silently hidden). `efforts` maps each depth to its resolved effort (None where the depth runs no reviewers).
+    `quick` is always offered — it is the floor. Advisory only: this shapes what the operator is shown;
+    `required()` remains the sole mechanical lens authority, and a collapsed depth, if bound anyway, still
+    resolves to the same empty roster as quick."""
     offered: list[str] = []
     last: tuple[frozenset, str | None] | None = None
     for depth in DEPTH_ORDER:
@@ -62,7 +65,7 @@ def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster
             last = (lenses, effort)
             continue
         last_lenses, last_effort = last
-        adds_lenses = lenses > last_lenses
+        adds_lenses = bool(lenses - last_lenses)
         same_nonempty_higher_effort = (
             lenses == last_lenses and bool(lenses)
             and _EFFORT_RANK.get(effort, -1) > _EFFORT_RANK.get(last_effort, -1))

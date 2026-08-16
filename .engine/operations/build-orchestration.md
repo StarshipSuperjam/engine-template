@@ -97,8 +97,8 @@ File/stdin export and restore remain available for a harness that transports the
 personas, and run `build_coordinator.py depths` — it lists the depths worth offering, dropping any that would run
 what a lighter one does (only Quick when no reviewers, StarshipSuperjam/engine-template#763), and prints each depth's resolved
 reviewer EFFORT. Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what
-review and validation will run or is unavailable, suggested care level (following risk, no time or cost estimate),
-and guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex `model_reasoning_effort`, named in the Review record.
+review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no
+time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review record.
 
 The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
 --depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved

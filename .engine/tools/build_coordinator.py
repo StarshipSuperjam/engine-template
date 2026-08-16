@@ -737,8 +737,10 @@ def cmd_depths(args, store: "StateStore | None") -> None:
             print(f"  {depth}: no cold reviewers — your own read plus the automatic checks")
         else:
             effort = d["effort"] or "session default"
-            print(f"  {depth}: {len(d['plan_lenses'])} plan lens(es), {len(d['deliverable_lenses'])} "
-                  f"deliverable lens(es); reviewer effort {effort}")
+            # Name the lenses, not just their count, so the operator can see WHICH reviewer a heavier depth adds.
+            print(f"  {depth}: reviewer effort {effort}")
+            print(f"      plan lenses: {', '.join(d['plan_lenses']) or 'none'}")
+            print(f"      deliverable lenses: {', '.join(d['deliverable_lenses']) or 'none'}")
     collapsed = [depth for depth in review.DEPTH_ORDER if depth not in offered]
     if collapsed:
         print("Collapsed (adds nothing over a lighter depth, so not offered): " + ", ".join(collapsed))

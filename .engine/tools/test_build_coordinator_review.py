@@ -208,6 +208,19 @@ class TestAvailableDepths(unittest.TestCase):
                                       self._roster("security-governance"), self._EFFORTS)
         self.assertEqual(got, ["quick", "thorough"])
 
+    def test_non_monotonic_tables_still_offer_a_depth_with_unique_coverage(self):
+        # Robustness (keyed on set-DIFFERENCE, not strict superset): if the per-depth lens tables are ever
+        # non-monotonic — a lighter depth naming a lens a heavier depth's table omits — a depth that runs
+        # genuinely unique coverage must still be OFFERED, never silently hidden (which would invert the
+        # feature's purpose). Inert with the shipped monotonic tables; this guards a future table edit.
+        protocol = {"plan_review": {"quick": ["risk-governance"], "standard": ["product-intent"], "thorough": []},
+                    "deliverable_review": {"quick": [], "standard": [], "thorough": []}}
+        roster = self._roster("risk-governance", "product-intent")
+        got = review.available_depths(protocol, roster, self._roster(), self._EFFORTS)
+        # standard runs product-intent, which quick (risk-governance) does not -> it must be offered, not hidden.
+        self.assertIn("standard", got)
+        self.assertEqual(got[0], "quick")   # quick is always the floor
+
 
 if __name__ == "__main__":
     unittest.main()
