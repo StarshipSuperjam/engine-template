@@ -1861,6 +1861,124 @@ def cmd_contract_preview(args, store: StateStore) -> None:
         print(f"composed a candidate PR contract for {head[:12]}: {state_word} — {contract_summary}")
 
 
+def _extract_marker_blocks(body: str) -> list:
+    """The valid engine marker blocks already on the draft that a fresh compose must carry through unchanged:
+    a published handoff block (v2 or v1) and the build-id marker. The pr-contract composition marker is NOT
+    preserved — the composer mints a fresh one bound to the current claim digest and commit."""
+    blocks = []
+    for begin, end in ((github.HANDOFF_BEGIN_V2, github.HANDOFF_END_V2),
+                       (github.HANDOFF_BEGIN, github.HANDOFF_END)):
+        m = re.search(re.escape(begin) + r".*?" + re.escape(end), body, re.DOTALL)
+        if m:
+            blocks.append(m.group(0))
+    m = re.search(r"<!-- engine-build-id:v1 [^\n]*?-->", body)
+    if m:
+        blocks.append(m.group(0))
+    return blocks
+
+
+def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revision: int, store: StateStore) -> str:
+    """One safe body write: confirm the live body is still what we last saw and Build evidence has not moved,
+    write, then read back and require byte-equality. Mirrors cmd_handoff_export's proven idiom. Returns the
+    written body (now the confirmed live body). Never clobbers an external edit — a mismatch refuses."""
+    before = _verify_draft(repo, pr).get("body") or ""
+    if before != expected_before:
+        raise CoordinatorError("the PR body changed under the composer mid-apply (a concurrent edit); "
+                               "no further write was made — rerun `contract preview` and apply with the new digest")
+    if store.read()["revision"] != revision:
+        raise CoordinatorError("Build evidence changed mid-apply; rerun `contract preview`")
+    _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=new_body)
+    confirmed = _verify_draft(repo, pr).get("body") or ""
+    if confirmed != new_body:
+        raise CoordinatorError("GitHub did not preserve the composed body exactly; the applied body was not confirmed")
+    return new_body
+
+
+def _restore_body_if_ours(repo: str, pr: int, *, ours: str, original: str) -> bool:
+    """Restore the original body only when the live body is still exactly our last write — otherwise an
+    external edit landed and we preserve it rather than clobber. Returns True iff it restored."""
+    current = _verify_draft(repo, pr).get("body") or ""
+    if current == ours:
+        _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=original)
+        return True
+    return False
+
+
+def _close_linkage_result(repo: str, pr: int, base: str, head: str) -> dict:
+    """Run the close-linkage preflight against the (already applied) live body and parse its JSON. A failed or
+    unparseable run folds no lines — the recorded preflight leg reports the real close-linkage result later."""
+    close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"),
+                  "check", "--pr", str(pr), "--base", base, "--head", head])
+    try:
+        parsed = json.loads(close.stdout) if (close.stdout or "").strip() else {}
+    except ValueError:
+        parsed = {}
+    return {"lines": parsed.get("lines", []), "defang": parsed.get("defang")}
+
+
+def cmd_contract_apply(args, store: StateStore) -> None:
+    """Compose the body and apply it to the still-draft PR under a source-digest compare-and-swap, folding
+    close-linkage advisory lines to a fixed point (max three passes), then record the full preflight set and
+    bind pr_contract to the stable body. Never marks ready and never merges."""
+    if not args.ack_visibility:
+        raise CoordinatorError("contract apply writes the composed body to the public PR contract; pass --ack-visibility")
+    state = store.read()
+    revision = state["revision"]
+    plan = _plan(args.plan)
+    _assert_plan(state, plan)
+    claim = contract.load_claim(args.claim)
+    _assert_claim_findings(state, claim)
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    with core.StableCommit(ROOT, "contract apply") as head:
+        pr_data = _verify_draft(repo, pr)
+        source_body = pr_data.get("body") or ""
+        if _digest(source_body.encode()) != args.source_body_digest:
+            raise CoordinatorError("the live PR body does not match --source-body-digest; a concurrent edit "
+                                   "occurred — rerun `contract preview` and apply with the reported digest")
+        base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+        preserved = _extract_marker_blocks(source_body)
+        close_lines: list = []
+        written = source_body
+        converged = False
+        for _ in range(3):
+            evidence = _assemble_evidence(state, plan, claim, head, pr_data)
+            evidence["preserved_blocks"] = preserved
+            evidence["close_linkage_lines"] = close_lines
+            candidate = contract.compose(claim, evidence)
+            github.require_body_budget(candidate, "composed PR contract")
+            if candidate == written:
+                converged = True
+                break
+            written = _apply_body(repo, pr, expected_before=written, new_body=candidate,
+                                  revision=revision, store=store)
+            result = _close_linkage_result(repo, pr, base, head)
+            if result["defang"]:
+                _restore_body_if_ours(repo, pr, ours=written, original=source_body)
+                raise CoordinatorError(
+                    f"the composed body armed an accidental close of #{result['defang']['number']} — that is a "
+                    "composer defect, not an author edit; the original body was restored, nothing was submitted")
+            close_lines = list(result["lines"])
+        if not converged:
+            _restore_body_if_ours(repo, pr, ours=written, original=source_body)
+            raise CoordinatorError("the composed body did not reach a fixed point in three passes; "
+                                   "the original body was restored and nothing was recorded")
+        legs = _compute_preflight_legs(state, head, _verify_draft(repo, pr), written)
+        body_digest = _digest(written.encode())
+
+        def change(s):
+            s["preflights"] = legs["results"]
+            s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
+    store.mutate(change, from_revision=revision)
+    result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
+              "summary": legs["contract_summary"], "ready": False, "merge": False}
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        state_word = "complete" if legs["contract_passed"] else "INCOMPLETE"
+        print(f"applied the composed PR contract for {head[:12]} ({state_word}); preflights recorded. "
+              f"Run `submit preview` when ready — apply never marks ready.")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1893,6 +2011,7 @@ def parser() -> argparse.ArgumentParser:
     contract_p = sub.add_parser("contract").add_subparsers(dest="contract_command", required=True)
     ctemplate = contract_p.add_parser("template"); ctemplate.add_argument("--output", default="-"); ctemplate.set_defaults(func=cmd_contract_template)
     cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
+    capply = contract_p.add_parser("apply"); capply.add_argument("--plan", required=True); capply.add_argument("--claim", required=True); capply.add_argument("--source-body-digest", required=True); capply.add_argument("--ack-visibility", action="store_true"); capply.add_argument("--json", action="store_true"); capply.set_defaults(func=cmd_contract_apply)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)

@@ -286,6 +286,8 @@ def compose(claim: dict, evidence: dict) -> str:
         review_body.append(dl)
     if evidence.get("drift_line"):
         review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
+    for cl in evidence.get("close_linkage_lines", []):
+        review_body.append(f"- {cl}")
     if evidence.get("spec_steps"):
         review_body += ["", "**Spec-derived acceptance steps**", "", evidence["spec_steps"]]
     lines += _section("Review", _review_summary(rev), review_body, _review_impact())

@@ -7,7 +7,9 @@ tested separately in test_build_coordinator*.py.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import os
 import unittest
@@ -314,6 +316,128 @@ class TestPreviewEvidence(unittest.TestCase):
         with self.assertRaises(bc.CoordinatorError) as ctx:
             bc._assert_claim_findings(self._state(findings=[]), claim)
         self.assertIn("GHOST", str(ctx.exception))
+
+
+@contextlib.contextmanager
+def _fake_stable_commit(root, label):
+    """Stub for core.StableCommit, which otherwise refuses a dirty worktree (evidence binds to a commit)."""
+    yield "f" * 40
+
+
+class TestContractApply(unittest.TestCase):
+    """The live-write fixed-point loop, exercised against a fake PR + fake store with the heavy helpers
+    monkeypatched — the digest compare-and-swap, convergence, idempotent reapply, and safe rollback."""
+
+    class _Store:
+        def __init__(self, state):
+            self._s = state
+        def read(self):
+            return dict(self._s)
+        def mutate(self, change, from_revision=None):
+            change(self._s)
+
+    def _env(self, source_body):
+        pr = {"body": source_body}
+        def verify_draft(repo, pr_num):
+            return {"body": pr["body"], "baseRefOid": "b" * 40, "state": "OPEN", "isDraft": True,
+                    "headRefOid": "h" * 40, "mergeable": "MERGEABLE"}
+        def must_run(argv, *, input_text=None):
+            if argv[:3] == ["gh", "pr", "edit"]:
+                pr["body"] = input_text
+            return ""
+        return pr, verify_draft, must_run
+
+    def _args(self, digest, ack=True):
+        import argparse
+        return argparse.Namespace(plan="p.json", claim="c.json", source_body_digest=digest,
+                                  ack_visibility=ack, json=False)
+
+    def _patches(self, bc, verify_draft, must_run, close_result, legs=None):
+        from unittest import mock
+        legs = legs or {"results": [{"id": "pr-contract", "passed": True}], "contract_passed": True,
+                        "contract_summary": "all filled", "ci_passed": True, "ci_summary": "", "declarations": []}
+        return [
+            mock.patch.object(bc, "_plan", return_value={}),
+            mock.patch.object(bc, "_assert_plan", return_value=None),
+            mock.patch.object(bc, "_assert_claim_findings", return_value=None),
+            mock.patch.object(bc.contract, "load_claim", return_value=_good_claim()),
+            mock.patch.object(bc, "_assemble_evidence", return_value={}),
+            mock.patch.object(bc, "_verify_draft", side_effect=verify_draft),
+            mock.patch.object(bc, "_must_run", side_effect=must_run),
+            mock.patch.object(bc, "_close_linkage_result", side_effect=close_result),
+            mock.patch.object(bc, "_compute_preflight_legs", return_value=legs),
+            mock.patch.object(bc.core, "StableCommit", _fake_stable_commit),
+        ]
+
+    def _run_apply(self, bc, source_body, close_result, ack=True):
+        import contextlib, io
+        pr, verify_draft, must_run = self._env(source_body)
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 977, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        digest = bc._digest(source_body.encode())
+        args = self._args(digest, ack=ack)
+        patches = self._patches(bc, verify_draft, must_run, close_result)
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_contract_apply(args, store)
+        return pr, store
+
+    def test_converges_and_records_pr_contract(self):
+        import build_coordinator as bc
+        pr, store = self._run_apply(bc, "old body", lambda *a, **k: {"lines": [], "defang": None})
+        self.assertIn("## Purpose", pr["body"])                       # the composed body was applied
+        self.assertEqual(store._s["pr_contract"]["body_digest"], bc._digest(pr["body"].encode()))
+        self.assertTrue(store._s["pr_contract"]["complete"])
+        self.assertIn("preflights", store._s)
+
+    def test_source_digest_mismatch_refuses(self):
+        import build_coordinator as bc
+        from unittest import mock
+        pr, verify_draft, must_run = self._env("live body")
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        args = self._args(bc._digest(b"a DIFFERENT body"))            # stale digest
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
+                stack.enter_context(p)
+            with self.assertRaises(bc.CoordinatorError) as ctx:
+                bc.cmd_contract_apply(args, store)
+        self.assertIn("source-body-digest", str(ctx.exception))
+        self.assertEqual(pr["body"], "live body")                     # nothing written
+
+    def test_requires_ack_visibility(self):
+        import build_coordinator as bc
+        args = self._args("sha256:x", ack=False)
+        with self.assertRaises(bc.CoordinatorError) as ctx:
+            bc.cmd_contract_apply(args, self._Store({"revision": 1}))
+        self.assertIn("--ack-visibility", str(ctx.exception))
+
+    def test_non_convergence_restores_original(self):
+        import build_coordinator as bc
+        counter = {"n": 0}
+        def ever_changing(*a, **k):
+            counter["n"] += 1
+            return {"lines": [f"line variant {counter['n']}"], "defang": None}   # different every pass
+        with self.assertRaises(bc.CoordinatorError) as ctx:
+            self._run_apply(bc, "original body", ever_changing)
+        self.assertIn("fixed point", str(ctx.exception))
+
+    def test_armed_accidental_close_fails_safe(self):
+        import build_coordinator as bc
+        pr, verify_draft, must_run = self._env("orig")
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        args = self._args(bc._digest(b"orig"))
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run,
+                                   lambda *a, **k: {"lines": [], "defang": {"number": 5}}):
+                stack.enter_context(p)
+            with self.assertRaises(bc.CoordinatorError) as ctx:
+                bc.cmd_contract_apply(args, store)
+        self.assertIn("accidental close", str(ctx.exception))
+        self.assertEqual(pr["body"], "orig")                          # restored
 
 
 if __name__ == "__main__":
