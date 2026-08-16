@@ -93,7 +93,7 @@ _REFUSALS = {
     # `worktree` verb refusals (identity reuses the taxonomy above; these are the workspace-creation reasons):
     "bad-name": (
         "The worktree name is not allowed. Use letters, digits, dot, dash or underscore (no leading dash or "
-        "dot, no path separators, no '..'). Pick a simple name like the issue number and a short slug."),
+        "dot, no path separators, no '..'). Pick a short slug; prefix the issue number only when one exists."),
     "engine-root-unresolved": (
         "Could not resolve this engine's own checkout root, so there is nowhere to home the build worktree. "
         "Run this from inside the engine-mechanic checkout (a normal git working tree)."),
@@ -372,7 +372,7 @@ def main(argv: list | None = None) -> int:
     subs = parser.add_subparsers(dest="verb")
     subs.add_parser("preflight", help="resolve+verify the product checkout; emit its env or refuse fail-closed")
     wt = subs.add_parser("worktree", help="verify, then cut an isolated build worktree; emit its env or refuse")
-    wt.add_argument("name", help="a short name (issue number + slug); becomes the worktree dir and claude/<name>")
+    wt.add_argument("name", help="a short slug (issue-number prefix only when one exists); becomes the worktree dir and claude/<name>")
     args = parser.parse_args(argv)
     if args.verb == "preflight":
         path, slug, refusal = resolve_build_target()
