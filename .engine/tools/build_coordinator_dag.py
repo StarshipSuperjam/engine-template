@@ -181,13 +181,17 @@ def _pair_conflict(pa: str, pb: str) -> bool:
 
     A None prefix (a metacharacter-leading pattern with no safe literal) reaches anywhere, so it
     conflicts with everything. Two COMPLETE literal paths (no glob on either side) compare
-    COMPONENT-wise, so distinct files never collide (``foo/bar.py`` vs ``foo/barbaz.py`` do not,
+    COMPONENT-wise, so distinct subtrees never collide (``foo/bar.py`` vs ``foo/barbaz.py`` do not,
     while ``foo/`` vs ``foo/bar.py`` do as ancestor/descendant). A glob against a complete literal
-    matches the pattern directly (``fnmatch``), plus containment either way, because a literal may
-    name a directory. Two globs conflict when their literal prefixes overlap AND their literal
-    suffixes could coexist — ``docs/*.md`` vs ``docs/*.json`` share a prefix but no path can end
-    with both tails, so they are provably disjoint and may run concurrently. Anything not provably
-    disjoint stays a conflict (the safe direction: over-serializing never admits a real collision).
+    is conservative on PURPOSE: a declared literal covers its whole subtree and a glob ``*``
+    crosses ``/``, so ``a*.txt`` genuinely reaches ``axyz.py/notes.txt`` — only genuine prefix
+    divergence proves disjointness there (a match must start with the pattern's literal prefix and
+    lie inside the literal's subtree, so compatible prefixes always leave a reachable overlap).
+    Two globs declare exact match-sets, so a suffix proof applies: they conflict only when their
+    literal prefixes overlap AND their literal tails could coexist — ``docs/*.md`` vs
+    ``docs/*.json`` share a prefix but no single path can end with both tails, so they are provably
+    disjoint and may run concurrently. Anything not provably disjoint stays a conflict (the safe
+    direction: over-serializing never admits a real collision).
     """
     la, lb = resource_prefix(pa), resource_prefix(pb)
     if la is None or lb is None:
@@ -199,14 +203,13 @@ def _pair_conflict(pa: str, pb: str) -> bool:
         return longer[: len(shorter)] == shorter
     if ga != gb:
         pattern, literal = (pa, lb) if ga else (pb, la)
-        lit = literal.rstrip("/")
-        if fnmatch.fnmatch(lit, pattern):
-            return True
-        root = resource_prefix(pattern).rstrip("/")
-        # The pattern's reach sits beneath the literal (which may be a directory), or the literal
-        # sits beneath the pattern's literal directory (where a match could live under it).
-        return (root == lit or root.startswith(lit + "/")
-                or lit.startswith((root + "/") if root else ""))
+        lit = literal.rstrip("/") + "/"
+        root = resource_prefix(pattern)
+        # A pattern match starts with root; the literal's subtree is everything under lit. When
+        # either string prefixes the other, a glob metacharacter can absorb the remainder either
+        # way, so an overlapping path is constructible; only true divergence is disjoint.
+        return (fnmatch.fnmatch(literal.rstrip("/"), pattern)
+                or root.startswith(lit) or lit.startswith(root))
     if not (la.startswith(lb) or lb.startswith(la)):
         return False
     sa, sb = _literal_suffix(pa), _literal_suffix(pb)

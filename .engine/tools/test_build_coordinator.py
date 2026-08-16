@@ -1355,8 +1355,9 @@ class TestPlanV2Ingest(CoordinatorCase):
     def test_issue_sourced_v1_rebind_with_published_handoff_is_not_walled(self):
         # The exempt continuation path in a deployed repo demands real pre-existing continuation
         # evidence: the Build's published v1 handoff already on its draft PR.
+        import build_coordinator_github as ghub
         issue_plan = plan()
-        body = bc.HANDOFF_BEGIN + "sha256:0 -->\n{}\n" + bc.HANDOFF_END
+        body = "prose\n\n" + ghub.handoff_block({"schema_version": "build-handoff.v1"}) + "\nmore\n"
         self._bind(issue_plan, source="issue", issue=11, home=False, pr_body=body)
         self.assertEqual(self.state()["schema_version"], "build-state.v1")
 
@@ -1365,6 +1366,23 @@ class TestPlanV2Ingest(CoordinatorCase):
         # handoff on the PR, the deployed-repo bind refuses toward migration (closes the bypass).
         with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
             self._bind(plan(), source="issue", issue=11, home=False)
+
+    def test_issue_sourced_v1_bind_with_only_marker_prose_is_refused(self):
+        # Repair-review regression: a quoted marker fragment in prose is not evidence — the gate
+        # demands a well-formed, digest-matching handoff block, the same bar restore holds.
+        body = "Example of what a marker looks like: " + bc.HANDOFF_BEGIN + " (just prose)"
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False, pr_body=body)
+
+    def test_issue_sourced_v1_bind_with_a_digest_mismatched_block_is_refused(self):
+        # A structurally present block whose digest does not match its content is laundered
+        # evidence, not continuation evidence.
+        import build_coordinator_github as ghub
+        block = ghub.handoff_block({"schema_version": "build-handoff.v1"})
+        # alter the block's CONTENT without touching its marker digest
+        tampered = block.replace('"build-handoff.v1"', '"build-handoff.v1-forged"')
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False, pr_body=tampered)
 
     def test_issue_sourced_v1_rebind_needs_no_handoff_in_the_home_repo(self):
         # The home repo still dogfoods v1: the continuation-evidence demand is deployed-only.

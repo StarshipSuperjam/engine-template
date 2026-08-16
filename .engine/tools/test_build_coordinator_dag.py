@@ -172,11 +172,29 @@ class TestGlobDisjointness(unittest.TestCase):
         self.assertFalse(dag._pair_conflict("docs/*.md", "docs/*.json"))
         self.assertFalse(dag._pair_conflict("src/a*.py", "src/a*.txt"))
 
-    def test_glob_vs_literal_uses_the_real_match(self):
-        self.assertFalse(dag._pair_conflict("a*.txt", "axyz.py"))       # extensions disagree
-        self.assertFalse(dag._pair_conflict("src/api*.json", "src/apiary/notes.md"))
+    def test_glob_vs_literal_stays_conservative_over_subtrees(self):
+        # A declared literal covers its whole SUBTREE and * crosses /, so a*.txt genuinely reaches
+        # axyz.py/notes.txt — compatible prefixes must conflict; only true divergence is disjoint.
+        self.assertTrue(dag._pair_conflict("a*.txt", "axyz.py"))
+        self.assertTrue(dag._pair_conflict("src/api*.json", "src/apiary/notes.md"))
         self.assertTrue(dag._pair_conflict("a*.py", "axyz.py"))         # the literal matches the glob
         self.assertTrue(dag._pair_conflict("docs/*.md", "docs/readme.md"))
+        self.assertFalse(dag._pair_conflict("docs/*.md", "src/readme.md"))  # divergent prefixes
+
+    def test_mid_component_wildcard_against_a_directory_literal_conflicts(self):
+        # Repair-review regression (found independently by two lenses): a glob whose wildcard is
+        # fused mid-component reaches into a directory literal sharing only a partial-component
+        # prefix — src/module*/sub/x.py genuinely collides with src/module_a/sub/x.py.
+        self.assertTrue(dag._pair_conflict("src/module*/sub/x.py", "src/module_a/"))
+        self.assertTrue(dag._pair_conflict("src/module*/sub/x.py", "src/module_a"))
+        self.assertTrue(dag._pair_conflict("a*b/x.py", "axxxb/y.py"))
+        self.assertTrue(dag._pair_conflict("foo*bar/x.py", "foo_qux_bar/"))
+
+    def test_mid_component_wildcard_with_later_slash_still_conflicts(self):
+        # Repair-review regression: a wildcard fused mid-component can absorb text so a LATER "/"
+        # still lands inside the literal's subtree — this pair genuinely collides on
+        # docs/api_stable_v2/readme.md and must never be judged disjoint.
+        self.assertTrue(dag._pair_conflict("docs/api_*_v2/*.md", "docs/api_stable_v2"))
 
     def test_containment_still_conflicts(self):
         self.assertTrue(dag._pair_conflict("docs", "docs/*.md"))        # literal dir holds the pattern

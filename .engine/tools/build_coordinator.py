@@ -496,11 +496,21 @@ def cmd_plan_bind(args, store: StateStore) -> None:
         if _digest(durable) != _digest(plan):
             raise CoordinatorError("supplied plan does not match the durable Issue plan")
         # The v1 Issue carve-out resumes an IN-FLIGHT Build, so it demands pre-existing continuation
-        # evidence, not just a marker: a freshly authored Issue can carry a v1 plan block, but only a
-        # Build that actually ran has published its v1 handoff into the PR contract. Without that, a
-        # deployed Engine treats the bind as a new v1 Build and refuses toward migration.
+        # evidence, not just marker text: a freshly authored Issue can carry a v1 plan block, but only
+        # a Build that actually ran has published its v1 handoff into the PR contract. The evidence
+        # must be a WELL-FORMED handoff block whose digest matches its content (the same bar restore
+        # holds it to) — a quoted marker fragment in prose is not evidence. Without it, a deployed
+        # Engine treats the bind as a new v1 Build and refuses toward migration.
         if _plan_version(plan) == "build-plan.v1" and not _confidently_home():
-            if HANDOFF_BEGIN not in (pr.get("body") or ""):
+            block = github.find_handoff_block(pr.get("body") or "", "v1")
+            valid = False
+            if block:
+                digest, rendered = block
+                try:
+                    valid = _digest(json.loads(rendered)) == digest
+                except ValueError:
+                    valid = False
+            if not valid:
                 raise CoordinatorError(
                     "a v1 Issue re-bind resumes an in-flight Build, so the draft PR must already carry "
                     "published v1 handoff evidence; new Builds use build-plan.v2 — migrate this plan "
@@ -680,7 +690,13 @@ def cmd_status(args, store: StateStore) -> None:
                 line += f" [integrated {node['integration_commit'][:12]}]"
             failure = node.get("failure")
             if failure and failure.get("reason"):
-                line += f" [failure: {failure['reason']}]"
+                # The reason is untrusted free text (a worker's self-report or a pasted trace):
+                # collapse it to one bounded line so the per-node render stays legible; the full
+                # text is always available via --json.
+                reason = " ".join(str(failure["reason"]).split())
+                if len(reason) > 160:
+                    reason = reason[:157] + "..."
+                line += f" [failure: {reason}]"
             print(line)
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
@@ -1174,6 +1190,11 @@ def _bounded_work(work_map: dict) -> dict:
         failure = nw.get("latest_failure")
         if failure and failure.get("reason"):
             failure["reason"] = redacted
+        integration = nw.get("integration")
+        if integration and integration.get("focused_verification"):
+            # Also free text (typed at `work integrate`); like the repair rationale, it reaches the
+            # PR body only through an explicitly authored summary, never verbatim.
+            integration["focused_verification"] = redacted
         bounded[node_id] = nw
     return bounded
 
@@ -1514,6 +1535,9 @@ def cmd_work_packet(args, store: StateStore) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     state = store.read()
+    # The preview enforces the same plan-digest bar the claim does, so a stale --plan file fails
+    # HERE with the digest-mismatch message rather than previewing clean and surprising the claim.
+    _assert_plan(state, plan)
     item = work.node_item(plan, args.item)
     route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
     packet = work.build_packet(plan, state, args.item, route, _head(), "preview", args.worktree or "<worktree>")
@@ -1648,7 +1672,9 @@ def cmd_work_retry(args, store: StateStore) -> None:
         nw["claim"] = None  # a fresh attempt id is minted on the next claim; attempt_count increments there
 
     _work_mutate(store, change)
-    print(f"retry recorded for {args.item} via {args.strategy}: {args.reason}")
+    consequence = ("the next claim will run integrator-inline in the current session"
+                   if args.strategy == "integrator-inline" else "the next claim mints a fresh attempt")
+    print(f"retry recorded for {args.item} via {args.strategy} ({consequence}): {args.reason}")
 
 
 def cmd_work_abandon(args, store: StateStore) -> None:

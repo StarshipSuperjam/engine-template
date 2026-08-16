@@ -200,6 +200,13 @@ class TestResultEdges(WorkCase):
         self.assertIsNone(nw["latest_failure"])
         self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.RETURNED)
 
+    def test_non_object_payload_fails_closed_not_crashes(self):
+        # A JSON array (or any non-object) at the top level must refuse, never AttributeError.
+        with self.assertRaisesRegex(bc.CoordinatorError, "payload must be a JSON object"):
+            work.bind_result({"claim": {"attempt_id": "a", "base_sha": "s"}},
+                             {"id": "n", "paths": [], "output_contract": {"required_evidence": []}},
+                             "a", "s", ["not", "a", "dict"])
+
     def test_malformed_evidence_fails_closed_not_crashes(self):
         packet = self.claim("shared")
         with self.assertRaisesRegex(bc.CoordinatorError, "evidence must be an object"):
@@ -226,6 +233,16 @@ class TestResultEdges(WorkCase):
             with self.assertRaisesRegex(bc.CoordinatorError, "must be a list of strings"):
                 self.result("shared", packet["attempt_id"],
                             {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
+
+    def test_null_on_a_required_evidence_key_is_missing_not_empty(self):
+        # Repair-review regression: an explicit null must not satisfy a REQUIRED evidence kind by
+        # silently laundering into [] — the contract completeness check treats it as missing.
+        packet = self.claim("shared")
+        with self.assertRaisesRegex(bc.CoordinatorError, "missing output-contract evidence"):
+            self.result("shared", packet["attempt_id"],
+                        {"outcome": "returned", "base_sha": HEAD_A,
+                         "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                                      "verification_results": None}})
 
     def test_explicit_null_evidence_field_reads_as_empty(self):
         # null for a NON-required key is an ordinary way to say "nothing here" and must not crash.
@@ -406,6 +423,48 @@ class TestStatusV2(WorkCase):
         node = bc._status(self.state(), self.plan_value)["work"]["nodes"]["shared"]
         self.assertEqual(node["failure"]["reason"], "hit a permission error on X")
 
+    def test_v2_routine_refusal_says_next_ready(self):
+        # RSC-4: the v2 Routine refusal names dependency READINESS — the concept the doc and the
+        # status render use — while the v1 wording stays byte-identical (pinned elsewhere).
+        value = plan_v2()
+        value["profile"] = "routine"
+        value["intent_source"] = {"kind": "issue", "issue": 11}
+        self.write_plan(value)
+        state = bc._initial_state("owner/repo", 7, BASE, "issue", value, 11, "unattended")
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
+                                         "referent_digest": "sha256:" + "2" * 64})
+        os.remove(self.state_path)
+        self.store.create(state)
+        note = {"objective": "x", "current_work": "later item", "work_item": "adapter", "assumptions": [],
+                "non_goals": [], "planned_scope": [], "remaining_verification": [], "judgment": "aligned"}
+        note_path = Path(self.temp.name) / "note.json"
+        note_path.write_text(json.dumps(note))
+        with mock.patch.object(bc, "_assert_spec_boundary", return_value={}),                 self.assertRaisesRegex(bc.CoordinatorError, "next ready work item shared"):
+            bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(note_path),
+                                                 complete_item="adapter", json=False), self.store)
+
+    def test_human_render_collapses_a_multiline_failure_reason(self):
+        # RSC-5a: an untrusted multi-line reason (a pasted trace) must not break the one-line-per-
+        # node render; it is collapsed and capped, with the full text still in --json.
+        canned = {"phase": "implementation", "head_commit": HEAD_A, "snapshot_revision": 3,
+                  "required_evidence": [], "engineering_judgment": [], "warnings": [],
+                  "suggested_next": None, "available_activities": [],
+                  "progress": {"completed": [], "total": 2, "current": None, "next": "shared"},
+                  "work": {"slots_in_use": 0, "max_concurrency": 1, "ready": ["shared"],
+                           "claimable": ["shared"], "resource_holders": {},
+                           "nodes": {"shared": {"state": "failed", "reasons": [], "attempt_count": 1,
+                                     "route": None, "integration_commit": None,
+                                     "focused_verification": None, "artifact_digest": None,
+                                     "failure": {"class": "worker", "disposition": "open",
+                                                 "reason": "Traceback (most recent call last):\n  File x\n" + "x" * 300}}}}}
+        with mock.patch.object(bc, "_status", return_value=canned),                 contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_status(argparse.Namespace(plan=None, json=False), self.store)
+        lines = [l for l in out.getvalue().splitlines() if "[failure:" in l]
+        self.assertEqual(len(lines), 1)  # collapsed to one physical line
+        self.assertLess(len(lines[0]), 250)
+        self.assertIn("...", lines[0])
+
     def test_reset_after_revision_clears_the_work_map(self):
         self.claim("shared")
         state = self.state()
@@ -464,6 +523,11 @@ class TestHandoffV2(WorkCase):
         self.assertEqual(nw["latest_result"]["evidence"]["assumptions"], ["redacted from durable handoff"])
         self.assertEqual(nw["latest_result"]["evidence"]["changed_paths"], [".engine/tools/shared.py"])
         self.assertEqual(nw["claim"]["attempt_id"], packet["attempt_id"])
+        # RSC-3: the integrator's free-text verification summary is redacted like every other
+        # unreviewed free-text field.
+        probe = bc._bounded_work({"n": {"integration": {"attempt_id": "a", "commit": HEAD_A,
+                                                        "focused_verification": "token=/Users/x secret"}}})
+        self.assertEqual(probe["n"]["integration"]["focused_verification"], "redacted from durable handoff")
         # the LOCAL snapshot keeps its unredacted evidence — only the published projection is bounded
         self.assertEqual(self.state()["work"]["shared"]["claim"]["worktree"], "/tmp/wt")
 

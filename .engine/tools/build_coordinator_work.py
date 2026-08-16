@@ -93,6 +93,8 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
     A returned result must carry every evidence kind its node's output_contract requires; a missing
     kind is a contract failure, so the output_contract is enforced, not merely declared.
     """
+    if not isinstance(payload, dict):
+        raise CoordinatorError("work result payload must be a JSON object")   # fail closed, never crash
     claim = nw.get("claim")
     if not claim:
         raise CoordinatorError("no active claim to bind a result to")
@@ -118,7 +120,9 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
             raise CoordinatorError(f"result evidence {key} must be a list of strings")
         evidence[key] = list(value)
     if outcome == "returned":
-        missing = [k for k in item["output_contract"]["required_evidence"] if k not in supplied]
+        # A required key satisfied by an explicit null is MISSING, not empty: the contract demands
+        # the evidence kind be carried, and a null must not silently launder it into [].
+        missing = [k for k in item["output_contract"]["required_evidence"] if supplied.get(k) is None]
         if missing:
             raise CoordinatorError(
                 "returned result is missing output-contract evidence: " + ", ".join(sorted(missing)))
