@@ -246,5 +246,75 @@ class TestMultiDocSpecSteps(unittest.TestCase):
         self.assertNotIn("**Things you can confirm yourself**", out)
 
 
+class TestPreviewEvidence(unittest.TestCase):
+    """The coordinator-side evidence assembler + finding-id match, exercised offline (I/O monkeypatched)."""
+
+    def _state(self, findings=None):
+        return {
+            "build": {"repository": "owner/repo", "pr": 977, "base_at_bind": "b" * 40},
+            "plan": {"durable_issue": None},
+            "approval": {"depth": "thorough"},
+            "validation": {"commit": "a" * 40,
+                           "results": [{"id": "engine-ci", "commit": "a" * 40, "passed": True,
+                                        "log_digest": "sha256:abc", "log_path": "/tmp/secret.log"}]},
+            "repair": None,
+            "findings": findings if findings is not None else [],
+        }
+
+    def test_assemble_evidence_composes_a_gate_passing_body(self):
+        import build_coordinator as bc
+        from unittest import mock
+        claim = _good_claim()
+        pr_data = {"body": "old body", "baseRefOid": "b" * 40}
+        prof = mock.Mock(stdout="**Change profile** — small: 3 files.", returncode=0)
+        with mock.patch.object(bc, "_run", return_value=prof), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "No settled spec applies."}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed",
+                               return_value=[{"lens": "spec-conformance"}, {"lens": "divergence-hunter"}]):
+            ev = bc._assemble_evidence(self._state(), {"intent_source": {"kind": "direct"}, "spec": {}},
+                                       claim, "c" * 40, pr_data)
+        self.assertEqual(ev["closes"], [])           # claim closes [] + no durable issue
+        self.assertNotIn("secret.log", ev["validation_results"])  # machine-local log path stripped
+        self.assertIn("thorough depth", ev["review_coverage"])
+        body = bcc.compose(claim, ev)
+        rule_path = os.path.join(ROOT, ".engine", "check", "pr-body-completeness.json")
+        with open(rule_path, encoding="utf-8") as fh:
+            rule = json.load(fh)
+        verdict, findings = validate.kind_presence(rule, {"pr_body": body})
+        self.assertTrue(verdict, [f["message"] for f in findings])
+        self.assertIn("Change profile", body)
+
+    def test_durable_issue_added_to_closes(self):
+        import build_coordinator as bc
+        from unittest import mock
+        state = self._state()
+        state["plan"]["durable_issue"] = 500
+        claim = _good_claim()
+        pr_data = {"body": "", "baseRefOid": "b" * 40}
+        with mock.patch.object(bc, "_run", return_value=mock.Mock(stdout="p", returncode=0)), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "x"}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed", return_value=[]):
+            ev = bc._assemble_evidence(state, {"intent_source": {"kind": "direct"}, "spec": {}},
+                                       claim, "c" * 40, pr_data)
+        self.assertIn(500, ev["closes"])
+
+    def test_claim_findings_must_match_exactly(self):
+        import build_coordinator as bc
+        claim = _good_claim()  # finding_summaries == []
+        # a live finding with no claim summary -> reject
+        with self.assertRaises(bc.CoordinatorError) as ctx:
+            bc._assert_claim_findings(self._state(findings=[{"id": "SG-1"}]), claim)
+        self.assertIn("SG-1", str(ctx.exception))
+        # a claim summary for an unknown finding -> reject
+        claim["review"]["finding_summaries"] = [{"id": "GHOST", "operator_summary": "x"}]
+        with self.assertRaises(bc.CoordinatorError) as ctx:
+            bc._assert_claim_findings(self._state(findings=[]), claim)
+        self.assertIn("GHOST", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

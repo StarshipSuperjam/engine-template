@@ -1747,6 +1747,120 @@ def cmd_contract_template(args, store) -> None:
         print(rendered, end="")
 
 
+def _assert_claim_findings(state: dict, claim: dict) -> None:
+    """The claim's finding summaries must match the current coordinator finding set EXACTLY — no stale,
+    missing, or unknown ids — so the composed body neither drops a real finding nor invents one, and never
+    publishes raw finding text implicitly (only the claim's operator-safe summary reaches the body)."""
+    state_ids = {f["id"] for f in state.get("findings", [])}
+    claim_ids = {fs["id"] for fs in claim["review"]["finding_summaries"]}
+    if state_ids != claim_ids:
+        parts = []
+        missing = sorted(state_ids - claim_ids)
+        unknown = sorted(claim_ids - state_ids)
+        if missing:
+            parts.append("missing an operator-safe summary for: " + ", ".join(missing))
+        if unknown:
+            parts.append("carries a summary for unknown finding(s): " + ", ".join(unknown))
+        raise CoordinatorError(
+            "the claim's finding summaries must match the current finding set exactly — " + "; ".join(parts)
+            + " (re-run `contract template` against current state, or reconcile the finding ids)")
+
+
+def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:
+    """Compute the coordinator-owned evidence a composed body carries — everything deterministic that the
+    claim deliberately does not hold. Read-only: it runs the same report-only tools the preflight uses and
+    reads recorded Build state; it never writes. `contract preview` and `contract apply` share it so the
+    previewed body and the applied body are assembled identically."""
+    repo = state["build"]["repository"]
+    base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+
+    # Closing linkage: the claim's closes plus the durable Build Issue promotion linked (mechanically added,
+    # never inferred). Part-of comes straight from the claim inside the composer.
+    closes = list(claim["linkage"]["closes"])
+    durable = state["plan"].get("durable_issue")
+    if durable and durable not in closes and durable not in claim["linkage"]["part_of"]:
+        closes.append(durable)
+
+    # Report-only change profile, over the live base — the same invocation the preflight records.
+    profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
+    change_profile = (profile.stdout or "").strip()
+
+    # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip).
+    val = state.get("validation")
+    if val and val.get("results"):
+        vlines = []
+        for r in val["results"]:
+            status = "passed" if r["passed"] else "**FAILED**"
+            tail = f" (log {r['log_digest']})" if r.get("log_digest") else ""
+            vlines.append(f"- `{r['id']}` — {status} at `{r['commit'][:12]}`{tail}")
+        validation_results = "\n".join(vlines)
+    else:
+        validation_results = "- The full CI suite and self-tests are run green against the final commit and recorded before the draft is marked ready."
+
+    # Spec-derived acceptance steps: the canonical resolution, rendered (multi-document merge) or its honest
+    # no-spec disclosure — never re-authored here.
+    cs = spec_service.canonical_spec(ROOT, plan, repository=repo, issue_body=_issue_body)
+    if cs["posture"] == "none":
+        spec_steps = cs["review_steps"]
+    else:
+        import spec_referent
+        spec_steps = spec_referent.render_review_steps_multi(cs["review_steps"])
+
+    depth = state["approval"]["depth"] if state.get("approval") else "unapproved"
+    lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+    review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
+
+    repair = state.get("repair")
+    if repair and repair.get("final_commit"):
+        drift_line = (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
+                      f"{repair['summary']}")
+    else:
+        drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
+
+    marker = f"<!-- engine-pr-contract:v1 {_digest(claim)} commit={head} -->"
+
+    return {
+        "closes": closes,
+        "change_profile": change_profile,
+        "validation_results": validation_results,
+        "spec_steps": spec_steps,
+        "review_coverage": review_coverage,
+        "disagreement_lines": review.required_disagreement_lines(state),
+        "drift_line": drift_line,
+        "composition_marker": marker,
+        # preserved marker blocks are extracted from the live body at apply time, where the write happens.
+        "preserved_blocks": [],
+    }
+
+
+def cmd_contract_preview(args, store: StateStore) -> None:
+    """Read-only: validate the claim and current evidence, render the candidate body, run the real
+    completeness rule locally, and report the source/claim/commit/candidate digests. No GitHub write."""
+    state = store.read()
+    plan = _plan(args.plan)
+    _assert_plan(state, plan)
+    claim = contract.load_claim(args.claim)
+    _assert_claim_findings(state, claim)
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    with core.StableCommit(ROOT, "contract preview") as head:
+        pr_data = _verify_draft(repo, pr)
+        source_body = pr_data.get("body") or ""
+        evidence = _assemble_evidence(state, plan, claim, head, pr_data)
+        body = contract.compose(claim, evidence)
+        github.require_body_budget(body, "composed PR contract")
+        contract_passed, contract_summary = _pr_contract(body)
+    if getattr(args, "output", None):
+        Path(args.output).write_text(body, encoding="utf-8")
+    result = {"source_body_digest": _digest(source_body.encode()), "claim_digest": _digest(claim),
+              "commit": head, "candidate_body_digest": _digest(body.encode()),
+              "complete": contract_passed, "summary": contract_summary}
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        state_word = "complete" if contract_passed else "incomplete"
+        print(f"composed a candidate PR contract for {head[:12]}: {state_word} — {contract_summary}")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1778,6 +1892,7 @@ def parser() -> argparse.ArgumentParser:
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
     contract_p = sub.add_parser("contract").add_subparsers(dest="contract_command", required=True)
     ctemplate = contract_p.add_parser("template"); ctemplate.add_argument("--output", default="-"); ctemplate.set_defaults(func=cmd_contract_template)
+    cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
