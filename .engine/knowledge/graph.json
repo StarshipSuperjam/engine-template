@@ -4375,7 +4375,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:84730271cf68bdbfcae07a926b6a410548e0b6acb2b33dc5bc7b94734b52ab3a",
+        "fingerprint": "sha256:a9fe8222b6942667466045e1482bf9a40f8058c58d9f0fab42f21a0775b4d5cd",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -7060,7 +7060,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:ddb7348e377fadbb9dc26bebb2523bab117d4b2c6c595ee85552defc28e85c47",
+        "fingerprint": "sha256:c2c4f2962a0f67450dd97c528196d1d5b219c9d26b00dec2c3b2d34ace21929b",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -7103,7 +7103,7 @@
       },
       "slug": "build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:e2317640e523e8e29a0429020419e6067c099fa0b718d322cc6ea862b60d39be",
+        "fingerprint": "sha256:1f1b35a68c6fb845ca2d8ab0dee915c7ef48028a79ec7d0ab60bcb2a21452ad3",
         "path": ".engine/tools/build_coordinator_dag.py"
       },
       "status": "active",
@@ -7222,7 +7222,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:187a9c2c34a77dec0e62a91e9ccbba0a0511a9f35eb17ed8e6ca021ad2fa8828",
+        "fingerprint": "sha256:7c74f0dedfc788821836ef5f9b977140cb144302bd97cd3dd99109edf96cc0c7",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -12064,7 +12064,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:f7f0c28072f2f53767b5ba71437e5ebbe1cc37626a839821520691e5ec699a09",
+        "fingerprint": "sha256:12e8256026f62575d0edf6478ff68ea48c7b9224b11e8a68d39058d0938d8922",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -12110,7 +12110,7 @@
       },
       "slug": "test_build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:1578474d0bf2dfc6f910d2b27b2bf5c4dde26c43f8d1bd8e5affb6755939cc3a",
+        "fingerprint": "sha256:1622ac741772d8ea3838a4643ebf82f1ed1b1651efa856948ddb9df816ae7534",
         "path": ".engine/tools/test_build_coordinator_dag.py"
       },
       "status": "active",
@@ -12159,7 +12159,7 @@
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:e6e996532b9ac442264578846f9209efb81815bf77a9d55f1868ed02c7a00162",
+        "fingerprint": "sha256:2250333c18418a625450f8b47b6849a573919980dfd6f483107116518704c3a8",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",
@@ -12211,7 +12211,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:a1651230fa25b83106d013aa97925c7e37fb70d0a11e605461f5358e4cc5c5bf",
+        "fingerprint": "sha256:7720a29b3d9fcd1d5acc25e3208a28e15532a507f6b38c41104ee86e951c1e64",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",

@@ -108,6 +108,15 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
     supplied = payload.get("evidence") or {}
     if not isinstance(supplied, dict):
         raise CoordinatorError("result evidence must be an object")   # fail closed, never crash
+    evidence = {}
+    for key in _EVIDENCE_KEYS:
+        value = supplied.get(key)
+        value = [] if value is None else value
+        # The whole payload is a worker's UNTRUSTED self-report, so every field fails closed with a
+        # refusal, never a crash or a silent coercion (a bare string must not become a char list).
+        if not isinstance(value, list) or any(not isinstance(entry, str) for entry in value):
+            raise CoordinatorError(f"result evidence {key} must be a list of strings")
+        evidence[key] = list(value)
     if outcome == "returned":
         missing = [k for k in item["output_contract"]["required_evidence"] if k not in supplied]
         if missing:
@@ -116,11 +125,10 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
         # Scoped-write teeth: a returned result whose reported changed paths escape the node's
         # declared paths is a contract failure — the worker wrote outside the scope it was given.
         declared = item.get("paths", [])
-        escaped = [c for c in (supplied.get("changed_paths") or []) if not dag.path_within_declared(c, declared)]
+        escaped = [c for c in evidence["changed_paths"] if not dag.path_within_declared(c, declared)]
         if escaped:
             raise CoordinatorError(
                 "returned result changed paths outside the node's declared scope: " + ", ".join(sorted(escaped)))
-    evidence = {k: list(supplied.get(k, [])) for k in _EVIDENCE_KEYS}
     return {"attempt_id": attempt_id, "base_sha": base_sha, "outcome": outcome,
             "artifact_ref": payload.get("artifact_ref"), "artifact_digest": payload.get("artifact_digest"),
             "evidence": evidence}

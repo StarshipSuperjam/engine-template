@@ -163,5 +163,32 @@ class TestResourceAdmission(unittest.TestCase):
         self.assertEqual(dag.claimable_set(p, st), ["a"])
 
 
+
+class TestGlobDisjointness(unittest.TestCase):
+    """The tightened conflict math: provable disjointness admits concurrency; doubt still conflicts."""
+
+    def test_disjoint_glob_suffixes_do_not_conflict(self):
+        # Two globs over one directory with incompatible literal tails can never touch the same file.
+        self.assertFalse(dag._pair_conflict("docs/*.md", "docs/*.json"))
+        self.assertFalse(dag._pair_conflict("src/a*.py", "src/a*.txt"))
+
+    def test_glob_vs_literal_uses_the_real_match(self):
+        self.assertFalse(dag._pair_conflict("a*.txt", "axyz.py"))       # extensions disagree
+        self.assertFalse(dag._pair_conflict("src/api*.json", "src/apiary/notes.md"))
+        self.assertTrue(dag._pair_conflict("a*.py", "axyz.py"))         # the literal matches the glob
+        self.assertTrue(dag._pair_conflict("docs/*.md", "docs/readme.md"))
+
+    def test_containment_still_conflicts(self):
+        self.assertTrue(dag._pair_conflict("docs", "docs/*.md"))        # literal dir holds the pattern
+        self.assertTrue(dag._pair_conflict("docs/sub", "docs/*.md"))    # a match could live under it
+        self.assertTrue(dag._pair_conflict("docs/*.md", "docs/*.md"))   # identical patterns
+
+    def test_compatible_suffix_globs_still_conflict(self):
+        self.assertTrue(dag._pair_conflict("a*.py", "ab*.py"))          # a*.py genuinely reaches abz.py
+        self.assertTrue(dag._pair_conflict("docs/*", "docs/*.md"))      # a bare-star tail proves nothing
+
+    def test_metachar_leading_pattern_conflicts_with_everything(self):
+        self.assertTrue(dag._pair_conflict("*", "docs/readme.md"))
+
 if __name__ == "__main__":
     unittest.main()

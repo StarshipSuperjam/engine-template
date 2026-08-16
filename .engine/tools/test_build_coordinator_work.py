@@ -134,6 +134,46 @@ class TestWorkClaims(WorkCase):
             bc.cmd_work_attach(args, self.store)
         self.assertEqual(self.state()["work"]["shared"]["claim"]["worker_ref"], "task-123")
 
+    def test_packet_preview_reports_the_unapproved_gate(self):
+        # The preview honors the same approval gate the claim checks first, so a clean preview is
+        # never followed by a surprise "gate is not approved" refusal.
+        self.store.mutate(lambda s: s.update({"approval": None}))
+        args = argparse.Namespace(item="shared", provider="claude", plan=str(self.plan_path), worktree="/tmp/wt")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_work_packet(args, self.store)
+        preview = json.loads(out.getvalue())["preview"]
+        self.assertFalse(preview["claimable_now"])
+        self.assertIn("not approved", preview["refusal_reason"])
+
+    def test_every_work_verb_rejects_a_stale_snapshot_revision(self):
+        # SC-9: the compare-and-swap guard is demonstrated for each verb, not just result/attach.
+        self.claim("shared")  # revision advances past 1
+        for invoke in (
+            lambda s: bc.cmd_work_claim(argparse.Namespace(item="shared", provider="claude",
+                                                           plan=str(self.plan_path), worktree="/tmp/wt"), s),
+            lambda s: bc.cmd_work_reject(argparse.Namespace(item="shared", attempt="0" * 32,
+                                                            rejection_class="worker", reason="x"), s),
+            lambda s: bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch", reason="x"), s),
+            lambda s: bc.cmd_work_abandon(argparse.Namespace(item="shared", attempt="0" * 32, reason="x"), s),
+            lambda s: bc.cmd_work_integrate(argparse.Namespace(item="shared", attempt="0" * 32,
+                                                               commit=HEAD_A, verification_input="v"), s),
+        ):
+            stale = bc.StateStore(self.state_path, expected_revision=1)
+            with self.assertRaisesRegex(bc.CoordinatorError, "reload status"):
+                with mock.patch.object(bc, "_commit_on_branch", return_value=True):
+                    invoke(stale)
+
+    def test_work_verbs_on_a_v1_build_name_the_actual_cause(self):
+        # A v1 snapshot has no work map: the verbs without a --plan argument refuse with the same
+        # actionable message their packet/claim/result siblings give, not "no recorded work".
+        v1 = plan_v1()
+        state = bc._initial_state("owner/repo", 7, BASE, "session", v1, None)
+        os.remove(self.state_path)
+        self.store.create(state)
+        with self.assertRaisesRegex(bc.CoordinatorError, "require a build-plan.v2 Build"):
+            bc.cmd_work_reject(argparse.Namespace(item="W1", attempt="0" * 32,
+                                                  rejection_class="worker", reason="x"), self.store)
+
     def test_each_work_verb_guards_with_compare_and_swap(self):
         self.claim("shared")  # revision advances to 2
         stale = bc.StateStore(self.state_path, expected_revision=1)
@@ -172,6 +212,29 @@ class TestResultEdges(WorkCase):
             self.result("shared", packet["attempt_id"],
                         {"outcome": "returned", "base_sha": HEAD_A,
                          "evidence": {"changed_paths": ["etc/passwd"], "verification_results": ["ok"]}})
+
+    def test_null_or_nonstring_evidence_entries_fail_closed_not_crash(self):
+        # A worker's JSON may carry null or non-string values where lists of strings belong; every
+        # such shape must be refused with a CoordinatorError, never a TypeError or a silent char-split.
+        packet = self.claim("shared")
+        for evidence in ({"changed_paths": [None], "verification_results": ["ok"]},
+                         {"changed_paths": [".engine/tools/shared.py"], "verification_results": [7]},
+                         {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"],
+                          "assumptions": "no concerns"},
+                         {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"],
+                          "unresolved_concerns": {"nested": True}}):
+            with self.assertRaisesRegex(bc.CoordinatorError, "must be a list of strings"):
+                self.result("shared", packet["attempt_id"],
+                            {"outcome": "returned", "base_sha": HEAD_A, "evidence": evidence})
+
+    def test_explicit_null_evidence_field_reads_as_empty(self):
+        # null for a NON-required key is an ordinary way to say "nothing here" and must not crash.
+        packet = self.claim("shared")
+        self.result("shared", packet["attempt_id"],
+                    {"outcome": "returned", "base_sha": HEAD_A,
+                     "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                                  "verification_results": ["ok"], "assumptions": None}})
+        self.assertEqual(self.state()["work"]["shared"]["latest_result"]["evidence"]["assumptions"], [])
 
     def test_returned_paths_using_traversal_are_rejected(self):
         # a self-reported changed path that escapes declared scope via ../ must be refused
@@ -226,6 +289,35 @@ class TestWorkDispositions(WorkCase):
         nw = self.state()["work"]["shared"]
         self.assertIsNone(nw["claim"])
         self.assertEqual(nw["latest_failure"]["disposition"], "abandoned")
+
+    def test_retry_reopens_an_abandoned_node(self):
+        # Abandonment is never a permanent dead end: the deliberate fresh start its blocked-state
+        # reason promises is exactly `work retry`, after which the node claims again.
+        packet = self.claim("shared")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_abandon(argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                                   reason="give up"), self.store)
+        self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.BLOCKED)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch",
+                                                 reason="fresh approach"), self.store)
+        packet2 = self.claim("shared")
+        self.assertNotEqual(packet2["attempt_id"], packet["attempt_id"])
+        self.assertEqual(self.state()["work"]["shared"]["attempt_count"], 2)
+
+    def test_integrator_inline_retry_routes_the_next_claim_inline(self):
+        # The integrator-inline strategy is a real disposition, not a label: the next claim resolves
+        # to the inline route (current senior session) instead of re-dispatching the class's worker.
+        attempt = self._return("shared")
+        self._reject("shared", attempt)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="integrator-inline",
+                                                 reason="I'll take it"), self.store)
+        packet = self.claim("shared")
+        self.assertTrue(packet["route"]["inline"])
+        self.assertEqual(packet["route"]["model"], "inherit")
+        self.assertEqual(packet["route"]["executor_class"], "builder")  # the class is unchanged; only the route is
+        self.assertTrue(self.state()["work"]["shared"]["claim"]["requested_route"]["inline"])
 
     def test_integrate_records_completion_and_mirrors_into_progress(self):
         attempt = self._return("shared")
@@ -303,6 +395,17 @@ class TestStatusV2(WorkCase):
         result = bc._status(state, v1)
         self.assertNotIn("work", result)
 
+    def test_status_surfaces_the_failure_reason(self):
+        packet = self.claim("shared")
+        path = Path(self.temp.name) / "f.json"
+        path.write_text(json.dumps({"outcome": "failed", "base_sha": HEAD_A, "class": "worker",
+                                    "reason": "hit a permission error on X", "evidence": {}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_result(argparse.Namespace(item="shared", attempt=packet["attempt_id"],
+                                                  plan=str(self.plan_path), input=str(path)), self.store)
+        node = bc._status(self.state(), self.plan_value)["work"]["nodes"]["shared"]
+        self.assertEqual(node["failure"]["reason"], "hit a permission error on X")
+
     def test_reset_after_revision_clears_the_work_map(self):
         self.claim("shared")
         state = self.state()
@@ -340,6 +443,47 @@ class TestHandoffV2(WorkCase):
         value = bc._handoff(state)
         self.assertEqual(value["schema_version"], "build-handoff.v2")
         self.assertIn("shared", value["work"])
+
+    def test_handoff_work_projection_is_bounded_and_redacted(self):
+        # The handoff reaches the public PR body: local paths and unreviewed worker free-text are
+        # redacted; identifiers, digests, outcomes, and repo-relative changed paths travel.
+        packet = self.claim("shared")
+        self.result("shared", packet["attempt_id"],
+                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": "/Users/someone/bundle.git",
+                     "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                                  "verification_results": ["ran the suite: 3 passed"],
+                                  "assumptions": ["assumed the flag stays default"]}})
+        state = self.state()
+        state["plan"]["source"] = "issue"
+        state["plan"]["durable_issue"] = 11
+        value = bc._handoff(state)
+        nw = value["work"]["shared"]
+        self.assertEqual(nw["claim"]["worktree"], "redacted from durable handoff")
+        self.assertEqual(nw["latest_result"]["artifact_ref"], "redacted from durable handoff")
+        self.assertEqual(nw["latest_result"]["evidence"]["verification_results"], ["redacted from durable handoff"])
+        self.assertEqual(nw["latest_result"]["evidence"]["assumptions"], ["redacted from durable handoff"])
+        self.assertEqual(nw["latest_result"]["evidence"]["changed_paths"], [".engine/tools/shared.py"])
+        self.assertEqual(nw["claim"]["attempt_id"], packet["attempt_id"])
+        # the LOCAL snapshot keeps its unredacted evidence — only the published projection is bounded
+        self.assertEqual(self.state()["work"]["shared"]["claim"]["worktree"], "/tmp/wt")
+
+    def test_restore_keeps_a_returned_result_as_returned(self):
+        # A restored claim whose attempt already returned is not uncertain: it derives returned
+        # (awaiting integrator inspection), never recovery_required masking complete evidence.
+        work_map = {"shared": {"attempt_count": 1, "integration": None, "latest_failure": None,
+                               "latest_result": {"attempt_id": "0" * 32, "base_sha": HEAD_A,
+                                                 "outcome": "returned", "artifact_ref": None,
+                                                 "artifact_digest": None,
+                                                 "evidence": {"changed_paths": [], "verification_results": [],
+                                                              "assumptions": [], "unresolved_concerns": []}},
+                               "claim": {"attempt_id": "0" * 32, "base_sha": HEAD_A, "worktree": "/tmp/wt",
+                                         "acquired_resources": [], "restored": False, "worker_ref": None,
+                                         "requested_route": {"executor_class": "builder", "provider": "claude",
+                                                             "model": "sonnet", "effort": "medium", "inline": False}}}}
+        restored = bc._restore_work(work_map)
+        self.assertFalse(restored["shared"]["claim"]["restored"])
+        lc = dag.derive_lifecycle(self.plan_value, {"work": restored})
+        self.assertEqual(lc["shared"]["state"], dag.RETURNED)
 
     def test_restore_marks_an_unfinished_claim_recovery_required(self):
         work_map = {"shared": {"attempt_count": 1, "latest_result": None, "integration": None,

@@ -165,25 +165,54 @@ def _has_glob(pattern: str) -> bool:
     return any(m in pattern for m in _GLOB_META)
 
 
+def _literal_suffix(pattern: str) -> str:
+    """The literal tail after a pattern's last glob metacharacter (``""`` when none is provable).
+
+    Every path matching the pattern must end with this tail, so two patterns whose tails cannot
+    coexist (neither is a suffix of the other) are provably disjoint. A ``[`` class is bounded by its
+    closing ``]``, so the cut falls after the last of ``*``/``?``/``]``.
+    """
+    cut = max(pattern.rfind("*"), pattern.rfind("?"), pattern.rfind("]"))
+    return pattern if cut == -1 else pattern[cut + 1:]
+
+
 def _pair_conflict(pa: str, pb: str) -> bool:
     """Whether two path patterns are NOT provably disjoint.
 
     A None prefix (a metacharacter-leading pattern with no safe literal) reaches anywhere, so it
-    conflicts with everything. When EITHER pattern carries a glob, the glob can bridge a partial
-    filename component, so the literal prefixes are compared at the CHARACTER level — they conflict
-    when one is a prefix of the other (``a*.py`` vs ``axyz.py`` conflict; the glob's ``a`` prefixes
-    the file). Two COMPLETE literal paths (no glob on either side) compare COMPONENT-wise, so distinct
-    files never collide (``foo/bar.py`` vs ``foo/barbaz.py`` do not, while ``foo/`` vs ``foo/bar.py``
-    do as ancestor/descendant).
+    conflicts with everything. Two COMPLETE literal paths (no glob on either side) compare
+    COMPONENT-wise, so distinct files never collide (``foo/bar.py`` vs ``foo/barbaz.py`` do not,
+    while ``foo/`` vs ``foo/bar.py`` do as ancestor/descendant). A glob against a complete literal
+    matches the pattern directly (``fnmatch``), plus containment either way, because a literal may
+    name a directory. Two globs conflict when their literal prefixes overlap AND their literal
+    suffixes could coexist — ``docs/*.md`` vs ``docs/*.json`` share a prefix but no path can end
+    with both tails, so they are provably disjoint and may run concurrently. Anything not provably
+    disjoint stays a conflict (the safe direction: over-serializing never admits a real collision).
     """
     la, lb = resource_prefix(pa), resource_prefix(pb)
     if la is None or lb is None:
         return True
-    if _has_glob(pa) or _has_glob(pb):
-        return la.startswith(lb) or lb.startswith(la)
-    ca, cb = _components(la), _components(lb)
-    shorter, longer = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
-    return longer[: len(shorter)] == shorter
+    ga, gb = _has_glob(pa), _has_glob(pb)
+    if not ga and not gb:
+        ca, cb = _components(la), _components(lb)
+        shorter, longer = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
+        return longer[: len(shorter)] == shorter
+    if ga != gb:
+        pattern, literal = (pa, lb) if ga else (pb, la)
+        lit = literal.rstrip("/")
+        if fnmatch.fnmatch(lit, pattern):
+            return True
+        root = resource_prefix(pattern).rstrip("/")
+        # The pattern's reach sits beneath the literal (which may be a directory), or the literal
+        # sits beneath the pattern's literal directory (where a match could live under it).
+        return (root == lit or root.startswith(lit + "/")
+                or lit.startswith((root + "/") if root else ""))
+    if not (la.startswith(lb) or lb.startswith(la)):
+        return False
+    sa, sb = _literal_suffix(pa), _literal_suffix(pb)
+    if sa and sb and not (sa.endswith(sb) or sb.endswith(sa)):
+        return False
+    return True
 
 
 def paths_conflict(paths_a: list[str], paths_b: list[str]) -> bool:

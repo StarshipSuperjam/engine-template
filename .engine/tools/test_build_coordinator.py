@@ -1163,8 +1163,8 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
-        self.assertEqual(len(obligations["obligations"]), 65)
-        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 65)
+        self.assertEqual(len(obligations["obligations"]), 68)
+        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
@@ -1266,11 +1266,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
 
 class TestPlanV2Ingest(CoordinatorCase):
-    def _bind(self, value, *, source="session", issue=None, home=True):
+    def _bind(self, value, *, source="session", issue=None, home=True, pr_body=""):
         self.write_plan(value)
         args = argparse.Namespace(input=str(self.plan_path), source=source, repository="owner/repo",
                                   pr=7, issue=issue, mode="same-session")
-        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE,
+              "body": pr_body}
         stack = [
             mock.patch.object(bc, "_verify_draft", return_value=pr),
             mock.patch.object(bc, "_head", return_value=HEAD_A),
@@ -1351,13 +1352,23 @@ class TestPlanV2Ingest(CoordinatorCase):
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
             self.assertTrue(bc._confidently_home())
 
-    def test_issue_sourced_v1_rebind_is_not_walled_by_the_refusal(self):
-        # An issue-sourced bind is the exempt continuation path even in a deployed repo.
+    def test_issue_sourced_v1_rebind_with_published_handoff_is_not_walled(self):
+        # The exempt continuation path in a deployed repo demands real pre-existing continuation
+        # evidence: the Build's published v1 handoff already on its draft PR.
         issue_plan = plan()
-        try:
-            self._bind(issue_plan, source="issue", issue=11, home=False)
-        except bc.CoordinatorError as exc:  # noqa: BLE001 — only the v1-refusal message must not appear
-            self.assertNotIn("refused now that build-plan.v2", str(exc))
+        body = bc.HANDOFF_BEGIN + "sha256:0 -->\n{}\n" + bc.HANDOFF_END
+        self._bind(issue_plan, source="issue", issue=11, home=False, pr_body=body)
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+    def test_issue_sourced_v1_bind_without_handoff_evidence_is_refused(self):
+        # A freshly authored Issue carrying a v1 marker is NOT an in-flight Build: with no published
+        # handoff on the PR, the deployed-repo bind refuses toward migration (closes the bypass).
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False)
+
+    def test_issue_sourced_v1_rebind_needs_no_handoff_in_the_home_repo(self):
+        # The home repo still dogfoods v1: the continuation-evidence demand is deployed-only.
+        self._bind(plan(), source="issue", issue=11, home=True)
         self.assertEqual(self.state()["schema_version"], "build-state.v1")
 
 
