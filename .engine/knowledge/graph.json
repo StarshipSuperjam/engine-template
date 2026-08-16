@@ -1732,6 +1732,7 @@
           "operation:build-submission-evidence",
           "operation:build-work-dispatch",
           "operation:close-turn",
+          "operation:codex-incident-replay",
           "operation:codex-settings",
           "operation:codex-validation",
           "operation:conduct-author",
@@ -1790,6 +1791,7 @@
           "operation:build-submission-evidence",
           "operation:build-work-dispatch",
           "operation:close-turn",
+          "operation:codex-incident-replay",
           "operation:codex-settings",
           "operation:codex-validation",
           "operation:conduct-author",
@@ -4375,7 +4377,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a9fe8222b6942667466045e1482bf9a40f8058c58d9f0fab42f21a0775b4d5cd",
+        "fingerprint": "sha256:2ec52eb402926580a6d611c30a199be270beca3eee10b1190a1032660360a410",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4713,6 +4715,26 @@
       "type": "operation"
     },
     {
+      "id": "operation:codex-incident-replay",
+      "name": ".engine/operations/codex-incident-replay.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-incident-replay",
+      "source": {
+        "fingerprint": "sha256:e93c1eafefe209caef13109f82f60c588c8bb508a538f7594666992290081440",
+        "path": ".engine/operations/codex-incident-replay.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
       "id": "operation:codex-settings",
       "name": ".engine/operations/codex-settings.md",
       "owner": "core",
@@ -4746,7 +4768,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:083a4f9c7cf53920a6db1319593a2d998cc570fd9617a22a36fa9f4aa5ea49d1",
+        "fingerprint": "sha256:97ac2235714c80c3f05823127aaa340dd8d0ca47bcc26556db4fddb50ed44851",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -12741,7 +12763,7 @@
       },
       "slug": "test_engine_fixture",
       "source": {
-        "fingerprint": "sha256:d30bd18d6c3ae4157a4d199d058cb9ce1cbd45209d0ae31860276a6e9806d8a4",
+        "fingerprint": "sha256:ded068878f8fcbfc9a5f22701de248de8b94d98a5f791425eb2e3f506728cf21",
         "path": ".engine/tools/test_engine_fixture.py"
       },
       "status": "active",
