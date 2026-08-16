@@ -250,12 +250,15 @@ class TestIsDownstreamCopyStrict(unittest.TestCase):
     def test_a_git_scheme_origin_reads_as_not_a_copy_after_the_691_narrowing(self):
         # #691 narrowed the origin parse to reject git:// (and other non-http/ssh schemes). A git:// origin now
         # yields origin_slug None, so is_downstream_copy_strict returns False (reads as NOT a deployed copy) while
-        # is_home_repo stays True (toward home). This is the ONE consumer whose fail-direction is toward QUIET
-        # rather than stricter — pinned here so the narrowing's full downstream effect is checkable, not merely
-        # asserted in the plan. It is practically UNREACHABLE: a real deployed copy is fetched and pushed over
-        # https/ssh (git:// is unauthenticated/read-only and cannot receive the overlay-updating pushes a
-        # deployment takes), so no genuine deployment carries a git:// origin. The old `//`-boundary regex would
-        # have parsed this to `acme/product` and returned True; the change is deliberate and safe in practice.
+        # is_home_repo stays True (toward home) — pinned here so the narrowing's full downstream effect is
+        # checkable, not merely asserted in the plan. is_downstream_copy_strict has TWO production consumers, and
+        # a git:// origin joins the pre-existing "origin can't be read" bucket each already treats SAFELY:
+        # `overlay_disclosure.is_deployed` fails toward SILENT (its documented default for any unparseable
+        # origin), and `engine_todo.engine_owned_skip` fails toward RUNNING (an empty skip-set — it shows more,
+        # not less). Practically UNREACHABLE anyway: a real deployed copy is fetched and pushed over https/ssh
+        # (git:// is unauthenticated/read-only and cannot receive the overlay-updating pushes a deployment
+        # takes), so no genuine deployment carries a git:// origin. The old `//`-boundary regex would have parsed
+        # this to `acme/product` and returned True; the change is deliberate and safe in practice.
         repo = _repo(self.tmp, "gitscheme", origin="git://github.com/acme/product.git", home=HOME)
         self.assertIsNone(repo_identity.origin_slug(repo))
         self.assertFalse(repo_identity.is_downstream_copy_strict(repo))
@@ -295,6 +298,7 @@ class TestParseGithubSlug(unittest.TestCase):
                     "https://evilgithub.com/owner/name",
                     "https://github.com.evil.com/owner/name",
                     "https://gitlab.com/github.com/owner/name",   # github.com as a path segment under another host
+                    "https://github.com@evil.com/owner/name",     # credential-confusion: github.com as userinfo, not host
                     "https://gİthub.com/owner/name"):             # U+0130 homograph
             self.assertIsNone(repo_identity.parse_github_slug(url), url)
 
@@ -367,6 +371,9 @@ class TestGithubHostParsersAgree(unittest.TestCase):
         for url in ("https://notGitHub.com/owner/name.git",
                     "https://EvilGitHub.com/owner/name.git",
                     "https://github.com.evil.com/owner/name.git",
+                    # credential-confusion: `github.com` in the userinfo, `evil.com` is the real host — the
+                    # `(?:[^@/]+@)?` userinfo group must not let this parse to a slug.
+                    "https://github.com@evil.com/owner/name.git",
                     # U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) folds to ASCII `i` under Unicode
                     # case-folding: a homograph host that `re.ASCII` on the flags must keep out (#625).
                     "https://gİthub.com/owner/name.git"):

@@ -9364,7 +9364,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:4afa4d8f3a9a9f1d701d273466a427f052ca63c15141200023721fbe5be80f3a",
+        "fingerprint": "sha256:eb73c44180eb5c8e2925c5e7111c6a6e823b5fec1b377bfa373fa6b869b0d733",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -14721,7 +14721,7 @@
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:e9fc54a773e9413a3d7be89e42788bbaad7602cf4b95c50acc92199f707839d1",
+        "fingerprint": "sha256:8b22a5331547ebdf665447e545d5037e572c9268415cfa2e13e37653feffc15f",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",

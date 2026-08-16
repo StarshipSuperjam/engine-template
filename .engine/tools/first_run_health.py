@@ -52,6 +52,8 @@ import repo_identity     # noqa: E402  (parse_github_slug — the ONE origin-URL
 # signal — `instantiator.retire` self-deletes it as the final setup step.
 _SETUP_TOOL_REL = os.path.join(".engine", "tools", "instantiator.py")
 _MANIFEST_REL = os.path.join(".engine", "engine.json")
+
+
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:
     """Run a local git command and return raw stdout, or None on any non-zero / failure. Never raises —
     every read is best-effort (the `checkout_health` / `license_health` convention)."""
