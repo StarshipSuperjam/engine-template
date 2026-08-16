@@ -268,8 +268,9 @@ wrap the pull request up for your merge — a routine never finishes it for you.
 <summary>Full setup for unattended routines</summary>
 
 **First, plan the build (a normal, interactive session).** Before you schedule anything, work with the Engine
-in a normal session to produce what it will follow: a build Issue holding the ordered checklist and the files
-each step may touch, and an open **draft pull request** on a branch. The routine reads that Issue and adds
+in a normal session to produce what it will follow: a plan you approve in that session — which the Engine then
+publishes onto a suitable Issue as a frozen, promoted copy, naming the ordered steps and the files each may
+touch — and an open **draft pull request** on a branch. The routine reads that promoted copy and adds
 commits to that pull request, so point the schedule at that build's branch, not a fresh copy of your default
 branch. With no plan to find, the first run has nothing to do and says so.
 

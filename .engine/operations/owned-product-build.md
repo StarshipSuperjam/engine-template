@@ -17,7 +17,8 @@ reflexive—the mechanic does not treat its own repository as a separate owned p
    `github.com` origin slug, and that it is not this repository. It need not be clean—a peer may be using it—
    and no Build may switch its branch or touch its tree.
 2. From the mechanic run `uv run --directory .engine -- python tools/mechanic_build.py worktree
-   <issue-and-slug>`. It fails closed unless the anchor is the configured product, fetches the target, creates
+   <short-slug>` — a plain slug names both the worktree directory and the `claude/<name>` branch; prefix the
+   issue number only when one exists. It fails closed unless the anchor is the configured product, fetches the target, creates
    an isolated worktree under `.engine/mechanic/worktrees/`, and emits `ENGINE_PRODUCT_WORKTREE`,
    `ENGINE_PRODUCT_BASE=origin/<default>`, and the verified `GITHUB_REPOSITORY`. The harness's mechanic
    worktree is not the product worktree. Bind the product coordinator and draft PR inside the emitted

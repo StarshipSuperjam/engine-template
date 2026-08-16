@@ -8,7 +8,7 @@ The procedure an unattended Routine session enters when a Claude Desktop routine
 Codex build Automations are retired and their generated skill refuses before entering this procedure.
 It is the drift-firewall for unattended work: it confirms the engine's guardrails are actually running, that
 the run genuinely cannot ask, and that it is isolated from the operator's checkout; it locks onto the frozen
-scope-locked build Issue, advances the build by one planned chunk inside that scope, routes anything needing a
+Issue carrying this Build's promoted, scope-locked plan, advances the build by one planned chunk inside that scope, routes anything needing a
 human to a GitHub Issue (because it cannot ask), and never merges the protected branch. Enter it at the start
 of every routine fire; the build's actual work follows the distributed-implement workflow in
 `.engine/operations/build-orchestration.md`, which this procedure references and does not restate.
@@ -34,8 +34,8 @@ of every routine fire; the build's actual work follows the distributed-implement
    checkout — the never-strand-main floor, enforced here at entry rather than by prose. If it declines (not an
    isolated worktree, or the session cannot be identified), do not write: report the reason in the run output
    and stop. A visible-in-app safety refusal, not a filed Issue.
-4. **Restore the Build from git, the frozen Issue plan, and the bounded PR handoff, then decide which of three
-   situations holds.** The Issue holds the exact immutable Build plan (`build-plan.v2`; an in-flight legacy Build may still carry `build-plan.v1`) and its work items. Progress
+4. **Restore the Build from git, the promoted Issue plan, and the bounded PR handoff, then decide which of three
+   situations holds.** The Issue holds a promoted copy of the session-authored, operator-approved Build plan — exact, immutable, published for recovery rather than authored there (`build-plan.v2`; an in-flight legacy Build may still carry `build-plan.v1`) — and its work items. Progress
    is not written back into that plan: completed item/commit pairs live in the coordinator snapshot and
    bounded PR handoff, corroborated by git. The next item is derived from those three sources.
    - **GitHub is unreachable** — there is no plan to read: exit without proceeding (fail-safe), no Issue.
@@ -92,6 +92,6 @@ unbypassable wall is the protected-branch merge, which Routine never performs; t
 is the cohesion backstop. Single-flight — skipping a fire while one is already in progress — is the scheduler's
 behavior where it provides it (the Claude Desktop routine does), so two overlapping fires are bounded by the no-merge wall and
 the Finalize review, not by a lease; orphan recovery is reading git state — a run that dies mid-task leaves its
-commits (or none) and the PR open, and the next run resumes from git, the Issue plan, and the PR handoff. The non-interactive
+commits (or none) and the PR open, and the next run resumes from git, the promoted Issue plan, and the PR handoff. The non-interactive
 posture and the worktree isolation are operator-side settings in the scheduling app, set during setup; this
 procedure confirms them (step 1's hooks check, step 3's mechanical isolation gate) but never sets them.

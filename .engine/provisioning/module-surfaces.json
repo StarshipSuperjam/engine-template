@@ -903,9 +903,6 @@
   ".engine/templates/agent.md": [
    "core"
   ],
-  ".engine/templates/build-issue.md": [
-   "core"
-  ],
   ".engine/templates/codex-skill.md": [
    "core"
   ],

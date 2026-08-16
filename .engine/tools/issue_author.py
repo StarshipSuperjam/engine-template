@@ -2,8 +2,8 @@
 """The shared issue-authoring helper — assembles every engine-authored Issue body to the one
 control-plane body contract.
 
-WHY THIS EXISTS. The engine creates Issues programmatically (telemetry health findings, build Issues,
-tracked debt). Those bypass the human web issue templates entirely — templates populate only the web
+WHY THIS EXISTS. The engine creates Issues programmatically (telemetry health findings, promoted build
+plans for cold continuation, tracked debt). Those bypass the human web issue templates entirely — templates populate only the web
 "New issue" form, while the REST / gh creation path sets the body directly. GitHub cannot gate Issue
 *creation* the way a required check gates a merge, so the body contract is enforced **by
 construction**: every producer assembles its body through this one helper, which builds the contract's

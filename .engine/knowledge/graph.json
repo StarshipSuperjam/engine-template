@@ -3898,7 +3898,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:3084239a6c645c8f55d8f0c994a4ead171d35c3609441422bde56c834cc223c1",
+        "fingerprint": "sha256:4d563a3db93eef69c4766fb5a13cf7cd92ace6d3cb44155420ce1fdf33982633",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -4628,7 +4628,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ffa8acb9a78426d1d9752ce3f6fe8f728fc38d61de5b7e69c76fcfe1b740b1e3",
+        "fingerprint": "sha256:2154e1a61eeb040ee47075ef4317abd4478021b85a63bf28e49ca6d3e2f6c2d7",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5128,7 +5128,7 @@
       },
       "slug": "owned-product-build",
       "source": {
-        "fingerprint": "sha256:1b93d34307096b496179a018cea3b3738b9f5c74ed27219c6bf9f2533c679924",
+        "fingerprint": "sha256:27a0fb73858fcbd5ebce40f5d8c51750b693ae3e4e5b5ae2f5d73d5d4a97ed63",
         "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
@@ -5208,7 +5208,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:4a85fd843d51617c11b45943810a2e8f2cdcd67453df63d5e2a2f75860336439",
+        "fingerprint": "sha256:33f0c7dcd0ace817b0e6dbf85f696d796682949caf3621aeb0ca3183510d85e9",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -6251,7 +6251,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:7b440c4c8f81d0287e74b14e67ff413537939c4c72ce6ee173d51bb3ea658c66",
+        "fingerprint": "sha256:a1f4aef6480ac76c22937f354ea92c1780d236da298406aad6dfdec34e920fb5",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -9679,7 +9679,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:635ec8dc3d421a8af79af73f8032efff522a22e50acea222b98af3e06d7447ab",
+        "fingerprint": "sha256:838469b4e20c35d1a1d0f88e19464382f6d2542cbeaad72f8267cace28b4d6f4",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -10218,7 +10218,7 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:7ba18bdfe18d2c56f7bfdaef2d736f520c2fb1c31568ad384df4a45115a4eea6",
+        "fingerprint": "sha256:5447be99b11f04febaa9dd4126ba37844d1f1db0508df8b3e0ed067a3080c503",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
@@ -11671,7 +11671,7 @@
       },
       "slug": "template_shape_spec_check",
       "source": {
-        "fingerprint": "sha256:c781d7b0f8208e33b0c9c2258fa18782c28e09b8255ee08cc5c0bf14a04d7714",
+        "fingerprint": "sha256:d9d5b5e14cc345438df438b0311cba5f0f1c94dab25c162c2a3cc9128ddc88d5",
         "path": ".engine/tools/template_shape_spec_check.py"
       },
       "status": "active",
