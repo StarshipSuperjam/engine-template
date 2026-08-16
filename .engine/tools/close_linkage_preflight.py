@@ -251,14 +251,18 @@ def defang_body(body: str, number: int) -> "str | None":
 
 # ---- the classification (pure; produces the operator lines + an optional defang) -------------------
 
+# These advisory lines are folded VERBATIM into the PR body (Review). They must never themselves re-arm a
+# close: no generated sentence puts a GitHub closing keyword immediately before an issue reference, so the
+# disclosure cannot become the very link it warns about. The wording puts the reference before the keyword,
+# or separates them with a non-keyword word ("for issue #N").
 def _line_scope_contradiction(n: int) -> str:
-    return (f"This PR is set to close #{n}, but its scope says this PR is only part of the work for #{n} — "
-            f"the closing line needs a small edit before you merge.")
+    return (f"On merge, issue #{n} would be closed by this pull request, but its scope declares the PR only "
+            f"*part of* the work for issue #{n} — the closing line needs a small edit before you merge.")
 
 
 def _line_defang_disclosure(n: int) -> str:
-    return (f"I removed an accidental closing keyword that would have closed #{n}; this change is only part "
-            f"of #{n}.")
+    return (f"I removed an accidental closing keyword for issue #{n} — it would have linked this pull request "
+            f"to close that issue on merge, and this change is only *part of* that work.")
 
 
 def _line_comma_trap(nums: list) -> str:
@@ -270,8 +274,8 @@ def _line_comma_trap(nums: list) -> str:
 
 def _line_cross_repo(refs: list) -> str:
     which = ", ".join(refs)
-    return (f"This PR is set to close {which} in another repository, which I can't check against this "
-            f"project's plan — confirm on GitHub that you meant to close it.")
+    return (f"This PR's closing linkage points at {which} in another repository, which I can't check against "
+            f"this project's plan — confirm on GitHub that you meant to close it.")
 
 
 def _line_could_not_read() -> str:
