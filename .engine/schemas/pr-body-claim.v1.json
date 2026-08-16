@@ -217,9 +217,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["loop_narrative", "finding_summaries"],
-      "description": "Review depth, coverage, reviewer-disagreement lines, reviewed/final commits, and measured divergence are supplied by the coordinator. The claim carries the operator-safe summary for each current coordinator finding (matched exactly to the live finding set), the free-form review→repair→re-review narrative, and the judgment of whether the merged version differs materially from the reviewed one.",
+      "description": "Review depth, coverage, reviewer-disagreement lines, reviewed/final commits, and measured divergence are supplied by the coordinator. The claim carries the operator-safe summary for each current coordinator finding (matched exactly to the live finding set), the free-form review→repair→re-review narrative (one entry per round or theme, so a multi-round story reads as the exemplars' bold-led bullets rather than one flat line), and the judgment of whether the merged version differs materially from the reviewed one.",
       "properties": {
-        "loop_narrative": {"$ref": "#/$defs/line"},
+        "loop_narrative": {"$ref": "#/$defs/bullets"},
         "material_divergence": {"type": "boolean"},
         "finding_summaries": {
           "type": "array",

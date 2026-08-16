@@ -89,7 +89,7 @@ def fillable_template() -> dict:
         "behaviors": {"observable": True, "entries": []},
         "demonstration": {"kind": "runnable", "command": None, "pass_signal": None, "fail_signal": None},
         "validation": {"caveats": [], "live_helpers": {"all_available": True, "unavailable": []}},
-        "review": {"loop_narrative": None, "material_divergence": False, "finding_summaries": []},
+        "review": {"loop_narrative": [], "material_divergence": False, "finding_summaries": []},
         "files_of_interest": {"items": [], "impact": None},
         "ai_involvement": {"tools": [], "operator_decisions": [], "judgment_split": None, "impact": None},
     }
@@ -167,10 +167,11 @@ def _section(header: str, summary: str, body_lines: list, impact: str) -> list:
 
 
 def _behaviors_block(claim: dict) -> list:
-    """The level-3 Behaviors subsection, placed inside Scope after its *Impact:* line."""
+    """The level-3 Behaviors subsection, placed inside Scope after its *Impact:* line. Opens with a bold
+    intro line (matching the exemplars) so the subsection reads as a section, not a bare list."""
     b = claim["behaviors"]
-    out = ["### Behaviors", ""]
     if b["observable"]:
+        out = ["### Behaviors", "", "**The capabilities this change delivers, each with the test that exercises it.**", ""]
         for entry in b["entries"]:
             tests = ", ".join(f"`{t}`" for t in entry["tests"])
             line = f"- {entry['claim']} — {tests}"
@@ -178,7 +179,8 @@ def _behaviors_block(claim: dict) -> list:
                 line += f" ({entry['regression_lock']})"
             out.append(line)
     else:
-        out.append(f"- Nothing here is observable behaviour: {b['none_observable_reason']}")
+        out = ["### Behaviors", "",
+               f"**Nothing here is observable behaviour** — {b['none_observable_reason']}"]
     out.append("")
     return out
 
@@ -208,17 +210,16 @@ def compose(claim: dict, evidence: dict) -> str:
     p = claim["purpose"]
     lines += _section("Purpose", p["thesis"], [p["problem"], "", *_bullets(p["mechanism"])], p["impact"])
 
-    # 2. Scope (+ Part of context, + change profile, + Behaviors)
+    # 2. Scope (+ change profile, + Behaviors). Part-of dependencies render as reasoned bullets in
+    # Out of scope (below), where the exemplars place them and the close-linkage preflight reads them.
     s = claim["scope"]
     scope_body = _bullets(s["items"])
-    for pol in evidence.get("part_of_lines", []):
-        scope_body.append(pol)
     if evidence.get("change_profile"):
         scope_body += ["", evidence["change_profile"]]
     lines += _section("Scope", s["summary"], scope_body, s["impact"])
     lines += _behaviors_block(claim)
 
-    # 3. Out of scope
+    # 3. Out of scope (reasoned exclusions + any Part-of dependencies)
     o = claim["out_of_scope"]
     oos_body = []
     for it in o["items"]:
@@ -231,21 +232,25 @@ def compose(claim: dict, evidence: dict) -> str:
         if refs:
             line += f" ({'; '.join(refs)})"
         oos_body.append(line)
+    for pol in evidence.get("part_of_lines", []):
+        oos_body.append(f"- {pol}")
     lines += _section("Out of scope", o["summary"], oos_body, o["impact"])
 
-    # 4. Risk
+    # 4. Risk — each item a bold lead then the bound, matching the exemplars' Risk shape.
     r = claim["risk"]
     risk_body = []
     for it in r["items"]:
-        mark = "**(most safety-sensitive)** " if it.get("most_sensitive") else ""
-        risk_body.append(f"- {mark}{it['risk']} — bounded by {it['bound']}")
+        lead = it["risk"].rstrip(".")
+        if it.get("most_sensitive"):
+            lead += " (the most safety-sensitive edit)"
+        risk_body.append(f"- **{lead}.** {it['bound']}")
     if evidence.get("guardrail_line"):
-        risk_body += ["", evidence["guardrail_line"]]
+        risk_body.append(f"- {evidence['guardrail_line']}")
     if r.get("guardrail_note"):
-        risk_body.append(f"- {r['guardrail_note']}")
+        risk_body.append(f"- **Guardrail disclosure.** {r['guardrail_note']}")
     for res in r.get("accepted_residual", []):
         risk_body.append(
-            f"- Accepted residual (`{res['finding_id']}`, operator decision {res['operator_decision_date']}): "
+            f"- **Accepted residual (`{res['finding_id']}`, operator decision {res['operator_decision_date']}).** "
             f"{res['rationale']}"
         )
     lines += _section("Risk", _risk_summary(r), risk_body, r["impact"])
@@ -263,23 +268,25 @@ def compose(claim: dict, evidence: dict) -> str:
         val_body.append(f"- {evidence['index_regen']}")
     lines += _section("Validation", _validation_summary(evidence), val_body, _validation_impact())
 
-    # 6. Review
+    # 6. Review — bold-led entries (coverage, the review→repair→re-review story, findings, disagreements,
+    # divergence) then the spec-derived acceptance steps, matching the exemplars' richest section.
     rev = claim["review"]
     review_body = []
     if evidence.get("review_coverage"):
-        review_body.append(evidence["review_coverage"])
-    review_body.append(f"- {rev['loop_narrative']}")
+        review_body.append(f"- **Coverage.** {evidence['review_coverage']}")
+    for entry in rev["loop_narrative"]:
+        review_body.append(f"- {entry}")
     for fs in rev["finding_summaries"]:
-        line = f"- Finding `{fs['id']}`: {fs['operator_summary']}"
+        line = f"- **Finding `{fs['id']}`.** {fs['operator_summary']}"
         if fs.get("public_reference"):
             line += f" ({fs['public_reference']})"
         review_body.append(line)
     for dl in evidence.get("disagreement_lines", []):
         review_body.append(dl)
     if evidence.get("drift_line"):
-        review_body.append(evidence["drift_line"])
+        review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
     if evidence.get("spec_steps"):
-        review_body += ["", evidence["spec_steps"]]
+        review_body += ["", "**Spec-derived acceptance steps**", "", evidence["spec_steps"]]
     lines += _section("Review", _review_summary(rev), review_body, _review_impact())
 
     # 7. Demonstration
