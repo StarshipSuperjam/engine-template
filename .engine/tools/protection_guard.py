@@ -44,8 +44,8 @@ _ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .en
 
 def _load_manifest(engine_dir: str | None = None) -> dict | None:
     """The engine manifest (engine.json) as a dict, or None when it is absent/unreadable/not-an-object — the
-    single committed-manifest reader this module shares (resolve_tier and recorded_posture both call it, so
-    neither opens the file independently). Deliberately robust; never raises."""
+    single committed-manifest reader this module shares (resolve_tier, resolve_labeler_authority, and
+    recorded_posture all call it, so none opens the file independently). Deliberately robust; never raises."""
     engine_dir = engine_dir if engine_dir is not None else _ENGINE_DIR
     try:
         with open(os.path.join(engine_dir, "engine.json"), encoding="utf-8") as fh:
@@ -74,6 +74,71 @@ def resolve_tier(engine_dir: str | None = None) -> str:
     if manifest.get("identity") == TEAM and (manifest.get("engine_identity") or {}).get("login"):
         return TEAM
     return SOLO
+
+
+# Authority tiers for a guardrail-ack LABEL event, returned by resolve_labeler_authority. Kept beside the
+# identity-tier vocabulary (SOLO/TEAM) so, if this stage-0 module is ever superseded, the whole authority
+# vocabulary migrates as a unit rather than stranding one half.
+AUTH_TEAM, AUTH_SOLO, AUTH_REFUSE = "team", "solo", "refuse"
+
+
+def resolve_labeler_authority(sender_login, sender_type, engine_dir: str | None = None) -> "tuple[str, str]":
+    """Decide whether a `guardrail-ack` LABEL event applied by `sender` is an authorized acknowledgment — the
+    SINGLE home of that judgment (StarshipSuperjam/engine-template#958), consumed by the head-binding writer
+    `ack_status.py`. Derived from ONE read of the committed base manifest, so the tier decision and the
+    identity comparand can never desync (two independent reads could, if resolve_tier's TEAM condition ever
+    changed). Returns `(decision, detail)`:
+
+      - AUTH_TEAM  ("team")   — team tier, and a DISTINCT operator identity applied it: mint the head-bound
+                                success. `detail` is a short non-secret audit phrase for the status description.
+      - AUTH_SOLO  ("solo")   — solo tier (the documented default whenever a READABLE manifest records solo or
+                                no distinct identity): accept, preserving one-step consent — but the
+                                acknowledgment proves head-binding and a deliberate gesture, NOT WHO applied it
+                                (a session holding the same single credential could have). That limit is
+                                disclosed to the operator by the guard; this decision does not hide it.
+      - AUTH_REFUSE ("refuse")— the event must NOT mint a success. Every branch that cannot PROVE authority
+                                fails closed here: an absent/unreadable/malformed manifest (a team repo with a
+                                corrupt BASE manifest must never silently drop to solo-accept), team tier with
+                                no distinct engine identity to compare against (an empty comparand would accept
+                                any sender), or — in team tier — a sender that is not a distinct user account
+                                (a Bot, a missing sender, or the engine's OWN identity).
+
+    Deliberately robust; never raises. NOTE ON SCOPE (StarshipSuperjam/engine-template#914 seam): team
+    acceptance is "a distinct User whose login is not the engine identity", NOT a bind to a single recorded
+    operator `handle`. GitHub's own label ACL (only triage+ collaborators can apply a label) is the allowlist;
+    this subtracts the engine's own machine account from it. Multi-operator teams are legitimate, and `handle`
+    is optional/stale-able, so a positive operator roster is left as StarshipSuperjam/engine-template#914's
+    territory — the swap point is this
+    one function. The residual is: any collaborator the operator granted triage+ can acknowledge, not only the
+    operator; the threat this closes is the engine acknowledging its OWN change under a shared credential."""
+    # NOTE — this inspects `identity`/`engine_identity` directly rather than delegating to resolve_tier(), on
+    # purpose and NOT as a duplication oversight: resolve_tier() collapses a TEAM-recorded-but-no-identity
+    # manifest to SOLO (its safe default for the ruleset floor), but for an ACK that collapse is fail-OPEN — it
+    # would accept a self-applied label under the weaker solo rule. Here that same state must fail CLOSED
+    # (AUTH_REFUSE below). The two functions therefore agree on the POSITIVE team/solo classification (pinned by
+    # a parity test in test_protection_guard.py) but diverge, deliberately, on the ambiguous case. Both read the
+    # manifest ONCE.
+    manifest = _load_manifest(engine_dir)
+    if manifest is None:
+        return (AUTH_REFUSE, "the engine manifest could not be read, so the label applier's authority is unknown")
+    login = (manifest.get("engine_identity") or {}).get("login")
+    engine_login = login.strip() if isinstance(login, str) and login.strip() else None
+    if manifest.get("identity") == TEAM:
+        if not engine_login:
+            # Defense in depth: resolve_tier only returns TEAM with a truthy login, but the writer must not
+            # rest on that internal invariant — were it ever relaxed, an empty comparand below would make
+            # `sender != ""` trivially true and accept any labeler. Fail closed instead.
+            return (AUTH_REFUSE, "team mode is recorded but no distinct engine identity is on record")
+        if sender_type != "User" or not (isinstance(sender_login, str) and sender_login.strip()):
+            return (AUTH_REFUSE, "the acknowledgment was not applied by a user account")
+        if sender_login.strip().casefold() == engine_login.casefold():
+            return (AUTH_REFUSE, "the acknowledgment was applied by the engine's own identity, not a distinct operator")
+        return (AUTH_TEAM, f"by @{sender_login.strip()} [operator]")
+    # A readable manifest that is not team tier resolves to solo — the documented default for an absent or
+    # unknown `identity`, matching resolve_tier. Accept (one-step consent preserved); the annotation states the
+    # shared-credential limit plainly so a solo operator is never misled into reading it as identity-verified.
+    who = f"@{sender_login.strip()}" if isinstance(sender_login, str) and sender_login.strip() else "an unrecorded actor"
+    return (AUTH_SOLO, f"by {who} [shared credential]")
 
 
 def recorded_posture(engine_dir: str | None = None) -> dict | None:

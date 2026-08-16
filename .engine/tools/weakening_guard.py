@@ -88,6 +88,27 @@ ACK_LABEL = "guardrail-ack"
 # by `ack_status.py` (the writer)
 # and `lock_integrity.py` (the sibling reader) — never re-typed, or a drift would fail the readers closed.
 ACK_CONTEXT = "engine-ack"
+# An `engine-ack` status is trusted ONLY when GitHub stamped it as posted by the ack-status workflow's own
+# identity (StarshipSuperjam/engine-template#958). That workflow (`.github/workflows/engine-ack-status.yml`)
+# runs `ack_status.py` under the default `GITHUB_TOKEN`, which GitHub stamps as the `github-actions[bot]`
+# status creator (verified against the live API on real acknowledged pull requests). The reader below counts
+# an `engine-ack` entry only when its creator login is in this set (case-insensitively) and SKIPS any other —
+# so a status POSTed directly by another identity is never trusted. Why this leg exists: in TEAM the engine's
+# own machine account holds `statuses:write` and could mint `engine-ack=success` WITHOUT ever applying the
+# label, bypassing the writer's authority check entirely; trusting only the bot-stamped creator closes that.
+# INVARIANT (test-pinned in test_seed.py::TestAckTrustedCreatorInvariant): `ack_status.py` posts as one of
+# these logins. A deployment that rewired the ack workflow to a GitHub App or a PAT would stamp a DIFFERENT
+# creator and every ack would then silently fail closed — the self-test asserts the shipped workflow uses the
+# default token, so such a rewire becomes a red check rather than a silent denial. RESIDUAL
+# (StarshipSuperjam/engine-template#914): a PR-ADDED head workflow with `statuses: write` also posts as
+# `github-actions[bot]` — the same creator — so this filter does not stop that path. And a brand-NEW workflow
+# file is NOT flagged by this guard today: a pure file ADDITION is treated as strengthening (WEAKENING_STATUS
+# excludes "added"), so that path currently raises no acknowledgment prompt at all. Closing it needs a control
+# outside this token's reach (a distinct-identity or out-of-band gate) — StarshipSuperjam/engine-template#914's
+# territory, not a bolt-on to this filter, since flagging added workflow files is its own behaviour change with
+# its own blast radius.
+_ACK_TRUSTED_CREATOR_LOGINS = ("github-actions[bot]",)
+_TRUSTED_CREATOR_SET = frozenset(login.casefold() for login in _ACK_TRUSTED_CREATOR_LOGINS)
 # The head-ack read races the companion on a `labeled` event (both fire on the same event; posting a status does
 # not re-trigger this check). When the label is present but the status has not landed yet, retry a bounded few
 # times before failing closed — sized to exceed the companion's post latency, and only when a status is actually
@@ -1026,8 +1047,18 @@ def _latest_engine_ack_state(repo: str, head_sha: str, token: str):
             raise RuntimeError(f"statuses pagination exceeded {MAX_PAGES} pages")
         page, link = get_page(url, token, user_agent=_UA)
         for s in page:
-            if s.get("context") == ACK_CONTEXT:
-                return s.get("state")  # most-recent-first: the first engine-ack IS the latest
+            if s.get("context") != ACK_CONTEXT:
+                continue
+            # Trust ONLY a status GitHub stamped as posted by the ack-status workflow's bot
+            # (_ACK_TRUSTED_CREATOR_LOGINS). SKIP — never fail on — an untrusted or unreadable-creator entry:
+            # skipping lets an OLDER legitimate entry still speak, so a minted `failure` cannot wedge a real
+            # acknowledgment, and a minted `success` cannot mask absence (it falls through to the next trusted
+            # entry, else to None -> the guard blocks). This is the leg-2 authority filter
+            # (StarshipSuperjam/engine-template#958); the leg-1 labeler check lives in the writer, ack_status.py.
+            # Null-safe: a missing/blank creator reads as untrusted and is skipped, never a crash.
+            creator = ((s.get("creator") or {}).get("login") or "").casefold()
+            if creator in _TRUSTED_CREATOR_SET:
+                return s.get("state")  # most-recent-first: the first TRUSTED engine-ack IS the latest
         url = next_link(link)
     return None
 
@@ -1077,9 +1108,12 @@ def _resolve_ack(repo: str, head_sha: str, token: str, label_present: bool) -> s
 # current head (an acknowledgment of an earlier version, or one still landing); the REAPPLY note tells the
 # operator how to acknowledge THIS head with the same single label.
 _ACK_STALE_NOTE = (
-    "An acknowledgment for an EARLIER version of this pull request is on record, but the head has changed "
-    "since (a new commit was pushed). An acknowledgment is bound to the exact version you reviewed and does "
-    "NOT carry across a push — this version has not been acknowledged.")
+    "An acknowledgment is not in force for this exact version of the pull request. That can be because a new "
+    "commit was pushed after one was applied (an acknowledgment is bound to the exact version reviewed and "
+    "does NOT carry across a push), because it was withdrawn, or because a label applied to this version was "
+    "not accepted as a valid approval — for example, applied by an actor whose authority could not be confirmed "
+    "(StarshipSuperjam/engine-template#958). The `engine-ack` status on this commit records which. This version "
+    "has not been acknowledged.")
 _ACK_APPLY_NOTE = (
     f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one deliberate action, "
     "distinct from the merge click).")
@@ -1090,6 +1124,17 @@ _ACK_REAPPLY_NOTE = (
 _ACK_FAILCLOSED_NOTE = (
     "GUARDRAIL CHECK: could not read the acknowledgment status for this pull request's head; failing closed. "
     f"Re-run this check; if it persists, re-apply the `{ACK_LABEL}` label to re-post the acknowledgment.")
+# Appended to a DOWNGRADE (the ack cleared a killswitch finding) so the operator is never misled about WHAT
+# the acknowledgment proves (StarshipSuperjam/engine-template#958). Deliberately tier-AGNOSTIC: it reads no
+# committed manifest, so the guard's verdict stays derived purely from the live file listing and the live
+# status read (the property the guardrail-weakening not-applicable fixture rests on). The tier-SPECIFIC
+# framing ([operator] / [shared credential]) is recorded by the writer in the status description instead.
+_ACK_AUTHORITY_NOTE = (
+    "Who acknowledged: this record is bound to this exact version and confirms a deliberate label action. "
+    "Whether it also proves a distinct OPERATOR identity depends on your setup — a team setup (a separate "
+    "engine identity) refuses the acknowledgment unless a distinct operator applied it; a solo setup (one "
+    "shared credential) cannot verify who applied it, so an automated session holding that same credential "
+    "could have. Your review at the merge remains the gate.")
 _ACK_NOHEAD_NOTE = (
     "GUARDRAIL CHECK: the pull request event carried no head commit for this pull request; failing closed.")
 
@@ -1173,7 +1218,7 @@ def main() -> int:
                           "message": "ACKNOWLEDGED (guardrail-ack applied) — kept as a record, no longer "
                           "blocking: this pull request " + detail + ". "
                           "The safety check could not read every changed file, and you approved "
-                          "proceeding by applying the label to this version."}])
+                          "proceeding by applying the label to this version.\n\n" + _ACK_AUTHORITY_NOTE}])
         if state == "nohead":
             return emit([{"severity": tier, "location": None, "message": _ACK_NOHEAD_NOTE}])
         if state == "error":
@@ -1326,7 +1371,7 @@ def main() -> int:
             # record. (Before the tier split the label erased every finding.)
             findings.append({"severity": "soft", "location": None,
                              "message": "ACKNOWLEDGED (guardrail-ack applied) — kept as a record, no "
-                             "longer blocking:\n\n" + body})
+                             "longer blocking:\n\n" + body + "\n\n" + _ACK_AUTHORITY_NOTE})
         elif state == "nohead":
             findings.append({"severity": tier, "location": None, "message": _ACK_NOHEAD_NOTE + "\n\n" + body})
         elif state == "error":

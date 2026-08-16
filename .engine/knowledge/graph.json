@@ -1303,7 +1303,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:6d903ba1e14c3fe387c9991e102287c16fefeb99ba647302be45e5f2d0a1e20f",
+        "fingerprint": "sha256:ac823d22f94c717ca723a41979d51f57de1564f7dfa3063baef864ac96d57337",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -6565,6 +6565,7 @@
       "predicates": {
         "imports": [
           "tool:github_client",
+          "tool:protection_guard",
           "tool:weakening_guard"
         ],
         "provided_by": [
@@ -6573,7 +6574,7 @@
       },
       "slug": "ack_status",
       "source": {
-        "fingerprint": "sha256:11cc4994771b56dcc09fed49ce2d86053a1472d3adc99830cf2e45320a48b262",
+        "fingerprint": "sha256:94f01d532dc8e6e1c13a23db12789159cde41668efd1347a873da1e945754f88",
         "path": ".engine/tools/ack_status.py"
       },
       "status": "active",
@@ -7952,6 +7953,32 @@
       },
       "status": "active",
       "summary": "Behavioral FALSIFICATION for issue #760 — `module add` (and `upgrade`) must resolve the engine's recorded",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_ack_authority",
+      "name": ".engine/tools/demo_ack_authority.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:ack_status",
+          "tool:github_client",
+          "tool:protection_guard",
+          "tool:weakening_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_ack_authority",
+      "source": {
+        "fingerprint": "sha256:916b57bbf0628f76f131cde627f9bd3fd781d929a9a3c5c5ffc9050e5a81f787",
+        "path": ".engine/tools/demo_ack_authority.py"
+      },
+      "status": "active",
+      "summary": "demo_ack_authority — prove the guardrail-ack operator-authority binding (StarshipSuperjam/engine-template#958)",
       "type": "tool"
     },
     {
@@ -9540,7 +9567,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:da762f202aa14a5be46223296cb56ed7a4eae7a64c07aa875b23c079bf5c0083",
+        "fingerprint": "sha256:eaf0f9d6f7bde0e57af0d65e304cdc8b0eb087aea0211bd814cfd743fadbb40b",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -10028,7 +10055,7 @@
       },
       "slug": "lock_integrity",
       "source": {
-        "fingerprint": "sha256:e5eae2649b2237a103704636f7638ffc373fa77c3fd17b8b3b02f5a1bc03e59c",
+        "fingerprint": "sha256:1118f70bc340932c45e28fe28c2b9537b3fb9545dbe1d7e082f59215ebc89b79",
         "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
@@ -10716,7 +10743,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:c3462578b27dfdb97f051639c8fbb52f9f0cc46273998ee9af30cc1bf8568f15",
+        "fingerprint": "sha256:af5300226ff4b367ff12fa016fb93ceac9fa4d45213fcf1814b87da2f51c16c2",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -11597,12 +11624,13 @@
         ],
         "tests": [
           "tool:ack_status",
-          "tool:github_client"
+          "tool:github_client",
+          "tool:protection_guard"
         ]
       },
       "slug": "test_ack_status",
       "source": {
-        "fingerprint": "sha256:89a589fe7c909b4a546e9ce22ae3a6b53a41c1cc6136934de1b3121785a58b6d",
+        "fingerprint": "sha256:b6df1ca7fc90229da9ae80bc9d50c1e57762d94805d9dcacd3f06d5b8fa80313",
         "path": ".engine/tools/test_ack_status.py"
       },
       "status": "active",
@@ -14338,7 +14366,7 @@
       },
       "slug": "test_protection_guard",
       "source": {
-        "fingerprint": "sha256:215ef9949af2f0a0036e1384af2bb94c5599f261330342355244f47a41feecdc",
+        "fingerprint": "sha256:400f8aeac594f8934589ec935ad9a19b80bd4e5fe849534cd8ca826f6287ef92",
         "path": ".engine/tools/test_protection_guard.py"
       },
       "status": "active",
@@ -15020,7 +15048,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:185c61e0827d0cf56bbd4b9cd3073ad070fb79fd1c36c555ca4e1c09ae19bbdb",
+        "fingerprint": "sha256:c47972d071931c570b42755390a7310ea48edb9a1f1fe0e53714edd6d80a3508",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -15776,7 +15804,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:4bd5a4f912dc130a4752f3749f17309d62eaa5cf4260231aeaac59bd8c70a1f7",
+        "fingerprint": "sha256:f9d455c2325ca62f7bc3d32d71cb105c7a38b447c4de46f08a4a4d3a67c8b5cd",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
