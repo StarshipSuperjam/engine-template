@@ -4728,7 +4728,7 @@
       },
       "slug": "codex-incident-replay",
       "source": {
-        "fingerprint": "sha256:e93c1eafefe209caef13109f82f60c588c8bb508a538f7594666992290081440",
+        "fingerprint": "sha256:6468c3331a4c654eb6345d5555df4acc648ca61fe55d1761e01c02d351ac7a5b",
         "path": ".engine/operations/codex-incident-replay.md"
       },
       "status": "active",
