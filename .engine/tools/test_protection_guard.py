@@ -290,6 +290,20 @@ class TestResolveLabelerAuthority(unittest.TestCase):
         decision, _ = protection_guard.resolve_labeler_authority("alice", "User", d)
         self.assertEqual(decision, protection_guard.AUTH_REFUSE)
 
+    def test_agrees_with_resolve_tier_on_the_positive_classification(self):
+        # resolve_labeler_authority re-inspects identity/engine_identity rather than calling resolve_tier (it
+        # must be STRICTER on the ambiguous team-without-identity case). This pins that the two still AGREE on
+        # the positive team/solo classification, so a future drift in resolve_tier's TEAM condition is caught
+        # rather than silently desyncing the ack-authority boundary (#958 review).
+        team = self._dir(self._TEAM)
+        self.assertEqual(protection_guard.resolve_tier(team), protection_guard.TEAM)
+        self.assertEqual(protection_guard.resolve_labeler_authority("alice", "User", team)[0],
+                         protection_guard.AUTH_TEAM)
+        solo = self._dir(self._SOLO)
+        self.assertEqual(protection_guard.resolve_tier(solo), protection_guard.SOLO)
+        self.assertEqual(protection_guard.resolve_labeler_authority("alice", "User", solo)[0],
+                         protection_guard.AUTH_SOLO)
+
 
 if __name__ == "__main__":
     unittest.main()

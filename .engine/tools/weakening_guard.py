@@ -96,13 +96,17 @@ ACK_CONTEXT = "engine-ack"
 # so a status POSTed directly by another identity is never trusted. Why this leg exists: in TEAM the engine's
 # own machine account holds `statuses:write` and could mint `engine-ack=success` WITHOUT ever applying the
 # label, bypassing the writer's authority check entirely; trusting only the bot-stamped creator closes that.
-# INVARIANT (test-pinned in test_weakening_guard_ack.py): `ack_status.py` posts as one of these logins. A
-# deployment that rewired the ack workflow to a GitHub App or a PAT would stamp a DIFFERENT creator and every
-# ack would then silently fail closed — the self-test asserts the shipped workflow uses the default token, so
-# such a rewire becomes a red check rather than a silent denial. RESIDUAL (StarshipSuperjam/engine-template#914):
-# a PR-ADDED head workflow with `statuses: write` also posts as `github-actions[bot]` — the same creator — so
-# this filter does not stop that path; adding a workflow is itself a killswitch change, and closing the
-# circularity needs a gate outside the token's reach (StarshipSuperjam/engine-template#914).
+# INVARIANT (test-pinned in test_seed.py::TestAckTrustedCreatorInvariant): `ack_status.py` posts as one of
+# these logins. A deployment that rewired the ack workflow to a GitHub App or a PAT would stamp a DIFFERENT
+# creator and every ack would then silently fail closed — the self-test asserts the shipped workflow uses the
+# default token, so such a rewire becomes a red check rather than a silent denial. RESIDUAL
+# (StarshipSuperjam/engine-template#914): a PR-ADDED head workflow with `statuses: write` also posts as
+# `github-actions[bot]` — the same creator — so this filter does not stop that path. And a brand-NEW workflow
+# file is NOT flagged by this guard today: a pure file ADDITION is treated as strengthening (WEAKENING_STATUS
+# excludes "added"), so that path currently raises no acknowledgment prompt at all. Closing it needs a control
+# outside this token's reach (a distinct-identity or out-of-band gate) — StarshipSuperjam/engine-template#914's
+# territory, not a bolt-on to this filter, since flagging added workflow files is its own behaviour change with
+# its own blast radius.
 _ACK_TRUSTED_CREATOR_LOGINS = ("github-actions[bot]",)
 _TRUSTED_CREATOR_SET = frozenset(login.casefold() for login in _ACK_TRUSTED_CREATOR_LOGINS)
 # The head-ack read races the companion on a `labeled` event (both fire on the same event; posting a status does
@@ -1104,9 +1108,12 @@ def _resolve_ack(repo: str, head_sha: str, token: str, label_present: bool) -> s
 # current head (an acknowledgment of an earlier version, or one still landing); the REAPPLY note tells the
 # operator how to acknowledge THIS head with the same single label.
 _ACK_STALE_NOTE = (
-    "An acknowledgment for an EARLIER version of this pull request is on record, but the head has changed "
-    "since (a new commit was pushed). An acknowledgment is bound to the exact version you reviewed and does "
-    "NOT carry across a push — this version has not been acknowledged.")
+    "An acknowledgment is not in force for this exact version of the pull request. That can be because a new "
+    "commit was pushed after one was applied (an acknowledgment is bound to the exact version reviewed and "
+    "does NOT carry across a push), because it was withdrawn, or because a label applied to this version was "
+    "not accepted as a valid approval — for example, applied by an actor whose authority could not be confirmed "
+    "(StarshipSuperjam/engine-template#958). The `engine-ack` status on this commit records which. This version "
+    "has not been acknowledged.")
 _ACK_APPLY_NOTE = (
     f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one deliberate action, "
     "distinct from the merge click).")

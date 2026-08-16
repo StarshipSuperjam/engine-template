@@ -2212,6 +2212,9 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
         self.assertIn("suites.json", out[0]["message"])
+        # #958: the downgrade must carry the authority note so a solo operator is not misled into reading the
+        # ack as identity-verified. Pinned here so a future edit cannot silently drop the disclosure.
+        self.assertIn("who acknowledged", out[0]["message"].lower())
 
     def test_ack_label_leaves_the_disclosure_untouched(self):
         # the ack is about the killswitch tier; a disclosure still emits with the label present.
@@ -2236,6 +2239,10 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("does not", out[0]["message"].lower())          # "does not carry across a push"
         self.assertIn("push", out[0]["message"].lower())
         self.assertIn("guardrail-ack", out[0]["message"])             # tells the operator how to re-acknowledge
+        # #958: this same not-fresh path also fires when a labeler's authority was REFUSED (bot posts
+        # engine-ack=failure). The note must NOT assert a push as the sole cause; it points to the engine-ack
+        # status for the actual reason. Pinned so the message stays honest across push / withdrawal / refusal.
+        self.assertIn("engine-ack", out[0]["message"])
 
     def test_never_acked_blocks_without_stale_wording(self):
         # No label and no status: never acknowledged — the plain apply guidance, not the stale-after-push note.
@@ -2256,6 +2263,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "soft")
         self.assertIn("ACKNOWLEDGED", out[0]["message"])
+        self.assertIn("who acknowledged", out[0]["message"].lower())  # #958 authority note pinned here too
 
     def test_ack_status_fetch_failure_fails_closed(self):
         # A statuses-API read failure on a hard finding fails CLOSED (a hard block), never a silent clear.

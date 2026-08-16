@@ -10,7 +10,7 @@
 #
 # SECURITY: like engine-guard, this runs on pull_request_target (so the write-capable token is available for a
 # same-repo pull request) but checks out ONLY the base branch and NEVER the pull request head, and executes no
-# head code — `ack_status.py` reads the event JSON and posts exactly two API calls. Do not add a head checkout
+# head code — `ack_status.py` reads the event JSON and posts at most one API call per event. Do not add a head checkout
 # and do not interpolate any `github.event.pull_request.head.*` value into a run line.
 #
 # It runs the stdlib-only tool with the runner's Python directly — no `uv sync` — so it posts the status fast

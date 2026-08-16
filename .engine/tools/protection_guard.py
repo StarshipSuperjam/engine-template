@@ -44,8 +44,8 @@ _ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .en
 
 def _load_manifest(engine_dir: str | None = None) -> dict | None:
     """The engine manifest (engine.json) as a dict, or None when it is absent/unreadable/not-an-object — the
-    single committed-manifest reader this module shares (resolve_tier and recorded_posture both call it, so
-    neither opens the file independently). Deliberately robust; never raises."""
+    single committed-manifest reader this module shares (resolve_tier, resolve_labeler_authority, and
+    recorded_posture all call it, so none opens the file independently). Deliberately robust; never raises."""
     engine_dir = engine_dir if engine_dir is not None else _ENGINE_DIR
     try:
         with open(os.path.join(engine_dir, "engine.json"), encoding="utf-8") as fh:
@@ -111,6 +111,13 @@ def resolve_labeler_authority(sender_login, sender_type, engine_dir: str | None 
     territory — the swap point is this
     one function. The residual is: any collaborator the operator granted triage+ can acknowledge, not only the
     operator; the threat this closes is the engine acknowledging its OWN change under a shared credential."""
+    # NOTE — this inspects `identity`/`engine_identity` directly rather than delegating to resolve_tier(), on
+    # purpose and NOT as a duplication oversight: resolve_tier() collapses a TEAM-recorded-but-no-identity
+    # manifest to SOLO (its safe default for the ruleset floor), but for an ACK that collapse is fail-OPEN — it
+    # would accept a self-applied label under the weaker solo rule. Here that same state must fail CLOSED
+    # (AUTH_REFUSE below). The two functions therefore agree on the POSITIVE team/solo classification (pinned by
+    # a parity test in test_protection_guard.py) but diverge, deliberately, on the ambiguous case. Both read the
+    # manifest ONCE.
     manifest = _load_manifest(engine_dir)
     if manifest is None:
         return (AUTH_REFUSE, "the engine manifest could not be read, so the label applier's authority is unknown")
