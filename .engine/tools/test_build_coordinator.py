@@ -1437,5 +1437,53 @@ class TestV1Migration(CoordinatorCase):
                       f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
 
 
+class TestDepthsVerb(unittest.TestCase):
+    """The `depths` advisory verb — the runnable form of the #763 chooser collapse. Stateless: it reads the
+    committed protocol, the installed roster, and the shipped/operator per-depth effort, and offers only the
+    depths that add coverage or effort over a lighter one."""
+
+    @staticmethod
+    def _roster(*lenses):
+        return [{"lens": lens, "path": f".claude/agents/{lens}.md", "digest": "d"} for lens in lenses]
+
+    def _run(self, plan_roster, deliverable_roster, as_json=False):
+        def installed(stage):
+            return plan_roster if stage == "plan" else deliverable_roster
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", side_effect=installed), contextlib.redirect_stdout(out):
+            bc.cmd_depths(argparse.Namespace(json=as_json), None)
+        return out.getvalue()
+
+    def test_full_roster_offers_all_three_with_stepped_effort(self):
+        plan_roster = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        deliverable_roster = self._roster("spec-conformance", "divergence-hunter", "usability",
+                                          "technical-integrity", "security-governance")
+        result = json.loads(self._run(plan_roster, deliverable_roster, as_json=True))
+        self.assertEqual(result["available"], ["quick", "standard", "thorough"])
+        self.assertIsNone(result["depths"]["quick"]["effort"])
+        # Depth scales reviewer effort off the shipped review_depths defaults (standard steps down, thorough
+        # holds the anchor); no operator override in the tree, so these are the shipped values.
+        self.assertEqual(result["depths"]["standard"]["effort"], "medium")
+        self.assertEqual(result["depths"]["thorough"]["effort"], "high")
+        # Standard's plan gate runs all four lenses (the reopened row) — coverage over per-lens depth.
+        self.assertEqual(len(result["depths"]["standard"]["plan_lenses"]), 4)
+
+    def test_zero_reviewers_collapse_to_quick_alone(self):
+        # The #763 heart: with no installed reviewers every heavier depth buys nothing, so only quick is offered.
+        text = self._run([], [])
+        self.assertIn("quick: no cold reviewers", text)
+        self.assertIn("Collapsed", text)
+        result = json.loads(self._run([], [], as_json=True))
+        self.assertEqual(result["available"], ["quick"])
+
+    def test_depths_needs_no_state(self):
+        # The verb must run before approval, so main() must not demand --state for it.
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(out):
+            rc = bc.main(["depths", "--json"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out.getvalue())["available"], ["quick"])
+
+
 if __name__ == "__main__":
     unittest.main()

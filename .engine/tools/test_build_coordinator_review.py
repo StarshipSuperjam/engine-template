@@ -193,6 +193,21 @@ class TestAvailableDepths(unittest.TestCase):
         got = review.available_depths(self._protocol(), plan, deliverable, flat)
         self.assertEqual(got, ["quick", "standard"])   # thorough adds neither lenses nor effort -> collapsed
 
+    def test_one_standard_table_lens_offers_all_three(self):
+        # A single installed reviewer whose lens IS in the standard table: standard adds that lens over quick,
+        # and thorough adds effort over standard (same lens-set, higher effort) -> all three are distinct.
+        got = review.available_depths(self._protocol(), self._roster(),
+                                      self._roster("spec-conformance"), self._EFFORTS)
+        self.assertEqual(got, ["quick", "standard", "thorough"])
+
+    def test_one_thorough_only_lens_skips_standard(self):
+        # A single installed reviewer whose lens runs ONLY at thorough (security-governance is not in the
+        # standard deliverable table): standard would run nothing the quick floor doesn't, so it collapses,
+        # yet thorough still adds that lens -> the offer skips the middle depth entirely.
+        got = review.available_depths(self._protocol(), self._roster(),
+                                      self._roster("security-governance"), self._EFFORTS)
+        self.assertEqual(got, ["quick", "thorough"])
+
 
 if __name__ == "__main__":
     unittest.main()

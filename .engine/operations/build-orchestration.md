@@ -93,16 +93,12 @@ File/stdin export and restore remain available for a harness that transports the
 
 ### 2. Assess risk and approve the Build gate
 
-Run the knowledge impact check and inspect installed review personas. Fill
-`.engine/templates/risk-assessment.md` in plain language: headline, affected areas, exactly what review and
-validation will run or is unavailable, suggested care level, and any guardrail weakening. Never invent a
-time or cost estimate. The suggested depth follows risk, not a prior preference.
-
-**Offer only depths that add something; each drives effort.** `build_coordinator_review.available_depths`
-(keyed on lens-set AND per-depth effort) drops a depth that would run what a lighter one does, presenting only
-Quick when no reviewers are installed (StarshipSuperjam/engine-template#763). Depth scales reviewer EFFORT, not
-model (`review_depths` via `agent_bindings.depth_effort`; model stays each lens's per-lens match): Claude via
-session `--effort`, Codex via `model_reasoning_effort` at spawn (see `model-routing.md`) — named in the Review record.
+**Assess risk; offer only depths that add something.** Run the knowledge impact check, inspect installed review
+personas, and run `build_coordinator.py depths` — it lists the depths worth offering, dropping any that would run
+what a lighter one does (only Quick when no reviewers, StarshipSuperjam/engine-template#763), and prints each depth's resolved
+reviewer EFFORT. Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what
+review and validation will run or is unavailable, suggested care level (following risk, no time or cost estimate),
+and guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex `model_reasoning_effort`, named in the Review record.
 
 The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
 --depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved
@@ -187,9 +183,8 @@ repair packet requires validation for the repaired commit. If target-branch reco
 review, validate it and make the same nature-based judgment.
 
 **A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
-review followed by a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large
-divergence — leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Still
-the orchestrator's judgment on the repair's nature, never a mechanical threshold or escalation (eADR-0041).
+review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
+leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Still the orchestrator's judgment, never a mechanical threshold or escalation (eADR-0041).
 
 ### 6. Preflight and submit
 

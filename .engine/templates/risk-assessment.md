@@ -22,9 +22,9 @@ length_budget: 70
 
 You choose how careful this should be; the suggestion above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top, and how hard each reviewer looks. "What I'll run" above is the authoritative list for this change. I only offer levels that would actually add something here: if a heavier level would run exactly what a lighter one does, I don't offer it.
 
-- **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks, and the full test suite, that run on every change) — no separate reviewers. The lightest: least gets caught before it ships, so you lean most on your own read at merge.
-- **Standard review** — a focused set of independent reviews, run at a middling level of effort — a real middle in both how much is checked and what it costs.
-- **Thorough review** — every independent review available, each looking as hard as it can, hardest on the risky parts — the most gets caught before it ships, and the most it costs.
+- **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks, and the full test suite, that run on every change) — no separate reviewers. The lightest of the three: the least gets caught before it ships, so you lean most on your own read at merge.
+- **Standard review** — a focused set of independent reviews, run at less effort than Thorough — the middle of the three in both how much is checked and what it costs.
+- **Thorough review** — every independent review available, each looking harder and hardest on the risky parts — the most gets caught before it ships, and the most it costs.
 
 <Present ONLY the levels that add something here — derive them from what review is installed and what each depth would run, dropping any heavier level that would run exactly what a lighter one does. When only Quick would add anything (no review packs installed, or none that add coverage for this change), you MUST present Quick alone and say so plainly rather than offer a choice that buys nothing: "No extra review adds anything here, so this is my own read plus the automatic checks — installing a review pack is what would add deeper review to choose from." The levels promise what will RUN, never that the result is guaranteed correct — your review at merge is the gate.>
 

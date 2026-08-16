@@ -55,7 +55,7 @@ Build authority, and guardrail acknowledgment are unaffected by any posture. Pos
 and model bindings only; it never modulates a review gate.
 
 **Operator-chosen review depth is a separate axis from posture, and it scales reviewer EFFORT — not model.**
-The operator's Quick/Standard/Thorough choice sets how much reasoning effort the review reviewers spend (the
+The operator's Quick/Standard/Thorough choice sets how much reasoning effort the reviewers spend (the
 per-depth `review_depths` block in `.engine/policies/model-bindings.json`), realized on Claude by the session
 `--effort` governing the un-pinned reviewer roles and on Codex by `model_reasoning_effort` at spawn. This is
 the operator's explicit, per-change consent, not the engine silently taking an environment shortcut, so it

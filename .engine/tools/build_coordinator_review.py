@@ -37,7 +37,7 @@ def required(protocol: dict, stage: str, depth: str, roster: list[dict]) -> list
     return [item for item in roster if item["lens"] in allowed]
 
 
-_DEPTH_ORDER = ("quick", "standard", "thorough")
+DEPTH_ORDER = ("quick", "standard", "thorough")
 _EFFORT_RANK = {None: -1, "low": 0, "medium": 1, "high": 2}
 
 
@@ -53,7 +53,7 @@ def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster
     anyway, still resolves to the same empty roster as quick."""
     offered: list[str] = []
     last: tuple[frozenset, str | None] | None = None
-    for depth in _DEPTH_ORDER:
+    for depth in DEPTH_ORDER:
         lenses = (frozenset(i["lens"] for i in required(protocol, "plan", depth, plan_roster))
                   | frozenset(i["lens"] for i in required(protocol, "deliverable", depth, deliverable_roster)))
         effort = efforts.get(depth)

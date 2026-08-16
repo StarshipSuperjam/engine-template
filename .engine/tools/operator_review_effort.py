@@ -46,6 +46,22 @@ _DEPTHS = ("standard", "thorough")   # quick runs no reviewers, so it carries no
 _EFFORTS = ("low", "medium", "high")
 
 
+def overrides_path(root: str | None = None) -> str:
+    """The committed override file's path, for a given engine tree root (or the running tree when None).
+    The single home for this derivation so callers never re-spell `.engine/operator-review-effort.json`."""
+    return OVERRIDES_PATH if root is None else os.path.join(root, ".engine", "operator-review-effort.json")
+
+
+def _write(path: str, data: dict) -> None:
+    """Write the override map crash-safe (temp-file + os.replace), matching the bootstrap/knowledge_index
+    convention, so an interrupted retune never leaves a truncated operator-config file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
 def load(path: str = OVERRIDES_PATH) -> dict:
     """The committed operator depth-effort override as `{depth: {"effort": level}}`, or `{}` when there is no
     override file yet (the normal state until the operator first retunes). A missing, unreadable, malformed, or
@@ -101,24 +117,27 @@ def set_effort(depth: str, effort: str, path: str = OVERRIDES_PATH) -> dict:
         raise ValueError(f"'{effort}' is not a reasoning-effort level — choose one of {', '.join(_EFFORTS)}.")
     current = load(path)
     current[depth] = {"effort": effort}
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(current, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    _write(path, current)
     return current
 
 
-def forget(depth: str, path: str = OVERRIDES_PATH) -> dict:
-    """Drop one depth's effort override so it reverts to the shipped default. Removes the file when the last
-    override is cleared. Returns the remaining override map."""
+def forget(depth: str, path: str = OVERRIDES_PATH) -> tuple[dict, bool]:
+    """Drop one depth's effort override so it reverts to the shipped default, returning
+    `(remaining_map, changed)`. Refuses an unknown depth in plain words (like `set_effort`), so a typo is
+    caught rather than silently treated as a no-op. `changed` is False when the depth carried no override —
+    nothing was written and the caller can say so honestly. Removes the file when the last override clears."""
+    if depth not in _DEPTHS:
+        raise ValueError(f"'{depth}' is not a tunable review depth — choose one of {', '.join(_DEPTHS)} "
+                         "(quick runs no reviewers, so it has no effort to forget).")
     current = load(path)
-    current.pop(depth, None)
+    if depth not in current:
+        return current, False
+    current.pop(depth)
     if current:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(current, fh, indent=2, sort_keys=True)
-            fh.write("\n")
+        _write(path, current)
     elif os.path.isfile(path):
         os.remove(path)
-    return current
+    return current, True
 
 
 def main(argv: list | None = None) -> int:
@@ -139,8 +158,15 @@ def main(argv: list | None = None) -> int:
         print(f"prepared: {argv[1]} review depth now runs at {argv[2]} effort — merge the change to apply it.")
         return 0
     if len(argv) == 2 and argv[0] == "forget":
-        forget(argv[1])
-        print(f"prepared: {argv[1]} review depth reverts to the shipped default — merge the change to apply it.")
+        try:
+            _, changed = forget(argv[1])
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if changed:
+            print(f"prepared: {argv[1]} review depth reverts to the shipped default — merge the change to apply it.")
+        else:
+            print(f"nothing to revert: {argv[1]} review depth already runs on the shipped default.")
         return 0
     print("usage: operator_review_effort.py show | set <standard|thorough> <low|medium|high> | forget <depth>")
     return 2

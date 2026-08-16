@@ -70,8 +70,7 @@ def depth_effort(depth: str, bindings: dict, root: str | None = None) -> str | N
     `review_depths` default; absent either, returns None (the depth runs reviewers at their un-pinned session
     effort, i.e. Claude Code's default). `quick` has no reviewers and so no effort. Model is NOT resolved here:
     it stays the per-lens tiers+overrides at every depth."""
-    override = operator_review_effort.load(operator_review_effort.OVERRIDES_PATH if root is None
-                                           else os.path.join(root, ".engine", "operator-review-effort.json"))
+    override = operator_review_effort.load(operator_review_effort.overrides_path(root))
     slice_ = override.get(depth)
     if slice_ and slice_.get("effort"):
         return slice_["effort"]

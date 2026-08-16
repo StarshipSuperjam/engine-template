@@ -81,10 +81,47 @@ class TestSetForget(unittest.TestCase):
             path = os.path.join(d, "operator-review-effort.json")
             ore.set_effort("standard", "low", path)
             ore.set_effort("thorough", "medium", path)
-            ore.forget("standard", path)
+            remaining, changed = ore.forget("standard", path)
+            self.assertTrue(changed)
+            self.assertEqual(remaining, {"thorough": {"effort": "medium"}})
             self.assertEqual(ore.load(path), {"thorough": {"effort": "medium"}})
-            ore.forget("thorough", path)
+            _, changed = ore.forget("thorough", path)
+            self.assertTrue(changed)
             self.assertFalse(os.path.isfile(path))   # last override cleared -> file removed
+
+    def test_forget_refuses_unknown_depth(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "operator-review-effort.json")
+            with self.assertRaises(ValueError):
+                ore.forget("quick", path)      # quick has no reviewers, so no effort to forget
+            with self.assertRaises(ValueError):
+                ore.forget("nonsense", path)
+
+    def test_forget_absent_override_reports_no_change_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "operator-review-effort.json")
+            remaining, changed = ore.forget("standard", path)   # never set
+            self.assertFalse(changed)
+            self.assertEqual(remaining, {})
+            self.assertFalse(os.path.isfile(path))   # a no-op forget never creates the file
+
+    def test_forget_leaves_other_slices_when_target_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "operator-review-effort.json")
+            ore.set_effort("standard", "low", path)
+            remaining, changed = ore.forget("thorough", path)   # thorough was never set
+            self.assertFalse(changed)
+            self.assertEqual(remaining, {"standard": {"effort": "low"}})
+            self.assertEqual(ore.load(path), {"standard": {"effort": "low"}})   # untouched
+
+
+class TestOverridesPath(unittest.TestCase):
+    def test_default_is_the_running_tree_constant(self):
+        self.assertEqual(ore.overrides_path(), ore.OVERRIDES_PATH)
+
+    def test_root_derives_the_engine_relative_path(self):
+        self.assertEqual(ore.overrides_path("/x/tree"),
+                         os.path.join("/x/tree", ".engine", "operator-review-effort.json"))
 
 
 class TestPreservedAcrossUpgrade(unittest.TestCase):
