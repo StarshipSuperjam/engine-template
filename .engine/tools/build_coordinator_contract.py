@@ -74,6 +74,27 @@ def _load_schema() -> dict:
         return json.load(fh)
 
 
+def fillable_template() -> dict:
+    """The empty claim shape the `contract template` verb emits. Every judgment slot is `null` and every
+    list is empty, so this skeleton does NOT validate — running it through `validate_claim` names each
+    unfilled slot by path. It is a fill-me guide, never a valid claim: ordinary schema validation catches an
+    unfilled field without any substring grading of prose."""
+    return {
+        "schema_version": "pr-body-claim.v1",
+        "linkage": {"closes": [], "part_of": []},
+        "purpose": {"thesis": None, "problem": None, "mechanism": [], "impact": None},
+        "scope": {"summary": None, "items": [], "impact": None},
+        "out_of_scope": {"summary": None, "items": [], "impact": None},
+        "risk": {"items": [], "guardrail_note": None, "accepted_residual": [], "impact": None},
+        "behaviors": {"observable": True, "entries": []},
+        "demonstration": {"kind": "runnable", "command": None, "pass_signal": None, "fail_signal": None},
+        "validation": {"caveats": [], "live_helpers": {"all_available": True, "unavailable": []}},
+        "review": {"loop_narrative": None, "material_divergence": False, "finding_summaries": []},
+        "files_of_interest": {"items": [], "impact": None},
+        "ai_involvement": {"tools": [], "operator_decisions": [], "judgment_split": None, "impact": None},
+    }
+
+
 def load_claim(path: str) -> dict:
     """Read and validate a claim file against `pr-body-claim.v1`, plus the two cross-field rules JSON
     Schema cannot express (linkage uniqueness/disjointness). Raises ContractError with a plain message."""

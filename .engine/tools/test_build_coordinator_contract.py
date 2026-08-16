@@ -13,6 +13,7 @@ import os
 import unittest
 
 import build_coordinator_contract as bcc
+import spec_referent
 import validate
 
 ROOT = bcc.ROOT
@@ -185,6 +186,47 @@ class TestCompose(unittest.TestCase):
         claim["behaviors"] = {"observable": False, "none_observable_reason": "a docs-only change"}
         body = bcc.compose(claim, _good_evidence())
         self.assertIn("Nothing here is observable behaviour", body)
+
+
+class TestFillableTemplate(unittest.TestCase):
+    def test_template_shape_has_every_top_level_key(self):
+        tpl = bcc.fillable_template()
+        schema = bcc._load_schema()
+        self.assertEqual(set(tpl), set(schema["required"]))
+
+    def test_template_does_not_validate_and_names_a_slot(self):
+        # The emitted skeleton must fail validation so unfilled slots are caught by ordinary validation.
+        with self.assertRaises(bcc.ContractError) as ctx:
+            bcc.validate_claim(bcc.fillable_template())
+        self.assertIn("pr-body-claim.v1", str(ctx.exception))
+
+
+class TestMultiDocSpecSteps(unittest.TestCase):
+    def _proj(self, path, runnable, engine):
+        return {"path": path,
+                "runnable": [{"criterion": c, "how_verified": v} for c, v in runnable],
+                "engine_account": [{"criterion": c, "how_verified": v} for c, v in engine],
+                "no_op_reason": None if runnable else "all-engine-account"}
+
+    def test_merges_two_documents_into_two_groups(self):
+        projections = [
+            self._proj("docs/spec/a.md", [("A1", "click the button")], [("A2", "`pytest`")]),
+            self._proj("docs/spec/b.md", [("B1", "open the page")], []),
+        ]
+        out = spec_referent.render_review_steps_multi(projections)
+        self.assertIn("**Things you can confirm yourself**", out)
+        self.assertIn("**Things I checked for you**", out)
+        self.assertIn("A1: click the button", out)
+        self.assertIn("B1: open the page", out)
+        self.assertIn("A2: `pytest`", out)
+        self.assertIn(spec_referent._PROMISE_CAVEAT, out)
+
+    def test_no_runnable_across_docs_renders_engine_account_only(self):
+        projections = [self._proj("docs/spec/a.md", [], [("A2", "`pytest`")])]
+        out = spec_referent.render_review_steps_multi(projections)
+        self.assertIn("Nothing here is something you can run yourself", out)
+        self.assertIn("**Things I checked for you**", out)
+        self.assertNotIn("**Things you can confirm yourself**", out)
 
 
 if __name__ == "__main__":
