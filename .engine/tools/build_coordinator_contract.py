@@ -1,0 +1,354 @@
+"""Pure PR-body composer for the Build coordinator's `contract` verbs.
+
+WHAT THIS IS. The coordinator composes the pull-request draft body from one typed claim
+(`pr-body-claim.v1` — judgment-bearing narrative and session-only observations) plus evidence the
+coordinator computes from observed facts. This module is the PURE half: it validates a claim and
+assembles a complete body from the claim and a supplied `evidence` mapping. It performs no I/O beyond
+reading the claim schema and (via `release_cut.template_preamble`) the committed PR template, makes no
+network call, and touches no Build state — so it is unit-testable in isolation. The coordinator side
+(`build_coordinator.py`'s `contract` verbs) computes the evidence, drives the safe live-apply loop, and
+records state; none of that lives here.
+
+THE PARTITION (why the split is where it is). Deterministic facts are the coordinator's to compute and
+appear in `evidence`; the claim carries only what needs judgment or is observable solely by the session.
+So the composer NEVER derives a fact from the claim that the coordinator can observe: the consent
+preamble, the change profile, spec-derived acceptance steps, validation results, reviewer-disagreement
+lines, reviewed/final commits and divergence, index-regeneration facts, and the guardrail-touched file
+set all arrive through `evidence`, already computed. The composer's job is assembly, not authorship.
+
+THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordinator-supplied):
+
+  preamble            str        the consent blockquote, lifted verbatim from the template
+  closes_lines        [str]      line-leading closing declarations to place below the preamble
+                                 (e.g. "Closes #N") — the coordinator merges the claim's linkage
+                                 with any durable Build Issue and reconciles against live GitHub
+  part_of_lines       [str]      "Part of #N" context lines to fold into Scope (the close-linkage
+                                 preflight reads them from the Scope / Out-of-scope sections)
+  change_profile      str        scope_profile.render(...) block, pasted verbatim into Scope
+  validation_results  str        rendered validation facts (suite, pass/fail, counts, commit,
+                                 log digests) — coordinator-computed, no machine-local log paths
+  index_regen         str        computed index-regeneration disclosure ("touched only generated
+                                 paths; N files"), or "" when nothing regenerated
+  fail_open_lines     [str]      carried fail-open findings, each a distinct rendered line
+  spec_steps          str        multi-document spec-derived acceptance steps (two groups), or the
+                                 honest no-spec disclosure — rendered by spec_referent, never here
+  review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
+  disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
+  drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
+  guardrail_line      str        the guardrail-touch disclosure (floored files + tier), or "" if none
+  composition_marker  str        the hidden marker carrying the claim digest and final commit
+  preserved_blocks    [str]      valid marker blocks already on the draft (plan / handoff / build-id)
+                                 to carry through unchanged
+
+Every string arrives ready to place; the composer owns only ordering, headings, and the section shape.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+# Reuse the single-homed PR-body formatter (a bold summary, its bullets, an *Impact:* line) and the
+# consent-preamble lift. Imported LAZILY inside the functions that need them: a top-level import of
+# release_cut would pull the whole release-production / module-management subsystem (module_manager,
+# bootstrap, wiring, ...) into the per-PR Build coordinator's import graph for two pure helpers.
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+_CLAIM_SCHEMA_PATH = os.path.join(ROOT, ".engine", "schemas", "pr-body-claim.v1.json")
+
+# The nine required level-2 sections, in the order the completeness gate enforces. Behaviors is a
+# level-3 subsection of Scope, not a tenth section (see `pr-body-completeness.json` / the template).
+HEADING_ORDER = [
+    "Purpose", "Scope", "Out of scope", "Risk", "Validation",
+    "Review", "Demonstration", "Files of interest", "AI involvement",
+]
+
+
+class ContractError(Exception):
+    """A claim or evidence problem the caller must surface with a precise remediation."""
+
+
+def _load_schema() -> dict:
+    with open(_CLAIM_SCHEMA_PATH, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_claim(path: str) -> dict:
+    """Read and validate a claim file against `pr-body-claim.v1`, plus the two cross-field rules JSON
+    Schema cannot express (linkage uniqueness/disjointness). Raises ContractError with a plain message."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            claim = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise ContractError(f"could not read the claim file {path}: {exc}") from exc
+    validate_claim(claim)
+    return claim
+
+
+def validate_claim(claim: dict) -> None:
+    """Validate an already-parsed claim. Schema first, then the linkage disjointness cross-check."""
+    from jsonschema import Draft202012Validator
+
+    schema = _load_schema()
+    errors = sorted(Draft202012Validator(schema).iter_errors(claim), key=lambda e: list(e.path))
+    if errors:
+        first = errors[0]
+        where = "/".join(str(p) for p in first.path) or "(root)"
+        raise ContractError(
+            f"the claim does not satisfy pr-body-claim.v1 at {where}: {first.message} "
+            f"({len(errors)} problem(s); fill the template's null/empty slots)"
+        )
+    closes = set(claim["linkage"]["closes"])
+    part_of = set(claim["linkage"]["part_of"])
+    overlap = closes & part_of
+    if overlap:
+        nums = ", ".join(f"#{n}" for n in sorted(overlap))
+        raise ContractError(
+            f"linkage.closes and linkage.part_of overlap on {nums}: an issue is either closed by this "
+            f"PR or only part-of it, never both — decide which and remove it from the other list"
+        )
+
+
+def assert_template_matches_gate(sections: list) -> None:
+    """Fail loudly if the template's section order (as the composer will emit it) disagrees with the
+    completeness rule's declared sections. The gate is the source of truth for what a body must carry;
+    the composer must never render a body the gate would then reject for a heading mismatch."""
+    rule_path = os.path.join(ROOT, ".engine", "check", "pr-body-completeness.json")
+    with open(rule_path, encoding="utf-8") as fh:
+        rule = json.load(fh)
+    declared = rule.get("params", {}).get("sections") or rule.get("sections")
+    if declared != sections:
+        raise ContractError(
+            "the composer's section order disagrees with the pr-body-completeness gate "
+            f"(composer={sections}, gate={declared}); reconcile before composing"
+        )
+
+
+def _preamble(evidence: dict) -> str:
+    """The consent blockquote. Prefer the evidence-supplied value (already lifted by the coordinator);
+    fall back to lifting it here so the composer is usable standalone in tests."""
+    pre = evidence.get("preamble")
+    if pre:
+        return pre
+    sys.path.insert(0, os.path.join(ROOT, ".engine", "tools"))
+    import release_cut
+
+    return release_cut.template_preamble()
+
+
+def _section(header: str, summary: str, body_lines: list, impact: str) -> list:
+    """Delegate to the single-homed formatter so every section reads in the one template shape."""
+    sys.path.insert(0, os.path.join(ROOT, ".engine", "tools"))
+    import release_cut
+
+    return release_cut.pr_section(header, summary, body_lines, impact)
+
+
+def _behaviors_block(claim: dict) -> list:
+    """The level-3 Behaviors subsection, placed inside Scope after its *Impact:* line."""
+    b = claim["behaviors"]
+    out = ["### Behaviors", ""]
+    if b["observable"]:
+        for entry in b["entries"]:
+            tests = ", ".join(f"`{t}`" for t in entry["tests"])
+            line = f"- {entry['claim']} — {tests}"
+            if entry.get("regression_lock"):
+                line += f" ({entry['regression_lock']})"
+            out.append(line)
+    else:
+        out.append(f"- Nothing here is observable behaviour: {b['none_observable_reason']}")
+    out.append("")
+    return out
+
+
+def _bullets(items: list) -> list:
+    return [f"- {it}" for it in items]
+
+
+def compose(claim: dict, evidence: dict) -> str:
+    """Assemble the complete PR body from a validated claim and coordinator-computed evidence.
+
+    Validates the claim, cross-checks the section order against the live gate, then renders the consent
+    preamble, closing declarations, all nine sections in gate order (Behaviors nested under Scope), and
+    reattaches any preserved marker blocks and the hidden composition marker. Returns the body string;
+    the caller applies it to the draft PR and re-runs preflight."""
+    validate_claim(claim)
+    assert_template_matches_gate(HEADING_ORDER)
+
+    lines: list = [_preamble(evidence), ""]
+
+    for cl in evidence.get("closes_lines", []):
+        lines.append(cl)
+    if evidence.get("closes_lines"):
+        lines.append("")
+
+    # 1. Purpose
+    p = claim["purpose"]
+    lines += _section("Purpose", p["thesis"], [p["problem"], "", *_bullets(p["mechanism"])], p["impact"])
+
+    # 2. Scope (+ Part of context, + change profile, + Behaviors)
+    s = claim["scope"]
+    scope_body = _bullets(s["items"])
+    for pol in evidence.get("part_of_lines", []):
+        scope_body.append(pol)
+    if evidence.get("change_profile"):
+        scope_body += ["", evidence["change_profile"]]
+    lines += _section("Scope", s["summary"], scope_body, s["impact"])
+    lines += _behaviors_block(claim)
+
+    # 3. Out of scope
+    o = claim["out_of_scope"]
+    oos_body = []
+    for it in o["items"]:
+        line = f"- {it['item']} — {it['reason']}"
+        refs = []
+        if it.get("tracked_as"):
+            refs.append(f"tracked as {it['tracked_as']}")
+        if it.get("deferred_by"):
+            refs.append(f"deferred by {it['deferred_by']}")
+        if refs:
+            line += f" ({'; '.join(refs)})"
+        oos_body.append(line)
+    lines += _section("Out of scope", o["summary"], oos_body, o["impact"])
+
+    # 4. Risk
+    r = claim["risk"]
+    risk_body = []
+    for it in r["items"]:
+        mark = "**(most safety-sensitive)** " if it.get("most_sensitive") else ""
+        risk_body.append(f"- {mark}{it['risk']} — bounded by {it['bound']}")
+    if evidence.get("guardrail_line"):
+        risk_body += ["", evidence["guardrail_line"]]
+    if r.get("guardrail_note"):
+        risk_body.append(f"- {r['guardrail_note']}")
+    for res in r.get("accepted_residual", []):
+        risk_body.append(
+            f"- Accepted residual (`{res['finding_id']}`, operator decision {res['operator_decision_date']}): "
+            f"{res['rationale']}"
+        )
+    lines += _section("Risk", _risk_summary(r), risk_body, r["impact"])
+
+    # 5. Validation
+    val_body = []
+    if evidence.get("validation_results"):
+        val_body.append(evidence["validation_results"])
+    for caveat in claim["validation"]["caveats"]:
+        val_body.append(f"- Caveat: {caveat}")
+    for fo in evidence.get("fail_open_lines", []):
+        val_body.append(fo)
+    val_body.append(_live_helpers_line(claim["validation"]["live_helpers"]))
+    if evidence.get("index_regen"):
+        val_body.append(f"- {evidence['index_regen']}")
+    lines += _section("Validation", _validation_summary(evidence), val_body, _validation_impact())
+
+    # 6. Review
+    rev = claim["review"]
+    review_body = []
+    if evidence.get("review_coverage"):
+        review_body.append(evidence["review_coverage"])
+    review_body.append(f"- {rev['loop_narrative']}")
+    for fs in rev["finding_summaries"]:
+        line = f"- Finding `{fs['id']}`: {fs['operator_summary']}"
+        if fs.get("public_reference"):
+            line += f" ({fs['public_reference']})"
+        review_body.append(line)
+    for dl in evidence.get("disagreement_lines", []):
+        review_body.append(dl)
+    if evidence.get("drift_line"):
+        review_body.append(evidence["drift_line"])
+    if evidence.get("spec_steps"):
+        review_body += ["", evidence["spec_steps"]]
+    lines += _section("Review", _review_summary(rev), review_body, _review_impact())
+
+    # 7. Demonstration
+    lines += _section("Demonstration", _demo_summary(claim["demonstration"]),
+                      _demo_body(claim["demonstration"]), _demo_impact(claim["demonstration"]))
+
+    # 8. Files of interest
+    f = claim["files_of_interest"]
+    files_body = [f"- `{it['path']}` — {it['role']}" for it in f["items"]]
+    lines += _section("Files of interest", "The paths that most determine this change.", files_body, f["impact"])
+
+    # 9. AI involvement
+    ai = claim["ai_involvement"]
+    ai_body = [f"- {t['tool']} ({t['model']}) — {t['role']}" for t in ai["tools"]]
+    for dec in ai.get("operator_decisions", []):
+        when = f", {dec['decision_date']}" if dec.get("decision_date") else ""
+        ai_body.append(f"- Operator decision{when}: {dec['summary']}")
+    ai_body.append(f"- {ai['judgment_split']}")
+    lines += _section("AI involvement", "How this change was produced and who decided what.", ai_body, ai["impact"])
+
+    body = "\n".join(lines).rstrip() + "\n"
+
+    marker = evidence.get("composition_marker")
+    if marker:
+        body += "\n" + marker + "\n"
+    for block in evidence.get("preserved_blocks", []):
+        body += "\n" + block + "\n"
+    return body
+
+
+def _risk_summary(r: dict) -> str:
+    n = len(r["items"])
+    return f"{n} risk{'s' if n != 1 else ''}, ranked, each with the bound that contains it."
+
+
+def _validation_summary(evidence: dict) -> str:
+    return "The mechanical floor this change cleared, bound to the final commit."
+
+
+def _validation_impact() -> str:
+    return "A green floor shows conformance, not correctness — your read at merge is the gate."
+
+
+def _live_helpers_line(lh: dict) -> str:
+    if lh.get("all_available"):
+        return "- The engine's live helpers answered this session."
+    parts = []
+    for u in lh.get("unavailable", []):
+        parts.append(f"{u['helper']} ({u['diagnosis']})")
+    named = "; ".join(parts) or "one or more helpers"
+    return (f"- A live helper was unavailable, so this change was authored on the committed-file "
+            f"fallback: {named}. That area was not verified against live state.")
+
+
+def _review_summary(rev: dict) -> str:
+    return "What review ran, what it found, and how the merged version compares to the reviewed one."
+
+
+def _review_impact() -> str:
+    return "Review is a deliberate-effort pass, not a gate; your merge is the binding gate."
+
+
+def _demo_summary(demo: dict) -> str:
+    if demo["kind"] == "runnable":
+        return "A step you can run yourself that drives the changed surface and can genuinely fail."
+    if demo["kind"] == "spec-derived":
+        return "The spec-derived acceptance steps in Review drive this change directly."
+    return "This change has no observable behaviour to demonstrate."
+
+
+def _demo_body(demo: dict) -> list:
+    if demo["kind"] == "runnable":
+        body = [f"- Run: `{demo['command']}`",
+                f"- It PASSES when: {demo['pass_signal']}",
+                f"- It FAILS when: {demo['fail_signal']}"]
+        if demo.get("real_output"):
+            body += ["", "```", demo["real_output"], "```"]
+        return body
+    if demo["kind"] == "spec-derived":
+        return ["- See the spec-derived acceptance steps under Review."]
+    reasons = {
+        "docs-only": "a documentation-only change",
+        "dependency": "a dependency change with no behaviour of its own",
+        "behaviour-preserving-refactor": "a behaviour-preserving refactor",
+        "release-plumbing": "release plumbing",
+    }
+    return [f"- No demonstration: {reasons[demo['reason']]}."]
+
+
+def _demo_impact(demo: dict) -> str:
+    if demo["kind"] == "none":
+        return "Nothing observable to run; correctness rests on review and your read at merge."
+    return "Run it to watch the change work — an unrun step is a promise, not proof."
