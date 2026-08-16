@@ -98,13 +98,16 @@ Run the knowledge impact check and inspect installed review personas. Fill
 validation will run or is unavailable, suggested care level, and any guardrail weakening. Never invent a
 time or cost estimate. The suggested depth follows risk, not a prior preference.
 
-The operator iterates the plan to solid and approves the plan and review depth together. Record that approval
-with `approve --plan <plan.json> --depth quick|standard|thorough`. Changing the plan content changes its
-digest and clears approval and applicable review evidence. Changing approved depth also clears review
-coverage. Progress prose does neither.
+**Offer only depths that add something; each drives effort.** `build_coordinator_review.available_depths`
+(keyed on lens-set AND per-depth effort) drops a depth that would run what a lighter one does, presenting only
+Quick when no reviewers are installed (StarshipSuperjam/engine-template#763). Depth scales reviewer EFFORT, not
+model (`review_depths` via `agent_bindings.depth_effort`; model stays each lens's per-lens match): Claude via
+session `--effort`, Codex via `model_reasoning_effort` at spawn (see `model-routing.md`) — named in the Review record.
 
-An ordinary implementation leaf does not revise the plan. Revision is warranted only when intent, outcome,
-capability boundary, non-goals, settled criteria, authority, or agreed scope changes.
+The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
+--depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved
+depth clears review coverage; progress prose does neither. An ordinary implementation leaf does not revise the plan —
+revision is warranted only when intent, outcome, capability boundary, non-goals, settled criteria, authority, or scope change.
 
 The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success
 obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one
@@ -182,6 +185,11 @@ Diff size informs but never chooses. A focused re-review's prescribed repair rec
 judgment; `none` is valid and terminates the loop. There is no automatic audit recursion. A scoped or full
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
+
+**A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
+review followed by a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large
+divergence — leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Still
+the orchestrator's judgment on the repair's nature, never a mechanical threshold or escalation (eADR-0041).
 
 ### 6. Preflight and submit
 

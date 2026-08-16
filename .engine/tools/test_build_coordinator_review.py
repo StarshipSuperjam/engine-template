@@ -140,5 +140,59 @@ class TestDisagreementPreflight(CoordinatorCase):
         self.assertFalse(self.state()["pr_contract"]["complete"])
 
 
+class TestStandardPlanRow(unittest.TestCase):
+    """#677 decision 2: the committed protocol runs all four plan lenses at standard depth (coverage over
+    per-lens depth at the plan gate — plan-stage misses are unrecoverable downstream)."""
+    def _protocol(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        return json.load(open(os.path.join(here, "..", "build-protocol.json"), encoding="utf-8"))
+
+    def test_standard_plan_review_runs_all_four_lenses(self):
+        proto = self._protocol()
+        self.assertEqual(set(proto["plan_review"]["standard"]),
+                         {"product-intent", "architecture", "feasibility", "risk-governance"})
+        roster = [{"lens": l} for l in ("product-intent", "architecture", "feasibility", "risk-governance")]
+        self.assertEqual(len(review.required(proto, "plan", "standard", roster)), 4)
+
+
+class TestAvailableDepths(unittest.TestCase):
+    """#763/#677: the consent surface offers only depths that add something — keyed on lens-set AND effort."""
+    def _protocol(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        return json.load(open(os.path.join(here, "..", "build-protocol.json"), encoding="utf-8"))
+
+    _EFFORTS = {"quick": None, "standard": "medium", "thorough": "high"}
+
+    def _roster(self, *lenses):
+        return [{"lens": l} for l in lenses]
+
+    def test_zero_lenses_collapses_to_quick_only(self):
+        got = review.available_depths(self._protocol(), self._roster(), self._roster(), self._EFFORTS)
+        self.assertEqual(got, ["quick"])
+
+    def test_full_roster_offers_all_three(self):
+        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        deliverable = self._roster("spec-conformance", "divergence-hunter", "usability",
+                                   "technical-integrity", "security-governance")
+        got = review.available_depths(self._protocol(), plan, deliverable, self._EFFORTS)
+        self.assertEqual(got, ["quick", "standard", "thorough"])
+
+    def test_effort_only_difference_still_offers_the_heavier_depth(self):
+        # Partial roster where standard's and thorough's lens-sets COINCIDE (full plan lenses + only the
+        # standard-subset deliverable lenses): the depths differ ONLY by effort, and the heavier depth is
+        # still offered because effort distinguishes them (architecture F1's genuine effort-only case).
+        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
+        got = review.available_depths(self._protocol(), plan, deliverable, self._EFFORTS)
+        self.assertEqual(got, ["quick", "standard", "thorough"])
+
+    def test_equal_effort_and_equal_lenses_collapses(self):
+        flat = {"quick": None, "standard": "medium", "thorough": "medium"}
+        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
+        got = review.available_depths(self._protocol(), plan, deliverable, flat)
+        self.assertEqual(got, ["quick", "standard"])   # thorough adds neither lenses nor effort -> collapsed
+
+
 if __name__ == "__main__":
     unittest.main()

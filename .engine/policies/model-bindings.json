@@ -18,5 +18,9 @@
       "claude": { "model": "haiku", "effort": "low" },
       "codex": { "model": "gpt-5.6-luna", "effort": "low" }
     }
+  },
+  "review_depths": {
+    "standard": { "effort": "medium" },
+    "thorough": { "effort": "high" }
   }
 }

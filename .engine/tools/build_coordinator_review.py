@@ -37,6 +37,41 @@ def required(protocol: dict, stage: str, depth: str, roster: list[dict]) -> list
     return [item for item in roster if item["lens"] in allowed]
 
 
+_DEPTH_ORDER = ("quick", "standard", "thorough")
+_EFFORT_RANK = {None: -1, "low": 0, "medium": 1, "high": 2}
+
+
+def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster: list[dict],
+                     efforts: dict) -> list[str]:
+    """Which review depths the consent surface should OFFER, so the operator is never asked to choose a depth
+    that buys nothing (StarshipSuperjam/engine-template#763, generalized under StarshipSuperjam/engine-template#677). A depth is offered when,
+    versus the last offered lighter depth, it runs MORE lenses OR the SAME non-empty lens-set at HIGHER effort;
+    empty-vs-empty never distinguishes, so with no installed reviewers only `quick` is offered (the operator's
+    own read plus the automatic checks). `efforts` maps each depth to its resolved effort (None where the depth
+    runs no reviewers). `quick` is always offered — it is the floor. Advisory only: this shapes what the
+    operator is shown; `required()` remains the sole mechanical lens authority, and a collapsed depth, if bound
+    anyway, still resolves to the same empty roster as quick."""
+    offered: list[str] = []
+    last: tuple[frozenset, str | None] | None = None
+    for depth in _DEPTH_ORDER:
+        lenses = (frozenset(i["lens"] for i in required(protocol, "plan", depth, plan_roster))
+                  | frozenset(i["lens"] for i in required(protocol, "deliverable", depth, deliverable_roster)))
+        effort = efforts.get(depth)
+        if last is None:
+            offered.append(depth)
+            last = (lenses, effort)
+            continue
+        last_lenses, last_effort = last
+        adds_lenses = lenses > last_lenses
+        same_nonempty_higher_effort = (
+            lenses == last_lenses and bool(lenses)
+            and _EFFORT_RANK.get(effort, -1) > _EFFORT_RANK.get(last_effort, -1))
+        if adds_lenses or same_nonempty_higher_effort:
+            offered.append(depth)
+            last = (lenses, effort)
+    return offered
+
+
 def lens_packet_digest(referent_digest: str, contract: dict) -> str:
     return core.digest({"referent_digest": referent_digest, "reviewer_contract": contract})
 

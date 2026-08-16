@@ -33,6 +33,15 @@
         "builder": { "$ref": "#/$defs/implementation_binding" },
         "bounded": { "$ref": "#/$defs/implementation_binding" }
       }
+    },
+    "review_depths": {
+      "description": "The per-depth reviewer EFFORT the operator's review-depth choice scales — the single depth dial (StarshipSuperjam/engine-template#677). Each present depth carries ONE effort applied uniformly to the reviewers that depth runs; there is deliberately NO model dimension here, because depth scales effort (thoroughness/token spend) while MODEL stays matched per-lens to each lens's nature via `tiers`+`overrides`, stable across depths — stepping both at once would double-cut the middle tier toward Quick. `quick` carries no entry (it runs no cold reviewers). `thorough` is the anchor (high, so it is a zero-regression identity with today's stamped effort); `standard` steps effort down. On Claude the depth effort is realized by the session --effort governing the un-pinned reviewer roles; on Codex by model_reasoning_effort at spawn. Optional: absent, every depth runs at the reviewers' stamped tier effort. Operators retune these values through the preserved operator-review-effort override, which survives an engine update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "standard": { "$ref": "#/$defs/depth_effort" },
+        "thorough": { "$ref": "#/$defs/depth_effort" }
+      }
     }
   },
   "$defs": {
@@ -76,6 +85,18 @@
         },
         "effort": {
           "description": "The reasoning-effort level for this worker class.",
+          "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "depth_effort": {
+      "description": "One review depth's reasoning effort — the single value the depth applies to the reviewers it runs. No model dimension (model stays the per-lens tiers+overrides at every depth). The enum is the review effort range; xhigh/max are deliberately not offered here — the three depths need no more, and holding to low/medium/high keeps the value valid as a Codex model_reasoning_effort too.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effort"],
+      "properties": {
+        "effort": {
+          "description": "The reasoning-effort level this depth runs its reviewers at.",
           "enum": ["low", "medium", "high"]
         }
       }
