@@ -12,8 +12,13 @@ finding names each settled document that changed so the approval is informed.
 
 Why "settled at base": the base commit is the prior-state correlate — immutable where force-push is blocked
 (the protected branch) — so the record of *what was settled* cannot be edited away in the same change that edits
-the body. The acknowledgment is an action on the pull request (the applied label), never an AI-writable
-committed field, so no single session can supply both the change and the re-acceptance in one stroke.
+the body. The acknowledgment is an action on the pull request (the applied `guardrail-ack` label), bound to
+the exact head by the `engine-ack` status rather than an AI-writable committed field — so it cannot be slipped
+into the same commit that edits the document, and a re-acceptance cannot replay across a later push. What it
+proves about WHO acknowledged depends on the deployment (StarshipSuperjam/engine-template#958): a team setup
+(a distinct engine identity) refuses a self-applied label, so a distinct operator is proven; a solo setup (one
+shared credential) proves the deliberate, head-bound gesture but not who made it — a single automated session
+holding that credential could supply both the change and the re-acceptance.
 
 Where it runs (and the weakening-guard isolation it DELEGATES rather than re-implements): this check rides the existing
 `engine-ci` required check via CI-suite membership (`suites: ["CI"]`) — it does NOT run from the trusted base

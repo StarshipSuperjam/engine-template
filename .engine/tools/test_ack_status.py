@@ -22,6 +22,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ack_status  # noqa: E402
 import github_client  # noqa: E402
+import protection_guard  # noqa: E402
+
+_UNSET = object()  # "no manifest override" sentinel, distinct from manifest=None (an unreadable manifest)
 
 
 class TestAckStatus(unittest.TestCase):
@@ -29,6 +32,7 @@ class TestAckStatus(unittest.TestCase):
         self._env = dict(os.environ)
         self._json_request = github_client.json_request
         self._urlopen = github_client._urlopen
+        self._pg_engine_dir = protection_guard._ENGINE_DIR
         self._tmp = tempfile.mkdtemp(prefix="engine-ack-status-")
 
     def tearDown(self):
@@ -37,15 +41,32 @@ class TestAckStatus(unittest.TestCase):
         os.environ.update(self._env)
         github_client.json_request = self._json_request
         github_client._urlopen = self._urlopen
+        protection_guard._ENGINE_DIR = self._pg_engine_dir
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def _run(self, event, *, responses=None, repo="o/r", token="t0ken"):
+    def _run(self, event, *, responses=None, repo="o/r", token="t0ken",
+             manifest=_UNSET, actor=None):
         """Run main() over `event` with json_request faked. `responses` is a list of (status, data) returned
-        in order (default (201, None)). Returns (rc, recorded_calls)."""
+        in order (default (201, None)). Returns (rc, recorded_calls).
+
+        `manifest` controls the committed base manifest the labeler-authority read sees (via the REAL
+        protection_guard.resolve_labeler_authority — not a stub): the default is a SOLO manifest (hermetic, not
+        the ambient checkout); pass a dict for a team/other manifest; pass None to simulate an ABSENT/unreadable
+        manifest (no engine.json written). `actor` sets GITHUB_ACTOR, to prove the writer reads the frozen
+        event `sender` and NEVER the (re-run-spoofable) actor env."""
+        eng_dir = os.path.join(self._tmp, "engine")
+        os.makedirs(eng_dir, exist_ok=True)
+        protection_guard._ENGINE_DIR = eng_dir
+        manifest = {"identity": "solo", "home_repository": "o/r"} if manifest is _UNSET else manifest
+        if manifest is not None:
+            with open(os.path.join(eng_dir, "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh)
         path = os.path.join(self._tmp, "event.json")
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(event, fh)
         os.environ["GITHUB_EVENT_PATH"] = path
+        if actor is not None:
+            os.environ["GITHUB_ACTOR"] = actor
         if repo is not None:
             os.environ["GITHUB_REPOSITORY"] = repo
         else:
@@ -123,6 +144,83 @@ class TestAckStatus(unittest.TestCase):
             "pull_request": {"number": 7, "head": {"sha": "abc"}}}, responses=[(500, None)])
         self.assertEqual(rc, 1)
         self.assertEqual(len(calls), 1)
+
+    # ---- labeler authority (#958): who applied the label decides whether a success is minted ----
+
+    _TEAM = {"identity": "team", "engine_identity": {"login": "engine-bot"}, "home_repository": "o/r"}
+
+    def _labeled(self, sender=_UNSET, **kw):
+        ev = {"action": "labeled", "label": {"name": "guardrail-ack"},
+              "pull_request": {"number": 7, "head": {"sha": "deadbeef"}}}
+        if sender is not _UNSET:
+            ev["sender"] = sender
+        return self._run(ev, **kw)
+
+    def test_solo_labeled_posts_success_annotated_shared_credential(self):
+        rc, calls = self._labeled(sender={"login": "alice", "type": "User"})  # default manifest = solo
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls[0]["body"]["state"], "success")
+        self.assertIn("[shared credential]", calls[0]["body"]["description"])
+        self.assertIn("@alice", calls[0]["body"]["description"])
+
+    def test_team_distinct_operator_posts_success_annotated_operator(self):
+        rc, calls = self._labeled(sender={"login": "alice", "type": "User"}, manifest=self._TEAM)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls[0]["body"]["state"], "success")
+        self.assertIn("[operator]", calls[0]["body"]["description"])
+        self.assertIn("@alice", calls[0]["body"]["description"])
+
+    def test_team_engine_identity_is_refused_with_failure(self):
+        # The core threat: the engine's OWN identity applies the label to self-ack. Must refuse (post failure).
+        rc, calls = self._labeled(sender={"login": "engine-bot", "type": "User"}, manifest=self._TEAM)
+        self.assertEqual(rc, 0)  # posting the refusal IS the intended outcome, not an error
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+        self.assertIn("engine's own identity", calls[0]["body"]["description"])
+
+    def test_team_engine_identity_match_is_case_insensitive(self):
+        rc, calls = self._labeled(sender={"login": "Engine-Bot", "type": "User"}, manifest=self._TEAM)
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+
+    def test_team_bot_sender_is_refused(self):
+        rc, calls = self._labeled(sender={"login": "some-app[bot]", "type": "Bot"}, manifest=self._TEAM)
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+        self.assertIn("user account", calls[0]["body"]["description"])
+
+    def test_team_missing_sender_is_refused(self):
+        rc, calls = self._labeled(manifest=self._TEAM)  # no sender in the payload
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+
+    def test_team_manifest_without_engine_identity_fails_closed(self):
+        # team recorded but no distinct identity on record -> the comparand would be empty -> fail closed.
+        rc, calls = self._labeled(sender={"login": "alice", "type": "User"},
+                                  manifest={"identity": "team", "home_repository": "o/r"})
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+        self.assertIn("no distinct engine identity", calls[0]["body"]["description"])
+
+    def test_unreadable_manifest_fails_closed(self):
+        # an absent/unreadable base manifest -> the labeler's authority cannot be judged -> refuse.
+        rc, calls = self._labeled(sender={"login": "alice", "type": "User"}, manifest=None)
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+        self.assertIn("could not be read", calls[0]["body"]["description"])
+
+    def test_github_actor_env_is_ignored_only_frozen_sender_counts(self):
+        # Re-run spoof mirror: the writer reads the frozen event `sender`, never GITHUB_ACTOR. Here the sender
+        # is the engine identity (must refuse) while GITHUB_ACTOR is a distinct operator — if the code read the
+        # actor it would wrongly accept. It must refuse, proving actor is not consulted.
+        rc, calls = self._labeled(sender={"login": "engine-bot", "type": "User"},
+                                  manifest=self._TEAM, actor="alice")
+        self.assertEqual(calls[0]["body"]["state"], "failure")
+
+    def test_unlabeled_withdrawal_is_authority_free_even_from_engine_identity(self):
+        # Withdrawal blocks regardless of who did it (fail-safe): even the engine identity removing the label
+        # posts failure (re-blocks) — an agent can DoS-withdraw consent, never forge it.
+        rc, calls = self._run({"action": "unlabeled", "label": {"name": "guardrail-ack"},
+                               "sender": {"login": "engine-bot", "type": "User"},
+                               "pull_request": {"number": 7, "head": {"sha": "deadbeef"}}},
+                              manifest=self._TEAM)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls[0]["body"]["state"], "failure")
 
     # ---- synchronize: clear the stale label (UX only) ----
 

@@ -223,5 +223,73 @@ class TestMainPostureSoftening(unittest.TestCase):
         self.assertIn("not in the expected form", captured[0][0]["message"])
 
 
+class TestResolveLabelerAuthority(unittest.TestCase):
+    """resolve_labeler_authority (#958): the SINGLE-read decision behind the guardrail-ack writer — accept a
+    distinct operator in team, accept-and-disclose in solo, and REFUSE every case that cannot prove authority
+    (unreadable manifest, team-without-identity, non-user / engine-identity / missing sender in team)."""
+
+    def _dir(self, manifest):
+        import json
+        import tempfile
+        d = tempfile.mkdtemp(prefix="pg-auth-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        if manifest is not None:
+            with open(os.path.join(d, "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh)
+        return d
+
+    _TEAM = {"identity": "team", "engine_identity": {"login": "engine-bot"}, "home_repository": "o/r"}
+    _SOLO = {"identity": "solo", "home_repository": "o/r"}
+
+    def test_solo_accepts_and_annotates_shared_credential(self):
+        decision, detail = protection_guard.resolve_labeler_authority("alice", "User", self._dir(self._SOLO))
+        self.assertEqual(decision, protection_guard.AUTH_SOLO)
+        self.assertIn("[shared credential]", detail)
+        self.assertIn("@alice", detail)
+
+    def test_solo_missing_sender_still_accepts(self):
+        decision, detail = protection_guard.resolve_labeler_authority(None, None, self._dir(self._SOLO))
+        self.assertEqual(decision, protection_guard.AUTH_SOLO)
+
+    def test_team_distinct_operator_accepts_annotated_operator(self):
+        decision, detail = protection_guard.resolve_labeler_authority("alice", "User", self._dir(self._TEAM))
+        self.assertEqual(decision, protection_guard.AUTH_TEAM)
+        self.assertIn("[operator]", detail)
+
+    def test_team_engine_identity_refused_case_insensitive(self):
+        for login in ("engine-bot", "Engine-Bot", "ENGINE-BOT"):
+            decision, detail = protection_guard.resolve_labeler_authority(login, "User", self._dir(self._TEAM))
+            self.assertEqual(decision, protection_guard.AUTH_REFUSE, login)
+            self.assertIn("engine's own identity", detail)
+
+    def test_team_bot_sender_refused(self):
+        decision, _ = protection_guard.resolve_labeler_authority("app[bot]", "Bot", self._dir(self._TEAM))
+        self.assertEqual(decision, protection_guard.AUTH_REFUSE)
+
+    def test_team_missing_sender_refused(self):
+        decision, _ = protection_guard.resolve_labeler_authority(None, None, self._dir(self._TEAM))
+        self.assertEqual(decision, protection_guard.AUTH_REFUSE)
+
+    def test_team_without_engine_identity_fails_closed(self):
+        d = self._dir({"identity": "team", "home_repository": "o/r"})
+        decision, detail = protection_guard.resolve_labeler_authority("alice", "User", d)
+        self.assertEqual(decision, protection_guard.AUTH_REFUSE)
+        self.assertIn("no distinct engine identity", detail)
+
+    def test_absent_manifest_fails_closed(self):
+        decision, detail = protection_guard.resolve_labeler_authority("alice", "User", self._dir(None))
+        self.assertEqual(decision, protection_guard.AUTH_REFUSE)
+        self.assertIn("could not be read", detail)
+
+    def test_malformed_manifest_fails_closed(self):
+        import tempfile
+        d = tempfile.mkdtemp(prefix="pg-auth-bad-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        with open(os.path.join(d, "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ this is not json")
+        decision, _ = protection_guard.resolve_labeler_authority("alice", "User", d)
+        self.assertEqual(decision, protection_guard.AUTH_REFUSE)
+
+
 if __name__ == "__main__":
     unittest.main()

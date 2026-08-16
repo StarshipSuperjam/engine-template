@@ -1077,6 +1077,9 @@
   ".engine/tools/demo_760_add_release_tag.py": [
    "core"
   ],
+  ".engine/tools/demo_ack_authority.py": [
+   "core"
+  ],
   ".engine/tools/demo_actionlint.py": [
    "core"
   ],

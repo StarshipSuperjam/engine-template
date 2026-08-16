@@ -2981,22 +2981,28 @@ class TestHeadAckRead(unittest.TestCase):
         return calls
 
     _P1 = "/repos/o/r/commits/HEAD/statuses?per_page=100"
+    # The trusted creator: GitHub stamps a status posted under the ack workflow's default GITHUB_TOKEN as this
+    # bot (#958). A legitimately-posted engine-ack carries it; the filter skips any other creator.
+    _BOT = {"login": "github-actions[bot]"}
 
     def test_reads_statuses_list_endpoint_not_the_rollup(self):
-        calls = self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        calls = self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success",
+                                               "creator": self._BOT}], None)})
         self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
         # it hit the per-context LIST endpoint (/statuses?…), never the combined /status rollup
         self.assertTrue(calls and all("/statuses?" in u for u in calls))
 
     def test_success_is_fresh(self):
-        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"}], None)})
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success",
+                                       "creator": self._BOT}], None)})
         self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "success")
         self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
 
     def test_withdrawal_failure_overrides_earlier_success(self):
         # most-recent-first: a 'failure' (withdrawal) posted after a 'success' is the latest -> not fresh.
-        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure"},
-                                      {"context": "engine-ack", "state": "success"}], None)})
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure", "creator": self._BOT},
+                                      {"context": "engine-ack", "state": "success", "creator": self._BOT}],
+                                     None)})
         self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "failure")
         self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
 
@@ -3017,10 +3023,57 @@ class TestHeadAckRead(unittest.TestCase):
         p2 = "https://api.github.com/repos/o/r/commits/HEAD/statuses?per_page=100&page=2"
         pages = {
             self._P1: ([{"context": "other", "state": "success"}], f'<{p2}>; rel="next"'),
-            p2: ([{"context": "engine-ack", "state": "success"}], None),
+            p2: ([{"context": "engine-ack", "state": "success", "creator": self._BOT}], None),
         }
         self._fake_pages(pages)
         self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    # ---- leg-2 trusted-creator filter (#958): only a status stamped by the ack bot is counted ----
+
+    def test_minted_success_by_untrusted_creator_is_skipped(self):
+        # A builder who directly POSTs engine-ack=success under their own User/PAT identity: the creator is
+        # not the bot, so it is SKIPPED and the head reads as un-acked (fail closed), never fresh.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success",
+                                       "creator": {"login": "attacker"}}], None)})
+        self.assertIsNone(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"))
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_untrusted_success_falls_through_to_older_trusted_success(self):
+        # Most-recent is a minted (untrusted) success; skipping it lets the older TRUSTED success speak.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success",
+                                       "creator": {"login": "attacker"}},
+                                      {"context": "engine-ack", "state": "success",
+                                       "creator": self._BOT}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "success")
+
+    def test_untrusted_failure_cannot_wedge_a_trusted_success(self):
+        # A minted (untrusted) 'failure' posted most-recently must NOT wedge a legitimate bot 'success' —
+        # it is skipped, and the trusted success behind it is the effective latest.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure",
+                                       "creator": {"login": "attacker"}},
+                                      {"context": "engine-ack", "state": "success",
+                                       "creator": self._BOT}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "success")
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_trusted_creator_match_is_case_insensitive(self):
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success",
+                                       "creator": {"login": "GitHub-Actions[Bot]"}}], None)})
+        self.assertTrue(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
+
+    def test_missing_or_null_creator_is_skipped_not_a_crash(self):
+        # Null-safe: an entry with a missing/null creator reads as untrusted and is skipped, never a crash.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "success"},          # no creator key
+                                      {"context": "engine-ack", "state": "success",
+                                       "creator": None}], None)})                              # null creator
+        self.assertIsNone(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"))
+
+    def test_trusted_withdrawal_is_honored(self):
+        # A legitimate withdrawal (bot-posted failure) survives the creator filter and blocks.
+        self._fake_pages({self._P1: ([{"context": "engine-ack", "state": "failure",
+                                       "creator": self._BOT}], None)})
+        self.assertEqual(weakening_guard._latest_engine_ack_state("o/r", "HEAD", "t"), "failure")
+        self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t"))
 
     def test_pathological_link_cycle_fails_closed(self):
         # a page that always points to itself must raise (the caller then fails closed), never loop forever.
@@ -3036,6 +3089,32 @@ class TestHeadAckRead(unittest.TestCase):
         calls = self._fake_pages({self._P1: ([], None)})  # persistently absent
         self.assertFalse(weakening_guard._head_ack_success("o/r", "HEAD", "t", retry=True))
         self.assertEqual(len(calls), weakening_guard._ACK_POLL_TRIES)  # polled the full budget
+
+
+class TestAckTrustedCreatorInvariant(unittest.TestCase):
+    """The leg-2 trusted-creator filter (#958) rests on one cross-artifact invariant: the ack workflow posts
+    the engine-ack status under the DEFAULT GITHUB_TOKEN, which GitHub stamps github-actions[bot] — the sole
+    trusted creator. A future edit that rewired the workflow to a GitHub App or a PAT would change the stamped
+    creator and silently fail every acknowledgment closed. These pin that invariant so such a rewire trips CI
+    rather than dying quietly."""
+
+    def test_trusted_creator_set_names_the_default_token_bot(self):
+        self.assertIn("github-actions[bot]", weakening_guard._ACK_TRUSTED_CREATOR_LOGINS)
+
+    def test_ack_workflow_runs_ack_status_under_the_default_github_token(self):
+        import yaml
+        path = os.path.join(validate.ROOT, ".github", "workflows", "engine-ack-status.yml")
+        with open(path, encoding="utf-8") as fh:
+            wf = yaml.safe_load(fh)
+        steps = wf["jobs"]["engine-ack-status"]["steps"]
+        run_steps = [s for s in steps if "ack_status.py" in (s.get("run") or "")]
+        self.assertEqual(len(run_steps), 1, "exactly one workflow step runs ack_status.py")
+        token = (run_steps[0].get("env") or {}).get("GITHUB_TOKEN")
+        self.assertEqual(
+            token, "${{ secrets.GITHUB_TOKEN }}",
+            "ack_status.py must post under the default GITHUB_TOKEN so its engine-ack status is stamped as the "
+            "trusted github-actions[bot]; rewiring it to a GitHub App or PAT would change the creator and "
+            "silently fail every acknowledgment closed (weakening_guard._ACK_TRUSTED_CREATOR_LOGINS, #958).")
 
 
 class TestRunCheckById(unittest.TestCase):
