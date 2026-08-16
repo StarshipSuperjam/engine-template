@@ -387,6 +387,37 @@ def render_review_steps(resolved: dict) -> str:
     return out
 
 
+def render_review_steps_multi(projections: list) -> str:
+    """The Review-section acceptance-steps block for a build that resolved MORE THAN ONE settled document.
+    `projections` is the per-document list `build_coordinator_spec.canonical_spec` produces — each a
+    `review_steps(resolved)` projection `{runnable, engine_account, no_op_reason}` (carrying a `path`). Rows
+    are merged into the SAME two labelled groups the single-document renderer uses ("Things you can confirm
+    yourself" / "Things I checked for you"), reusing the same framing strings, so a multi-document build reads
+    identically to a single-document one — never a second grammar, never a paraphrased criterion. Deterministic,
+    so it is testable. Fills only the spec-derived acceptance lane; it never discharges Demonstration."""
+    def rows(items):
+        return "\n".join(f"- {c['criterion']}: {c['how_verified']}" for c in items)
+
+    def engine_block(items):
+        return "**Things I checked for you**\n" + _ENGINE_FRAMING + "\n" + rows(items)
+
+    runnable, engine_account = [], []
+    for proj in projections:
+        runnable.extend(proj.get("runnable", []))
+        engine_account.extend(proj.get("engine_account", []))
+
+    if not runnable:
+        line = f"Nothing here is something you can run yourself — {_PLAIN_NOOP['all-engine-account']}."
+        if engine_account:
+            line += "\n\n" + engine_block(engine_account)
+        return line
+    out = "**Things you can confirm yourself**\n" + rows(runnable)
+    if engine_account:
+        out += "\n\n" + engine_block(engine_account)
+    out += "\n\n" + _PROMISE_CAVEAT
+    return out
+
+
 # ---- the acceptance-split projection (StarshipSuperjam/engine-template#420 — the two-tier count for the intake/settle surface) -----
 # The SAME classification as review-steps, projected to a COUNT rather than the verbatim steps: at the PR/merge
 # moment the operator reads the grouped steps; at the intake/settle moment they read the count, before they lock.

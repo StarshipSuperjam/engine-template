@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pr-body-claim.v1 — the judgment-bearing narrative a session supplies for coordinator-composed PR bodies",
+  "description": "The compact typed input the Build coordinator's `contract` verbs render into a complete pull-request body. It carries ONLY what requires human/AI judgment or is observable solely by the session: narrative sections, falsifiable behaviors, operator-safe finding summaries, closing intent, honest caveats, and live-helper availability. Everything deterministic — the consent preamble, the change profile, spec-derived acceptance steps, validation results, reviewer-disagreement lines, reviewed/final commits and divergence, close-linkage — is supplied by the coordinator from observed facts and is NOT accepted here. All content values are single-line Markdown fragments; the renderer owns headings, bullets, emphasis, spacing, and machine markers. The fillable template emits null and empty arrays so ordinary schema validation catches an unfilled slot without grading prose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "linkage", "purpose", "scope", "out_of_scope", "risk", "behaviors", "demonstration", "validation", "review", "files_of_interest", "ai_involvement"],
+  "properties": {
+    "schema_version": {"const": "pr-body-claim.v1"},
+
+    "linkage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["closes", "part_of"],
+      "description": "Explicit closing intent. `closes` and `part_of` must each be unique and must be disjoint from each other (a coordinator check, since JSON Schema cannot express cross-array disjointness). A durable Build Issue already linked by plan promotion is added by the coordinator; no originating Issue is inferred as closed.",
+      "properties": {
+        "closes": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "part_of": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}}
+      }
+    },
+
+    "purpose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thesis", "problem", "mechanism", "impact"],
+      "description": "Leads with the need, then the mechanism. `problem` should name the concrete prior failure or gap this closes, with any issue, decision-record, or incident cross-reference written inline — the renderer cannot invent an anchor the session does not supply.",
+      "properties": {
+        "thesis": {"$ref": "#/$defs/line"},
+        "problem": {"$ref": "#/$defs/line"},
+        "mechanism": {"$ref": "#/$defs/bullets"},
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    },
+
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "items", "impact"],
+      "description": "What this change includes, naming the real modules/verbs. The machine-generated change profile is added by the coordinator beneath these bullets; do not restate size or counts here. Behaviors render under this section but are supplied separately below.",
+      "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "items": {"$ref": "#/$defs/bullets"},
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    },
+
+    "behaviors": {
+      "description": "Falsifiable capabilities this change delivers, each naming the test(s) that prove it — or an explicit reason none is observable. This is the section most at risk of flattening, so the claim→test pairing is structural, not prose.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observable", "entries"],
+          "properties": {
+            "observable": {"const": true},
+            "entries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["claim", "tests"],
+                "properties": {
+                  "claim": {"$ref": "#/$defs/line"},
+                  "tests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/line"}},
+                  "regression_lock": {"$ref": "#/$defs/line"}
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observable", "none_observable_reason"],
+          "properties": {
+            "observable": {"const": false},
+            "none_observable_reason": {"$ref": "#/$defs/line"}
+          }
+        }
+      ]
+    },
+
+    "out_of_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "items", "impact"],
+      "description": "Exclusions framed as reasoned boundaries, not a to-do list. Each item states what is excluded AND why (separate concern / deferred by operator decision / pre-existing vector), with an optional cross-reference to the tracking issue or governing eADR.",
+      "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item", "reason"],
+            "properties": {
+              "item": {"$ref": "#/$defs/line"},
+              "reason": {"$ref": "#/$defs/line"},
+              "tracked_as": {"$ref": "#/$defs/line"},
+              "deferred_by": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    },
+
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "impact"],
+      "description": "Risks in ranked order (array order is the ranking), each with the bound that contains it. Flag the single most safety-sensitive edit. The floored-file list and guardrail tier are supplied by the coordinator; `guardrail_note` carries only the judgment of why the tier is what it is. `accepted_residual` records a residual the operator has knowingly accepted, tied to a coordinator finding id and the operator's dated decision.",
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["risk", "bound"],
+            "properties": {
+              "risk": {"$ref": "#/$defs/line"},
+              "bound": {"$ref": "#/$defs/line"},
+              "most_sensitive": {"type": "boolean"}
+            }
+          }
+        },
+        "guardrail_note": {"$ref": "#/$defs/line"},
+        "accepted_residual": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["finding_id", "operator_decision_date", "rationale"],
+            "properties": {
+              "finding_id": {"$ref": "#/$defs/line"},
+              "operator_decision_date": {"$ref": "#/$defs/line"},
+              "rationale": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    },
+
+    "demonstration": {
+      "description": "An operator-runnable step that drives the real changed surface and can genuinely FAIL — stated as pass-signal vs fail-signal — or a reference to the coordinator-rendered spec-derived acceptance steps, or an explicit non-observable reason. The absence of a settled specification is NOT a valid reason here (that clears only the spec-derived lane).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "command", "pass_signal", "fail_signal"],
+          "properties": {
+            "kind": {"const": "runnable"},
+            "command": {"$ref": "#/$defs/line"},
+            "pass_signal": {"$ref": "#/$defs/line"},
+            "fail_signal": {"$ref": "#/$defs/line"},
+            "real_output": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "spec-derived"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason"],
+          "properties": {
+            "kind": {"const": "none"},
+            "reason": {"enum": ["docs-only", "dependency", "behaviour-preserving-refactor", "release-plumbing"]}
+          }
+        }
+      ]
+    },
+
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "caveats", "live_helpers", "impact"],
+      "description": "The mechanical validation results, commit binding, log digests, and index-regeneration facts are supplied by the coordinator. The claim carries the section's framing (summary + Impact, so these prominent lines are authored not templated), honest caveats a green run would otherwise hide (an open fail-open finding belongs here), and the session-only observation of whether live helpers were available.",
+      "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "impact": {"$ref": "#/$defs/line"},
+        "caveats": {
+          "type": "array",
+          "description": "Honest disclosures a bare green report would drop: a named unrelated flake, a check that could not be evaluated locally, a helper that was unavailable and so left an area unverified. Empty only when the run is genuinely clean with nothing to disclose.",
+          "items": {"$ref": "#/$defs/line"}
+        },
+        "live_helpers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["all_available"],
+          "description": "Session-only: whether the engine's live helpers (MCP substrate) answered this session. When any were unavailable, name each with the canonical provider diagnosis; the change was authored on the committed-file fallback.",
+          "properties": {
+            "all_available": {"type": "boolean"},
+            "unavailable": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["helper", "diagnosis"],
+                "properties": {
+                  "helper": {"$ref": "#/$defs/line"},
+                  "diagnosis": {"$ref": "#/$defs/line"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "loop_narrative", "finding_summaries", "impact"],
+      "description": "Review depth, coverage, reviewer-disagreement lines, reviewed/final commits, and measured divergence are supplied by the coordinator. The claim carries the section's framing (summary + Impact, so these prominent lines are authored not templated), the operator-safe summary for each current coordinator finding (matched exactly to the live finding set), the free-form review→repair→re-review narrative (one entry per round or theme, so a multi-round story reads as the exemplars' bold-led bullets rather than one flat line), and the judgment of whether the merged version differs materially from the reviewed one.",
+      "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "impact": {"$ref": "#/$defs/line"},
+        "loop_narrative": {"$ref": "#/$defs/bullets"},
+        "material_divergence": {"type": "boolean"},
+        "finding_summaries": {
+          "type": "array",
+          "description": "One operator-safe summary per current coordinator finding. IDs must match the live finding set exactly (a coordinator check). The private reference, if any, is optional and rendered only as a plain follow pointer; raw reviewer finding text is never published.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "operator_summary"],
+            "properties": {
+              "id": {"$ref": "#/$defs/line"},
+              "operator_summary": {"$ref": "#/$defs/line"},
+              "public_reference": {"$ref": "#/$defs/line"}
+            }
+          }
+        }
+      }
+    },
+
+    "files_of_interest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "impact"],
+      "description": "The few paths that most determine this change's behavior and its acceptance referent — a curated selection (never the whole diff), each with the role it plays, ordered by importance.",
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "role"],
+            "properties": {
+              "path": {"$ref": "#/$defs/line"},
+              "role": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    },
+
+    "ai_involvement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools", "judgment_split", "impact"],
+      "description": "Which tool(s) and model(s) did the work, which decisions the operator made rather than the AI, and where design judgment is load-bearing versus mechanical.",
+      "properties": {
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tool", "model", "role"],
+            "properties": {
+              "tool": {"$ref": "#/$defs/line"},
+              "model": {"$ref": "#/$defs/line"},
+              "role": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "operator_decisions": {
+          "type": "array",
+          "description": "Decisions escalated to and made by the operator. Kept internally consistent with Risk's accepted_residual and the review disagreements the coordinator renders.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["summary"],
+            "properties": {
+              "summary": {"$ref": "#/$defs/line"},
+              "decision_date": {"$ref": "#/$defs/line"}
+            }
+          }
+        },
+        "judgment_split": {"$ref": "#/$defs/line"},
+        "impact": {"$ref": "#/$defs/line"}
+      }
+    }
+  },
+
+  "$defs": {
+    "line": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]+$",
+      "description": "A single-line Markdown fragment: non-empty, no embedded newline. The renderer owns all multi-line structure, so a claim cannot inject a list break or split a section across lines; a stray line-leading marker (e.g. `## `) inside a value does not create a real section either — it fails the completeness gate (the section's Impact line is no longer detected), so preview/apply report the body incomplete rather than publishing it."
+    },
+    "bullets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/line"}
+    }
+  }
+}

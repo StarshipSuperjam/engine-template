@@ -285,10 +285,11 @@
     {
       "id": "BO-35",
       "intent": "Read and fill the literal PR template including its consent preamble.",
-      "classification": "advisory-practice",
-      "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
-      "anchor": "fill its literal contract"
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator_contract.py",
+      "anchor": "test_composed_body_passes_real_gate",
+      "replacement": "The coordinator's contract composer assembles the whole body from the template and a typed claim; a composed body is verified against the real pr-body-completeness gate. Manual template-filling remains the documented human fallback."
     },
     {
       "id": "BO-36",

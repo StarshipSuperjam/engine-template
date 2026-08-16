@@ -21,6 +21,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import unittest
 from unittest import mock
@@ -310,6 +311,30 @@ class DispatchTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(clp.main(["bogus"]), 2)
             self.assertEqual(clp.main([]), 2)
+
+
+class GeneratedWordingSelfLinkageTests(unittest.TestCase):
+    """The advisory lines are folded verbatim into the PR body (now automatically, by the coordinator's
+    contract composer), so none may itself carry a GitHub closing keyword immediately before an issue
+    reference — else the disclosure would re-arm the very close it warns about once written to the body."""
+
+    _HONORED = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+#\d+")
+
+    def test_no_advisory_line_re_arms_a_close(self):
+        lines = [
+            clp._line_scope_contradiction(7),
+            clp._line_defang_disclosure(7),
+            clp._line_comma_trap([7, 8]),
+            clp._line_cross_repo(["owner/repo#7"]),
+            clp._line_could_not_read(),
+        ]
+        for line in lines:
+            self.assertIsNone(self._HONORED.search(line),
+                              f"advisory line would re-arm a close: {line!r}")
+
+    def test_reworded_lines_still_name_the_issue(self):
+        self.assertIn("#7", clp._line_scope_contradiction(7))
+        self.assertIn("#7", clp._line_defang_disclosure(7))
 
 
 if __name__ == "__main__":

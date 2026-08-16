@@ -116,7 +116,8 @@
         "lens": {"type": "string", "minLength": 1}, "packet_digest": {"$ref": "#/$defs/digest"},
         "referent_digest": {"$ref": "#/$defs/digest"}, "lens_packet_digest": {"$ref": "#/$defs/digest"},
         "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
-        "finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "code_execution": {"enum": ["none", "discarded-copy"]}
       }
     },
     "finding": {

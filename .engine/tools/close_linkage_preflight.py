@@ -94,6 +94,12 @@ _DELIBERATE_CROSS_RE = re.compile(rf"^\s*(?:{_KW})\b[:\s]+([\w.-]+/[\w.-]+)#(\d+
 # Scope/Out-of-scope. Named in `.github/pull_request_template.md`.
 _PART_OF_RE = re.compile(r"\bpart of\b[:\s]+((?:#\d+)(?:\s*,\s*#\d+)*)", re.IGNORECASE)
 
+# A LINE-LEADING `Part of #N` declaration, read from anywhere in the body — the placement the coordinator's
+# composed bodies use (linkage at the top, one declaration per line). Line-anchored (the whole line is just the
+# declaration), so ordinary prose that happens to say "part of a larger effort" never matches; only a real
+# declaration line does. Unioned with the section read below so a top-placed declaration is cross-checked too.
+_PART_OF_LINE_RE = re.compile(r"^\s*part of\b[:\s]+((?:#\d+)(?:\s*,\s*#\d+)*)\s*$", re.IGNORECASE | re.MULTILINE)
+
 # The PR-body sections whose declarations the pre-flight reads. Coupled to the template headings by name.
 _DECLARE_SECTIONS = ("Scope", "Out of scope")
 
@@ -184,16 +190,22 @@ def deliberate_closes(body: str) -> set:
 
 
 def part_of_declarations(body: str) -> set:
-    """The same-repo numbers the PR declares itself only `Part of #N` in its Scope / Out of scope sections.
-    Read through `validate.section_blocks`, which keys on the exact `## Scope` / `## Out of scope` headings — a
-    template rename silently empties this (the fail-safe direction: an unclassifiable contradiction is surfaced,
-    never defanged)."""
-    blocks = validate.section_blocks(body or "")
+    """The same-repo numbers the PR declares itself only `Part of #N`. Two reads, unioned: the canonical
+    Scope / Out of scope sections (via `validate.section_blocks`, keyed on the exact `## Scope` / `## Out of
+    scope` headings — the manual template convention), AND any line-leading `Part of #N` declaration anywhere
+    in the body (the coordinator's composed bodies place linkage at the top). The top read is line-anchored, so
+    ordinary prose never matches; only a real declaration line does. A template rename empties only the section
+    read, not the top read — the fail-safe direction (an unclassifiable contradiction is surfaced, never
+    defanged)."""
+    body = body or ""
     out = set()
+    blocks = validate.section_blocks(body)
     for name in _DECLARE_SECTIONS:
         section = blocks.get(name, "")
         for m in _PART_OF_RE.finditer(section):
             out.update(int(x) for x in re.findall(r"#(\d+)", m.group(1)))
+    for m in _PART_OF_LINE_RE.finditer(body):
+        out.update(int(x) for x in re.findall(r"#(\d+)", m.group(1)))
     return out
 
 
@@ -239,14 +251,18 @@ def defang_body(body: str, number: int) -> "str | None":
 
 # ---- the classification (pure; produces the operator lines + an optional defang) -------------------
 
+# These advisory lines are folded VERBATIM into the PR body (Review). They must never themselves re-arm a
+# close: no generated sentence puts a GitHub closing keyword immediately before an issue reference, so the
+# disclosure cannot become the very link it warns about. The wording puts the reference before the keyword,
+# or separates them with a non-keyword word ("for issue #N").
 def _line_scope_contradiction(n: int) -> str:
-    return (f"This PR is set to close #{n}, but its scope says this PR is only part of the work for #{n} — "
-            f"the closing line needs a small edit before you merge.")
+    return (f"On merge, issue #{n} would be closed by this pull request, but its scope declares the PR only "
+            f"*part of* the work for issue #{n} — the closing line needs a small edit before you merge.")
 
 
 def _line_defang_disclosure(n: int) -> str:
-    return (f"I removed an accidental closing keyword that would have closed #{n}; this change is only part "
-            f"of #{n}.")
+    return (f"I removed an accidental closing keyword for issue #{n} — it would have linked this pull request "
+            f"to close that issue on merge, and this change is only *part of* that work.")
 
 
 def _line_comma_trap(nums: list) -> str:
@@ -258,8 +274,8 @@ def _line_comma_trap(nums: list) -> str:
 
 def _line_cross_repo(refs: list) -> str:
     which = ", ".join(refs)
-    return (f"This PR is set to close {which} in another repository, which I can't check against this "
-            f"project's plan — confirm on GitHub that you meant to close it.")
+    return (f"This PR's closing linkage points at {which} in another repository, which I can't check against "
+            f"this project's plan — confirm on GitHub that you meant to close it.")
 
 
 def _line_could_not_read() -> str:

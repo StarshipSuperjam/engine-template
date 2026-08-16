@@ -56,7 +56,7 @@ class TestPlanReviewOrdering(CoordinatorCase):
             bc.cmd_review_record(argparse.Namespace(stage="plan", lens="product-intent",
                                                     packet_digest=packet,
                                                     lens_packet_digest=contract["lens_packet_digest"],
-                                                    finding=[]), self.store)
+                                                    finding=[], code_execution="none"), self.store)
         changed = {**reviewer, "digest": "sha256:" + "2" * 64}
         with mock.patch.object(bc, "_installed", return_value=[changed]), \
                 self.assertRaisesRegex(bc.CoordinatorError, "refresh plan-review contract"):

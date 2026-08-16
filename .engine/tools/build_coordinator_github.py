@@ -48,7 +48,7 @@ def require_body_budget(body: str, surface: str) -> None:
     if size > GITHUB_BODY_BUDGET_BYTES:
         raise core.CoordinatorError(
             f"{surface} would be {size} bytes, above the {GITHUB_BODY_BUDGET_BYTES}-byte safe publication budget; "
-            "split the Build or reduce non-authoritative prose before durable handoff"
+            f"split the Build or reduce non-authoritative prose before publishing the {surface}"
         )
 
 

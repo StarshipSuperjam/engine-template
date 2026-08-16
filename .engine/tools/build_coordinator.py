@@ -16,6 +16,9 @@ import sys
 import time
 from typing import Any
 
+import build_coordinator_contract as composer  # aliased 'composer', not 'contract': this file uses the bare
+# name 'contract' as a local for the reviewer-contract dict and the pr-contract state, and a module alias would
+# be a shadowing landmine (a future use before the local assignment would raise UnboundLocalError).
 import build_coordinator_core as core
 import build_coordinator_dag as dag
 import build_coordinator_github as github
@@ -47,10 +50,8 @@ PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
 HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
 HANDOFF_END = "<!-- /engine-build-handoff -->"
-VALIDATION_COMMANDS = [
-    {"id": "engine-ci", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/validate.py", "--suite", "CI"]},
-    {"id": "engine-selftest", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]},
-]
+# The registered validation commands (id, operator label, argv) are declared in build-protocol.json, so
+# both execution (cmd_validate) and PR rendering (the contract composer's Validation section) read one source.
 
 
 CoordinatorError = core.CoordinatorError
@@ -908,7 +909,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
-                       "commit": target["final_commit"], "finding_ids": finding_ids}
+                       "commit": target["final_commit"], "finding_ids": finding_ids,
+                       "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -931,7 +933,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
-                       "commit": target["reviewed_commit"], "finding_ids": finding_ids}
+                       "commit": target["reviewed_commit"], "finding_ids": finding_ids,
+                       "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
@@ -1038,7 +1041,7 @@ def cmd_validate(args, store: StateStore) -> None:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
     results = []
     with core.StableCommit(ROOT, "validation") as head:
-        for item in VALIDATION_COMMANDS:
+        for item in _protocol()["validation_commands"]:
             stamp = f"{int(time.time())}-{item['id']}-{head[:12]}-{secrets.token_hex(6)}.log"
             log_path = Path(__import__("tempfile").gettempdir()) / stamp
             returncode = _run_validation(item["command"], log_path)
@@ -1088,6 +1091,67 @@ def _pr_contract(body: str) -> tuple[bool, str]:
     return verdict, "; ".join(f["message"] for f in findings) or "all required sections and consent anchors are filled"
 
 
+def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) -> dict:
+    """The six submission-preflight legs over a candidate body, as pure computation that never raises.
+
+    Single-homed so the two callers cannot drift: `cmd_preflight` records the results and raises on a
+    failed required leg (`pr-contract`, `checkout-integrity`); `contract apply` loops on the results while
+    it drives the body to a fixed point (where an intermediate pass may legitimately fail `pr-contract`
+    before the folded advisory lines and defang settle). Returns the results list, the required-leg
+    verdicts and their summaries, and the applicable hard-check declarations."""
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+    close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"), "check", "--pr", str(pr), "--base", base, "--head", head])
+    close_passed = close.returncode == 0
+    close_summary = (close.stdout or close.stderr or "no close-linkage output").strip()
+    contract_passed, contract_summary = _pr_contract(body)
+    missing_disagreements = [line for line in review.required_disagreement_lines(state) if line not in body]
+    if missing_disagreements:
+        contract_passed = False
+        ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
+        contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
+    profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
+    profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
+    declarations = _hard_check_declarations()
+    declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
+    # Checkout-integrity (StarshipSuperjam/engine-template#947): a required preflight that verifies the review fan-out did
+    # not mutate the build checkout's git state, comparing against the snapshot captured when the
+    # deliverable/repair review packet was created. `head` and `worktrees` are ignored — repair commits
+    # legitimately advance HEAD and a concurrent peer may add a worktree — leaving origin, branch, and
+    # stash, none of which a review ever legitimately changes. Inert (passes) until a baseline exists.
+    ci_snap = state.get("checkout_snapshot")
+    if ci_snap:
+        ci = review_integrity.verify(str(ROOT), ci_snap, ignore={"head", "worktrees"})
+        ci_passed = not ci["mutated"]
+        ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
+                      if ci_passed else "; ".join(ci["changes"]))
+        # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
+        # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
+        # SURFACED here, never used to block — the required leg above stays free of that false positive.
+        wt_changes = review_integrity.compare(ci_snap, ci["after"],
+                                              ignore={"origin", "branch", "head", "stash"})
+        wt_passed = not wt_changes
+        wt_summary = ("worktree registry unchanged since the review packet"
+                      if wt_passed else "; ".join(wt_changes))
+    else:
+        ci_passed = wt_passed = True
+        ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
+    results = [
+        {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
+        {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
+        {"id": "scope-profile", "commit": head,
+         "passed": profile.returncode == 0 and "could not read the diff" not in profile_summary.lower(),
+         "summary": profile_summary},
+        {"id": "hard-check-declarations", "commit": head, "passed": True,
+         "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
+                     f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
+        {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
+        {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
+    ]
+    return {"results": results, "contract_passed": contract_passed, "contract_summary": contract_summary,
+            "ci_passed": ci_passed, "ci_summary": ci_summary, "declarations": declarations}
+
+
 def cmd_preflight(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
@@ -1097,53 +1161,11 @@ def cmd_preflight(args, store: StateStore) -> None:
         body = pr_data.get("body") or ""
         if args.pr_body and _input(args.pr_body) != body:
             raise CoordinatorError("the supplied PR body is not the body currently on GitHub")
-        close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"), "check", "--pr", str(pr), "--base", pr_data.get("baseRefOid") or state["build"]["base_at_bind"], "--head", head])
-        close_passed = close.returncode == 0
-        close_summary = (close.stdout or close.stderr or "no close-linkage output").strip()
-        contract_passed, contract_summary = _pr_contract(body)
-        missing_disagreements = [line for line in review.required_disagreement_lines(state) if line not in body]
-        if missing_disagreements:
-            contract_passed = False
-            ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
-            contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
-        profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), pr_data.get("baseRefOid") or state["build"]["base_at_bind"]])
-        profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
-        declarations = _hard_check_declarations()
-        declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
-        # Checkout-integrity (StarshipSuperjam/engine-template#947): a required preflight that verifies the review fan-out did
-        # not mutate the build checkout's git state, comparing against the snapshot captured when the
-        # deliverable/repair review packet was created. `head` and `worktrees` are ignored — repair commits
-        # legitimately advance HEAD and a concurrent peer may add a worktree — leaving origin, branch, and
-        # stash, none of which a review ever legitimately changes. Inert (passes) until a baseline exists.
-        ci_snap = state.get("checkout_snapshot")
-        if ci_snap:
-            ci = review_integrity.verify(str(ROOT), ci_snap, ignore={"head", "worktrees"})
-            ci_passed = not ci["mutated"]
-            ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
-                          if ci_passed else "; ".join(ci["changes"]))
-            # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
-            # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
-            # SURFACED here, never used to block — the required leg above stays free of that false positive.
-            wt_changes = review_integrity.compare(ci_snap, ci["after"],
-                                                  ignore={"origin", "branch", "head", "stash"})
-            wt_passed = not wt_changes
-            wt_summary = ("worktree registry unchanged since the review packet"
-                          if wt_passed else "; ".join(wt_changes))
-        else:
-            ci_passed = wt_passed = True
-            ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
-        results = [
-            {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
-            {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
-            {"id": "scope-profile", "commit": head,
-             "passed": profile.returncode == 0 and "could not read the diff" not in profile_summary.lower(),
-             "summary": profile_summary},
-            {"id": "hard-check-declarations", "commit": head, "passed": True,
-             "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
-                         f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
-            {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
-            {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
-        ]
+        legs = _compute_preflight_legs(state, head, pr_data, body)
+        results = legs["results"]
+        contract_passed, ci_passed, ci_summary = legs["contract_passed"], legs["ci_passed"], legs["ci_summary"]
+        declarations = legs["declarations"]
+
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
@@ -1715,6 +1737,328 @@ def cmd_work_integrate(args, store: StateStore) -> None:
     print(f"integrated {args.item} at {args.commit}; focused verification recorded")
 
 
+_CLAIM_FILL_GUIDANCE = (
+    "Fill each field per its `description` in .engine/schemas/pr-body-claim.v1.json — that is where the content "
+    "rules live (e.g. Scope must not restate size/counts, Risk flags the single most safety-sensitive edit, "
+    "Files of interest is a curated selection not the whole diff, Review's loop_narrative is one entry per "
+    "round). The renderer owns all structure; every value is a single-line Markdown fragment.")
+
+
+def cmd_contract_template(args, store) -> None:
+    """Emit the fillable `pr-body-claim.v1` skeleton (stateless — no Build snapshot needed). Every judgment
+    slot is null and every list empty, so validating the filled-in result names any slot still unfilled;
+    the shape is the instruction. Written to --output, or stdout by default."""
+    rendered = json.dumps(composer.fillable_template(), indent=2, sort_keys=True) + "\n"
+    if getattr(args, "output", None) and args.output != "-":
+        Path(args.output).write_text(rendered, encoding="utf-8")
+        print(f"wrote the fillable pr-body-claim.v1 template to {args.output}")
+        print(_CLAIM_FILL_GUIDANCE, file=sys.stderr)
+    else:
+        print(rendered, end="")
+        print("\n" + _CLAIM_FILL_GUIDANCE, file=sys.stderr)
+
+
+def _assert_claim_findings(state: dict, claim: dict) -> None:
+    """The claim's finding summaries must match the current coordinator finding set EXACTLY — no stale,
+    missing, or unknown ids — so the composed body neither drops a real finding nor invents one, and never
+    publishes raw finding text implicitly (only the claim's operator-safe summary reaches the body)."""
+    state_ids = {f["id"] for f in state.get("findings", [])}
+    claim_ids = {fs["id"] for fs in claim["review"]["finding_summaries"]}
+    if state_ids != claim_ids:
+        parts = []
+        missing = sorted(state_ids - claim_ids)
+        unknown = sorted(claim_ids - state_ids)
+        if missing:
+            parts.append("missing an operator-safe summary for: " + ", ".join(missing))
+        if unknown:
+            parts.append("carries a summary for unknown finding(s): " + ", ".join(unknown))
+        raise CoordinatorError(
+            "the claim's finding summaries must match the current finding set exactly — " + "; ".join(parts)
+            + " (re-run `contract template` against current state, or reconcile the finding ids)")
+
+
+def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:
+    """Compute the coordinator-owned evidence a composed body carries — everything deterministic that the
+    claim deliberately does not hold. Read-only: it runs the same report-only tools the preflight uses and
+    reads recorded Build state; it never writes. `contract preview` and `contract apply` share it so the
+    previewed body and the applied body are assembled identically."""
+    repo = state["build"]["repository"]
+    base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+
+    # Closing linkage: the claim's closes plus the durable Build Issue promotion linked (mechanically added,
+    # never inferred). Part-of comes straight from the claim inside the composer.
+    closes = list(claim["linkage"]["closes"])
+    durable = state["plan"].get("durable_issue")
+    if durable and durable not in closes and durable not in claim["linkage"]["part_of"]:
+        closes.append(durable)
+
+    # Report-only change profile, over the live base — the same invocation the preflight records.
+    profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
+    change_profile = (profile.stdout or "").strip()
+
+    # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip), rendered with the
+    # operator labels from the one build-protocol declaration that also drives execution.
+    val = state.get("validation")
+    if val and val.get("results"):
+        labels = {c["id"]: c["label"] for c in _protocol().get("validation_commands", [])}
+        vlines = []
+        for r in val["results"]:
+            status = "passed" if r["passed"] else "**FAILED**"
+            tail = f" (log {r['log_digest']})" if r.get("log_digest") else ""
+            vlines.append(f"- **{labels.get(r['id'], r['id'])}** — {status} at `{r['commit'][:12]}`{tail}")
+        validation_results = "\n".join(vlines)
+    else:
+        validation_results = "- The full CI suite and self-tests are run green against the final commit and recorded before the draft is marked ready."
+
+    # Spec-derived acceptance steps: the canonical resolution, rendered (multi-document merge) or its honest
+    # no-spec disclosure — never re-authored here.
+    cs = spec_service.canonical_spec(ROOT, plan, repository=repo, issue_body=_issue_body)
+    if cs["posture"] == "none":
+        spec_steps = cs["review_steps"]
+    else:
+        import spec_referent
+        spec_steps = spec_referent.render_review_steps_multi(cs["review_steps"])
+
+    depth = state["approval"]["depth"] if state.get("approval") else "unapproved"
+    lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+    review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
+
+    # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
+    # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
+    # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
+    receipts = [r for stage in ("plan", "deliverable")
+                for r in state.get("reviews", {}).get(stage, {}).get("receipts", [])]
+    missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    if missing:
+        raise CoordinatorError(
+            "these review receipts predate the code-execution disclosure and must be re-recorded before "
+            f"composing: {', '.join(missing)} — re-run `review record … --code-execution none|discarded-copy`")
+    ran_code = any(r.get("code_execution") == "discarded-copy" for r in receipts)
+    code_execution_line = ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
+                           "your project" if ran_code else "no reviewer executed the change's code")
+
+    repair = state.get("repair")
+    if repair and repair.get("final_commit"):
+        drift_line = (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
+                      f"{repair['summary']}")
+    else:
+        drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
+
+    # Index-regeneration disclosure (BO-24): which of the engine's generated index files this PR changed,
+    # computed from the diff so the operator sees regeneration happened over generated paths only.
+    generated = [".engine/knowledge/graph.json", ".engine/self-map.md", ".engine/provisioning/module-surfaces.json"]
+    changed = set(_run(["git", "diff", "--name-only", f"{base}...HEAD"]).stdout.splitlines())
+    regen = [g for g in generated if g in changed]
+    index_regen = (f"Regeneration updated {len(regen)} of the engine's generated index files "
+                   f"({', '.join(regen)}) from the final tree — generated paths only."
+                   if regen else "")
+
+    marker = f"<!-- engine-pr-contract:v1 {_digest(claim)} commit={head} -->"
+
+    return {
+        "closes": closes,
+        "change_profile": change_profile,
+        "validation_results": validation_results,
+        "index_regen": index_regen,
+        "spec_steps": spec_steps,
+        "review_coverage": review_coverage,
+        "code_execution_line": code_execution_line,
+        "disagreement_lines": review.required_disagreement_lines(state),
+        "drift_line": drift_line,
+        "composition_marker": marker,
+        # preserved marker blocks are extracted from the live body at apply time, where the write happens.
+        "preserved_blocks": [],
+    }
+
+
+def cmd_contract_preview(args, store: StateStore) -> None:
+    """Read-only: validate the claim and current evidence, render the candidate body, run the real
+    completeness rule locally, and report the source/claim/commit/candidate digests. No GitHub write."""
+    state = store.read()
+    plan = _plan(args.plan)
+    _assert_plan(state, plan)
+    try:
+        claim = composer.load_claim(args.claim)
+    except composer.ContractError as exc:
+        raise CoordinatorError(str(exc)) from exc
+    _assert_claim_findings(state, claim)
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    with core.StableCommit(ROOT, "contract preview") as head:
+        pr_data = _verify_draft(repo, pr)
+        source_body = pr_data.get("body") or ""
+        evidence = _assemble_evidence(state, plan, claim, head, pr_data)
+        try:
+            body = composer.compose(claim, evidence)
+        except composer.ContractError as exc:
+            raise CoordinatorError(str(exc)) from exc
+        github.require_body_budget(body, "composed PR contract")
+        contract_passed, contract_summary = _pr_contract(body)
+    if getattr(args, "output", None):
+        Path(args.output).write_text(body, encoding="utf-8")
+    result = {"source_body_digest": _digest(source_body.encode()), "claim_digest": _digest(claim),
+              "commit": head, "candidate_body_digest": _digest(body.encode()),
+              "complete": contract_passed, "summary": contract_summary}
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        state_word = "complete" if contract_passed else "incomplete"
+        print(f"composed a candidate PR contract for {head[:12]}: {state_word} — {contract_summary}")
+
+
+def _extract_marker_blocks(body: str) -> list:
+    """The valid engine marker blocks already on the draft that a fresh compose must carry through unchanged:
+    a published handoff block (v2 or v1) and the build-id marker. The pr-contract composition marker is NOT
+    preserved — the composer mints a fresh one bound to the current claim digest and commit."""
+    blocks = []
+    for begin, end in ((github.HANDOFF_BEGIN_V2, github.HANDOFF_END_V2),
+                       (github.HANDOFF_BEGIN, github.HANDOFF_END)):
+        m = re.search(re.escape(begin) + r".*?" + re.escape(end), body, re.DOTALL)
+        if m:
+            blocks.append(m.group(0))
+    m = re.search(r"<!-- engine-build-id:v1 [^\n]*?-->", body)
+    if m:
+        blocks.append(m.group(0))
+    return blocks
+
+
+def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revision: int, store: StateStore) -> str:
+    """One safe body write: confirm the live body is still what we last saw and Build evidence has not moved,
+    write, then read back and require byte-equality. Mirrors cmd_handoff_export's proven idiom. Returns the
+    written body (now the confirmed live body). Never clobbers an external edit — a mismatch refuses."""
+    before = _verify_draft(repo, pr).get("body") or ""
+    if before != expected_before:
+        raise CoordinatorError("the PR body changed under the composer mid-apply (a concurrent edit); "
+                               "no further write was made — rerun `contract preview` and apply with the new digest")
+    if store.read()["revision"] != revision:
+        raise CoordinatorError("Build evidence changed mid-apply; rerun `contract preview`")
+    _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=new_body)
+    confirmed = _verify_draft(repo, pr).get("body") or ""
+    if confirmed != new_body:
+        # GitHub did not echo our exact bytes (a normalization, partial write, or transport hiccup). The
+        # mangled body would not be in the caller's `wrote` set — the loop-level restore cannot recognise it —
+        # so THIS write undoes itself here: roll the body back to what was there before this write, then raise.
+        # (The far likelier cause is a GitHub-side transform of OUR content, not an external edit landing in the
+        # sub-second read-after-write window, so undoing our own unconfirmed write is the correct default.)
+        if (_verify_draft(repo, pr).get("body") or "") != expected_before:
+            _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=expected_before)
+        raise CoordinatorError("GitHub did not preserve the composed body exactly; the unconfirmed write was "
+                               "rolled back")
+    return new_body
+
+
+def _restore_after_failure(repo: str, pr: int, wrote: set, original: str) -> bool:
+    """After a failed apply, restore the original body IFF the live body is one the coordinator itself wrote
+    this run — so a coordinator-authored intermediate is never left live, while a genuine external edit (not in
+    `wrote`) is preserved, never clobbered. No-op when nothing was written. Returns True iff it restored."""
+    if not wrote:
+        return False
+    live = _verify_draft(repo, pr).get("body") or ""
+    if live != original and live in wrote:
+        _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=original)
+        return True
+    return False
+
+
+def _close_linkage_result(repo: str, pr: int, base: str, head: str) -> dict:
+    """Run the close-linkage preflight against the (already applied) live body and parse its JSON. On a CRASH
+    (non-zero exit, no parseable JSON — distinct from the tool's own fail-closed 'could not read' line, which
+    it prints with exit 0) fold an explicit fail-closed disclosure so the human-facing body never silently
+    omits the close-linkage check; the final recorded preflight leg also captures the failure independently."""
+    close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"),
+                  "check", "--pr", str(pr), "--base", base, "--head", head])
+    try:
+        parsed = json.loads(close.stdout) if (close.stdout or "").strip() else None
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        if close.returncode != 0:
+            return {"lines": ["I couldn't run the close-linkage check before submitting — open the PR on GitHub "
+                              "and confirm its “will close” list before you merge."], "defang": None}
+        return {"lines": [], "defang": None}
+    return {"lines": parsed.get("lines", []), "defang": parsed.get("defang")}
+
+
+def cmd_contract_apply(args, store: StateStore) -> None:
+    """Compose the body and apply it to the still-draft PR under a source-digest compare-and-swap, folding
+    close-linkage advisory lines to a fixed point (max three passes), then record the full preflight set and
+    bind pr_contract to the stable body. Never marks ready and never merges."""
+    if not args.ack_visibility:
+        raise CoordinatorError("contract apply writes the composed body to the public PR contract; pass --ack-visibility")
+    state = store.read()
+    revision = state["revision"]
+    plan = _plan(args.plan)
+    _assert_plan(state, plan)
+    try:
+        claim = composer.load_claim(args.claim)
+    except composer.ContractError as exc:
+        raise CoordinatorError(str(exc)) from exc
+    _assert_claim_findings(state, claim)
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    with core.StableCommit(ROOT, "contract apply") as head:
+        pr_data = _verify_draft(repo, pr)
+        source_body = pr_data.get("body") or ""
+        if _digest(source_body.encode()) != args.source_body_digest:
+            raise CoordinatorError("the live PR body does not match --source-body-digest; a concurrent edit "
+                                   "occurred — rerun `contract preview` and apply with the reported digest")
+        base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+        preserved = _extract_marker_blocks(source_body)
+        # Everything but the folded close-linkage lines is invariant across passes, so assemble the evidence
+        # ONCE (a fresh scope_profile subprocess and a possible live spec read are not worth repeating).
+        base_evidence = _assemble_evidence(state, plan, claim, head, pr_data)
+        base_evidence["preserved_blocks"] = preserved
+        close_lines: list = []
+        written = source_body
+        wrote: set = set()          # every candidate we sent to GitHub this run — the restore set
+        converged = False
+        # Rollback is two-layered so no coordinator-authored body is ever left live on a failure. Layer one:
+        # _apply_body undoes its OWN unconfirmed write on a GitHub echo mismatch (that mangled body is not a
+        # recognisable candidate, so only the writer can clean it). Layer two, here: on ANY failure after an
+        # earlier CONFIRMED write (a mid-loop revision bump, an armed close, or non-convergence) the live body
+        # is a candidate we wrote, so _restore_after_failure puts back the original — while a genuine external
+        # edit (not in `wrote`) is preserved, never clobbered.
+        try:
+            for _ in range(3):
+                evidence = {**base_evidence, "close_linkage_lines": close_lines}
+                candidate = composer.compose(claim, evidence)
+                github.require_body_budget(candidate, "composed PR contract")
+                if candidate == written:
+                    converged = True
+                    break
+                wrote.add(candidate)
+                written = _apply_body(repo, pr, expected_before=written, new_body=candidate,
+                                      revision=revision, store=store)
+                result = _close_linkage_result(repo, pr, base, head)
+                if result["defang"]:
+                    raise CoordinatorError(
+                        f"the composed body armed an accidental close of #{result['defang']['number']} — that is "
+                        "a composer defect, not an author edit; nothing was submitted")
+                close_lines = list(result["lines"])
+            if not converged:
+                raise CoordinatorError("the composed body did not reach a fixed point in three passes; "
+                                       "nothing was recorded")
+        except composer.ContractError as exc:
+            _restore_after_failure(repo, pr, wrote, source_body)
+            raise CoordinatorError(str(exc)) from exc
+        except Exception:
+            _restore_after_failure(repo, pr, wrote, source_body)
+            raise
+        legs = _compute_preflight_legs(state, head, _verify_draft(repo, pr), written)
+        body_digest = _digest(written.encode())
+
+        def change(s):
+            s["preflights"] = legs["results"]
+            s["pr_contract"] = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"]}
+    store.mutate(change, from_revision=revision)
+    result = {"commit": head, "body_digest": body_digest, "complete": legs["contract_passed"],
+              "summary": legs["contract_summary"], "ready": False, "merge": False}
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        state_word = "complete" if legs["contract_passed"] else "INCOMPLETE"
+        print(f"applied the composed PR contract for {head[:12]} ({state_word}); preflights recorded. "
+              f"Run `submit preview` when ready — apply never marks ready.")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1729,7 +2073,7 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
     waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference"); frecord.set_defaults(func=cmd_finding_record)
@@ -1744,6 +2088,10 @@ def parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
+    contract_p = sub.add_parser("contract").add_subparsers(dest="contract_command", required=True)
+    ctemplate = contract_p.add_parser("template"); ctemplate.add_argument("--output", default="-"); ctemplate.set_defaults(func=cmd_contract_template)
+    cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
+    capply = contract_p.add_parser("apply"); capply.add_argument("--plan", required=True); capply.add_argument("--claim", required=True); capply.add_argument("--source-body-digest", required=True); capply.add_argument("--ack-visibility", action="store_true"); capply.add_argument("--json", action="store_true"); capply.set_defaults(func=cmd_contract_apply)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
@@ -1760,7 +2108,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
-        stateless = args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1"
+        stateless = (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1") or \
+                    (args.command == "contract" and getattr(args, "contract_command", None) == "template")
         if not args.state and not standalone and not stateless:
             raise CoordinatorError("--state is required for this command")
         if standalone and (not args.repository or not args.depth):
