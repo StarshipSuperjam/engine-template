@@ -98,3 +98,6 @@ protected main branch and the operator's merge remain the only wall on every run
 guardrails (Codex's own documentation says its pre-tool hook is not a complete enforcement
 boundary, recorded in the exception ledger). Windows behavior is untested by this project and stays
 so until someone runs this pass there.
+
+Incident-derived replays — the boot-briefing leak, agent self-ack, and ready-PR-completion scenarios — live
+in a sibling runbook, `codex-incident-replay.md`; this file stays the structural adapter pass.

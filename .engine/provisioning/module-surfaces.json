@@ -621,6 +621,9 @@
   ".engine/operations/close-turn.md": [
    "core"
   ],
+  ".engine/operations/codex-incident-replay.md": [
+   "core"
+  ],
   ".engine/operations/codex-settings.md": [
    "core"
   ],

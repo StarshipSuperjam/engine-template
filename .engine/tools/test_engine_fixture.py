@@ -34,6 +34,12 @@ def _init_repo(path: str) -> str:
     _git(path, "init", "-q")
     _git(path, "config", "user.email", "t@t.test")
     _git(path, "config", "user.name", "test")
+    # Disable git's background maintenance in this throwaway repo. Without it, a commit can spawn an async
+    # gc / commit-graph / maintenance write into `.git/objects` (or `pack`) that is still landing when the
+    # tempdir is torn down — `shutil.rmtree` then hits `OSError: [Errno 39] Directory not empty` on a
+    # racing directory-remove. Nothing here needs maintenance; turning it off removes the race at the source.
+    _git(path, "config", "gc.auto", "0")
+    _git(path, "config", "maintenance.auto", "false")
     return path
 
 
@@ -49,7 +55,10 @@ _TRACKED_SURFACE = (
 
 class TrackedOnlyCloneTest(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        # `ignore_cleanup_errors` so a late git write into the throwaway repo's `.git` can never turn teardown
+        # of a directory we delete anyway into a suite failure — belt-and-suspenders behind the `gc.auto`/
+        # `maintenance.auto` disabling in `_init_repo`, which removes the race in the first place.
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self._tmp.cleanup)
         self.repo = _init_repo(os.path.join(self._tmp.name, "repo"))
         for rel in _TRACKED_SURFACE:
