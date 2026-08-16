@@ -1,5 +1,17 @@
 {
   "schema_version": "build-protocol.v1",
+  "validation_commands": [
+    {
+      "id": "engine-ci",
+      "label": "Engine CI — the full mechanical check suite",
+      "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/validate.py", "--suite", "CI"]
+    },
+    {
+      "id": "engine-selftest",
+      "label": "Engine self-tests — the full behavioural self-test run",
+      "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]
+    }
+  ],
   "plan_review": {
     "quick": [],
     "standard": [

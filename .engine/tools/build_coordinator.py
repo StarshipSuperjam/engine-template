@@ -48,10 +48,8 @@ PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
 HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
 HANDOFF_END = "<!-- /engine-build-handoff -->"
-VALIDATION_COMMANDS = [
-    {"id": "engine-ci", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/validate.py", "--suite", "CI"]},
-    {"id": "engine-selftest", "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]},
-]
+# The registered validation commands (id, operator label, argv) are declared in build-protocol.json, so
+# both execution (cmd_validate) and PR rendering (the contract composer's Validation section) read one source.
 
 
 CoordinatorError = core.CoordinatorError
@@ -1041,7 +1039,7 @@ def cmd_validate(args, store: StateStore) -> None:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
     results = []
     with core.StableCommit(ROOT, "validation") as head:
-        for item in VALIDATION_COMMANDS:
+        for item in _protocol()["validation_commands"]:
             stamp = f"{int(time.time())}-{item['id']}-{head[:12]}-{secrets.token_hex(6)}.log"
             log_path = Path(__import__("tempfile").gettempdir()) / stamp
             returncode = _run_validation(item["command"], log_path)
@@ -1787,14 +1785,16 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     change_profile = (profile.stdout or "").strip()
 
-    # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip).
+    # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip), rendered with the
+    # operator labels from the one build-protocol declaration that also drives execution.
     val = state.get("validation")
     if val and val.get("results"):
+        labels = {c["id"]: c["label"] for c in _protocol().get("validation_commands", [])}
         vlines = []
         for r in val["results"]:
             status = "passed" if r["passed"] else "**FAILED**"
             tail = f" (log {r['log_digest']})" if r.get("log_digest") else ""
-            vlines.append(f"- `{r['id']}` — {status} at `{r['commit'][:12]}`{tail}")
+            vlines.append(f"- **{labels.get(r['id'], r['id'])}** — {status} at `{r['commit'][:12]}`{tail}")
         validation_results = "\n".join(vlines)
     else:
         validation_results = "- The full CI suite and self-tests are run green against the final commit and recorded before the draft is marked ready."

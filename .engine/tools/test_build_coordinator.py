@@ -579,7 +579,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             seen.append(command); path.write_text("ok\n"); return 0
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(), self.store)
-        self.assertEqual(seen, [item["command"] for item in bc.VALIDATION_COMMANDS])
+        self.assertEqual(seen, [item["command"] for item in bc._protocol()["validation_commands"]])
 
     def test_validation_preserves_complete_logs(self):
         payload = "x" * 5000
