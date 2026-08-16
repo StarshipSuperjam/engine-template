@@ -18,7 +18,8 @@ set all arrive through `evidence`, already computed. The composer's job is assem
 
 THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordinator-supplied):
 
-  preamble            str        the consent blockquote, lifted verbatim from the template
+  preamble            str        OPTIONAL — the consent blockquote. The coordinator does not supply it; the
+                                 composer lifts it from the committed template via release_cut.template_preamble().
   closes              [int]      the reconciled final set of issues this PR closes — the coordinator
                                  merges the claim's linkage with any durable Build Issue and reconciles
                                  against live GitHub. Rendered as one `Closes #N` line at the TOP.
@@ -27,19 +28,21 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   change_profile      str        scope_profile.render(...) block, pasted verbatim into Scope
   validation_results  str        rendered validation facts (suite, pass/fail, counts, commit,
                                  log digests) — coordinator-computed, no machine-local log paths
-  index_regen         str        computed index-regeneration disclosure ("touched only generated
-                                 paths; N files"), or "" when nothing regenerated
-  fail_open_lines     [str]      carried fail-open findings, each a distinct rendered line
+  index_regen         str        computed index-regeneration disclosure ("N generated index file(s) changed;
+                                 only generated paths"), or "" when nothing regenerated (BO-24)
   spec_steps          str        multi-document spec-derived acceptance steps (two groups), or the
                                  honest no-spec disclosure — rendered by spec_referent, never here
   review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
   code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
   drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
-  guardrail_line      str        the guardrail-touch disclosure (floored files + tier), or "" if none
+  close_linkage_lines [str]      advisory close-linkage lines to fold into Review (apply's fixed-point pass)
   composition_marker  str        the hidden marker carrying the claim digest and final commit
   preserved_blocks    [str]      valid marker blocks already on the draft (plan / handoff / build-id)
                                  to carry through unchanged
+
+(The guardrail-touch disclosure is the claim's `risk.guardrail_note`, and an open fail-open finding is a
+claim `validation.caveats` entry — both judgment, so neither is coordinator-supplied evidence.)
 
 Every string arrives ready to place; the composer owns only ordering, headings, and the section shape.
 """
@@ -89,8 +92,10 @@ def fillable_template() -> dict:
         "risk": {"items": [], "guardrail_note": None, "accepted_residual": [], "impact": None},
         "behaviors": {"observable": True, "entries": []},
         "demonstration": {"kind": "runnable", "command": None, "pass_signal": None, "fail_signal": None},
-        "validation": {"caveats": [], "live_helpers": {"all_available": True, "unavailable": []}},
-        "review": {"loop_narrative": [], "material_divergence": False, "finding_summaries": []},
+        "validation": {"summary": None, "caveats": [], "live_helpers": {"all_available": True, "unavailable": []},
+                       "impact": None},
+        "review": {"summary": None, "loop_narrative": [], "material_divergence": False, "finding_summaries": [],
+                   "impact": None},
         "files_of_interest": {"items": [], "impact": None},
         "ai_involvement": {"tools": [], "operator_decisions": [], "judgment_split": None, "impact": None},
     }
@@ -246,8 +251,6 @@ def compose(claim: dict, evidence: dict) -> str:
         if it.get("most_sensitive"):
             lead += " (the most safety-sensitive edit)"
         risk_body.append(f"- **{lead}.** {it['bound']}")
-    if evidence.get("guardrail_line"):
-        risk_body.append(f"- {evidence['guardrail_line']}")
     if r.get("guardrail_note"):
         risk_body.append(f"- **Guardrail disclosure.** {r['guardrail_note']}")
     for res in r.get("accepted_residual", []):
@@ -257,18 +260,18 @@ def compose(claim: dict, evidence: dict) -> str:
         )
     lines += _section("Risk", _risk_summary(r), risk_body, r["impact"])
 
-    # 5. Validation
+    # 5. Validation — the mechanical results are coordinator-computed; the framing (summary + Impact) and any
+    # honest caveats (a fail-open finding among them) are the claim's judgment.
+    v = claim["validation"]
     val_body = []
     if evidence.get("validation_results"):
         val_body.append(evidence["validation_results"])
-    for caveat in claim["validation"]["caveats"]:
+    for caveat in v["caveats"]:
         val_body.append(f"- Caveat: {caveat}")
-    for fo in evidence.get("fail_open_lines", []):
-        val_body.append(fo)
-    val_body.append(_live_helpers_line(claim["validation"]["live_helpers"]))
+    val_body.append(_live_helpers_line(v["live_helpers"]))
     if evidence.get("index_regen"):
         val_body.append(f"- {evidence['index_regen']}")
-    lines += _section("Validation", _validation_summary(evidence), val_body, _validation_impact())
+    lines += _section("Validation", v["summary"], val_body, v["impact"])
 
     # 6. Review — bold-led entries (coverage, the review→repair→re-review story, findings, disagreements,
     # divergence) then the spec-derived acceptance steps, matching the exemplars' richest section.
@@ -292,8 +295,8 @@ def compose(claim: dict, evidence: dict) -> str:
     for cl in evidence.get("close_linkage_lines", []):
         review_body.append(f"- {cl}")
     if evidence.get("spec_steps"):
-        review_body += ["", "**Spec-derived acceptance steps**", "", evidence["spec_steps"]]
-    lines += _section("Review", _review_summary(rev), review_body, _review_impact())
+        review_body += ["", "### Spec-derived acceptance steps", "", evidence["spec_steps"]]
+    lines += _section("Review", rev["summary"], review_body, rev["impact"])
 
     # 7. Demonstration
     lines += _section("Demonstration", _demo_summary(claim["demonstration"]),
@@ -328,14 +331,6 @@ def _risk_summary(r: dict) -> str:
     return f"{n} risk{'s' if n != 1 else ''}, ranked, each with the bound that contains it."
 
 
-def _validation_summary(evidence: dict) -> str:
-    return "The mechanical floor this change cleared, bound to the final commit."
-
-
-def _validation_impact() -> str:
-    return "A green floor shows conformance, not correctness — your read at merge is the gate."
-
-
 def _live_helpers_line(lh: dict) -> str:
     if lh.get("all_available"):
         return "- The engine's live helpers answered this session."
@@ -345,14 +340,6 @@ def _live_helpers_line(lh: dict) -> str:
     named = "; ".join(parts) or "one or more helpers"
     return (f"- A live helper was unavailable, so this change was authored on the committed-file "
             f"fallback: {named}. That area was not verified against live state.")
-
-
-def _review_summary(rev: dict) -> str:
-    return "What review ran, what it found, and how the merged version compares to the reviewed one."
-
-
-def _review_impact() -> str:
-    return "Review is a deliberate-effort pass, not a gate; your merge is the binding gate."
 
 
 def _demo_summary(demo: dict) -> str:

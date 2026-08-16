@@ -65,13 +65,17 @@ def _good_claim() -> dict:
             "fail_signal": "a schema error names the unfilled slot",
         },
         "validation": {
+            "summary": "The mechanical floor this change cleared, bound to the final commit.",
             "caveats": ["One unrelated flake in an unchanged module, not implicated by this diff."],
             "live_helpers": {"all_available": True},
+            "impact": "A green floor shows conformance, not correctness — your read at merge is the gate.",
         },
         "review": {
+            "summary": "One thorough cold pass; what it found and how the merged version compares.",
             "loop_narrative": ["One clean cold pass; no repairs, so reviewed and final commits match."],
             "material_divergence": False,
             "finding_summaries": [],
+            "impact": "Review is a deliberate-effort pass, not a gate; your merge is the binding gate.",
         },
         "files_of_interest": {
             "items": [{"path": ".engine/tools/build_coordinator_contract.py", "role": "the pure composer"}],
@@ -91,13 +95,11 @@ def _good_evidence() -> dict:
         "closes": [901],
         "change_profile": "**Change profile** — small: 3 files, tools + schemas.",
         "validation_results": "- `validate.py --suite CI` passed; self-tests passed at commit abc1234.",
-        "index_regen": "Regeneration touched only generated index paths; 2 files changed, no authored work lost.",
-        "fail_open_lines": [],
+        "index_regen": "Regeneration updated 1 of the engine's generated index files (.engine/knowledge/graph.json) from the final tree — generated paths only.",
         "spec_steps": "**Things I checked for you**\n_(engine's side)_\n- All criteria: automated tests.",
         "review_coverage": "thorough; plan review (4 lenses) ran before build, five cold lenses after.",
         "disagreement_lines": [],
         "drift_line": "reviewed and submitted commits are identical; no post-review divergence.",
-        "guardrail_line": "- Guardrail touch: none floored beyond a byte-identical check rule.",
         "composition_marker": "<!-- engine-pr-contract:v1 sha256:deadbeef commit=abc1234 -->",
         "preserved_blocks": ["<!-- engine-build-handoff:v2 sha256:cafe -->\npreserved\n<!-- /engine-build-handoff:v2 -->"],
     }
@@ -390,7 +392,7 @@ class TestContractApply(unittest.TestCase):
             mock.patch.object(bc, "_plan", return_value={}),
             mock.patch.object(bc, "_assert_plan", return_value=None),
             mock.patch.object(bc, "_assert_claim_findings", return_value=None),
-            mock.patch.object(bc.contract, "load_claim", return_value=_good_claim()),
+            mock.patch.object(bc.composer, "load_claim", return_value=_good_claim()),
             mock.patch.object(bc, "_assemble_evidence", return_value={}),
             mock.patch.object(bc, "_verify_draft", side_effect=verify_draft),
             mock.patch.object(bc, "_must_run", side_effect=must_run),
@@ -468,6 +470,77 @@ class TestContractApply(unittest.TestCase):
                 bc.cmd_contract_apply(args, store)
         self.assertIn("accidental close", str(ctx.exception))
         self.assertEqual(pr["body"], "orig")                          # restored
+
+    def test_idempotent_reapply_writes_nothing(self):
+        import build_coordinator as bc
+        # The live body already equals what the composer produces (a re-run against a converged PR).
+        composed = bcc.compose(_good_claim(), {"preserved_blocks": [], "close_linkage_lines": []})
+        pr = {"body": composed}
+        edits = []
+        def verify_draft(repo, n):
+            return {"body": pr["body"], "baseRefOid": "b" * 40}
+        def must_run(argv, *, input_text=None):
+            if argv[:3] == ["gh", "pr", "edit"]:
+                edits.append(input_text); pr["body"] = input_text
+            return ""
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        args = self._args(bc._digest(composed.encode()))
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
+                stack.enter_context(p)
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_contract_apply(args, store)
+        self.assertEqual(edits, [])                                   # converged pass 0: zero writes
+        self.assertIn("pr_contract", store._s)                        # still records the contract
+
+    def test_mid_loop_revision_bump_restores_the_intermediate(self):
+        import build_coordinator as bc
+        # Blocking-fix proof: a write succeeds, then Build state moves before the next pass; the intermediate
+        # must be rolled back to the original, not left live.
+        pr, verify_draft, must_run = self._env("orig")
+
+        class BumpStore:
+            def __init__(self):
+                self.reads = 0
+                self.s = {"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                          "plan": {"durable_issue": None}}
+            def read(self):
+                self.reads += 1
+                snap = dict(self.s)
+                snap["revision"] = 2 if self.reads >= 3 else 1   # bumps at the pass-1 _apply_body check
+                return snap
+            def mutate(self, change, from_revision=None):
+                change(self.s)
+
+        store = BumpStore()
+        args = self._args(bc._digest(b"orig"))
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": ["x"], "defang": None}):
+                stack.enter_context(p)
+            with self.assertRaises(bc.CoordinatorError) as ctx:
+                bc.cmd_contract_apply(args, store)
+        self.assertIn("Build evidence changed", str(ctx.exception))
+        self.assertEqual(pr["body"], "orig")                          # intermediate rolled back
+
+    def test_mid_loop_external_edit_is_preserved_not_clobbered(self):
+        import build_coordinator as bc
+        pr, verify_draft, must_run = self._env("orig")
+
+        def close_result(*a, **k):
+            pr["body"] = "AN EXTERNAL EDIT"    # someone else edits the PR between passes
+            return {"lines": ["x"], "defang": None}
+
+        store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
+                             "plan": {"durable_issue": None}})
+        args = self._args(bc._digest(b"orig"))
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(bc, verify_draft, must_run, close_result):
+                stack.enter_context(p)
+            with self.assertRaises(bc.CoordinatorError) as ctx:
+                bc.cmd_contract_apply(args, store)
+        self.assertIn("concurrent edit", str(ctx.exception))
+        self.assertEqual(pr["body"], "AN EXTERNAL EDIT")              # external edit preserved, never restored over
 
 
 if __name__ == "__main__":

@@ -6076,7 +6076,7 @@
       },
       "slug": "pr-body-claim.v1",
       "source": {
-        "fingerprint": "sha256:96dcb696feccfeb70d897f600275e9a3496933c3b781a90e77e8cf58fa6874dd",
+        "fingerprint": "sha256:c4184fc77789f98ba4767ef0ecb10b498ac3bd8170f19f06ee76251790e5af97",
         "path": ".engine/schemas/pr-body-claim.v1.json"
       },
       "status": "active",
@@ -7080,7 +7080,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:45cabd13dbc2b48ddba055779d64520138553f548e5280b0c80a4897c8d7a9df",
+        "fingerprint": "sha256:fe356d13de8082fbac753f11eb7e62591db5d4ce79417c97d45c5b3b870cf8d3",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -7103,7 +7103,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:01c835b7af4dd9fdfa114f0158ebdab902ceb288d04f8eea14c16386de594ef6",
+        "fingerprint": "sha256:4ed389056ee399ddc4e9618e0c61e1eb196c802cfd6baaadbfb017335360c529",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -7170,7 +7170,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:7548782db07144068f179aa3445487e361bbdb46b8932e002cd530ef91a41afc",
+        "fingerprint": "sha256:6927b282e111c132f08c5db9d6f984ea5767083ba2dd1eb608f39882e1572ff4",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -12163,7 +12163,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:5711b1c8c25cc8e7bec7d02c841d830427982eb05d2ae48efe765eba8421fc5f",
+        "fingerprint": "sha256:b52c47a64fc302e727c396f988fe87604325cb9cc40804286c2c8d718f6331ff",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",

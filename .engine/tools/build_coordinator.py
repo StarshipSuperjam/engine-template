@@ -16,7 +16,9 @@ import sys
 import time
 from typing import Any
 
-import build_coordinator_contract as contract
+import build_coordinator_contract as composer  # aliased 'composer', not 'contract': this file uses the bare
+# name 'contract' as a local for the reviewer-contract dict and the pr-contract state, and a module alias would
+# be a shadowing landmine (a future use before the local assignment would raise UnboundLocalError).
 import build_coordinator_core as core
 import build_coordinator_dag as dag
 import build_coordinator_github as github
@@ -1735,16 +1737,25 @@ def cmd_work_integrate(args, store: StateStore) -> None:
     print(f"integrated {args.item} at {args.commit}; focused verification recorded")
 
 
+_CLAIM_FILL_GUIDANCE = (
+    "Fill each field per its `description` in .engine/schemas/pr-body-claim.v1.json — that is where the content "
+    "rules live (e.g. Scope must not restate size/counts, Risk flags the single most safety-sensitive edit, "
+    "Files of interest is a curated selection not the whole diff, Review's loop_narrative is one entry per "
+    "round). The renderer owns all structure; every value is a single-line Markdown fragment.")
+
+
 def cmd_contract_template(args, store) -> None:
     """Emit the fillable `pr-body-claim.v1` skeleton (stateless — no Build snapshot needed). Every judgment
     slot is null and every list empty, so validating the filled-in result names any slot still unfilled;
     the shape is the instruction. Written to --output, or stdout by default."""
-    rendered = json.dumps(contract.fillable_template(), indent=2, sort_keys=True) + "\n"
+    rendered = json.dumps(composer.fillable_template(), indent=2, sort_keys=True) + "\n"
     if getattr(args, "output", None) and args.output != "-":
         Path(args.output).write_text(rendered, encoding="utf-8")
         print(f"wrote the fillable pr-body-claim.v1 template to {args.output}")
+        print(_CLAIM_FILL_GUIDANCE, file=sys.stderr)
     else:
         print(rendered, end="")
+        print("\n" + _CLAIM_FILL_GUIDANCE, file=sys.stderr)
 
 
 def _assert_claim_findings(state: dict, claim: dict) -> None:
@@ -1833,12 +1844,22 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     else:
         drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
 
+    # Index-regeneration disclosure (BO-24): which of the engine's generated index files this PR changed,
+    # computed from the diff so the operator sees regeneration happened over generated paths only.
+    generated = [".engine/knowledge/graph.json", ".engine/self-map.md", ".engine/provisioning/module-surfaces.json"]
+    changed = set(_run(["git", "diff", "--name-only", f"{base}...HEAD"]).stdout.splitlines())
+    regen = [g for g in generated if g in changed]
+    index_regen = (f"Regeneration updated {len(regen)} of the engine's generated index files "
+                   f"({', '.join(regen)}) from the final tree — generated paths only."
+                   if regen else "")
+
     marker = f"<!-- engine-pr-contract:v1 {_digest(claim)} commit={head} -->"
 
     return {
         "closes": closes,
         "change_profile": change_profile,
         "validation_results": validation_results,
+        "index_regen": index_regen,
         "spec_steps": spec_steps,
         "review_coverage": review_coverage,
         "code_execution_line": code_execution_line,
@@ -1856,14 +1877,20 @@ def cmd_contract_preview(args, store: StateStore) -> None:
     state = store.read()
     plan = _plan(args.plan)
     _assert_plan(state, plan)
-    claim = contract.load_claim(args.claim)
+    try:
+        claim = composer.load_claim(args.claim)
+    except composer.ContractError as exc:
+        raise CoordinatorError(str(exc)) from exc
     _assert_claim_findings(state, claim)
     repo, pr = state["build"]["repository"], state["build"]["pr"]
     with core.StableCommit(ROOT, "contract preview") as head:
         pr_data = _verify_draft(repo, pr)
         source_body = pr_data.get("body") or ""
         evidence = _assemble_evidence(state, plan, claim, head, pr_data)
-        body = contract.compose(claim, evidence)
+        try:
+            body = composer.compose(claim, evidence)
+        except composer.ContractError as exc:
+            raise CoordinatorError(str(exc)) from exc
         github.require_body_budget(body, "composed PR contract")
         contract_passed, contract_summary = _pr_contract(body)
     if getattr(args, "output", None):
@@ -1911,25 +1938,35 @@ def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revi
     return new_body
 
 
-def _restore_body_if_ours(repo: str, pr: int, *, ours: str, original: str) -> bool:
-    """Restore the original body only when the live body is still exactly our last write — otherwise an
-    external edit landed and we preserve it rather than clobber. Returns True iff it restored."""
-    current = _verify_draft(repo, pr).get("body") or ""
-    if current == ours:
+def _restore_after_failure(repo: str, pr: int, wrote: set, original: str) -> bool:
+    """After a failed apply, restore the original body IFF the live body is one the coordinator itself wrote
+    this run — so a coordinator-authored intermediate is never left live, while a genuine external edit (not in
+    `wrote`) is preserved, never clobbered. No-op when nothing was written. Returns True iff it restored."""
+    if not wrote:
+        return False
+    live = _verify_draft(repo, pr).get("body") or ""
+    if live != original and live in wrote:
         _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=original)
         return True
     return False
 
 
 def _close_linkage_result(repo: str, pr: int, base: str, head: str) -> dict:
-    """Run the close-linkage preflight against the (already applied) live body and parse its JSON. A failed or
-    unparseable run folds no lines — the recorded preflight leg reports the real close-linkage result later."""
+    """Run the close-linkage preflight against the (already applied) live body and parse its JSON. On a CRASH
+    (non-zero exit, no parseable JSON — distinct from the tool's own fail-closed 'could not read' line, which
+    it prints with exit 0) fold an explicit fail-closed disclosure so the human-facing body never silently
+    omits the close-linkage check; the final recorded preflight leg also captures the failure independently."""
     close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"),
                   "check", "--pr", str(pr), "--base", base, "--head", head])
     try:
-        parsed = json.loads(close.stdout) if (close.stdout or "").strip() else {}
+        parsed = json.loads(close.stdout) if (close.stdout or "").strip() else None
     except ValueError:
-        parsed = {}
+        parsed = None
+    if parsed is None:
+        if close.returncode != 0:
+            return {"lines": ["I couldn't run the close-linkage check before submitting — open the PR on GitHub "
+                              "and confirm its “will close” list before you merge."], "defang": None}
+        return {"lines": [], "defang": None}
     return {"lines": parsed.get("lines", []), "defang": parsed.get("defang")}
 
 
@@ -1943,7 +1980,10 @@ def cmd_contract_apply(args, store: StateStore) -> None:
     revision = state["revision"]
     plan = _plan(args.plan)
     _assert_plan(state, plan)
-    claim = contract.load_claim(args.claim)
+    try:
+        claim = composer.load_claim(args.claim)
+    except composer.ContractError as exc:
+        raise CoordinatorError(str(exc)) from exc
     _assert_claim_findings(state, claim)
     repo, pr = state["build"]["repository"], state["build"]["pr"]
     with core.StableCommit(ROOT, "contract apply") as head:
@@ -1954,31 +1994,44 @@ def cmd_contract_apply(args, store: StateStore) -> None:
                                    "occurred — rerun `contract preview` and apply with the reported digest")
         base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
         preserved = _extract_marker_blocks(source_body)
+        # Everything but the folded close-linkage lines is invariant across passes, so assemble the evidence
+        # ONCE (a fresh scope_profile subprocess and a possible live spec read are not worth repeating).
+        base_evidence = _assemble_evidence(state, plan, claim, head, pr_data)
+        base_evidence["preserved_blocks"] = preserved
         close_lines: list = []
         written = source_body
+        wrote: set = set()          # every candidate we sent to GitHub this run — the restore set
         converged = False
-        for _ in range(3):
-            evidence = _assemble_evidence(state, plan, claim, head, pr_data)
-            evidence["preserved_blocks"] = preserved
-            evidence["close_linkage_lines"] = close_lines
-            candidate = contract.compose(claim, evidence)
-            github.require_body_budget(candidate, "composed PR contract")
-            if candidate == written:
-                converged = True
-                break
-            written = _apply_body(repo, pr, expected_before=written, new_body=candidate,
-                                  revision=revision, store=store)
-            result = _close_linkage_result(repo, pr, base, head)
-            if result["defang"]:
-                _restore_body_if_ours(repo, pr, ours=written, original=source_body)
-                raise CoordinatorError(
-                    f"the composed body armed an accidental close of #{result['defang']['number']} — that is a "
-                    "composer defect, not an author edit; the original body was restored, nothing was submitted")
-            close_lines = list(result["lines"])
-        if not converged:
-            _restore_body_if_ours(repo, pr, ours=written, original=source_body)
-            raise CoordinatorError("the composed body did not reach a fixed point in three passes; "
-                                   "the original body was restored and nothing was recorded")
+        # A single rollback guard around the whole loop: ANY failure after a write (a mid-loop revision bump,
+        # a GitHub echo mismatch, an armed close, or non-convergence) restores the original body if the live
+        # body is still one we wrote — never leaving a coordinator-authored intermediate live, and never
+        # clobbering a genuine external edit (which is not in `wrote`).
+        try:
+            for _ in range(3):
+                evidence = {**base_evidence, "close_linkage_lines": close_lines}
+                candidate = composer.compose(claim, evidence)
+                github.require_body_budget(candidate, "composed PR contract")
+                if candidate == written:
+                    converged = True
+                    break
+                wrote.add(candidate)
+                written = _apply_body(repo, pr, expected_before=written, new_body=candidate,
+                                      revision=revision, store=store)
+                result = _close_linkage_result(repo, pr, base, head)
+                if result["defang"]:
+                    raise CoordinatorError(
+                        f"the composed body armed an accidental close of #{result['defang']['number']} — that is "
+                        "a composer defect, not an author edit; nothing was submitted")
+                close_lines = list(result["lines"])
+            if not converged:
+                raise CoordinatorError("the composed body did not reach a fixed point in three passes; "
+                                       "nothing was recorded")
+        except composer.ContractError as exc:
+            _restore_after_failure(repo, pr, wrote, source_body)
+            raise CoordinatorError(str(exc)) from exc
+        except Exception:
+            _restore_after_failure(repo, pr, wrote, source_body)
+            raise
         legs = _compute_preflight_legs(state, head, _verify_draft(repo, pr), written)
         body_digest = _digest(written.encode())
 

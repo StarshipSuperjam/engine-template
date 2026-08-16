@@ -181,9 +181,11 @@
     "validation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["caveats", "live_helpers"],
-      "description": "The mechanical validation results, commit binding, log digests, index-regeneration facts, and fail-open findings are supplied by the coordinator. The claim carries only what the coordinator cannot compute: honest caveats a green run would otherwise hide, and the session-only observation of whether live helpers were available.",
+      "required": ["summary", "caveats", "live_helpers", "impact"],
+      "description": "The mechanical validation results, commit binding, log digests, and index-regeneration facts are supplied by the coordinator. The claim carries the section's framing (summary + Impact, so these prominent lines are authored not templated), honest caveats a green run would otherwise hide (an open fail-open finding belongs here), and the session-only observation of whether live helpers were available.",
       "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "impact": {"$ref": "#/$defs/line"},
         "caveats": {
           "type": "array",
           "description": "Honest disclosures a bare green report would drop: a named unrelated flake, a check that could not be evaluated locally, a helper that was unavailable and so left an area unverified. Empty only when the run is genuinely clean with nothing to disclose.",
@@ -216,9 +218,11 @@
     "review": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["loop_narrative", "finding_summaries"],
-      "description": "Review depth, coverage, reviewer-disagreement lines, reviewed/final commits, and measured divergence are supplied by the coordinator. The claim carries the operator-safe summary for each current coordinator finding (matched exactly to the live finding set), the free-form review→repair→re-review narrative (one entry per round or theme, so a multi-round story reads as the exemplars' bold-led bullets rather than one flat line), and the judgment of whether the merged version differs materially from the reviewed one.",
+      "required": ["summary", "loop_narrative", "finding_summaries", "impact"],
+      "description": "Review depth, coverage, reviewer-disagreement lines, reviewed/final commits, and measured divergence are supplied by the coordinator. The claim carries the section's framing (summary + Impact, so these prominent lines are authored not templated), the operator-safe summary for each current coordinator finding (matched exactly to the live finding set), the free-form review→repair→re-review narrative (one entry per round or theme, so a multi-round story reads as the exemplars' bold-led bullets rather than one flat line), and the judgment of whether the merged version differs materially from the reviewed one.",
       "properties": {
+        "summary": {"$ref": "#/$defs/line"},
+        "impact": {"$ref": "#/$defs/line"},
         "loop_narrative": {"$ref": "#/$defs/bullets"},
         "material_divergence": {"type": "boolean"},
         "finding_summaries": {
@@ -305,7 +309,7 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\r\\n]+$",
-      "description": "A single-line Markdown fragment: non-empty, no embedded newline. The renderer owns all structure, so a claim cannot inject its own headings, list breaks, or section markers."
+      "description": "A single-line Markdown fragment: non-empty, no embedded newline. The renderer owns all multi-line structure, so a claim cannot inject a list break or split a section across lines; a stray line-leading marker (e.g. `## `) inside a value does not create a real section either — it fails the completeness gate (the section's Impact line is no longer detected), so preview/apply report the body incomplete rather than publishing it."
     },
     "bullets": {
       "type": "array",
