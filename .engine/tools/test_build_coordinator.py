@@ -43,6 +43,41 @@ def plan(objective="Ship a small instrument panel"):
     }
 
 
+def _work_item_v2(node_id, deps, *, resources=None, executor="builder"):
+    return {
+        "id": node_id, "description": f"Build {node_id}",
+        "paths": [f".engine/tools/{node_id}.py"], "verification": [f"Run {node_id} tests"],
+        "depends_on": list(deps), "exclusive_resources": list(resources or []),
+        "executor_class": executor,
+        "output_contract": {"deliverable": f"{node_id} and its tests",
+                            "artifact_kinds": ["worker-commit", "integrated-commit"],
+                            "required_evidence": ["changed_paths", "verification_results"]},
+    }
+
+
+def plan_v2(objective="Ship a dependency-ordered Build", items=None, mode="serial", max_concurrency=1):
+    if items is None:
+        items = [_work_item_v2("shared", []), _work_item_v2("adapter", ["shared"])]
+    return {
+        "schema_version": "build-plan.v2",
+        "profile": "normal",
+        "intent_source": {"kind": "direct"},
+        "raw_intent": "Coordinate Build work as a static implementation DAG.",
+        "interpretation": "Derive readiness from a validated acyclic graph while keeping one integrator.",
+        "evidence": [{"claim": "graphlib is stdlib.", "basis": "Python standard library", "kind": "observed"}],
+        "assumptions": [{"claim": "The harness reproduces this JSON document.", "status": "verified"}],
+        "objective": objective,
+        "success_obligations": [{"outcome": "A cycle fails validation.", "verification": "TestPlanV2Ingest"}],
+        "scope_boundary": ["Build workflow evidence"],
+        "non_goals": ["A scheduler daemon"],
+        "risks": ["Version dispatch could regress v1."],
+        "work_items": items,
+        "parallelism": {"mode": mode, "max_concurrency": max_concurrency},
+        "review_strategy": "Operator-approved depth with one proportional repair judgment.",
+        "spec": {"posture": "none", "selection_basis": "No product spec governs the coordinator.", "disclosure": "No settled spec; plan obligations are the referent."},
+    }
+
+
 class CoordinatorCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1128,8 +1163,8 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
-        self.assertEqual(len(obligations["obligations"]), 65)
-        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 65)
+        self.assertEqual(len(obligations["obligations"]), 68)
+        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
@@ -1228,6 +1263,177 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             text = (bc.ROOT / ".claude" / "agents" / name).read_text()
             self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)
             self.assertIn("operator-approved Build plan", text)
+
+
+class TestPlanV2Ingest(CoordinatorCase):
+    def _bind(self, value, *, source="session", issue=None, home=True, pr_body=""):
+        self.write_plan(value)
+        args = argparse.Namespace(input=str(self.plan_path), source=source, repository="owner/repo",
+                                  pr=7, issue=issue, mode="same-session")
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE,
+              "body": pr_body}
+        stack = [
+            mock.patch.object(bc, "_verify_draft", return_value=pr),
+            mock.patch.object(bc, "_head", return_value=HEAD_A),
+            mock.patch.object(bc, "_confidently_home", return_value=home),
+        ]
+        if source == "issue":
+            stack.append(mock.patch.object(bc, "_durable_plan", return_value=value))
+            stack.append(mock.patch.object(bc, "_issue_body", return_value="body"))
+        with contextlib.ExitStack() as es:
+            for p in stack:
+                es.enter_context(p)
+            es.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            bc.cmd_plan_bind(args, self.store)
+
+    def test_v2_plan_binds_with_a_versioned_snapshot_and_empty_work_map(self):
+        self._bind(plan_v2())
+        state = self.state()
+        self.assertEqual(state["schema_version"], "build-state.v2")
+        self.assertEqual(state["work"], {})
+
+    def test_v2_cycle_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["b"]), _work_item_v2("b", ["a"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "cycle"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_unknown_dependency_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["ghost"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "unknown work item ghost"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_self_dependency_is_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", ["a"])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "cannot depend on itself"):
+            bc._plan(str(self.plan_path))
+
+    def test_v2_duplicate_ids_are_refused(self):
+        value = plan_v2(items=[_work_item_v2("a", []), _work_item_v2("a", [])])
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "must be unique"):
+            bc._plan(str(self.plan_path))
+
+    def test_independent_roots_carry_no_ordering(self):
+        value = plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])])
+        self.write_plan(value)
+        loaded = bc._plan(str(self.plan_path))
+        self.assertEqual([i["id"] for i in loaded["work_items"]], ["a", "b"])
+
+    def test_unrecognized_plan_version_is_refused(self):
+        value = plan_v2()
+        value["schema_version"] = "build-plan.v9"
+        self.write_plan(value)
+        with self.assertRaisesRegex(bc.CoordinatorError, "unrecognized Build plan version"):
+            bc._plan(str(self.plan_path))
+
+    def test_new_session_v1_bind_is_refused_in_a_deployed_repo(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "refused now that build-plan.v2"):
+            self._bind(plan(), home=False)
+
+    def test_session_v1_bind_is_permitted_in_the_home_repo(self):
+        self._bind(plan(), home=True)
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+    def test_confidently_home_requires_a_readable_matching_origin(self):
+        # The governance polarity fix: an unreadable/mismatched origin is NOT confidently home, so the
+        # v1-bind refusal fails toward ENFORCING rather than being silently skipped in a deployed repo.
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value=None):
+            self.assertFalse(bc._confidently_home())
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", return_value="other/repo"):
+            self.assertFalse(bc._confidently_home())
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", side_effect=ValueError("malformed manifest")):
+            self.assertFalse(bc._confidently_home())   # a malformed manifest is not confidently home
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
+                mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
+            self.assertTrue(bc._confidently_home())
+
+    def test_issue_sourced_v1_rebind_with_published_handoff_is_not_walled(self):
+        # The exempt continuation path in a deployed repo demands real pre-existing continuation
+        # evidence: the Build's published v1 handoff already on its draft PR.
+        import build_coordinator_github as ghub
+        issue_plan = plan()
+        body = "prose\n\n" + ghub.handoff_block({"schema_version": "build-handoff.v1"}) + "\nmore\n"
+        self._bind(issue_plan, source="issue", issue=11, home=False, pr_body=body)
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+    def test_issue_sourced_v1_bind_without_handoff_evidence_is_refused(self):
+        # A freshly authored Issue carrying a v1 marker is NOT an in-flight Build: with no published
+        # handoff on the PR, the deployed-repo bind refuses toward migration (closes the bypass).
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False)
+
+    def test_issue_sourced_v1_bind_with_only_marker_prose_is_refused(self):
+        # Repair-review regression: a quoted marker fragment in prose is not evidence — the gate
+        # demands a well-formed, digest-matching handoff block, the same bar restore holds.
+        body = "Example of what a marker looks like: " + bc.HANDOFF_BEGIN + " (just prose)"
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False, pr_body=body)
+
+    def test_issue_sourced_v1_bind_with_a_digest_mismatched_block_is_refused(self):
+        # A structurally present block whose digest does not match its content is laundered
+        # evidence, not continuation evidence.
+        import build_coordinator_github as ghub
+        block = ghub.handoff_block({"schema_version": "build-handoff.v1"})
+        # alter the block's CONTENT without touching its marker digest
+        tampered = block.replace('"build-handoff.v1"', '"build-handoff.v1-forged"')
+        with self.assertRaisesRegex(bc.CoordinatorError, "published v1 handoff evidence"):
+            self._bind(plan(), source="issue", issue=11, home=False, pr_body=tampered)
+
+    def test_issue_sourced_v1_rebind_needs_no_handoff_in_the_home_repo(self):
+        # The home repo still dogfoods v1: the continuation-evidence demand is deployed-only.
+        self._bind(plan(), source="issue", issue=11, home=True)
+        self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+
+class TestV1Migration(CoordinatorCase):
+    def _v1_two_items(self):
+        value = plan()
+        value["work_items"] = [
+            {"id": "one", "description": "First", "paths": ["a/x.py"], "verification": ["run one"]},
+            {"id": "two", "description": "Second", "paths": ["a/y.py"], "verification": ["run two"]},
+        ]
+        return value
+
+    def test_migrate_produces_a_linear_chain_with_a_new_digest(self):
+        v1 = self._v1_two_items()
+        v2 = bc._migrate_v1_to_v2(v1)
+        self.assertEqual(v2["schema_version"], "build-plan.v2")
+        self.assertEqual(v2["work_items"][0]["depends_on"], [])
+        self.assertEqual(v2["work_items"][1]["depends_on"], ["one"])
+        self.assertTrue(all(i["executor_class"] == "integrator" for i in v2["work_items"]))
+        self.assertEqual(v2["parallelism"], {"mode": "serial", "max_concurrency": 1})
+        self.assertNotEqual(bc._digest(v1), bc._digest(v2))
+        bc.dag.validate_dag(v2)  # the chain is acyclic
+
+    def test_migrate_cli_emits_v2_and_requires_v1_input(self):
+        self.write_plan(self._v1_two_items())
+        args = argparse.Namespace(input=str(self.plan_path), output="-")
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_plan_migrate_v1(args, None)
+        emitted = json.loads(out.getvalue())
+        self.assertEqual(emitted["schema_version"], "build-plan.v2")
+        # a v2 input is refused
+        self.write_plan(plan_v2())
+        args = argparse.Namespace(input=str(self.plan_path), output="-")
+        with self.assertRaisesRegex(bc.CoordinatorError, "requires a build-plan.v1"):
+            bc.cmd_plan_migrate_v1(args, None)
+
+    def test_v1_reader_sunsets_at_the_removal_major(self):
+        # Fails closed once the Engine major reaches the sunset while the v1 reader still ships — the
+        # mechanical removal trigger. A no-op below the sunset (and at the 0.0.0 construction sentinel).
+        release = json.loads((bc.ROOT / ".engine" / "engine.json").read_text()).get("engine_release", "0.0.0")
+        if release == "0.0.0":
+            return
+        major = int(release.split(".")[0])
+        v1_reader_present = (bc.ROOT / ".engine" / "schemas" / "build-plan.v1.json").exists()
+        if major >= bc.PLAN_V1_REMOVE_AT_MAJOR and v1_reader_present:
+            self.fail(f"Engine major {major} has reached the v1 sunset ({bc.PLAN_V1_REMOVE_AT_MAJOR}) but the "
+                      f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
 
 
 if __name__ == "__main__":

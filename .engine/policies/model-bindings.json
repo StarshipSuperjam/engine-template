@@ -8,5 +8,15 @@
     "engine-qa-review-spec-conformance": { "model": "sonnet", "effort": "high" },
     "engine-qa-review-technical-integrity": { "model": "sonnet", "effort": "high" },
     "engine-qa-review-usability": { "model": "sonnet", "effort": "high" }
+  },
+  "implementation_classes": {
+    "builder": {
+      "claude": { "model": "sonnet", "effort": "medium" },
+      "codex": { "model": "gpt-5.6-terra", "effort": "medium" }
+    },
+    "bounded": {
+      "claude": { "model": "haiku", "effort": "low" },
+      "codex": { "model": "gpt-5.6-luna", "effort": "low" }
+    }
   }
 }

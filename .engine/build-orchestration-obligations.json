@@ -529,6 +529,30 @@
       "disposition": "prose",
       "owner": ".engine/operations/build-orchestration.md",
       "anchor": "one recommended call"
+    },
+    {
+      "id": "BO-66",
+      "intent": "A DAG worker result binds only to its claim's attempt id and base SHA; a stale or superseded attempt's result is rejected.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator_work.py",
+      "anchor": "test_result_binds_to_attempt_and_rejects_a_stale_attempt"
+    },
+    {
+      "id": "BO-67",
+      "intent": "Every work-verb write compare-and-swaps against the current snapshot revision; a stale write is refused, never silently merged.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_every_work_verb_rejects_a_stale_snapshot_revision"
+    },
+    {
+      "id": "BO-68",
+      "intent": "A DAG node completes only through an integration commit proven on the PR branch with recorded focused verification; a returned worker artifact is never completion by itself.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_no_completion_without_a_returned_result"
     }
   ]
 }

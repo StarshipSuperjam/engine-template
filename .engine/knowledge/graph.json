@@ -1730,6 +1730,7 @@
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
+          "operation:build-work-dispatch",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -1787,6 +1788,7 @@
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
+          "operation:build-work-dispatch",
           "operation:close-turn",
           "operation:codex-settings",
           "operation:codex-validation",
@@ -4194,7 +4196,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:380fa12106cdcf60baea66716f4437f776f396d3f985c134817b6e12e7877a56",
+        "fingerprint": "sha256:de80d5ed2d07531e0734ce3fa33bb9744772cf92b2a151a12df99595002991db",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -4373,7 +4375,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:e09c33de4242cd578ff29d4a8d1189d70983fed501c970149555b906b20b0adc",
+        "fingerprint": "sha256:a9fe8222b6942667466045e1482bf9a40f8058c58d9f0fab42f21a0775b4d5cd",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4624,7 +4626,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c83401fdf3dafe5191d177ac2f2968c2bd6f32ccb49a4ca09b7377ff9aecf723",
+        "fingerprint": "sha256:1e9c750c67c69bf6e9927cad3f1a062a852fb04714c50478d3d13c1c601cae79",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4666,6 +4668,26 @@
       "source": {
         "fingerprint": "sha256:b011c83aabbc49d3939f220fe9b45ad1d4bf4caad67af22aa2ccc957e4de67a2",
         "path": ".engine/operations/build-submission-evidence.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-work-dispatch",
+      "name": ".engine/operations/build-work-dispatch.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-work-dispatch",
+      "source": {
+        "fingerprint": "sha256:1a4c6c78de9cf396d4528edefa3effe87f7b0846427bcdd314f11197d62e2ef1",
+        "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
       "type": "operation"
@@ -5164,7 +5186,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:682e1ddc3c796491bf65f5ba1c308ec61182b8ddac5b0cb5321264b68ad38976",
+        "fingerprint": "sha256:4a85fd843d51617c11b45943810a2e8f2cdcd67453df63d5e2a2f75860336439",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -5372,7 +5394,7 @@
       },
       "slug": "model-bindings",
       "source": {
-        "fingerprint": "sha256:5c854044cea5598041ef3ee0d226d762029fd7fd53c98b2ebe3343d64500da5b",
+        "fingerprint": "sha256:1785f8f56a753a93d05adcd4012d2d3f162f6058069c0a82ee94e5f058db07f6",
         "path": ".engine/policies/model-bindings.json"
       },
       "status": "active",
@@ -5493,7 +5515,7 @@
       },
       "slug": "agent.v1",
       "source": {
-        "fingerprint": "sha256:4e2fa9e159253cae4cba7828f29872977fcd62c39076c64198f59d2e7d6ba347",
+        "fingerprint": "sha256:8e43799870c74bba8423d404bbe6bacc686202a5399c721e9c1f18f167860739",
         "path": ".engine/schemas/agent.v1.json"
       },
       "status": "active",
@@ -5568,6 +5590,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:build-handoff.v2",
+      "name": ".engine/schemas/build-handoff.v2.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-handoff.v2",
+      "source": {
+        "fingerprint": "sha256:726181752d742fba502bb36eff279743cd3ce5c19c6f1be8546661040bae0a1c",
+        "path": ".engine/schemas/build-handoff.v2.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:build-orchestration-obligations.v1",
       "name": ".engine/schemas/build-orchestration-obligations.v1.json",
       "owner": "core",
@@ -5602,6 +5641,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:build-plan.v2",
+      "name": ".engine/schemas/build-plan.v2.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-plan.v2",
+      "source": {
+        "fingerprint": "sha256:179db290d0c687dd146f4b6b2059d46469fb7d4ce9bddfde2b319a655fba5036",
+        "path": ".engine/schemas/build-plan.v2.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:build-protocol.v1",
       "name": ".engine/schemas/build-protocol.v1.json",
       "owner": "core",
@@ -5631,6 +5687,23 @@
       "source": {
         "fingerprint": "sha256:e9e79dbddedddfa87c811d8d758e430c1566aa97b5ae624632c471cc05ab9f10",
         "path": ".engine/schemas/build-state.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-state.v2",
+      "name": ".engine/schemas/build-state.v2.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-state.v2",
+      "source": {
+        "fingerprint": "sha256:53fcc874fba571e021de588dd5398e8a38c8f24690080ee9b8af970d205ecafa",
+        "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
       "type": "schema"
@@ -5918,7 +5991,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:83984976b40ea4f5a98aec2cb9ad19a90d334b00ed3d1ec524ab3ee0c758e010",
+        "fingerprint": "sha256:dfa780538855609bd2730264056da8b0bdf1452a376195a64e70cd3896baaa76",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -6547,7 +6620,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:754091408296779c880652baad7472e81750a9027e81d11bd90860ea985ca72a",
+        "fingerprint": "sha256:7aa0bacc759014cf6098df1bfeb832775eb9bb4974ac4109ad8087f63cc78a8f",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -6971,9 +7044,11 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:build_coordinator_dag",
           "tool:build_coordinator_github",
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
+          "tool:build_coordinator_work",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:validate",
@@ -6985,7 +7060,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:d89bd58185066c18eee4ec42ca3e71e5eb0ee33c1d565bba85870037e97e4bf9",
+        "fingerprint": "sha256:01bbe1a080cf492223ef41bdf30f287df80f04e47e9e58f3f04f3692ca752944",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -7005,11 +7080,34 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:815526a0be7228b9213ecbbff023cc7b41052695ff05c5de5070c3dc8471fb8e",
+        "fingerprint": "sha256:672dac61f87636b9b972004a1b7b51579d1ba1982e6d3a18924fad85b1f84fdd",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
       "summary": "Low-level, repository-local primitives for the Build coordinator.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_dag",
+      "name": ".engine/tools/build_coordinator_dag.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_dag",
+      "source": {
+        "fingerprint": "sha256:7d9f97080f0b092b09471d28201333c0c1b36d9e1e714e71dcf2f1222d1afc25",
+        "path": ".engine/tools/build_coordinator_dag.py"
+      },
+      "status": "active",
+      "summary": "Pure derivation over a (build-plan.v2, build-state.v2) pair for the Build coordinator.",
       "type": "tool"
     },
     {
@@ -7029,7 +7127,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:f329fc052617f977b4562eb0bc493f0895cf9afe0c430a9d85da84f16ecb7708",
+        "fingerprint": "sha256:7548782db07144068f179aa3445487e361bbdb46b8932e002cd530ef91a41afc",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -7105,6 +7203,30 @@
       },
       "status": "active",
       "summary": "Settled-specification and hard-check evidence services for Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_work",
+      "name": ".engine/tools/build_coordinator_work.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_dag"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_work",
+      "source": {
+        "fingerprint": "sha256:b0aa101a21827ef565275ad60685ea6a1fbc4e70af5d9979c128874a1de36d0c",
+        "path": ".engine/tools/build_coordinator_work.py"
+      },
+      "status": "active",
+      "summary": "Attempt machinery for the DAG Build coordinator: bounded packets, claims, results, routing.",
       "type": "tool"
     },
     {
@@ -7332,7 +7454,7 @@
       },
       "slug": "codex_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:b9290352fe9155a4b12ef1c1d18fd8578be2e7d3ecfb436fdcea20d10af3fd81",
+        "fingerprint": "sha256:fc6b7840f5f651f07d2a591c413ffb69f4f9237bfff3466af43e710a5f556a6e",
         "path": ".engine/tools/codex_agent_coherence_check.py"
       },
       "status": "active",
@@ -7355,7 +7477,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:66b48d102afca42830943e6320ae27e1d0d5c0112d64b1b8c838226d22d7146f",
+        "fingerprint": "sha256:66938cdff43b0168cf3df7a6e891872c7ddf0ba017bbd091fc9a8f07555c5caf",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -11555,7 +11677,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:b6f19bd557f7873fb94882ac41a8bd327732eb347bad34c92723bc514ceb7577",
+        "fingerprint": "sha256:c759837cd6227e2a12c038dfbd68a17b574dc3c5c46fa48a188d7b0a2e3e9d29",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -11579,7 +11701,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:e4d3649a79ccfa841ecadbb18f7f281bbed5371f9b23c9c4b71726fd3076b906",
+        "fingerprint": "sha256:c71cfef21fe6988c0705466fa537398ec475bce018a77e2900ebba9440182b4e",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -11937,12 +12059,13 @@
         ],
         "tests": [
           "tool:build_coordinator",
+          "tool:build_coordinator_github",
           "tool:spec_referent"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:4e3882929f7824d9878adc77e5a3e6c468c8df27cbddcc649c7ce3848bf74745",
+        "fingerprint": "sha256:0ecbbf954fabc6008fb897e2da0e6abe7b95196f2a728f8f6ef1fa9824c3440e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -11965,11 +12088,34 @@
       },
       "slug": "test_build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:f4dafcd642d3a91422cf8057c1a7b18790b6800a4bfea38b8e8808b772733e28",
+        "fingerprint": "sha256:4ef32e70c0038cc0a0faf50d8f3aab093e63058a72d7c93f0873060539f4303d",
         "path": ".engine/tools/test_build_coordinator_core.py"
       },
       "status": "active",
       "summary": "Focused tests for commit evidence and snapshot transactions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_dag",
+      "name": ".engine/tools/test_build_coordinator_dag.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_dag"
+        ]
+      },
+      "slug": "test_build_coordinator_dag",
+      "source": {
+        "fingerprint": "sha256:26502acc57f788b98f2c0ab052e5996b71ddfc43650c0c177d0f89629a0fcd65",
+        "path": ".engine/tools/test_build_coordinator_dag.py"
+      },
+      "status": "active",
+      "summary": "Pure-function tests for the DAG derivation and resource-admission service.",
       "type": "tool"
     },
     {
@@ -12014,7 +12160,7 @@
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:e6e996532b9ac442264578846f9209efb81815bf77a9d55f1868ed02c7a00162",
+        "fingerprint": "sha256:2250333c18418a625450f8b47b6849a573919980dfd6f483107116518704c3a8",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",
@@ -12044,6 +12190,33 @@
       },
       "status": "active",
       "summary": "Focused tests for review ordering, contracts, and disagreement evidence.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_work",
+      "name": ".engine/tools/test_build_coordinator_work.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_dag",
+          "tool:build_coordinator_github",
+          "tool:build_coordinator_work",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_coordinator_work",
+      "source": {
+        "fingerprint": "sha256:f6cde4b2956f6e353dbad64ddcff0eb01621d8e318ce86f6531af33cc5d98f85",
+        "path": ".engine/tools/test_build_coordinator_work.py"
+      },
+      "status": "active",
+      "summary": "Tests for the DAG work verbs: packets, claims, results, and provider routing.",
       "type": "tool"
     },
     {
@@ -12208,6 +12381,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:codex_agent_coherence_check",
           "tool:codex_gen",
           "tool:codex_skill_coherence_check",
           "tool:validate"
@@ -12215,7 +12389,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:9b42e5caccae3fbce2212f3e9d5b9cebe158159f770a7f9ec23e0f2560f939cc",
+        "fingerprint": "sha256:d02e5ae7b515273717608953185fd42f83b860080eb92085a8a98daf2f5fe8e9",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -15561,7 +15735,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:a9a5280b4c9648433940986e011ce5c108f551bd17d9aee72c6b217d2798a88f",
+        "fingerprint": "sha256:34e04ab728d477a7532def26a17c0aa4bd8c0eb5b2ccefa264dd03ed151d30d5",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

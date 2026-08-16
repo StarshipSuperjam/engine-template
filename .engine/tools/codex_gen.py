@@ -104,10 +104,27 @@ def _split_frontmatter(path: str):
     return fm, text[m.end():] if m else text
 
 
+def _impl_binding(cls: str, root: str | None) -> dict:
+    """The Codex-side {model, effort} for a worker class, from implementation_classes. A worker's model
+    is single-sourced here, not pinned in the persona: it is the ONE place a Codex worker model lives,
+    the same source the Claude side stamps from, so the two providers can never silently diverge."""
+    path = os.path.join(root or validate.ROOT, ".engine", "policies", "model-bindings.json")
+    bindings = validate.load_json(path)
+    provider = (bindings.get("implementation_classes", {}).get(cls) or {}).get("codex")
+    if not provider:
+        raise KeyError(f"no implementation_classes.{cls}.codex binding for a worker render")
+    return provider
+
+
 def _routing_lines(fm: dict) -> str:
     disallowed = fm.get("disallowedTools") or []
     if isinstance(disallowed, str):
         disallowed = [t.strip() for t in disallowed.split(",")]
+    if fm.get("role") == "worker":
+        return (f"Output contract: report your result on the {fm.get('output-contract')} shape.\n"
+                "Permissions: scoped write. You implement only within your node's declared paths and "
+                "return your work product to the orchestrator; you never push the PR branch, open a "
+                "pull request, or integrate — the orchestrator is the single writer.")
     lines = [f"Output contract: report every finding on the {fm.get('output-contract')} shape "
              f"(severity, message, location).",
              "Permissions floor: read-only. You review and report; you never edit files, commit, "
@@ -123,19 +140,29 @@ def render_agent(src_path: str, root: str | None = None) -> str:
     fm, body = _split_frontmatter(src_path)
     rel_src = os.path.relpath(src_path, root or validate.ROOT).replace(os.sep, "/")
     instructions = _routing_lines(fm) + "\n\n" + body.strip() + "\n"
-    # The reasoning effort is the one the bindings stamped into the persona's frontmatter (model-bindings.json
-    # -> agent_bindings render -> frontmatter), so both platforms read one rendered source; the tier map is a
-    # fallback for a persona not yet stamped. Codex still emits NO model — a pinned model id in a persona rots.
-    effort = fm.get("effort") or _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
-    return "\n".join([
+    lines = [
         _TOML_BANNER.format(src=rel_src),
         f"name = {json.dumps(fm.get('name'))}",
         f"description = {json.dumps(fm.get('description'))}",
-        'sandbox_mode = "read-only"',
-        f'model_reasoning_effort = "{effort}"',
-        f"developer_instructions = {json.dumps(instructions)}",
-        "",
-    ])
+    ]
+    if fm.get("role") == "worker":
+        # A dispatched worker renders an EXPLICIT per-provider model + effort (single-sourced from
+        # implementation_classes) and a write-capable sandbox — the eADR-0034 no-model rule is a
+        # REVIEWER-identity guard and does not apply to a worker that only writes its own node.
+        binding = _impl_binding(fm.get("implementation-class"), root)
+        lines += [
+            'sandbox_mode = "workspace-write"',
+            f"model = {json.dumps(binding['model'])}",
+            f'model_reasoning_effort = "{binding["effort"]}"',
+        ]
+    else:
+        # The reasoning effort is the one the bindings stamped into the persona's frontmatter
+        # (model-bindings.json -> agent_bindings render -> frontmatter); the tier map is a fallback for
+        # a persona not yet stamped. A reviewer render emits NO model — a pinned model id rots.
+        effort = fm.get("effort") or _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
+        lines += ['sandbox_mode = "read-only"', f'model_reasoning_effort = "{effort}"']
+    lines += [f"developer_instructions = {json.dumps(instructions)}", ""]
+    return "\n".join(lines)
 
 
 def render_skill(src_dir: str, root: str | None = None):

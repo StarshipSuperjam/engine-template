@@ -17,17 +17,32 @@ import time
 from typing import Any
 
 import build_coordinator_core as core
+import build_coordinator_dag as dag
 import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
+import build_coordinator_work as work
 import repo_identity
 import review_integrity
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
+BINDINGS_PATH = ROOT / ".engine" / "policies" / "model-bindings.json"
 PLAN_SCHEMA = ROOT / ".engine" / "schemas" / "build-plan.v1.json"
 STATE_SCHEMA = ROOT / ".engine" / "schemas" / "build-state.v1.json"
 HANDOFF_SCHEMA = ROOT / ".engine" / "schemas" / "build-handoff.v1.json"
+PLAN_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-plan.v2.json"
+STATE_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-state.v2.json"
+HANDOFF_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-handoff.v2.json"
+# schema_version -> the schema file that validates a document carrying it.
+PLAN_SCHEMAS = {"build-plan.v1": PLAN_SCHEMA, "build-plan.v2": PLAN_SCHEMA_V2}
+STATE_SCHEMAS = {"build-state.v1": STATE_SCHEMA, "build-state.v2": STATE_SCHEMA_V2}
+HANDOFF_SCHEMAS = {"build-handoff.v1": HANDOFF_SCHEMA, "build-handoff.v2": HANDOFF_SCHEMA_V2}
+# The Engine major at which the v1 Build reader is removed. Until then v1 stays readable and existing
+# v1 Builds run; new v1 binds are refused in deployed Engines (see cmd_plan_bind). A self-test fails
+# closed once the Engine major reaches this while the v1 reader still ships — the mechanical removal
+# trigger, so the legacy reader cannot become an indefinite disconnected artifact.
+PLAN_V1_REMOVE_AT_MAJOR = 1
 PLAN_BEGIN = "<!-- engine-build-plan:v1 "
 PLAN_END = "<!-- /engine-build-plan -->"
 HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
@@ -46,15 +61,26 @@ _canonical = core.canonical
 _digest = core.digest
 
 
+def _plan_version(plan: dict) -> str:
+    """The plan document's schema version, or v1 when unstated (the historical default)."""
+    return plan.get("schema_version", "build-plan.v1")
+
+
 def _plan(path: str) -> dict:
     try:
         value = json.loads(_input(path))
     except ValueError as exc:
         raise CoordinatorError(f"the Build plan is not valid JSON: {exc}") from exc
-    _validate(value, PLAN_SCHEMA)
+    version = _plan_version(value)
+    schema = PLAN_SCHEMAS.get(version)
+    if schema is None:
+        raise CoordinatorError(f"unrecognized Build plan version {version!r}; expected build-plan.v1 or build-plan.v2")
+    _validate(value, schema)
     ids = [item["id"] for item in value["work_items"]]
     if len(ids) != len(set(ids)):
         raise CoordinatorError("Build plan work-item ids must be unique")
+    if version == "build-plan.v2":
+        dag.validate_dag(value)
     return value
 
 
@@ -130,9 +156,18 @@ def _verify_draft(repo: str, pr: int) -> dict:
     return github.verify_draft(ROOT, repo, pr)
 
 
+def _state_schema_for(state: dict) -> Path:
+    """Select the snapshot schema from the document's own version (defaulting to v1)."""
+    version = state.get("schema_version", "build-state.v1")
+    schema = STATE_SCHEMAS.get(version)
+    if schema is None:
+        raise CoordinatorError(f"unrecognized Build snapshot version {version!r}")
+    return schema
+
+
 class StateStore(core.StateStore):
     def __init__(self, path: str, expected_revision: int | None = None):
-        super().__init__(path, STATE_SCHEMA, expected_revision)
+        super().__init__(path, _state_schema_for, expected_revision)
 
 
 def _empty_review() -> dict:
@@ -143,7 +178,7 @@ def _empty_review() -> dict:
 
 def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
                    mode: str = "same-session") -> dict:
-    return {
+    state = {
         "schema_version": "build-state.v1", "revision": 1,
         "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode},
         "plan": {"source": source, "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
@@ -155,6 +190,10 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
+    if _plan_version(plan) == "build-plan.v2":
+        state["schema_version"] = "build-state.v2"
+        state["work"] = {}
+    return state
 
 
 def _assert_plan(state: dict, plan: dict) -> None:
@@ -176,16 +215,16 @@ def _replace_plan_block(body: str, plan: dict) -> str:
 
 
 def _durable_plan(body: str) -> dict:
-    return github.durable_plan(body, plan_schema=PLAN_SCHEMA)
+    return github.durable_plan(body, plan_schema=PLAN_SCHEMAS)
 
 
 def _publish_issue(repo: str, issue: int, plan: dict) -> None:
-    github.publish_issue(ROOT, repo, issue, plan, plan_schema=PLAN_SCHEMA)
+    github.publish_issue(ROOT, repo, issue, plan, plan_schema=PLAN_SCHEMAS)
 
 
 def _create_build_issue(repo: str, pr: int, title: str, plan: dict, nonce: str) -> int:
     return github.create_or_resume_build_issue(
-        ROOT, repo, pr, title, plan, nonce, plan_schema=PLAN_SCHEMA,
+        ROOT, repo, pr, title, plan, nonce, plan_schema=PLAN_SCHEMAS,
     )
 
 
@@ -243,6 +282,54 @@ def _trivial_violations(state: dict, plan: dict) -> list[str]:
     if commit_count > 1:
         violations.append(f"the Build has {commit_count} commits, not the one-commit fast path")
     return violations
+
+
+def _next_incomplete(plan: dict, state: dict) -> str | None:
+    """The single next work item the linear v1 order or the v2 DAG readiness would advance.
+
+    v1 keeps its byte-identical linear scan; a v2 plan derives the next item from the graph's READY
+    set, so status and checkpoint read one shared derivation rather than duplicating the scan.
+    Deliberately ready_set, not claimable_set: a checkpoint records completion and reserves no worker
+    slot, so a busy slot or a resource hold (which claimable_set subtracts) must not change which item
+    is "next" to advance — only dependency readiness does.
+    """
+    if _plan_version(plan) == "build-plan.v2":
+        ready = dag.ready_set(plan, state)
+        return ready[0] if ready else None
+    ordered = [item["id"] for item in plan["work_items"]]
+    completed = {item["id"] for item in state["progress"]["completed"]}
+    return next((item for item in ordered if item not in completed), None)
+
+
+def _work_projection(plan: dict, state: dict) -> dict:
+    """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
+    lifecycle = dag.derive_lifecycle(plan, state)
+    parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
+    nodes = {}
+    for node_id, node in lifecycle.items():
+        nw = (state.get("work") or {}).get(node_id) or {}
+        claim = nw.get("claim") or {}
+        integration = nw.get("integration") or {}
+        result = nw.get("latest_result") or {}
+        failure = nw.get("latest_failure") or {}
+        nodes[node_id] = {
+            "state": node["state"], "reasons": node["reasons"],
+            "attempt_count": nw.get("attempt_count", 0),
+            "route": claim.get("requested_route"),
+            "integration_commit": integration.get("commit"),
+            "focused_verification": integration.get("focused_verification"),
+            "artifact_digest": result.get("artifact_digest"),
+            "failure": {"class": failure.get("class"), "disposition": failure.get("disposition"),
+                        "reason": failure.get("reason")} if failure else None,
+        }
+    return {
+        "ready": dag.ready_set(plan, state),
+        "claimable": dag.claimable_set(plan, state),
+        "slots_in_use": dag.slots_in_use(plan, state),
+        "max_concurrency": parallelism.get("max_concurrency", 1),
+        "resource_holders": dag.resource_holders(plan, state),
+        "nodes": nodes,
+    }
 
 
 def _status(state: dict, plan: dict | None = None) -> dict:
@@ -352,17 +439,46 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         phase, next_one, available = "ready", "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
     completed_items = [item["id"] for item in state["progress"]["completed"]]
-    next_item = next((item for item in ordered_items if item not in completed_items), None)
-    return {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
-            "required_evidence": required_evidence, "engineering_judgment": judgments,
-            "warnings": warnings, "suggested_next": next_one, "available_activities": available,
-            "progress": {"completed": completed_items, "total": len(ordered_items),
-                         "current": state["progress"]["current_item"], "next": next_item}}
+    next_item = _next_incomplete(plan, state) if plan else None
+    result = {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
+              "required_evidence": required_evidence, "engineering_judgment": judgments,
+              "warnings": warnings, "suggested_next": next_one, "available_activities": available,
+              "progress": {"completed": completed_items, "total": len(ordered_items),
+                           "current": state["progress"]["current_item"], "next": next_item}}
+    if plan is not None and state.get("schema_version") == "build-state.v2":
+        result["work"] = _work_projection(plan, state)
+    return result
+
+
+def _confidently_home() -> bool:
+    """True only when this checkout can be CONFIDENTLY placed as the Engine's own home repo.
+
+    is_home_repo fails TOWARD home when the origin or manifest cannot be read — the safe direction for
+    a check that RUNS, but the wrong direction for a governance carve-out whose quiet verdict SKIPS a
+    refusal. So this requires both the on-disk origin and the recorded home to be readable AND equal;
+    an unreadable or malformed either side is NOT confidently home, so the v1-bind refusal fails toward
+    enforcing rather than being silently bypassed in a deployed repo.
+    """
+    own = repo_identity.origin_slug(str(ROOT))
+    try:
+        home = repo_identity.home_repository(str(ROOT))
+    except Exception:  # noqa: BLE001 — a malformed manifest cannot confirm home; not confidently home
+        home = None
+    return own is not None and home is not None and repo_identity.slug_eq(own, home)
 
 
 def cmd_plan_bind(args, store: StateStore) -> None:
     plan = _plan(args.input)
     mode = getattr(args, "mode", "same-session")
+    # Once build-plan.v2 exists, a deployed Engine refuses a NEW session-sourced v1 bind and directs
+    # the operator to migrate. An issue-sourced bind is the exempt path: it resumes an in-flight v1
+    # Build from its durable Issue plan. The refusal no-ops ONLY in the Engine's own home repo, where
+    # v1 is still dogfooded to build v2; an uncertain checkout fails toward enforcing the refusal.
+    if _plan_version(plan) == "build-plan.v1" and args.source == "session" and not _confidently_home():
+        raise CoordinatorError(
+            "new session-sourced build-plan.v1 binds are refused now that build-plan.v2 is available; "
+            "migrate this plan with 'plan migrate-v1' or resume an existing v1 Build from its durable "
+            "Issue with --source issue")
     if mode == "unattended" and args.source != "issue":
         raise CoordinatorError("unattended Builds require an exact durable Issue plan")
     if plan["profile"] == "trivial" and (mode != "same-session" or args.source != "session"):
@@ -379,9 +495,75 @@ def cmd_plan_bind(args, store: StateStore) -> None:
         durable = _durable_plan(_issue_body(args.repository, issue))
         if _digest(durable) != _digest(plan):
             raise CoordinatorError("supplied plan does not match the durable Issue plan")
+        # The v1 Issue carve-out resumes an IN-FLIGHT Build, so it demands pre-existing continuation
+        # evidence, not just marker text: a freshly authored Issue can carry a v1 plan block, but only
+        # a Build that actually ran has published its v1 handoff into the PR contract. The evidence
+        # must be a WELL-FORMED handoff block whose digest matches its content (the same bar restore
+        # holds it to) — a quoted marker fragment in prose is not evidence. Without it, a deployed
+        # Engine treats the bind as a new v1 Build and refuses toward migration.
+        if _plan_version(plan) == "build-plan.v1" and not _confidently_home():
+            block = github.find_handoff_block(pr.get("body") or "", "v1")
+            valid = False
+            if block:
+                digest, rendered = block
+                try:
+                    valid = _digest(json.loads(rendered)) == digest
+                except ValueError:
+                    valid = False
+            if not valid:
+                raise CoordinatorError(
+                    "a v1 Issue re-bind resumes an in-flight Build, so the draft PR must already carry "
+                    "published v1 handoff evidence; new Builds use build-plan.v2 — migrate this plan "
+                    "with 'plan migrate-v1'")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue, mode)
     store.create(state)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
+
+
+def _migrate_v1_to_v2(v1: dict) -> dict:
+    """Transform a v1 plan into a v2 linear-chain DAG, preserving item order.
+
+    Each item depends on its predecessor (the linear chain reproduces v1's array-order execution),
+    every node is integrator-executed with a default output contract, and the plan is serial. The
+    result has a NEW digest, so it requires renewed approval and affected review — the migration is
+    never a silent receipt-preserving rename.
+    """
+    items = v1["work_items"]
+    migrated = []
+    for index, item in enumerate(items):
+        migrated.append({
+            "id": item["id"], "description": item["description"], "paths": item["paths"],
+            "verification": item["verification"],
+            "depends_on": [items[index - 1]["id"]] if index else [],
+            "exclusive_resources": [],
+            "executor_class": "integrator",
+            "output_contract": {"deliverable": item["description"],
+                                "artifact_kinds": ["integrated-commit"],
+                                "required_evidence": ["changed_paths", "verification_results"]},
+        })
+    v2 = {k: v for k, v in v1.items() if k != "work_items"}
+    v2["schema_version"] = "build-plan.v2"
+    v2["work_items"] = migrated
+    v2["parallelism"] = {"mode": "serial", "max_concurrency": 1}
+    return v2
+
+
+def cmd_plan_migrate_v1(args, store: StateStore | None) -> None:
+    v1 = _plan(args.input)
+    if _plan_version(v1) != "build-plan.v1":
+        raise CoordinatorError("plan migrate-v1 requires a build-plan.v1 document")
+    v2 = _migrate_v1_to_v2(v1)
+    _validate(v2, PLAN_SCHEMA_V2)
+    dag.validate_dag(v2)
+    rendered = json.dumps(v2, indent=2, sort_keys=True) + "\n"
+    if args.output and args.output != "-":
+        Path(args.output).write_text(rendered, encoding="utf-8")
+        target = args.output
+    else:
+        sys.stdout.write(rendered)
+        target = "stdout"
+    print(f"migrated to build-plan.v2 ({_digest(v2)}) at {target}; the new digest requires renewed "
+          f"operator approval and affected review before it can be bound", file=sys.stderr)
 
 
 def cmd_plan_promote(args, store: StateStore) -> None:
@@ -418,6 +600,8 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
     state["findings"] = []
     state["progress"] = {"current_item": None, "completed": []}
+    if "work" in state:
+        state["work"] = {}
     state["checkpoint"] = state["validation"] = state["repair"] = state["pr_contract"] = None
     state["preflights"] = []
     state["checkout_snapshot"] = None
@@ -489,6 +673,33 @@ def cmd_status(args, store: StateStore) -> None:
         print("Available activities (unordered):")
         for value in result["available_activities"]:
             print(f"  - {value}")
+    if "work" in result:
+        w = result["work"]
+        print(f"Work graph: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
+        print("  ready (unordered): " + (", ".join(w["ready"]) or "none"))
+        print("  claimable now: " + (", ".join(w["claimable"]) or "none"))
+        for node_id in sorted(w["nodes"]):
+            node = w["nodes"][node_id]
+            line = f"  {node_id}: {node['state']} (attempt {node['attempt_count']})"
+            if node["reasons"]:
+                line += " — " + "; ".join(node["reasons"])
+            route = node.get("route")
+            if node["state"] == "claimed" and route:
+                line += f" [route {route.get('provider')}/{route.get('model')}]"
+            if node["state"] == "complete" and node.get("integration_commit"):
+                line += f" [integrated {node['integration_commit'][:12]}]"
+            failure = node.get("failure")
+            if failure and failure.get("reason"):
+                # The reason is untrusted free text (a worker's self-report or a pasted trace):
+                # collapse it to one bounded line so the per-node render stays legible; the full
+                # text is always available via --json.
+                reason = " ".join(str(failure["reason"]).split())
+                if len(reason) > 160:
+                    reason = reason[:157] + "..."
+                line += f" [failure: {reason}]"
+            print(line)
+        if w["resource_holders"]:
+            print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
 
 
 def _write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
@@ -788,17 +999,19 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         items = {item["id"]: item for item in plan["work_items"]}
         if note["work_item"] not in items:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
-        ordered = [item["id"] for item in plan["work_items"]]
         completed = {item["id"] for item in state["progress"]["completed"]}
-        next_item = next((item for item in ordered if item not in completed), None)
+        next_item = _next_incomplete(plan, state)
+        # v1 keeps its exact historical wording; a v2 graph's "next" is dependency READINESS, so the
+        # refusal names the same concept the operation doc and status render use.
+        noun = "ready" if _plan_version(plan) == "build-plan.v2" else "incomplete"
         if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
-            raise CoordinatorError(f"Routine must advance the next incomplete work item {next_item}")
+            raise CoordinatorError(f"Routine must advance the next {noun} work item {next_item}")
         if args.complete_item:
             if args.complete_item not in items:
                 raise CoordinatorError(f"completed work item {args.complete_item} is not in the approved plan")
             if args.complete_item not in completed:
                 if plan["profile"] == "routine" and args.complete_item != next_item:
-                    raise CoordinatorError(f"Routine must complete the next incomplete work item {next_item}")
+                    raise CoordinatorError(f"Routine must complete the next {noun} work item {next_item}")
                 state["progress"]["completed"].append({"id": args.complete_item, "commit": _head()})
                 completed.add(args.complete_item)
         state["progress"]["current_item"] = note["work_item"]
@@ -950,6 +1163,42 @@ def cmd_preflight(args, store: StateStore) -> None:
                                "mutated the build checkout: " + ci_summary)
 
 
+def _bounded_work(work_map: dict) -> dict:
+    """The BOUNDED work projection for a durable handoff, published into the PR body.
+
+    Identifiers, digests, outcomes, and repo-relative changed paths travel — they are what a cold
+    resume needs to re-derive every node's state. Local filesystem paths and unreviewed worker
+    free-text (verification output, assumptions, concerns, failure reasons) are redacted with the
+    same discipline the repair rationale and finding summaries already get: the PR body is a public
+    surface, and evidence prose reaches it only through an explicitly reviewed summary.
+    """
+    redacted = "redacted from durable handoff"
+    bounded = {}
+    for node_id, nw in (work_map or {}).items():
+        nw = json.loads(json.dumps(nw))
+        claim = nw.get("claim")
+        if claim:
+            claim["worktree"] = redacted
+        result = nw.get("latest_result")
+        if result:
+            if result.get("artifact_ref"):
+                result["artifact_ref"] = redacted
+            evidence = result.get("evidence") or {}
+            for key in ("verification_results", "assumptions", "unresolved_concerns"):
+                if evidence.get(key):
+                    evidence[key] = [redacted]
+        failure = nw.get("latest_failure")
+        if failure and failure.get("reason"):
+            failure["reason"] = redacted
+        integration = nw.get("integration")
+        if integration and integration.get("focused_verification"):
+            # Also free text (typed at `work integrate`); like the repair rationale, it reaches the
+            # PR body only through an explicitly authored summary, never verbatim.
+            integration["focused_verification"] = redacted
+        bounded[node_id] = nw
+    return bounded
+
+
 def _handoff(state: dict) -> dict:
     if state["plan"]["source"] != "issue" or not state["plan"]["durable_issue"]:
         raise CoordinatorError("promote the exact plan to a suitable Issue before cold-session handoff")
@@ -972,11 +1221,15 @@ def _handoff(state: dict) -> dict:
     }
     repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
     preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
-    value = {"schema_version": "build-handoff.v1", "build": state["build"], "plan": state["plan"],
+    is_v2 = state.get("schema_version") == "build-state.v2"
+    value = {"schema_version": "build-handoff.v2" if is_v2 else "build-handoff.v1",
+             "build": state["build"], "plan": state["plan"],
              "approval": state["approval"], "reviews": state["reviews"], "finding_summaries": summaries,
              "progress": state["progress"], "validation": validation, "repair": repair, "preflights": preflights,
              "pr_contract": state["pr_contract"]}
-    _validate(value, HANDOFF_SCHEMA)
+    if is_v2:
+        value["work"] = _bounded_work(state.get("work", {}))
+    _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
     return value
 
 
@@ -1036,24 +1289,67 @@ def _restore_repair(repair: dict | None) -> dict | None:
     return {**repair, "rationale": "private rationale redacted from durable handoff"}
 
 
+def _restore_base_state(value: dict, schema_version: str) -> dict:
+    return {"schema_version": schema_version, "revision": 1, "build": value["build"], "plan": value["plan"],
+            "approval": value["approval"], "reviews": value["reviews"],
+            "findings": [{"id": f["id"], "stage": f["stage"], "lens": f["lens"], "packet_digest": f["packet_digest"],
+                          "lens_packet_digest": f["lens_packet_digest"],
+                          "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
+                          "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
+                          "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
+                          "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
+                         for f in value["finding_summaries"]],
+            "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
+            "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
+            "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None}
+
+
+def _restore_work(work_map: dict) -> dict:
+    """Reconstruct the per-node work map, marking any genuinely unfinished claim as restored.
+
+    A claim present without an integration is uncertain after a cold resume, so it derives
+    recovery_required and is never treated as still-running or auto-expired. A claim whose attempt
+    already has a bound RETURNED result is not uncertain — the worker finished and the node awaits
+    integrator inspection exactly as before the handoff, so it keeps deriving returned rather than
+    masking complete evidence behind a recovery flag.
+    """
+    restored = {}
+    for node_id, nw in (work_map or {}).items():
+        nw = dict(nw)
+        claim = nw.get("claim")
+        if claim and not nw.get("integration"):
+            result = nw.get("latest_result")
+            returned = bool(result and result.get("outcome") == "returned"
+                            and result.get("attempt_id") == claim.get("attempt_id"))
+            if not returned:
+                claim = dict(claim)
+                claim["restored"] = True
+                nw["claim"] = claim
+        restored[node_id] = nw
+    return restored
+
+
 def cmd_handoff_restore(args, store: StateStore) -> None:
     if args.input:
         rendered = _input(args.input)
+        value = json.loads(rendered)
     else:
         if not args.repository or not args.pr:
             raise CoordinatorError("restore needs --input or both --repository and --pr")
         body = _gh_json(["pr", "view", str(args.pr), "--repo", args.repository, "--json", "body"]).get("body") or ""
-        pattern = re.compile(re.escape(HANDOFF_BEGIN) + r"(sha256:[0-9a-f]{64}) -->\n```json\n(.*?)\n```\n" + re.escape(HANDOFF_END), re.DOTALL)
-        matches = list(pattern.finditer(body))
-        if len(matches) != 1:
-            raise CoordinatorError("PR contract has no unique engine-build-handoff:v1 block")
-        rendered = matches[0].group(2)
-        if _digest(json.loads(rendered)) != matches[0].group(1):
+        present = [(block, sv) for block, sv in
+                   ((github.find_handoff_block(body, "v1"), "build-handoff.v1"),
+                    (github.find_handoff_block(body, "v2"), "build-handoff.v2")) if block]
+        if len(present) != 1:
+            raise CoordinatorError("PR contract has no unique engine-build-handoff block")
+        (digest, rendered), _sv = present[0]
+        if _digest(json.loads(rendered)) != digest:
             raise CoordinatorError("PR handoff content does not match its marker digest")
-    value = json.loads(rendered)
-    if value.get("schema_version") != "build-handoff.v1":
+        value = json.loads(rendered)
+    version = value.get("schema_version")
+    if version not in ("build-handoff.v1", "build-handoff.v2"):
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
-    _validate(value, HANDOFF_SCHEMA)
+    _validate(value, HANDOFF_SCHEMA_V2 if version == "build-handoff.v2" else HANDOFF_SCHEMA)
     repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
     if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):
         raise CoordinatorError("handoff repository does not match the selected repository")
@@ -1073,18 +1369,11 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
     plan = _durable_plan(_issue_body(repo, issue))
     if _digest(plan) != value["plan"]["digest"]:
         raise CoordinatorError("durable plan is missing or changed; cold continuation is blocked")
-    state = {"schema_version": "build-state.v1", "revision": 1, "build": value["build"], "plan": value["plan"],
-             "approval": value["approval"], "reviews": value["reviews"],
-             "findings": [{"id": f["id"], "stage": f["stage"], "lens": f["lens"], "packet_digest": f["packet_digest"],
-                           "lens_packet_digest": f["lens_packet_digest"],
-                           "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
-                           "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
-                           "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
-                           "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
-                          for f in value["finding_summaries"]],
-             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
-             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
-             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None}
+    if version == "build-handoff.v2":
+        state = _restore_base_state(value, "build-state.v2")
+        state["work"] = _restore_work(value.get("work", {}))
+    else:
+        state = _restore_base_state(value, "build-state.v1")
     store.create(state)
     print(f"restored Build snapshot from durable Issue #{issue}")
 
@@ -1196,6 +1485,236 @@ def cmd_submit_apply(args, store: StateStore) -> None:
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
 
 
+def _bindings() -> dict:
+    return _json(BINDINGS_PATH)
+
+
+def _work_mutate(store: StateStore, change) -> Any:
+    """Every work verb reads the current revision and mutates under an explicit compare-and-swap.
+
+    A shared helper so no work verb repeats the legacy pattern of mutating without a from_revision;
+    a concurrent snapshot advance rejects the write rather than silently overwriting a sibling claim.
+    """
+    state = store.read()
+    return store.mutate(change, from_revision=state["revision"])
+
+
+def _require_dag_plan(plan: dict) -> None:
+    if _plan_version(plan) != "build-plan.v2":
+        raise CoordinatorError("work verbs require a build-plan.v2 Build")
+
+
+def _node_work(state: dict, node_id: str) -> dict:
+    # A v1 snapshot has no work map at all: name the actual cause (wrong plan generation), matching
+    # the refusal the packet/claim/result verbs give, instead of a misleading "no recorded work".
+    if "work" not in state:
+        raise CoordinatorError("work verbs require a build-plan.v2 Build")
+    nw = (state.get("work") or {}).get(node_id)
+    if not nw:
+        raise CoordinatorError(f"work item {node_id} has no recorded work")
+    return nw
+
+
+def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> str:
+    """The specific reason a ready-or-not node is not claimable, so the refusal is actionable."""
+    st = node.get("state")
+    if st != dag.READY:
+        reasons = "; ".join(node.get("reasons") or [])
+        return f"it is {st}" + (f" ({reasons})" if reasons else "")
+    max_concurrency = plan.get("parallelism", {}).get("max_concurrency", 1)
+    if dag.slots_in_use(plan, state) >= max_concurrency:
+        return f"all {max_concurrency} worker slot(s) are in use — free one by integrating, rejecting, or abandoning a claim"
+    item = work.node_item(plan, node_id)
+    for holder_id, held in dag.resource_holders(plan, state).items():
+        if holder_id != node_id and dag.resources_conflict(item, held):
+            return f"its paths or resources conflict with node {holder_id}, which currently holds them"
+    return "admission is currently blocked"
+
+
+def cmd_work_packet(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    state = store.read()
+    # The preview enforces the same plan-digest bar the claim does, so a stale --plan file fails
+    # HERE with the digest-mismatch message rather than previewing clean and surprising the claim.
+    _assert_plan(state, plan)
+    item = work.node_item(plan, args.item)
+    route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
+    packet = work.build_packet(plan, state, args.item, route, _head(), "preview", args.worktree or "<worktree>")
+    node = dag.derive_lifecycle(plan, state).get(args.item, {})
+    # A preview says nothing about the digest; it reports whether a claim would actually succeed now
+    # — INCLUDING the approval gate a claim checks first — so a clean preview is never followed by a
+    # surprise refusal.
+    approved = bool(state["approval"])
+    claimable = approved and args.item in dag.claimable_set(plan, state)
+    if claimable:
+        refusal = None
+    elif not approved:
+        refusal = "the Build gate is not approved"
+    else:
+        refusal = _claim_refusal_reason(plan, state, args.item, node)
+    packet["preview"] = {"state": node.get("state"), "reasons": node.get("reasons", []),
+                         "claimable_now": claimable, "refusal_reason": refusal}
+    print(json.dumps(packet))
+
+
+def cmd_work_claim(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    item = work.node_item(plan, args.item)
+    route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
+    base_sha = _head()
+    attempt_id = work.new_attempt_id()
+    emitted: dict = {}
+
+    def change(state):
+        _assert_plan(state, plan)
+        if not state["approval"]:
+            raise CoordinatorError("the Build gate is not approved")
+        if args.item not in dag.claimable_set(plan, state):
+            node = dag.derive_lifecycle(plan, state).get(args.item, {})
+            raise CoordinatorError(
+                f"work item {args.item} is not claimable now: {_claim_refusal_reason(plan, state, args.item, node)}")
+        nw = state["work"].get(args.item) or work.empty_node()
+        # An integrator-inline retry disposition is honored HERE: the next attempt runs inline in the
+        # current senior session and is never re-dispatched, whatever the node's executor class.
+        effective_route = route
+        if (nw.get("latest_failure") or {}).get("disposition") == dag.DISP_INLINE:
+            effective_route = {**route, "model": "inherit", "effort": "inherit", "inline": True}
+        nw["attempt_count"] = nw.get("attempt_count", 0) + 1
+        nw["claim"] = work.new_claim(attempt_id, base_sha, args.worktree,
+                                     item.get("exclusive_resources", []), effective_route)
+        nw["latest_result"] = None
+        nw["latest_failure"] = None
+        state["work"][args.item] = nw
+        emitted["packet"] = work.build_packet(plan, state, args.item, effective_route, base_sha, attempt_id, args.worktree)
+
+    _work_mutate(store, change)
+    print(json.dumps(emitted["packet"]))
+
+
+def cmd_work_attach(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        if not claim:
+            raise CoordinatorError(f"work item {args.item} has no active claim")
+        if claim["attempt_id"] != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} does not match the active claim {claim['attempt_id']}")
+        claim["worker_ref"] = args.worker_ref
+
+    _work_mutate(store, change)
+    print(f"attached worker reference to {args.item} attempt {args.attempt}")
+
+
+def cmd_work_result(args, store: StateStore) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    item = work.node_item(plan, args.item)
+    try:
+        payload = json.loads(_input(args.input))
+    except ValueError as exc:
+        raise CoordinatorError(f"work result input is not JSON: {exc}") from exc
+    base_sha = payload.get("base_sha")
+    if not base_sha:
+        raise CoordinatorError("work result must report the base_sha the worker built from")
+
+    def change(state):
+        _assert_plan(state, plan)
+        nw = _node_work(state, args.item)
+        result = work.bind_result(nw, item, args.attempt, base_sha, payload)
+        nw["latest_result"] = result
+        if result["outcome"] == "failed":
+            nw["latest_failure"] = work.failure_record(
+                args.attempt, payload.get("class", "worker"),
+                payload.get("reason", "worker reported a failure"))
+        else:
+            # A returned result supersedes any open failure for this attempt, so the node never
+            # derives as failed while holding a complete, contract-satisfying returned result.
+            nw["latest_failure"] = None
+
+    _work_mutate(store, change)
+    print(f"recorded {args.item} result for attempt {args.attempt}")
+
+
+def _commit_on_branch(commit: str) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return False
+    return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
+
+
+def cmd_work_reject(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        result = nw.get("latest_result")
+        attempt = claim["attempt_id"] if claim else (result or {}).get("attempt_id")
+        if attempt != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
+        nw["latest_failure"] = work.failure_record(args.attempt, args.rejection_class, args.reason, dag.DISP_OPEN)
+        nw["claim"] = None  # rejection releases the reserved resources
+
+    _work_mutate(store, change)
+    print(f"rejected {args.item} attempt {args.attempt} ({args.rejection_class}); resources released")
+
+
+def cmd_work_retry(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        failure = nw.get("latest_failure")
+        # An open failure awaits its first disposition; an abandoned node is reopened by exactly this
+        # verb — the deliberate fresh start its blocked-state reason promises. Any other disposition
+        # has no pending decision to take.
+        if not failure or failure.get("disposition") not in (dag.DISP_OPEN, dag.DISP_ABANDONED):
+            raise CoordinatorError(f"work item {args.item} has no failure awaiting a retry decision")
+        disposition = dag.DISP_INLINE if args.strategy == "integrator-inline" else dag.DISP_RETRY
+        failure["disposition"] = disposition
+        nw["claim"] = None  # a fresh attempt id is minted on the next claim; attempt_count increments there
+
+    _work_mutate(store, change)
+    consequence = ("the next claim will run integrator-inline in the current session"
+                   if args.strategy == "integrator-inline" else "the next claim mints a fresh attempt")
+    print(f"retry recorded for {args.item} via {args.strategy} ({consequence}): {args.reason}")
+
+
+def cmd_work_abandon(args, store: StateStore) -> None:
+    def change(state):
+        nw = _node_work(state, args.item)
+        claim = nw.get("claim")
+        failure = nw.get("latest_failure")
+        attempt = (claim or {}).get("attempt_id") or (failure or {}).get("attempt_id")
+        if attempt != args.attempt:
+            raise CoordinatorError(f"attempt {args.attempt} is not the node's current attempt ({attempt})")
+        nw["latest_failure"] = work.failure_record(args.attempt, (failure or {}).get("class", "worker"),
+                                                   args.reason, dag.DISP_ABANDONED)
+        nw["claim"] = None  # abandonment releases the reserved resources
+
+    _work_mutate(store, change)
+    print(f"abandoned {args.item} attempt {args.attempt}; resources released")
+
+
+def cmd_work_integrate(args, store: StateStore) -> None:
+    if not args.verification_input.strip():
+        raise CoordinatorError("integration requires a focused-verification summary")
+    if not _commit_on_branch(args.commit):
+        raise CoordinatorError(f"integration commit {args.commit} is not on the PR branch")
+
+    def change(state):
+        nw = _node_work(state, args.item)
+        result = nw.get("latest_result")
+        if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
+            raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
+        nw["integration"] = {"attempt_id": args.attempt, "commit": args.commit,
+                             "focused_verification": args.verification_input.strip()}
+        nw["claim"] = None  # integration releases the reserved resources
+        completed = {entry["id"] for entry in state["progress"]["completed"]}
+        if args.item not in completed:
+            state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
+
+    _work_mutate(store, change)
+    print(f"integrated {args.item} at {args.commit}; focused verification recorded")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1205,6 +1724,7 @@ def parser() -> argparse.ArgumentParser:
     bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
     promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); destination = promote.add_mutually_exclusive_group(required=True); destination.add_argument("--issue", type=int); destination.add_argument("--create-issue"); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
+    migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
@@ -1224,6 +1744,15 @@ def parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
+    work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
+    wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
+    wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
+    wattach = work_p.add_parser("attach"); wattach.add_argument("--item", required=True); wattach.add_argument("--attempt", required=True); wattach.add_argument("--worker-ref", required=True); wattach.set_defaults(func=cmd_work_attach)
+    wresult = work_p.add_parser("result"); wresult.add_argument("--item", required=True); wresult.add_argument("--attempt", required=True); wresult.add_argument("--plan", required=True); wresult.add_argument("--input", required=True); wresult.set_defaults(func=cmd_work_result)
+    wreject = work_p.add_parser("reject"); wreject.add_argument("--item", required=True); wreject.add_argument("--attempt", required=True); wreject.add_argument("--class", dest="rejection_class", choices=["dispatch", "worker", "contract", "verification", "integration"], required=True); wreject.add_argument("--reason", required=True); wreject.set_defaults(func=cmd_work_reject)
+    wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
+    wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
+    wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.set_defaults(func=cmd_work_integrate)
     return p
 
 
@@ -1231,11 +1760,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
-        if not args.state and not standalone:
+        stateless = args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1"
+        if not args.state and not standalone and not stateless:
             raise CoordinatorError("--state is required for this command")
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        store = None if standalone else StateStore(args.state, args.expect_revision)
+        store = None if (standalone or stateless) else StateStore(args.state, args.expect_revision)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

@@ -188,5 +188,27 @@ class TestRealPersonasInSync(unittest.TestCase):
         self.assertEqual(ab.check(), [])
 
 
+class TestWorkerBinding(unittest.TestCase):
+    def _bindings(self):
+        return {"tiers": {"judgment": {"model": "opus", "effort": "high"},
+                          "mechanical": {"model": "haiku", "effort": "low"}},
+                "implementation_classes": {
+                    "builder": {"claude": {"model": "sonnet", "effort": "medium"},
+                                "codex": {"model": "gpt-5.6-terra", "effort": "medium"}}}}
+
+    def test_worker_resolves_through_implementation_class_not_tier(self):
+        fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "builder"}
+        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "sonnet", "effort": "medium"})
+
+    def test_reviewer_still_resolves_through_tier(self):
+        fm = {"name": "engine-review-x", "role": "plan-review", "model-tier": "judgment"}
+        self.assertEqual(ab._binding_for(fm, self._bindings()), {"model": "opus", "effort": "high"})
+
+    def test_worker_with_no_binding_raises(self):
+        fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "ghost"}
+        with self.assertRaises(KeyError):
+            ab._binding_for(fm, self._bindings())
+
+
 if __name__ == "__main__":
     unittest.main()

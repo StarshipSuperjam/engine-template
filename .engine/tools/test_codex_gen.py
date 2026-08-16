@@ -16,6 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import codex_gen   # noqa: E402
+import codex_agent_coherence_check as cac   # noqa: E402
 import validate    # noqa: E402
 
 
@@ -65,6 +66,85 @@ class _FixtureTree(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
+
+
+WORKER_SRC = """---
+name: engine-worker-widget
+description: Builds widgets.
+role: worker
+implementation-class: builder
+model: sonnet
+effort: medium
+permissions: scoped-write
+output-contract: worker-result.v1
+---
+
+## Mandate
+
+Build the widget node and return the work product.
+"""
+
+WORKER_BINDINGS = """{
+  "schema_version": 1,
+  "tiers": {"judgment": {"model": "opus", "effort": "high"}, "mechanical": {"model": "haiku", "effort": "low"}},
+  "implementation_classes": {
+    "builder": {"claude": {"model": "sonnet", "effort": "medium"}, "codex": {"model": "gpt-5.6-terra", "effort": "medium"}}
+  }
+}
+"""
+
+
+class TestWorkerRenders(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        _write(os.path.join(self.root, ".claude", "agents", "engine-worker-widget.md"), WORKER_SRC)
+        _write(os.path.join(self.root, ".engine", "policies", "model-bindings.json"), WORKER_BINDINGS)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_worker_render_emits_model_and_a_write_sandbox(self):
+        codex_gen.generate(self.root)
+        path = os.path.join(self.root, ".codex", "agents", "engine-worker-widget.toml")
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+        self.assertEqual(data["sandbox_mode"], "workspace-write")
+        self.assertEqual(data["model"], "gpt-5.6-terra")        # single-sourced from implementation_classes.codex
+        self.assertEqual(data["model_reasoning_effort"], "medium")
+        self.assertIn("scoped write", data["developer_instructions"])
+
+
+class TestWorkerFloorScoping(unittest.TestCase):
+    """The role-scoped Codex coherence floor: worker renders must carry a matching model and a
+    write sandbox; review/audit renders (and any render whose canonical role can't be placed) still
+    forbid a pinned model. Uses the fixture seam over a seeded agents dir; role is resolved from the
+    real committed .claude source (engine-worker-builder is a role:worker persona)."""
+    def _seed(self, d, name, body):
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def test_worker_render_model_drift_is_a_finding(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "engine-worker-builder.toml",
+                       'name = "engine-worker-builder"\nsandbox_mode = "workspace-write"\n'
+                       'model = "wrong-model"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
+            found = cac.findings("hard", agents_dir=d)
+        self.assertTrue(any("does not match its implementation_classes binding" in f["message"] for f in found))
+
+    def test_worker_render_with_a_read_only_sandbox_is_a_finding(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "engine-worker-builder.toml",
+                       'name = "engine-worker-builder"\nsandbox_mode = "read-only"\n'
+                       'model = "gpt-5.6-terra"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
+            found = cac.findings("hard", agents_dir=d)
+        self.assertTrue(any("read-only sandbox" in f["message"] for f in found))
+
+    def test_a_render_with_no_canonical_worker_source_still_forbids_a_model(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "some-reviewer.toml",
+                       'name = "some-reviewer"\nsandbox_mode = "read-only"\nmodel = "opus"\ndeveloper_instructions = "x"\n')
+            found = cac.findings("hard", agents_dir=d)
+        self.assertTrue(any("pins a model" in f["message"] for f in found))
 
 
 class TestRenderTransforms(_FixtureTree):

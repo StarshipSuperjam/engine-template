@@ -615,6 +615,9 @@
   ".engine/operations/build-submission-evidence.md": [
    "core"
   ],
+  ".engine/operations/build-work-dispatch.md": [
+   "core"
+  ],
   ".engine/operations/close-turn.md": [
    "core"
   ],
@@ -762,16 +765,25 @@
   ".engine/schemas/build-handoff.v1.json": [
    "core"
   ],
+  ".engine/schemas/build-handoff.v2.json": [
+   "core"
+  ],
   ".engine/schemas/build-orchestration-obligations.v1.json": [
    "core"
   ],
   ".engine/schemas/build-plan.v1.json": [
    "core"
   ],
+  ".engine/schemas/build-plan.v2.json": [
+   "core"
+  ],
   ".engine/schemas/build-protocol.v1.json": [
    "core"
   ],
   ".engine/schemas/build-state.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/build-state.v2.json": [
    "core"
   ],
   ".engine/schemas/check.v1.json": [
@@ -972,6 +984,9 @@
   ".engine/tools/build_coordinator_core.py": [
    "core"
   ],
+  ".engine/tools/build_coordinator_dag.py": [
+   "core"
+  ],
   ".engine/tools/build_coordinator_github.py": [
    "core"
   ],
@@ -982,6 +997,9 @@
    "core"
   ],
   ".engine/tools/build_coordinator_spec.py": [
+   "core"
+  ],
+  ".engine/tools/build_coordinator_work.py": [
    "core"
   ],
   ".engine/tools/build_readiness.py": [
@@ -1707,6 +1725,9 @@
   ".engine/tools/test_build_coordinator_core.py": [
    "core"
   ],
+  ".engine/tools/test_build_coordinator_dag.py": [
+   "core"
+  ],
   ".engine/tools/test_build_coordinator_github.py": [
    "core"
   ],
@@ -1714,6 +1735,9 @@
    "core"
   ],
   ".engine/tools/test_build_coordinator_review.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_coordinator_work.py": [
    "core"
   ],
   ".engine/tools/test_build_readiness.py": [

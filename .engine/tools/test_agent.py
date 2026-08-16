@@ -52,7 +52,7 @@ VALID_REVIEWER = {"name": "architecture-plan-reviewer",
                   "disallowedTools": ["Edit", "Write", "NotebookEdit", "Bash"]}
 VALID_WORKER = {"name": "scoped-worker",
                 "description": "Implements one scoped commit and hands the result back.",
-                "role": "worker", "model-tier": "mechanical",
+                "role": "worker", "implementation-class": "builder",
                 "permissions": "scoped-write", "output-contract": "worker-result.v1"}
 VALID_AUDIT = {"name": "self-audit",
                "description": "Runs the read-only self-audit persona under the audit-prep cron.",
@@ -313,8 +313,18 @@ class TestAgentCoherenceLeg(unittest.TestCase):
         self.assertTrue(any(x["severity"] == "hard" and "recognized role" in x["message"] for x in f))
 
     def test_model_tier_outside_the_closed_set_is_a_finding(self):
-        f = validate.agent_coherence_findings([{**VALID_WORKER, "model-tier": "heroic"}], "hard", "m")
+        # A review/audit persona resolves through model-tier, so a bad tier there is a finding; a worker
+        # resolves through implementation-class and is checked on that axis instead (below).
+        f = validate.agent_coherence_findings([{**VALID_REVIEWER, "model-tier": "heroic"}], "hard", "m")
         self.assertTrue(any(x["severity"] == "hard" and "demand level" in x["message"] for x in f))
+
+    def test_worker_implementation_class_outside_the_closed_set_is_a_finding(self):
+        f = validate.agent_coherence_findings([{**VALID_WORKER, "implementation-class": "ghost"}], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "worker class" in x["message"] for x in f))
+
+    def test_implementation_class_on_a_reviewer_is_a_finding(self):
+        f = validate.agent_coherence_findings([{**VALID_REVIEWER, "implementation-class": "builder"}], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "only the worker role carries one" in x["message"] for x in f))
 
     def test_lens_on_a_worker_is_a_symmetric_finding(self):
         f = validate.agent_coherence_findings([{**VALID_WORKER, "lens": "architecture"}], "hard", "m")
