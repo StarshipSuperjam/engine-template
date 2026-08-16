@@ -4196,7 +4196,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:de80d5ed2d07531e0734ce3fa33bb9744772cf92b2a151a12df99595002991db",
+        "fingerprint": "sha256:534a83e1d2e6c595db41dc2048bcc5c8c210a602e24d46d61eb884b4db709ab0",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -4626,7 +4626,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:1e9c750c67c69bf6e9927cad3f1a062a852fb04714c50478d3d13c1c601cae79",
+        "fingerprint": "sha256:ffa8acb9a78426d1d9752ce3f6fe8f728fc38d61de5b7e69c76fcfe1b740b1e3",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5668,7 +5668,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:c0948ad2b2bbe8b03bb250fd0c88642c03339e588506b84778c77b6a3ae19e74",
+        "fingerprint": "sha256:ca30eae4584c459e8ab9e5c605d5f22fe649917ddd18b539cf1c20e0d587f0c5",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -5685,7 +5685,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:e9e79dbddedddfa87c811d8d758e430c1566aa97b5ae624632c471cc05ab9f10",
+        "fingerprint": "sha256:a0cdef5275024802a18c42980927fed9237d0eea8bf868795b7ab1d1797c0ad1",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -5702,7 +5702,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:53fcc874fba571e021de588dd5398e8a38c8f24690080ee9b8af970d205ecafa",
+        "fingerprint": "sha256:8dfd6bf1b69dc35b3f50adb3cca4182350888765e2eb8b9fa3d57fcb91a2cba1",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -6061,6 +6061,23 @@
       "source": {
         "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
         "path": ".engine/schemas/policy.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:pr-body-claim.v1",
+      "name": ".engine/schemas/pr-body-claim.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "pr-body-claim.v1",
+      "source": {
+        "fingerprint": "sha256:96dcb696feccfeb70d897f600275e9a3496933c3b781a90e77e8cf58fa6874dd",
+        "path": ".engine/schemas/pr-body-claim.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7044,6 +7061,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:build_coordinator_contract",
           "tool:build_coordinator_core",
           "tool:build_coordinator_dag",
           "tool:build_coordinator_github",
@@ -7052,6 +7070,7 @@
           "tool:build_coordinator_work",
           "tool:repo_identity",
           "tool:review_integrity",
+          "tool:spec_referent",
           "tool:validate",
           "tool:weakening_guard"
         ],
@@ -7061,11 +7080,34 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:01bbe1a080cf492223ef41bdf30f287df80f04e47e9e58f3f04f3692ca752944",
+        "fingerprint": "sha256:45cabd13dbc2b48ddba055779d64520138553f548e5280b0c80a4897c8d7a9df",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
       "summary": "A small instrument panel for one PR-shaped Build.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_coordinator_contract",
+      "name": ".engine/tools/build_coordinator_contract.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:release_cut"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_coordinator_contract",
+      "source": {
+        "fingerprint": "sha256:01c835b7af4dd9fdfa114f0158ebdab902ceb288d04f8eea14c16386de594ef6",
+        "path": ".engine/tools/build_coordinator_contract.py"
+      },
+      "status": "active",
+      "summary": "Pure PR-body composer for the Build coordinator's `contract` verbs.",
       "type": "tool"
     },
     {
@@ -7413,7 +7455,7 @@
       },
       "slug": "close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:6cffceb3d60dd60ce20aafffba071e6502a0ab36193441d72a1d9cddbf573f24",
+        "fingerprint": "sha256:c8d568c68813eb805ba5f62ce2e9343de02b20fa9d6e23c65a16edd036df69c9",
         "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
@@ -11447,7 +11489,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:b33898b817949a0499d025746df7c3fe354b4a7d81c960d6dcb3b5c0ea55bfc2",
+        "fingerprint": "sha256:9602f2c510d7e3647fcee4ae907fef7a3ba4b3b4bc71236b8753d1e7a92fe7aa",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -12093,11 +12135,39 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:0ecbbf954fabc6008fb897e2da0e6abe7b95196f2a728f8f6ef1fa9824c3440e",
+        "fingerprint": "sha256:8e191f782676f5b3ff643a221ff1235dc017160271e1fc21c14884dd2559c4a8",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
       "summary": "Focused mechanical tests for the Build coordinator instrument panel.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_coordinator_contract",
+      "name": ".engine/tools/test_build_coordinator_contract.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_contract",
+          "tool:close_linkage_preflight",
+          "tool:release_cut",
+          "tool:spec_referent",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_build_coordinator_contract",
+      "source": {
+        "fingerprint": "sha256:5711b1c8c25cc8e7bec7d02c841d830427982eb05d2ae48efe765eba8421fc5f",
+        "path": ".engine/tools/test_build_coordinator_contract.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for the pure PR-body composer (build_coordinator_contract).",
       "type": "tool"
     },
     {
@@ -12391,7 +12461,7 @@
       },
       "slug": "test_close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:3388eb00efe04edb3930fac774e80f566dd930b6d771a05dc29fc1f509685a56",
+        "fingerprint": "sha256:bc866467ea50882a751a9fe48523edb9de14a99a9671f7b964d9bf6c3f901ab9",
         "path": ".engine/tools/test_close_linkage_preflight.py"
       },
       "status": "active",
