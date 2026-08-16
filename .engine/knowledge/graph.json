@@ -6013,7 +6013,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:c747e88aa54e05588ec11f853b91c61ec577a1f5c92deb2b6f49579034d39c66",
+        "fingerprint": "sha256:2d8bb51d7bf0b72e96e02dbed3b29c03565182e074ef1f74d841b3534aa3a27b",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -7104,7 +7104,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:d72dd45150ce55b7ff9242c5c9377e700b77437f356a65bb032f0543fcf31cb9",
+        "fingerprint": "sha256:c7d9c8c7bc87488a39e55e361bf966cb8b5ff7c8fa5d88d5b0b72976a4944d96",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -7545,7 +7545,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:3fd7ab52d3993163aded5815097171c5ac94965c474b042fb23b3c8a4a0c6d01",
+        "fingerprint": "sha256:d0b278ff9008206b8f71ba1a3926d997acf9b398f58c93b4c85ecc363e6ff67c",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",

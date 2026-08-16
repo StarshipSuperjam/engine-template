@@ -21,7 +21,9 @@ Render rules (the whole mapping, so review needs no second source):
       the agent's requested standalone default, not mechanical child isolation: a parent task's live
       runtime override can be reapplied by Codex (the declared provider exception).
     - `model` is NEVER emitted (a pinned model id in a persona file rots — eADR-0034);
-      `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low).
+      `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low), EXCEPT for the
+      un-pinned reviewer roles (plan-review, pre-submission-review), whose effort is depth-scaled at spawn,
+      so their twins omit it entirely (see the reviewer branch in render_agent).
   SKILLS (.claude/skills/engine-*/ -> .agents/skills/engine-*/):
     - frontmatter narrows to the two keys Codex reads (name = the directory slug, description);
       the Claude governance flags stay home. The companion `agents/openai.yaml` carries the one

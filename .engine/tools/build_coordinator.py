@@ -706,9 +706,10 @@ def cmd_status(args, store: StateStore) -> None:
 def cmd_depths(args, store: "StateStore | None") -> None:
     """Advisory, read-only: which review depths are worth OFFERING for this repo's installed reviewer roster,
     and the reviewer effort each resolves to. Consulted before `approve` so the operator is never asked to pick
-    a depth that buys nothing over a lighter one (StarshipSuperjam/engine-template#763). A depth is offered
-    when it runs MORE lenses, or the SAME non-empty lens-set at HIGHER effort, than the last lighter offered
-    depth; `quick` is always offered (the floor). This shapes the consent surface only — `required()`/`approve`
+    a depth that buys nothing over a lighter one (StarshipSuperjam/engine-template#763). The exact offer rule
+    (a depth runs at least one lens the last lighter offered depth does not, or the same non-empty lens-set at
+    higher effort) is single-homed in `build_coordinator_review.available_depths`, which this delegates to;
+    `quick` is always offered (the floor). This shapes the consent surface only — `required()`/`approve`
     remain the sole mechanical lens authority, so a collapsed depth bound anyway still resolves to quick's roster.
     Needs no Build state (it reads the protocol, the installed personas, and the shipped/operator effort)."""
     import agent_bindings  # lazy: keep the coordinator's common path import-light, as cmd_validate does
