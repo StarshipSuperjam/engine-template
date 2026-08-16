@@ -11,7 +11,7 @@ check for every file of that kind. This is the standing rule that replaces the p
 tests those retired once the shape-spec had a single source.
 
 Templates that declare NO shape settings are not governed here and are skipped: the HTML-comment scaffolds
-(build-issue.md, control-plane-bootstrap.md, first-run.md) that are authoring aids, not shape-checked surfaces,
+(control-plane-bootstrap.md, first-run.md) that are authoring aids, not shape-checked surfaces,
 and the conduct scaffold, whose shape is data-driven (each code's own title) and governed by conduct_shape_check,
 not a fixed-section spec.
 
