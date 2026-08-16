@@ -31,7 +31,9 @@ Reviewer severity is advice. It never selects a remedy and never makes a finding
 
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
-be one session.
+be one session. An Issue is never created merely because a Build exists — an Issue is intake, and a Build's
+work is carried by its draft PR; a Build that must continue cold promotes its plan instead (see "Where the
+plan lives").
 
 Turn the initiating request or Issue into a structured JSON `build-plan.v1` document. Present a readable
 harness projection generated directly from that exact document; it is a view, not a second authority, and
@@ -72,9 +74,7 @@ preview receives the plan again and refuses a mismatch. This works whether or no
 Plan feature: the orchestrator may author and present the same `build-plan.v1` JSON conversationally and pass
 that exact document by file or stdin. The JSON document is the harness plan, not a second plan authority.
 
-A GitHub Issue is not created merely because a Build exists. If a same-session Build began from a suitable
-Issue, that Issue remains the intent record but need not duplicate the plan. A direct request needs only the
-draft PR.
+A Build begun from a suitable Issue keeps that Issue as the intent record; it need not duplicate the plan.
 
 Before intentional cold-session or unattended continuation, promote the exact plan to a suitable writable
 Issue. Promotion appends or replaces one bounded machine block in the Issue body while preserving the
@@ -88,7 +88,7 @@ No lifecycle event is a GitHub comment. GitHub or network loss does not stop sam
 deleted durable plan blocks only cold continuation; never reconstruct an approved plan from a summary,
 transcript fragments, or implementation. `handoff export --publish --ack-visibility` places one bounded,
 redacted snapshot block in the PR contract with an optimistic-concurrency check; it never creates a comment.
-`handoff restore --repository <owner/repo> --pr <number>` reads that block and verifies the durable Issue plan.
+`handoff restore --repository <owner/repo> --pr <number>` reads that block and verifies the promoted plan carried on the Issue.
 File/stdin export and restore remain available for a harness that transports the same bytes itself.
 
 ### 2. Assess risk and approve the Build gate
@@ -143,7 +143,7 @@ isolated workers for cleanly separable work when context pressure justifies them
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
 writer and judges cohesion.
 
-Routine follows [Routine entry](routine-entry.md): the immutable Issue plan supplies ordered work items while
+Routine follows [Routine entry](routine-entry.md): the immutable promoted plan on the Issue supplies ordered work items while
 the snapshot, bounded PR handoff, and git record completed commits and `N of M` progress. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle

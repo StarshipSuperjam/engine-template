@@ -4,7 +4,7 @@
     "contract": {
       "class": "prose",
       "location": ".engine/contracts/",
-      "purpose": "Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision, append-only.",
+      "purpose": "Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision; a deployment's own instance records are append-only, while the shipped founding canon is revised in place (eADR-0014).",
       "authority": "decisions",
       "lifecycle": "decision",
       "governing_schema": "contract.v1.json",
