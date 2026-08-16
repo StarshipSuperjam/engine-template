@@ -19,11 +19,11 @@ set all arrive through `evidence`, already computed. The composer's job is assem
 THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordinator-supplied):
 
   preamble            str        the consent blockquote, lifted verbatim from the template
-  closes_lines        [str]      line-leading closing declarations to place below the preamble
-                                 (e.g. "Closes #N") — the coordinator merges the claim's linkage
-                                 with any durable Build Issue and reconciles against live GitHub
-  part_of_lines       [str]      "Part of #N" context lines to fold into Scope (the close-linkage
-                                 preflight reads them from the Scope / Out-of-scope sections)
+  closes              [int]      the reconciled final set of issues this PR closes — the coordinator
+                                 merges the claim's linkage with any durable Build Issue and reconciles
+                                 against live GitHub. Rendered as one `Closes #N` line at the TOP.
+                                 (Part-of issues come from the claim's linkage, rendered as one
+                                 `Part of #N` line each, also at the top — never comma-separated.)
   change_profile      str        scope_profile.render(...) block, pasted verbatim into Scope
   validation_results  str        rendered validation facts (suite, pass/fail, counts, commit,
                                  log digests) — coordinator-computed, no machine-local log paths
@@ -201,10 +201,13 @@ def compose(claim: dict, evidence: dict) -> str:
 
     lines: list = [_preamble(evidence), ""]
 
-    for cl in evidence.get("closes_lines", []):
-        lines.append(cl)
-    if evidence.get("closes_lines"):
-        lines.append("")
+    # Linkage sits at the TOP, one declaration per line, never comma-separated (a comma-listed close links
+    # only its first issue). Closes first, then Part of. Built from integer lists so a comma-run is impossible;
+    # `closes` is the coordinator's reconciled final set, `part_of` comes straight from the claim.
+    linkage = [f"Closes #{n}" for n in evidence.get("closes", [])]
+    linkage += [f"Part of #{n}" for n in claim["linkage"]["part_of"]]
+    if linkage:
+        lines += linkage + [""]
 
     # 1. Purpose
     p = claim["purpose"]
@@ -232,8 +235,6 @@ def compose(claim: dict, evidence: dict) -> str:
         if refs:
             line += f" ({'; '.join(refs)})"
         oos_body.append(line)
-    for pol in evidence.get("part_of_lines", []):
-        oos_body.append(f"- {pol}")
     lines += _section("Out of scope", o["summary"], oos_body, o["impact"])
 
     # 4. Risk — each item a bold lead then the bound, matching the exemplars' Risk shape.

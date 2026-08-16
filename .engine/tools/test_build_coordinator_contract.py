@@ -86,8 +86,7 @@ def _good_claim() -> dict:
 
 def _good_evidence() -> dict:
     return {
-        "closes_lines": [],
-        "part_of_lines": ["Part of #900."],
+        "closes": [901],
         "change_profile": "**Change profile** — small: 3 files, tools + schemas.",
         "validation_results": "- `validate.py --suite CI` passed; self-tests passed at commit abc1234.",
         "index_regen": "Regeneration touched only generated index paths; 2 files changed, no authored work lost.",
@@ -180,6 +179,24 @@ class TestCompose(unittest.TestCase):
 
     def test_composition_marker_present(self):
         self.assertIn("engine-pr-contract:v1", self.body)
+
+    def test_linkage_at_top_one_per_line_never_comma(self):
+        purpose_at = self.body.index("## Purpose")
+        # Both declarations appear above the first section, each on its own line, never comma-joined.
+        self.assertIn("Closes #901", self.body[:purpose_at])
+        self.assertIn("Part of #900", self.body[:purpose_at])
+        self.assertRegex(self.body, r"(?m)^Closes #901$")
+        self.assertRegex(self.body, r"(?m)^Part of #900$")
+        self.assertNotIn(", #", self.body)  # no comma-separated linkage anywhere
+        # Part-of must NOT be buried in Out of scope anymore.
+        oos = self.body.index("## Out of scope")
+        nxt = self.body.index("## Risk")
+        self.assertNotIn("Part of #900", self.body[oos:nxt])
+
+    def test_close_linkage_reads_top_placed_part_of(self):
+        # The safety cross-check must see a top-placed Part of, not only a section-placed one.
+        import close_linkage_preflight as clp
+        self.assertEqual(clp.part_of_declarations(self.body), {900})
 
     def test_non_observable_behaviors_render(self):
         claim = _good_claim()
