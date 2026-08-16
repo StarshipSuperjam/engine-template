@@ -31,9 +31,9 @@ Reviewer severity is advice. It never selects a remedy and never makes a finding
 
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
-be one session. An Issue is never created merely because a Build exists — an Issue is intake, and a Build's
-work is carried by its draft PR; a Build that must continue cold promotes its plan instead (see "Where the
-plan lives").
+be one session. An Issue is never created merely because a Build exists — not even to track the work; an
+Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold promotes its
+plan instead (see "Where the plan lives").
 
 Turn the initiating request or Issue into a structured JSON `build-plan.v1` document. Present a readable
 harness projection generated directly from that exact document; it is a view, not a second authority, and

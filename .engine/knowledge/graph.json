@@ -3896,7 +3896,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:13dd1bc55aca6da70c17e7c80032216b29aa57ea6c1aadda43a927655fec6dbb",
+        "fingerprint": "sha256:4d563a3db93eef69c4766fb5a13cf7cd92ace6d3cb44155420ce1fdf33982633",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -4626,7 +4626,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:63562d664a290fe05eeb98d359f07d2aab9f08537c2ef0dc73cb5ca70b53b9f1",
+        "fingerprint": "sha256:946a5f51c0e189bbfcf34267fb8f5a9d2d517187499511968534b077c3a2cac0",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5186,7 +5186,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:b2668b8cdfa9cf68a990d42e0ef471e30c55f90fa9628caab152e01e00b122f3",
+        "fingerprint": "sha256:33f0c7dcd0ace817b0e6dbf85f696d796682949caf3621aeb0ca3183510d85e9",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",

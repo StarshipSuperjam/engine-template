@@ -34,7 +34,7 @@ of every routine fire; the build's actual work follows the distributed-implement
    checkout — the never-strand-main floor, enforced here at entry rather than by prose. If it declines (not an
    isolated worktree, or the session cannot be identified), do not write: report the reason in the run output
    and stop. A visible-in-app safety refusal, not a filed Issue.
-4. **Restore the Build from git, the frozen Issue plan, and the bounded PR handoff, then decide which of three
+4. **Restore the Build from git, the promoted Issue plan, and the bounded PR handoff, then decide which of three
    situations holds.** The Issue holds a promoted copy of the session-authored, operator-approved Build plan — exact, immutable, published for recovery rather than authored there (`build-plan.v2`; an in-flight legacy Build may still carry `build-plan.v1`) — and its work items. Progress
    is not written back into that plan: completed item/commit pairs live in the coordinator snapshot and
    bounded PR handoff, corroborated by git. The next item is derived from those three sources.
