@@ -247,38 +247,111 @@ class TestIsDownstreamCopyStrict(unittest.TestCase):
         self.assertTrue(repo_identity.is_home_repo(repo),
                         "is_home_repo must keep failing TOWARD home — the two fail-directions are deliberate")
 
+    def test_a_git_scheme_origin_reads_as_not_a_copy_after_the_691_narrowing(self):
+        # #691 narrowed the origin parse to reject git:// (and other non-http/ssh schemes). A git:// origin now
+        # yields origin_slug None, so is_downstream_copy_strict returns False (reads as NOT a deployed copy) while
+        # is_home_repo stays True (toward home). This is the ONE consumer whose fail-direction is toward QUIET
+        # rather than stricter — pinned here so the narrowing's full downstream effect is checkable, not merely
+        # asserted in the plan. It is practically UNREACHABLE: a real deployed copy is fetched and pushed over
+        # https/ssh (git:// is unauthenticated/read-only and cannot receive the overlay-updating pushes a
+        # deployment takes), so no genuine deployment carries a git:// origin. The old `//`-boundary regex would
+        # have parsed this to `acme/product` and returned True; the change is deliberate and safe in practice.
+        repo = _repo(self.tmp, "gitscheme", origin="git://github.com/acme/product.git", home=HOME)
+        self.assertIsNone(repo_identity.origin_slug(repo))
+        self.assertFalse(repo_identity.is_downstream_copy_strict(repo))
+        self.assertTrue(repo_identity.is_home_repo(repo))
+
+
+class TestParseGithubSlug(unittest.TestCase):
+    """Direct coverage of the single-homed origin-URL parser the five readers delegate to (StarshipSuperjam/engine-template#691)."""
+
+    def test_accepts_real_transports_and_tolerates_suffixes(self):
+        for url, want in (
+            ("https://github.com/owner/name", "owner/name"),
+            ("https://github.com/owner/name.git", "owner/name"),
+            ("https://github.com/owner/name/", "owner/name"),
+            ("git@github.com:owner/name.git", "owner/name"),
+            ("ssh://git@github.com/owner/name", "owner/name"),
+            ("github.com/owner/name", "owner/name"),
+            ("https://GitHub.com/Owner/Name", "Owner/Name"),
+        ):
+            self.assertEqual(repo_identity.parse_github_slug(url), want, url)
+
+    def test_strips_surrounding_whitespace(self):
+        # Whitespace handling is defined ONCE here rather than assumed from each caller's pre-strip; the anchored
+        # `$` matches before a single terminal newline, so an unstripped trailing `\n` must not slip a bad shape.
+        self.assertEqual(repo_identity.parse_github_slug("  https://github.com/owner/name\n"), "owner/name")
+
+    def test_rejects_git_and_other_exotic_schemes(self):
+        # #691: the anchored form pins the scheme to https/ssh, dropping the git:// (and any `scheme://`) the
+        # older repo_identity `//` boundary alone accepted.
+        for url in ("git://github.com/owner/name",
+                    "ftp://github.com/owner/name",
+                    "svn+ssh://github.com/owner/name"):
+            self.assertIsNone(repo_identity.parse_github_slug(url), url)
+
+    def test_rejects_look_alike_and_homograph_hosts(self):
+        for url in ("https://notgithub.com/owner/name",
+                    "https://evilgithub.com/owner/name",
+                    "https://github.com.evil.com/owner/name",
+                    "https://gitlab.com/github.com/owner/name",   # github.com as a path segment under another host
+                    "https://gİthub.com/owner/name"):             # U+0130 homograph
+            self.assertIsNone(repo_identity.parse_github_slug(url), url)
+
+    def test_total_never_raises_on_degenerate_input(self):
+        # The mechanic write-belt (`mechanic_build._classify_origin`) calls this with no try/except; a raise
+        # would degrade a plain-language DENY into a traceback. None/blank/non-str must return None, never raise.
+        for bad in (None, "", "   ", 123, b"https://github.com/o/n", ["x"], {"a": 1}):
+            self.assertIsNone(repo_identity.parse_github_slug(bad), repr(bad))
+
 
 class TestGithubHostParsersAgree(unittest.TestCase):
     """#625 was a DRIFT bug: several hand-copied `github.com` host parsers scattered across the tree disagreed on
     case — one carried `re.IGNORECASE`, the others did not — so on a mixed-case origin they reached opposite
-    conclusions. This pins the SHARED contract across every origin parser so the same divergence cannot silently
-    recur: each must read a mixed-case host and reject the same look-alikes. It asserts only the common
-    transports; `repo_identity`'s form deliberately accepts a few extra shapes (e.g. a `git://` scheme URL, via
-    its `//` host boundary) the anchored `^(?:https?|ssh)://` forms do not, which is outside this contract."""
+    conclusions. #691 then single-homed the parse into `repo_identity.parse_github_slug`, so cross-reader regex
+    drift is now structurally impossible. This battery's ROLE has shifted accordingly — from a DRIFT guard to a
+    DELEGATION guard: it drives each reader's real PUBLIC entrypoint (not the shared primitive), so a future
+    maintainer who re-introduces a local parser in any reader, or whose source-resolution wrapper mangles the
+    result, is still caught. Every reader must read a mixed-case host, reject the same look-alikes, and — now
+    that the forms are unified — uniformly reject the `git://` (and any other non-{http,https,ssh}) scheme the
+    old `repo_identity` form alone used to accept via its `//` boundary."""
 
     def _parsers(self):
-        # Lazy imports keep this focused module's top-level surface light; every parser is reached through a
-        # uniform `url -> slug|None` adapter so the battery below hits all of them identically.
+        # Lazy imports keep this focused module's top-level surface light. Each parser is reached through its
+        # real PUBLIC entrypoint with the origin URL injected at that reader's own git-read seam — so the battery
+        # exercises the whole source-read -> parse path, not the shared primitive in isolation (StarshipSuperjam/engine-template#691).
         import boot
         import execution_environment
         import first_run_health
         import mechanic_build
 
-        def _via_regex(rx):
-            return lambda u: (rx.search(u).group(1) if rx.search(u) else None)
-
         def _via_boot(u):
             # boot.repo_slug reads GITHUB_REPOSITORY first, then git origin; clear the env and inject the URL so
-            # the regex path is what runs. patch.dict restores the env afterward.
+            # the origin path is what runs. patch.dict restores the env afterward.
             with mock.patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("GITHUB_REPOSITORY", None)
                 with mock.patch.object(boot, "_run", return_value=u):
                     return boot.repo_slug()
 
+        def _via_origin_slug(u):
+            # repo_identity.origin_slug reads git origin then delegates to parse_github_slug; inject at _run.
+            with mock.patch.object(repo_identity, "_run", return_value=u):
+                return repo_identity.origin_slug("/unused")
+
+        def _via_current_repo(u):
+            # execution_environment.current_repo runs `git config` then delegates; inject the URL as that stdout.
+            with mock.patch.object(execution_environment.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0, stdout=u)):
+                return execution_environment.current_repo("/unused")
+
+        def _via_first_run(u):
+            with mock.patch.object(first_run_health, "_run", return_value=u):
+                return first_run_health._origin_slug("/unused")
+
         return {
-            "repo_identity": _via_regex(repo_identity._GITHUB_SLUG_RE),
-            "execution_environment": _via_regex(execution_environment._SLUG_RE),
-            "first_run_health": _via_regex(first_run_health._GITHUB_SLUG_RE),
+            "repo_identity": _via_origin_slug,
+            "execution_environment": _via_current_repo,
+            "first_run_health": _via_first_run,
             "mechanic_build": mechanic_build._github_slug,
             "boot": _via_boot,
         }
@@ -297,6 +370,17 @@ class TestGithubHostParsersAgree(unittest.TestCase):
                     # U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) folds to ASCII `i` under Unicode
                     # case-folding: a homograph host that `re.ASCII` on the flags must keep out (#625).
                     "https://gİthub.com/owner/name.git"):
+            for name, parse in self._parsers().items():
+                self.assertIsNone(parse(url), f"{name} must reject {url}")
+
+    def test_every_parser_uniformly_rejects_git_and_exotic_schemes(self):
+        # Pre-#691, repo_identity's `(?:^|@|//)` boundary accepted git:// (and any `scheme://github.com/...`),
+        # while the other four anchored on `^(?:https?|ssh)://` and rejected them. Single-homing on the anchored
+        # form unifies all five to REJECT the whole non-{http,https,ssh} class — the input-validity decision the
+        # issue named. Pinned so no reader silently re-widens (StarshipSuperjam/engine-template#691).
+        for url in ("git://github.com/owner/name.git",
+                    "ftp://github.com/owner/name",
+                    "svn+ssh://github.com/owner/name"):
             for name, parse in self._parsers().items():
                 self.assertIsNone(parse(url), f"{name} must reject {url}")
 

@@ -64,7 +64,6 @@ from __future__ import annotations
 
 import datetime
 import os
-import re
 import subprocess
 import sys
 import unicodedata
@@ -184,17 +183,10 @@ def repo_slug() -> str | None:
     env = os.environ.get("GITHUB_REPOSITORY")
     if env:
         return env
-    url = _run(["git", "remote", "get-url", "origin"])
-    if not url:
-        return None
-    # host-anchored: github.com must be the URL host (after an optional scheme and optional `user@`), never a
-    # substring of a look-alike (notgithub.com, github.com.evil.com) — a mis-parsed slug would target the wrong repo.
-    # IGNORECASE: host names are case-insensitive by spec (`GitHub.com` == `github.com`). ASCII keeps the fold
-    # ASCII-only, so a Unicode homograph (`gİthub.com`, U+0130 folds to `i`) cannot satisfy the host literal. The
-    # flags fold only the literal host, not the structural anchors, so no look-alike is newly accepted (StarshipSuperjam/engine-template#625).
-    m = re.search(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
-                  url.strip(), re.IGNORECASE | re.ASCII)
-    return m.group(1) if m else None
+    # The host-anchored origin parse is single-homed in repo_identity (StarshipSuperjam/engine-template#691); it
+    # rejects look-alike hosts (notgithub.com, github.com.evil.com) and homograph hosts so a mis-parsed slug can
+    # never target the wrong repo.
+    return repo_identity.parse_github_slug(_run(["git", "remote", "get-url", "origin"]))
 
 
 def gh_token() -> str | None:

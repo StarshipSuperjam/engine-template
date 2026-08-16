@@ -39,11 +39,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 
 import moment  # the trailing-Z time seam; a stdlib-only leaf, so this module stays substantively self-contained
+import repo_identity  # the single-homed, dependency-light origin-URL parser (StarshipSuperjam/engine-template#691)
 
 # The genesis baseline — the single source of truth for the shape's zero value. instantiator seeds this and
 # read_baseline() synthesizes it when the file is absent, so the two never drift out of one definition.
@@ -140,17 +140,11 @@ def _engine_release(root: str) -> str | None:
 
 
 # Host-anchored (^...) so a look-alike host (notgithub.com/owner/repo) can never match as a substring — the
-# same discipline boot's repo_slug uses, because a mis-parsed slug would scope a qualification to the wrong repo.
-# IGNORECASE: host names are case-insensitive by spec (`GitHub.com` == `github.com`). ASCII keeps the fold
-# ASCII-only, so a Unicode homograph (`gİthub.com`, U+0130 folds to `i`) cannot satisfy the host literal. The
-# flags fold only the literal host, not the structural anchors, so no look-alike is newly accepted (StarshipSuperjam/engine-template#625).
-_SLUG_RE = re.compile(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$",
-                      re.IGNORECASE | re.ASCII)
-
-
 def current_repo(root: str) -> str | None:
     """The repository's git-origin slug (owner/name), read locally, or None on any failure. Used to scope a
-    qualification to the repo it was made for; parsed from the origin URL so it needs no network."""
+    qualification to the repo it was made for; parsed from the origin URL so it needs no network. The parse is
+    single-homed in repo_identity (StarshipSuperjam/engine-template#691) — same host-anchored, homograph-safe
+    discipline boot's repo_slug uses, because a mis-parsed slug would scope a qualification to the wrong repo."""
     try:
         out = subprocess.run(
             ["git", "-C", root, "config", "--get", "remote.origin.url"],
@@ -160,8 +154,7 @@ def current_repo(root: str) -> str | None:
         return None
     if out.returncode != 0:
         return None
-    m = _SLUG_RE.search(out.stdout.strip())
-    return m.group(1) if m else None
+    return repo_identity.parse_github_slug(out.stdout)
 
 
 def observe(*, provider: str, repo: str | None, root: str | None = None) -> dict:

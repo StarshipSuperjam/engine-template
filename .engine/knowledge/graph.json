@@ -6989,7 +6989,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:975a82fbea56b64669323bd76eaa04c07e674e346340fdfbf800b33dff1bfc42",
+        "fingerprint": "sha256:b63f9a1505fada5ff66778ace6b251edc37618a8e467bbc4c857d05557554b1d",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9285,7 +9285,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:moment"
+          "tool:moment",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -9293,7 +9294,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:9f4312e908a9ad4fa7f9a8be5929232fa199d6678043093c161ea768aa68be76",
+        "fingerprint": "sha256:352592ab6f85cc4f121fa10935c852aba05c21b8840e153fedc07e4a0ad040f0",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -9354,7 +9355,8 @@
         "imports": [
           "tool:boot",
           "tool:github_client",
-          "tool:module_coherence"
+          "tool:module_coherence",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -9362,7 +9364,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:c614f4e97d4f0c1d9e51a9d97f9665c0cdbedb4d8e633f11d9e0b6846fe2fad2",
+        "fingerprint": "sha256:4afa4d8f3a9a9f1d701d273466a427f052ca63c15141200023721fbe5be80f3a",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -10216,7 +10218,7 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:f0d0aee9cc9aafc564daf7da91e42e1738d354b211f45221d8bfa5bd336f6427",
+        "fingerprint": "sha256:7ba18bdfe18d2c56f7bfdaef2d736f520c2fb1c31568ad384df4a45115a4eea6",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
@@ -11086,7 +11088,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:1a4995c3b7c97c319d7b05a429d5bb45a5dfe123c5b3b9c0e1015ed0991a205d",
+        "fingerprint": "sha256:98f023afcfddb7b4c0f0d4589c78e56da02ed7b6de074a7d803145c3e8ef8a76",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -14719,7 +14721,7 @@
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:9ac01a2fbe5a9aa1f6775ee6831395117e3a6ea3bd33f5fd83c6eddd4c9f978d",
+        "fingerprint": "sha256:e9fc54a773e9413a3d7be89e42788bbaad7602cf4b95c50acc92199f707839d1",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",
