@@ -16,6 +16,7 @@ import sys
 import time
 from typing import Any
 
+import build_coordinator_contract as contract
 import build_coordinator_core as core
 import build_coordinator_dag as dag
 import build_coordinator_github as github
@@ -1088,6 +1089,67 @@ def _pr_contract(body: str) -> tuple[bool, str]:
     return verdict, "; ".join(f["message"] for f in findings) or "all required sections and consent anchors are filled"
 
 
+def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) -> dict:
+    """The six submission-preflight legs over a candidate body, as pure computation that never raises.
+
+    Single-homed so the two callers cannot drift: `cmd_preflight` records the results and raises on a
+    failed required leg (`pr-contract`, `checkout-integrity`); `contract apply` loops on the results while
+    it drives the body to a fixed point (where an intermediate pass may legitimately fail `pr-contract`
+    before the folded advisory lines and defang settle). Returns the results list, the required-leg
+    verdicts and their summaries, and the applicable hard-check declarations."""
+    repo, pr = state["build"]["repository"], state["build"]["pr"]
+    base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
+    close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"), "check", "--pr", str(pr), "--base", base, "--head", head])
+    close_passed = close.returncode == 0
+    close_summary = (close.stdout or close.stderr or "no close-linkage output").strip()
+    contract_passed, contract_summary = _pr_contract(body)
+    missing_disagreements = [line for line in review.required_disagreement_lines(state) if line not in body]
+    if missing_disagreements:
+        contract_passed = False
+        ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
+        contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
+    profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
+    profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
+    declarations = _hard_check_declarations()
+    declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
+    # Checkout-integrity (StarshipSuperjam/engine-template#947): a required preflight that verifies the review fan-out did
+    # not mutate the build checkout's git state, comparing against the snapshot captured when the
+    # deliverable/repair review packet was created. `head` and `worktrees` are ignored — repair commits
+    # legitimately advance HEAD and a concurrent peer may add a worktree — leaving origin, branch, and
+    # stash, none of which a review ever legitimately changes. Inert (passes) until a baseline exists.
+    ci_snap = state.get("checkout_snapshot")
+    if ci_snap:
+        ci = review_integrity.verify(str(ROOT), ci_snap, ignore={"head", "worktrees"})
+        ci_passed = not ci["mutated"]
+        ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
+                      if ci_passed else "; ".join(ci["changes"]))
+        # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
+        # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
+        # SURFACED here, never used to block — the required leg above stays free of that false positive.
+        wt_changes = review_integrity.compare(ci_snap, ci["after"],
+                                              ignore={"origin", "branch", "head", "stash"})
+        wt_passed = not wt_changes
+        wt_summary = ("worktree registry unchanged since the review packet"
+                      if wt_passed else "; ".join(wt_changes))
+    else:
+        ci_passed = wt_passed = True
+        ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
+    results = [
+        {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
+        {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
+        {"id": "scope-profile", "commit": head,
+         "passed": profile.returncode == 0 and "could not read the diff" not in profile_summary.lower(),
+         "summary": profile_summary},
+        {"id": "hard-check-declarations", "commit": head, "passed": True,
+         "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
+                     f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
+        {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
+        {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
+    ]
+    return {"results": results, "contract_passed": contract_passed, "contract_summary": contract_summary,
+            "ci_passed": ci_passed, "ci_summary": ci_summary, "declarations": declarations}
+
+
 def cmd_preflight(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
@@ -1097,53 +1159,11 @@ def cmd_preflight(args, store: StateStore) -> None:
         body = pr_data.get("body") or ""
         if args.pr_body and _input(args.pr_body) != body:
             raise CoordinatorError("the supplied PR body is not the body currently on GitHub")
-        close = _run([sys.executable, str(ROOT / ".engine" / "tools" / "close_linkage_preflight.py"), "check", "--pr", str(pr), "--base", pr_data.get("baseRefOid") or state["build"]["base_at_bind"], "--head", head])
-        close_passed = close.returncode == 0
-        close_summary = (close.stdout or close.stderr or "no close-linkage output").strip()
-        contract_passed, contract_summary = _pr_contract(body)
-        missing_disagreements = [line for line in review.required_disagreement_lines(state) if line not in body]
-        if missing_disagreements:
-            contract_passed = False
-            ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
-            contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
-        profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), pr_data.get("baseRefOid") or state["build"]["base_at_bind"]])
-        profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
-        declarations = _hard_check_declarations()
-        declaration_path, declaration_digest = _write_json_artifact("build-hard-check-declarations", declarations)
-        # Checkout-integrity (StarshipSuperjam/engine-template#947): a required preflight that verifies the review fan-out did
-        # not mutate the build checkout's git state, comparing against the snapshot captured when the
-        # deliverable/repair review packet was created. `head` and `worktrees` are ignored — repair commits
-        # legitimately advance HEAD and a concurrent peer may add a worktree — leaving origin, branch, and
-        # stash, none of which a review ever legitimately changes. Inert (passes) until a baseline exists.
-        ci_snap = state.get("checkout_snapshot")
-        if ci_snap:
-            ci = review_integrity.verify(str(ROOT), ci_snap, ignore={"head", "worktrees"})
-            ci_passed = not ci["mutated"]
-            ci_summary = ("checkout origin, branch, and stash unchanged since the review packet"
-                          if ci_passed else "; ".join(ci["changes"]))
-            # Advisory (non-blocking): worktree-registry drift is the other half of incident 2, but a
-            # concurrent peer session may legitimately add a worktree to the shared checkout, so it is
-            # SURFACED here, never used to block — the required leg above stays free of that false positive.
-            wt_changes = review_integrity.compare(ci_snap, ci["after"],
-                                                  ignore={"origin", "branch", "head", "stash"})
-            wt_passed = not wt_changes
-            wt_summary = ("worktree registry unchanged since the review packet"
-                          if wt_passed else "; ".join(wt_changes))
-        else:
-            ci_passed = wt_passed = True
-            ci_summary = wt_summary = "no review-packet checkout snapshot captured (nothing to verify)"
-        results = [
-            {"id": "close-linkage", "commit": head, "passed": close_passed, "summary": close_summary},
-            {"id": "pr-contract", "commit": head, "passed": contract_passed, "summary": contract_summary},
-            {"id": "scope-profile", "commit": head,
-             "passed": profile.returncode == 0 and "could not read the diff" not in profile_summary.lower(),
-             "summary": profile_summary},
-            {"id": "hard-check-declarations", "commit": head, "passed": True,
-             "summary": (f"{len(declarations)} applicable declaration(s) at {declaration_path} "
-                         f"({declaration_digest})" if declarations else "no hard-check declarations apply")},
-            {"id": "checkout-integrity", "commit": head, "passed": ci_passed, "summary": ci_summary},
-            {"id": "checkout-worktrees", "commit": head, "passed": wt_passed, "summary": wt_summary},
-        ]
+        legs = _compute_preflight_legs(state, head, pr_data, body)
+        results = legs["results"]
+        contract_passed, ci_passed, ci_summary = legs["contract_passed"], legs["ci_passed"], legs["ci_summary"]
+        declarations = legs["declarations"]
+
         def change(s):
             s["preflights"] = results
             s["pr_contract"] = {"commit": head, "body_digest": _digest(body.encode()), "complete": contract_passed}
@@ -1715,6 +1735,18 @@ def cmd_work_integrate(args, store: StateStore) -> None:
     print(f"integrated {args.item} at {args.commit}; focused verification recorded")
 
 
+def cmd_contract_template(args, store) -> None:
+    """Emit the fillable `pr-body-claim.v1` skeleton (stateless — no Build snapshot needed). Every judgment
+    slot is null and every list empty, so validating the filled-in result names any slot still unfilled;
+    the shape is the instruction. Written to --output, or stdout by default."""
+    rendered = json.dumps(contract.fillable_template(), indent=2, sort_keys=True) + "\n"
+    if getattr(args, "output", None) and args.output != "-":
+        Path(args.output).write_text(rendered, encoding="utf-8")
+        print(f"wrote the fillable pr-body-claim.v1 template to {args.output}")
+    else:
+        print(rendered, end="")
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--state", help="path to the harness-owned local Build snapshot; omitted only for standalone pre-PR packets")
@@ -1744,6 +1776,8 @@ def parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
     apply = submit.add_parser("apply"); apply.add_argument("--plan", required=True); apply.set_defaults(func=cmd_submit_apply)
+    contract_p = sub.add_parser("contract").add_subparsers(dest="contract_command", required=True)
+    ctemplate = contract_p.add_parser("template"); ctemplate.add_argument("--output", default="-"); ctemplate.set_defaults(func=cmd_contract_template)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
@@ -1760,7 +1794,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
-        stateless = args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1"
+        stateless = (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1") or \
+                    (args.command == "contract" and getattr(args, "contract_command", None) == "template")
         if not args.state and not standalone and not stateless:
             raise CoordinatorError("--state is required for this command")
         if standalone and (not args.repository or not args.depth):
