@@ -12283,7 +12283,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:a21b33f6bda78d53bd4cd843f42ad534c2a966a503234393a123975ab27120b1",
+        "fingerprint": "sha256:69f41f6c5986fa7e8387796c62fdf0fc8ab284785575b27e854cb8d65dce5437",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
