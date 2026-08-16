@@ -317,6 +317,36 @@ class TestPreviewEvidence(unittest.TestCase):
             bc._assert_claim_findings(self._state(findings=[]), claim)
         self.assertIn("GHOST", str(ctx.exception))
 
+    def _state_with_receipts(self, receipts):
+        s = self._state()
+        s["reviews"] = {"plan": {"receipts": []}, "deliverable": {"receipts": receipts}}
+        return s
+
+    def _assemble(self, bc, state):
+        from unittest import mock
+        with mock.patch.object(bc, "_run", return_value=mock.Mock(stdout="p", returncode=0)), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "x"}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed", return_value=[]):
+            return bc._assemble_evidence(state, {"intent_source": {"kind": "direct"}, "spec": {}},
+                                         _good_claim(), "c" * 40, {"body": "", "baseRefOid": "b" * 40})
+
+    def test_code_execution_disclosure_reads_receipts(self):
+        import build_coordinator as bc
+        ev = self._assemble(bc, self._state_with_receipts(
+            [{"lens": "usability", "code_execution": "discarded-copy"}]))
+        self.assertIn("throwaway copy", ev["code_execution_line"])
+        ev_none = self._assemble(bc, self._state_with_receipts(
+            [{"lens": "usability", "code_execution": "none"}]))
+        self.assertIn("no reviewer executed", ev_none["code_execution_line"])
+
+    def test_receipt_missing_code_execution_refuses(self):
+        import build_coordinator as bc
+        with self.assertRaises(bc.CoordinatorError) as ctx:
+            self._assemble(bc, self._state_with_receipts([{"lens": "usability"}]))  # predates the field
+        self.assertIn("re-recorded", str(ctx.exception))
+
 
 @contextlib.contextmanager
 def _fake_stable_commit(root, label):

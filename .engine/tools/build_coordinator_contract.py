@@ -33,6 +33,7 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   spec_steps          str        multi-document spec-derived acceptance steps (two groups), or the
                                  honest no-spec disclosure — rendered by spec_referent, never here
   review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
+  code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
   drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
   guardrail_line      str        the guardrail-touch disclosure (floored files + tier), or "" if none
@@ -275,6 +276,8 @@ def compose(claim: dict, evidence: dict) -> str:
     review_body = []
     if evidence.get("review_coverage"):
         review_body.append(f"- **Coverage.** {evidence['review_coverage']}")
+    if evidence.get("code_execution_line"):
+        review_body.append(f"- **Code execution.** With this PR, {evidence['code_execution_line']}.")
     for entry in rev["loop_narrative"]:
         review_body.append(f"- {entry}")
     for fs in rev["finding_summaries"]:

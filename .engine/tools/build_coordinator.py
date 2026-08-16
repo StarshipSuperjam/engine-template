@@ -909,7 +909,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
-                       "commit": target["final_commit"], "finding_ids": finding_ids}
+                       "commit": target["final_commit"], "finding_ids": finding_ids,
+                       "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -932,7 +933,8 @@ def cmd_review_record(args, store: StateStore) -> None:
             receipt = {"lens": args.lens, "packet_digest": args.packet_digest,
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
-                       "commit": target["reviewed_commit"], "finding_ids": finding_ids}
+                       "commit": target["reviewed_commit"], "finding_ids": finding_ids,
+                       "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
@@ -1810,6 +1812,20 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
     review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
 
+    # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
+    # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
+    # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
+    receipts = [r for stage in ("plan", "deliverable")
+                for r in state.get("reviews", {}).get(stage, {}).get("receipts", [])]
+    missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
+    if missing:
+        raise CoordinatorError(
+            "these review receipts predate the code-execution disclosure and must be re-recorded before "
+            f"composing: {', '.join(missing)} — re-run `review record … --code-execution none|discarded-copy`")
+    ran_code = any(r.get("code_execution") == "discarded-copy" for r in receipts)
+    code_execution_line = ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
+                           "your project" if ran_code else "no reviewer executed the change's code")
+
     repair = state.get("repair")
     if repair and repair.get("final_commit"):
         drift_line = (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
@@ -1825,6 +1841,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "validation_results": validation_results,
         "spec_steps": spec_steps,
         "review_coverage": review_coverage,
+        "code_execution_line": code_execution_line,
         "disagreement_lines": review.required_disagreement_lines(state),
         "drift_line": drift_line,
         "composition_marker": marker,
@@ -1993,7 +2010,7 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.set_defaults(func=cmd_review_record)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
     waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference"); frecord.set_defaults(func=cmd_finding_record)

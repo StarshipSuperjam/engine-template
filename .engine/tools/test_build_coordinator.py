@@ -352,7 +352,8 @@ class TestReviewAndFindings(CoordinatorCase):
         contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == lens)
         return argparse.Namespace(stage=packet["stage"], lens=lens,
                                   packet_digest=packet["packet_digest"],
-                                  lens_packet_digest=contract["lens_packet_digest"], finding=findings)
+                                  lens_packet_digest=contract["lens_packet_digest"], finding=findings,
+                                  code_execution="none")
 
     def test_packet_contains_exact_plan_raw_intent_and_digest(self):
         packet = self.packet()
@@ -648,7 +649,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             bc.cmd_review_record(argparse.Namespace(stage="repair", lens="usability",
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
-                                                    finding=["R-1"]), self.store)
+                                                    finding=["R-1"], code_execution="none"), self.store)
             bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
         self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
