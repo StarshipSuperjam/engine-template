@@ -185,6 +185,11 @@ review, validate it and make the same nature-based judgment.
 
 ### 6. Preflight and submit
 
+A coordinator-driven Build composes this contract mechanically: fill the typed claim from `contract template`,
+check it with `contract preview`, and write it with `contract apply` — which folds the close-linkage preflight
+and binds the completeness result to the final commit. The session supplies only judgment-bearing narrative;
+the manual fill described next is the human and non-coordinator fallback.
+
 Read `.github/pull_request_template.md` in full and fill its literal contract, including the consent preamble,
 Scope/Behaviors, Validation, operator-readable Review record, Demonstration, and AI involvement. The Review
 record says what depth and plain-language checks ran, whether code was executed in a throwaway copy, how

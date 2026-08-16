@@ -28,6 +28,16 @@ integrity guarantees (attempt/base result binding, compare-and-swap claim writes
 integration), each demonstrated by a focused test cited inline. The capability introduced no new submission
 hard hold — the graph's resource and slot admission is a derived refusal, not a merge-blocking condition._
 
+_Amended 2026-08-16 for coordinator-owned PR composition: the `contract` verb family (`template`, `preview`,
+`apply`) composes the complete PR body from one typed claim (`pr-body-claim.v1`, judgment-bearing narrative and
+session-only observations) plus coordinator-computed evidence, replacing the hand-pasted template. This does not
+change BC-21: the coordinator now mechanically assembles and gate-checks the contract's completeness, while the
+truthfulness of its narrative remains AI-and-operator judgment (BC-24). It introduces no new hard hold — a
+`contract apply` refusal (a stale source-body digest, a concurrent edit, or non-convergence) is a derived
+refusal that restores the prior body, never a merge wall; the existing `pr-contract` hard hold is unchanged, and
+`apply` never marks the draft ready. The close-linkage posture is unchanged — advisory lines are folded, the
+uniquely bounded defang is applied, contradictions stay visible without becoming a wall._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
