@@ -7,7 +7,7 @@ date: 2026-08-08
 
 ## Decision
 
-The guardrail-weakening guard keeps watching the same property-defined set (D-268 is unchanged), but a match
+The guardrail-weakening guard keeps watching the same property-defined set (its membership rule is unchanged), but a match
 now answers in one of **two tiers**, and the acknowledgment ceremony survives only at the lower, rarer one:
 
 - **Disclosure (the new default).** A modification to a guarded enforcement file yields a plain-language
@@ -73,7 +73,7 @@ prior posture for any deployment that wants it.
 ## Rationale
 
 The label was built to make genuine weakening deliberate; at a 51% fire rate it made nothing deliberate.
-Narrowing the guarded set was already tried (StarshipSuperjam/engine-template#370, D-268) and did not cure it, because in this repository the
+Narrowing the guarded set was already tried (StarshipSuperjam/engine-template#370) and did not cure it, because in this repository the
 enforcement machinery is the product — any file-set version of "blocking" re-creates the noise. Only
 splitting *what happens on a match* changes the outcome. The tier criterion is a property, not a roster:
 **hard where no mechanical correlate or readable diff would catch the weakening — and for the guard's own

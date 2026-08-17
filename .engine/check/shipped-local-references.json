@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/shipped-local-references",
+  "target": { "context": "shipped-local-references" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/shipped_local_references_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "A file that ships into every generated repository carries a bare LOCAL reference in its prose — a decision-record id, a spec section, or a ticket prefix that means something only in the repository that wrote it. In a generated repository that identifier names a record the reader cannot reach, so the note points nowhere. The named file and line is just above. Name the CAPABILITY it means instead of the bare reference, or move it to a form that travels: an engine eADR-#### record, or a fully-qualified owner/repo#N. The references treated as local are the ones this deployment declares in .engine/operator-local-references.json; a repository that declares none is never flagged. This floor reads only prose — comments, docstrings, and prose fields — never a string literal, and skips test and demo files. If the flagged file does not actually ship into a generated repository, it belongs in the first-run retirement set (.engine/provisioning/first-run-assets.json)."
+}

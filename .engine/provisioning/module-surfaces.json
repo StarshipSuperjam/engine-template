@@ -708,6 +708,9 @@
   ".engine/check/shipped-issue-references.json": [
    "validators-core"
   ],
+  ".engine/check/shipped-local-references.json": [
+   "validators-core"
+  ],
   ".engine/check/skill-coherence.json": [
    "validators-core"
   ],
@@ -1998,6 +2001,9 @@
   ".engine/tools/shipped_issue_references_check.py": [
    "core"
   ],
+  ".engine/tools/shipped_local_references_check.py": [
+   "core"
+  ],
   ".engine/tools/skill_coherence_check.py": [
    "core"
   ],
@@ -2353,6 +2359,9 @@
    "core"
   ],
   ".engine/tools/test_shipped_issue_references_check.py": [
+   "core"
+  ],
+  ".engine/tools/test_shipped_local_references_check.py": [
    "core"
   ],
   ".engine/tools/test_skill.py": [
