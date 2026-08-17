@@ -93,18 +93,17 @@ File/stdin export and restore remain available for a harness that transports the
 
 ### 2. Assess risk and approve the Build gate
 
-Run the knowledge impact check and inspect installed review personas. Fill
-`.engine/templates/risk-assessment.md` in plain language: headline, affected areas, exactly what review and
-validation will run or is unavailable, suggested care level, and any guardrail weakening. Never invent a
-time or cost estimate. The suggested depth follows risk, not a prior preference.
+**Assess risk; offer only depths that add something.** Run the knowledge impact check, inspect installed review
+personas, and run `build_coordinator.py depths` — it lists the depths worth offering, dropping any that would run
+what a lighter one does (only Quick when no reviewers, StarshipSuperjam/engine-template#763), and prints each depth's resolved
+reviewer EFFORT. Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what
+review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no
+time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review record.
 
-The operator iterates the plan to solid and approves the plan and review depth together. Record that approval
-with `approve --plan <plan.json> --depth quick|standard|thorough`. Changing the plan content changes its
-digest and clears approval and applicable review evidence. Changing approved depth also clears review
-coverage. Progress prose does neither.
-
-An ordinary implementation leaf does not revise the plan. Revision is warranted only when intent, outcome,
-capability boundary, non-goals, settled criteria, authority, or agreed scope changes.
+The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
+--depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved
+depth clears review coverage; progress prose does neither. An ordinary implementation leaf does not revise the plan —
+revision is warranted only when intent, outcome, capability boundary, non-goals, settled criteria, authority, or scope change.
 
 The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success
 obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one
@@ -182,6 +181,10 @@ Diff size informs but never chooses. A focused re-review's prescribed repair rec
 judgment; `none` is valid and terminates the loop. There is no automatic audit recursion. A scoped or full
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
+
+**A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
+review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
+leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Still the orchestrator's judgment, never a mechanical threshold or escalation (eADR-0041).
 
 ### 6. Preflight and submit
 

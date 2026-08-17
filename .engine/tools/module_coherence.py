@@ -150,6 +150,15 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # overlay's "never touch product".)
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
+                   # Per-deployment review-depth EFFORT retune (.engine/operator-review-effort.json, read by
+                   # operator_review_effort.py — StarshipSuperjam/engine-template#677). Preserved by being outside
+                   # every module's `provides`, so a deployment's depth-effort tuning survives an engine update
+                   # while the shipped `review_depths` defaults still upgrade. DELIBERATELY carries NO dedicated
+                   # engine/check/operator-* shape gate, unlike operator-guarded-paths / operator-local-references:
+                   # its reader degrades a malformed slice to the SHIPPED default (the strong anchor), the safe
+                   # direction, so a missing shape check cannot silently weaken review — same rationale as
+                   # operator-overrides.json, which likewise carries none.
+                   ".engine/operator-review-effort.json",
                    ".engine/conduct/operator.md",
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
                    ".engine/provisioning/readme-seed.md"}

@@ -50,11 +50,11 @@ def _make_home(d):
     return d
 
 
-def _fixture(d, agents, bindings):
+def _fixture(d, agents, bindings, role="pre-submission-review"):
     os.makedirs(os.path.join(d, ".claude", "agents"))
     for name, tier in agents.items():
         with open(os.path.join(d, ".claude", "agents", f"{name}.md"), "w", encoding="utf-8") as fh:
-            fh.write(f"---\nname: {name}\nrole: pre-submission-review\nlens: x\nmodel-tier: {tier}\n"
+            fh.write(f"---\nname: {name}\nrole: {role}\nlens: x\nmodel-tier: {tier}\n"
                      f"permissions: read-only\noutput-contract: x.v1\ndisallowedTools: [Edit]\n---\nBody text.\n")
     os.makedirs(os.path.join(d, ".engine", "policies"))
     with open(os.path.join(d, ".engine", "policies", "model-bindings.json"), "w", encoding="utf-8") as fh:
@@ -120,7 +120,9 @@ class TestResolve(unittest.TestCase):
 
 
 class TestRenderAndCheck(unittest.TestCase):
-    def test_render_stamps_override_and_tier_and_is_idempotent(self):
+    def test_render_stamps_reviewer_model_but_not_effort_and_is_idempotent(self):
+        # A reviewer role (#677): model is stamped (override wins over tier), effort is UN-PINNED so the
+        # session --effort scales it by depth. check() is green with no effort line present.
         with tempfile.TemporaryDirectory() as d:
             _fixture(d, {"a": "judgment", "b": "judgment"},
                      _valid_bindings(overrides={"a": {"model": "sonnet", "effort": "high"}}))
@@ -128,13 +130,34 @@ class TestRenderAndCheck(unittest.TestCase):
             self.assertEqual(set(changed), {"a.md", "b.md"})
             self.assertEqual(ab.check(d), [])
             a = open(os.path.join(d, ".claude", "agents", "a.md"), encoding="utf-8").read()
-            self.assertIn("model: sonnet", a)
-            self.assertIn("effort: high", a)
-            # body and other frontmatter preserved
-            self.assertIn("Body text.", a)
+            self.assertIn("model: sonnet", a)                 # override model still stamped
+            self.assertNotIn("effort:", a)                    # reviewer effort un-pinned
+            self.assertIn("Body text.", a)                    # body + other frontmatter preserved
             self.assertIn("output-contract: x.v1", a)
-            # idempotent
-            self.assertEqual(ab.render(d), [])
+            self.assertEqual(ab.render(d), [])                # idempotent
+
+    def test_render_stamps_both_model_and_effort_for_a_non_reviewer_role(self):
+        # A non-reviewer role (here audit) keeps BOTH stamps — its effort is not depth-scaled.
+        with tempfile.TemporaryDirectory() as d:
+            _fixture(d, {"aud": "judgment"}, _valid_bindings(), role="audit")
+            ab.render(d)
+            self.assertEqual(ab.check(d), [])
+            aud = open(os.path.join(d, ".claude", "agents", "aud.md"), encoding="utf-8").read()
+            self.assertIn("model: opus", aud)
+            self.assertIn("effort: high", aud)
+
+    def test_check_flags_a_stray_effort_line_on_a_reviewer(self):
+        # A hand-added effort line on a reviewer would override the session --effort and defeat depth scaling,
+        # so check() must flag it as drift (expected: no effort line).
+        with tempfile.TemporaryDirectory() as d:
+            _fixture(d, {"a": "judgment"}, _valid_bindings())
+            ab.render(d)
+            p = os.path.join(d, ".claude", "agents", "a.md")
+            with open(p, encoding="utf-8") as fh:
+                edited = fh.read().replace("model: opus", "model: opus\neffort: low")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(edited)
+            self.assertTrue(ab.check(d))
 
     def test_check_flags_hand_edited_drift(self):
         with tempfile.TemporaryDirectory() as d:
@@ -208,6 +231,51 @@ class TestWorkerBinding(unittest.TestCase):
         fm = {"name": "engine-worker-x", "role": "worker", "implementation-class": "ghost"}
         with self.assertRaises(KeyError):
             ab._binding_for(fm, self._bindings())
+
+
+class TestReviewDepthsSchema(unittest.TestCase):
+    def test_review_depths_block_accepts_valid_efforts(self):
+        b = _valid_bindings(review_depths={"standard": {"effort": "medium"}, "thorough": {"effort": "high"}})
+        self.assertEqual(_errors(b), [])
+
+    def test_review_depths_is_optional(self):
+        self.assertEqual(_errors(_valid_bindings()), [])   # absent block is fine
+
+    def test_review_depths_rejects_bad_effort_and_stray_model(self):
+        bad_effort = _valid_bindings(review_depths={"standard": {"effort": "maximum"}})
+        self.assertTrue(_errors(bad_effort))
+        stray_model = _valid_bindings(review_depths={"standard": {"effort": "medium", "model": "sonnet"}})
+        self.assertTrue(_errors(stray_model), "review_depths carries effort only — a model key is rejected")
+        bad_depth = _valid_bindings(review_depths={"quick": {"effort": "low"}})
+        self.assertTrue(_errors(bad_depth), "quick runs no reviewers, so it is not a review_depths key")
+
+    def test_committed_bindings_carry_the_review_depths_block(self):
+        real = validate.load_json(REAL_BINDINGS)
+        self.assertEqual(real["review_depths"]["thorough"]["effort"], "high", "thorough = anchor high")
+        self.assertEqual(real["review_depths"]["standard"]["effort"], "medium")
+
+
+class TestDepthEffort(unittest.TestCase):
+    def _b(self):
+        return _valid_bindings(review_depths={"standard": {"effort": "medium"}, "thorough": {"effort": "high"}})
+
+    def test_shipped_defaults_resolve(self):
+        self.assertEqual(ab.depth_effort("thorough", self._b()), "high")
+        self.assertEqual(ab.depth_effort("standard", self._b()), "medium")
+
+    def test_quick_has_no_effort(self):
+        self.assertIsNone(ab.depth_effort("quick", self._b()))
+
+    def test_absent_review_depths_is_none(self):
+        self.assertIsNone(ab.depth_effort("standard", _valid_bindings()))
+
+    def test_operator_override_wins_over_shipped_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine"))
+            with open(os.path.join(d, ".engine", "operator-review-effort.json"), "w", encoding="utf-8") as fh:
+                json.dump({"standard": {"effort": "low"}}, fh)
+            self.assertEqual(ab.depth_effort("standard", self._b(), root=d), "low")   # override wins
+            self.assertEqual(ab.depth_effort("thorough", self._b(), root=d), "high")  # untouched -> shipped
 
 
 if __name__ == "__main__":
