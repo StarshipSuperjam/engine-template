@@ -235,8 +235,11 @@ def main(argv) -> int:
     repo, token = boot.repo_slug(), boot.gh_token()
     if cmd == "demo":
         return _demo()
-    if not repo or not token:
+    if not token:
         print(f"Can't do this from here. {boot.gh_unreachable_note()}")
+        return 1
+    if not repo:
+        print(f"Can't do this from here. {boot.repo_unresolved_note()}")
         return 1
     ts = TeamSwitch(repo, token)
     try:

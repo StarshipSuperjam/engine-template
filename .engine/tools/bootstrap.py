@@ -1179,8 +1179,11 @@ def cmd_status(args) -> int:
     """Read-only: report whether the safety gate is on for the branch (no writes, no consent screen)."""
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
-    if not repo or not token:
+    if not token:
         print(f"Can't check branch protection from here. {boot.gh_unreachable_note()}")
+        return 0
+    if not repo:
+        print(f"Can't check branch protection from here. {boot.repo_unresolved_note()}")
         return 0
     cp = ControlPlane(repo, token)
     try:
@@ -1214,8 +1217,11 @@ def cmd_apply(args) -> int:
     """Turn the safety gate on for the branch (idempotent; surfaces the consent screen if needed)."""
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
-    if not repo or not token:
+    if not token:
         print(f"Can't turn on branch protection from here. {boot.gh_unreachable_note()}")
+        return 1
+    if not repo:
+        print(f"Can't turn on branch protection from here. {boot.repo_unresolved_note()}")
         return 1
     cp = ControlPlane(repo, token)
     try:
@@ -1363,8 +1369,11 @@ def cmd_accept_unprotected(args) -> int:
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
     branch = args.branch
-    if not repo or not token:
+    if not token:
         print(f"Can't record this from here. {boot.gh_unreachable_note()}")
+        return 1
+    if not repo:
+        print(f"Can't record this from here. {boot.repo_unresolved_note()}")
         return 1
     cp = ControlPlane(repo, token)
     # The load-bearing belt: re-read the evaluated branch rules and confirm the platform genuinely forbids
@@ -1424,8 +1433,11 @@ def cmd_finalize(args) -> int:
     refuses (exit 1) if those workflows aren't on the branch yet (the arrival PR hasn't merged)."""
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
-    if not repo or not token:
+    if not token:
         print(f"Can't finalize branch protection from here. {boot.gh_unreachable_note()}")
+        return 1
+    if not repo:
+        print(f"Can't finalize branch protection from here. {boot.repo_unresolved_note()}")
         return 1
     cp = ControlPlane(repo, token)
     try:

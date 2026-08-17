@@ -669,5 +669,20 @@ class ImportInvariantTests(unittest.TestCase):
             self.assertEqual(os.listdir(cab), [])               # importing the package created nothing on disk
 
 
+class SandboxAwareNoTokenTests(_Base):
+    """StarshipSuperjam/engine-template#808: when no token resolves, backup setup's no-token message carries the
+    single-homed inconclusive note (via _msg_no_token()), so a sandboxed read is not reported as signed-out."""
+
+    def test_setup_no_token_message_is_the_inconclusive_note(self):
+        from unittest import mock
+        with mock.patch.object(bv, "_setup_done", return_value=False), \
+                mock.patch.object(bv, "_project_slug", return_value="o/r"), \
+                mock.patch.object(bv, "_gh", lambda transport=None: None):
+            res = bv.setup(scope="shared", consent="y")
+        self.assertEqual(res["error"], "no-token")
+        self.assertIn("does not by itself mean", res["message"])   # the single-homed #808 note is wired in
+        self.assertIn("sandbox", res["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

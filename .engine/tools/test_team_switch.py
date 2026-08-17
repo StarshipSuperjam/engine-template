@@ -169,5 +169,31 @@ class TestDemo(unittest.TestCase):
         self.assertIn("OK", buf.getvalue())
 
 
+class TestSandboxAwareNoToken(unittest.TestCase):
+    """StarshipSuperjam/engine-template#808: no reachable token -> the single-homed inconclusive note (never a
+    signed-out verdict); a missing repo slug with a token -> the distinct repo message, not the token story."""
+
+    def _run(self, *, token, repo):
+        from unittest import mock
+        buf = io.StringIO()
+        with mock.patch.object(team_switch.boot, "gh_token", return_value=token), \
+                mock.patch.object(team_switch.boot, "repo_slug", return_value=repo), \
+                contextlib.redirect_stdout(buf):
+            rc = team_switch.main(["status"])
+        return rc, buf.getvalue()
+
+    def test_no_token_is_the_inconclusive_note(self):
+        rc, msg = self._run(token=None, repo="o/r")
+        self.assertEqual(rc, 1)
+        self.assertIn("does not by itself mean", msg)
+        self.assertNotIn("(`gh auth login`)", msg)
+
+    def test_missing_repo_with_token_is_not_blamed_on_the_token(self):
+        rc, msg = self._run(token="tok", repo=None)
+        self.assertEqual(rc, 1)
+        self.assertIn("couldn't tell which GitHub repository", msg)
+        self.assertNotIn("No GitHub token was reachable", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

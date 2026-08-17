@@ -478,7 +478,7 @@ def _cmd_resolve(rest: list) -> int:
         return 2
     token = boot.gh_token()
     if not token:
-        print(boot.gh_unreachable_note(), file=sys.stderr)
+        print(f"Couldn't resolve the board from here. {boot.gh_unreachable_note()}", file=sys.stderr)
         return 1
     try:
         board = resolve_board(BoardGraphQL(token), project_id)

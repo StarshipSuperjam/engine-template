@@ -6418,7 +6418,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:b24724b6891446a9f852b5834360d21b5d4805a95a3d0aeca4e1b927d6d6d881",
+        "fingerprint": "sha256:c839c4c029641b727242582b53aa1d01c3469bec5e94b1cd5a1799e45dd74a4b",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -6738,7 +6738,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:ad0e7de938519667a5b61adbe213e9ae63f657f544de4f28f506ac09593dfa35",
+        "fingerprint": "sha256:ac73e7bb7a04a4a60ebc55a42271e5a71c2f4b517172e908bc60207333eda976",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -9361,7 +9361,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:675c3695ed64028706707f4467bdfb1c3a4c3919c55b95bc0a105e09c4e32b8b",
+        "fingerprint": "sha256:217b18c582df94a0382d9c9fa1e2f740ad84828cbec4d0c612bb0281c6d7c519",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:9d8b0ee53fc61c3fe427ef24cc8ecc0bd91547f7f411dfbc76700298d29396d6",
+        "fingerprint": "sha256:a6f62d1c83b569076ee53b60714b1657b18d6863430cf6cf4c05b10f212f1a94",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9517,7 +9517,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:59fccf202069a3caf715790c938468dbb8817e65a9bff0ac4474094c008095e4",
+        "fingerprint": "sha256:2aa4eb7ad308857b1662eea90ec803e8a477c04ee15fb783ae360d8dcb305616",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -13292,7 +13292,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:88b8fbc08eb0d03f70f7104038bc690cd9304208d19edf412064c04f96b1ebbe",
+        "fingerprint": "sha256:bb0cb3f3db2f579c0149566e5d8a835dfbc635d202999cd898802a463fda9883",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -14297,7 +14297,7 @@
       },
       "slug": "team_switch",
       "source": {
-        "fingerprint": "sha256:051f6e59810c3d8777887e3fc243a3ae7138c4d707e7942f7dd44d22410282fb",
+        "fingerprint": "sha256:adf6fe6a7bddeeca9949f61f00e4704e8e17f13211a5e1a72ba989cc1f02f434",
         "path": ".engine/tools/team_switch.py"
       },
       "status": "active",
@@ -14676,7 +14676,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:ca8ed4afed7ea04690cf84b0cc6bb7225437173fc361c7f331387a3b9ed6691d",
+        "fingerprint": "sha256:5edbd328bb0ba4555a78995738b0123fe4a59cd29adb153b11f7b29382ab2b0a",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -14813,7 +14813,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:c7f9eb480d5557fe6c90dd55a9ad80a93e4d281fc2b11b0080083a686669589d",
+        "fingerprint": "sha256:46708de5d2d02ed5a8d2763d54812521536e6acc90929dfd666ac4ded938a975",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -17139,7 +17139,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:fdc5aacf15aeb0ae9c77eff8317bc059c63046efa7793bcf8a34104e273f8c31",
+        "fingerprint": "sha256:0adad9f8d95d043b277a78ed6a74e589072462eee6140b9ed0ecb1e5f1cf99f2",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -18306,7 +18306,7 @@
       },
       "slug": "test_team_switch",
       "source": {
-        "fingerprint": "sha256:773c8e4839b3a2801d280f46eaedb32866f704366c8b94d1e341524db145a21c",
+        "fingerprint": "sha256:68b67c2a49b2871a02d98951a22d0e49766fcce4861154e416ab6a4767c39c30",
         "path": ".engine/tools/test_team_switch.py"
       },
       "status": "active",

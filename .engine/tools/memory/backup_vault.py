@@ -845,8 +845,8 @@ def _msg_no_token() -> str:
     `boot.gh_unreachable_note()` so a sandboxed read is not mis-reported as a signed-out or expired token
     (StarshipSuperjam/engine-template#808); the backup-specific framing stays here."""
     import boot  # noqa: E402 — lazy: keep boot's heavy import graph off this module's load path
-    return ("I couldn't reach your GitHub account, so I can't set up the backup right now. Your memory is safe "
-            "on this computer, and nothing was created. " + boot.gh_unreachable_note() +
+    return ("I can't set up the backup right now — your memory is safe on this computer, and nothing was "
+            "created. " + boot.gh_unreachable_note() +
             " Then ask me to set up the backup again once you can reach GitHub.")
 _MSG_NO_SCOPE = ("I couldn't create the private backup repository because my GitHub access doesn't include "
                  "permission to create repositories. Your memory is safe on this computer, and nothing was created. "
