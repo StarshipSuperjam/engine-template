@@ -6198,7 +6198,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:ce3f7da86b842ce1f8f7307214a127cca6170d5929b20b58be97b0f4c2408482",
+        "fingerprint": "sha256:2f168cbd9723a8ffb52b2cc5048e726a09864233050cb078672b51a22cf49cc8",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6218,7 +6218,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:550b69ad671258936816694809a923d3c92afb24a4f7a2c390b91f15e818c391",
+        "fingerprint": "sha256:0ae006fb86d390e351b51f917489ff918cbe516bbb8540bb4bf40ed5a6a73bc4",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6258,7 +6258,7 @@
       },
       "slug": "build-submission-evidence",
       "source": {
-        "fingerprint": "sha256:f27a89246412a1ca3056d318db6345dfac6ea0db82e05a273ab4b341369e9736",
+        "fingerprint": "sha256:b011c83aabbc49d3939f220fe9b45ad1d4bf4caad67af22aa2ccc957e4de67a2",
         "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
@@ -7484,7 +7484,7 @@
       },
       "slug": "engine-issue-input.v1",
       "source": {
-        "fingerprint": "sha256:769ebb45eacbcf9270df3a294f46970c76bea3aae31b0f088d4c2f9369bf2283",
+        "fingerprint": "sha256:ca327e6773ba7d8a4c1c048401e4c9cfbc344225044c4a2745862be32719f2c1",
         "path": ".engine/schemas/engine-issue-input.v1.json"
       },
       "status": "active",
@@ -9856,7 +9856,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:7601e526cdc8036257c33da3005387b4b045e4fa77561ca5d15ef991e645e12b",
+        "fingerprint": "sha256:111bd309f0dac4296a772c497d44a193aeac7e0a8fa213929a425097aa54e0b1",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -12158,7 +12158,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:ab4fdcab884029a3beb7a6a956ffb0bc8a9595aec5b37f442a6ac73c45b37f48",
+        "fingerprint": "sha256:c1d344cb9ba682125c7cb465fa7681b9ba3e7bbb265e6ea98aa0f0bdd1a0065e",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -15112,7 +15112,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:88e24f362deef2fdc76c99b19ac666192a83a1e8e0ac25ec65f1884f3ac6fc58",
+        "fingerprint": "sha256:a29b26cac27cdff780b6646459c66734a49616bfc3e2de9b3a88d14f778f76f5",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -16124,7 +16124,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:e3ccebca58a171cf73dece5ba209cddd250f2cee3b227390a1e6416d3a1765ee",
+        "fingerprint": "sha256:bd3c89810f837eb27d25fb305033a37432c3e44aced523709e37dba79e4dc3c9",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -18381,11 +18381,11 @@
       },
       "slug": "test_unresolved_conversation_notice",
       "source": {
-        "fingerprint": "sha256:f103a13a33de5b7770159b90366f290c68bb0a7ed2dc721cbffd9395c9361403",
+        "fingerprint": "sha256:137b45c7cba3fc96ab84c23368bff7dbbf20a3fcf5512269f427a96fd8ac2269",
         "path": ".engine/tools/test_unresolved_conversation_notice.py"
       },
       "status": "active",
-      "summary": "Tests for the on-demand unresolved-conversation guidance (#408, #655).",
+      "summary": "Tests for the passive unresolved-conversation pre-arm (#408).",
       "type": "tool"
     },
     {
@@ -18576,11 +18576,11 @@
       },
       "slug": "unresolved_conversation_notice",
       "source": {
-        "fingerprint": "sha256:79071020a00789578d1718c0b44c39149ff2cfb2d58976f93966ca925d699507",
+        "fingerprint": "sha256:d05bc44e6eb985aa6b83e81099dc146b86ea849d2897ed820c805e513b19e5c7",
         "path": ".engine/tools/unresolved_conversation_notice.py"
       },
       "status": "active",
-      "summary": "On-demand guidance for a merge blocked by an unresolved review conversation — the branch ruleset's",
+      "summary": "Passive pre-arm for a merge blocked by an unresolved review conversation — the branch ruleset's",
       "type": "tool"
     },
     {

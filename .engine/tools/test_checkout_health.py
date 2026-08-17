@@ -1879,5 +1879,105 @@ class TestEngineRootAndDefaultSeams(unittest.TestCase):
             self.assertIsNone(checkout_health.confident_default_branch(solo))
 
 
+# --- the issue-filing freshness preflight (StarshipSuperjam/engine-template#957) ---
+
+_DEFECT_DOC = "# Doc\n\nno demonstration section here.\n"           # the #911-shaped defect: section missing
+_FIXED_DOC = "# Doc\n\n## Demonstration\n\nrun `x`; it prints Y.\n"  # the merged fix: section present
+
+
+def _origin_and_clone(tmp: str, *, doc: str, doc_name: str = "doc.md") -> tuple:
+    """A local 'origin' (default branch `main`) carrying `doc_name` with `doc`, and a `work` clone of it at that
+    seed. Returns (work, origin). Hermetic — fresh_default_head fetches from this local origin, no network."""
+    origin = os.path.join(tmp, "origin")
+    os.makedirs(origin)
+    with open(os.path.join(origin, doc_name), "w") as fh:
+        fh.write(doc)
+    _git(origin, "init", "-q", "-b", "main")
+    _commit(origin, "seed")
+    work = os.path.join(tmp, "work")
+    subprocess.run(["git", "clone", "-q", origin, work], capture_output=True, text=True, check=False)
+    return work, origin
+
+
+def _advance_origin(origin: str, *, doc: str, doc_name: str = "doc.md") -> None:
+    """Rewrite `doc_name` on origin's default branch and commit, so origin's head moves ahead of any prior
+    clone — the clone is now STALE relative to origin's fresh default head."""
+    with open(os.path.join(origin, doc_name), "w") as fh:
+        fh.write(doc)
+    _commit(origin, "advance")
+
+
+class TestFreshDefaultHead(unittest.TestCase):
+    """A repository-state claim is judged at origin's FRESH default-branch head, never the local (possibly
+    stale) worktree — so a defect already fixed upstream reports present_at_head False (already resolved), a
+    genuinely still-present defect reports it present (file), and an unreadable remote degrades to ok:False
+    (the caller must treat that as unverified, never resolved). No filing verbs live here — only facts."""
+
+    @staticmethod
+    def _demo_section_missing(content: str) -> bool:
+        return "## Demonstration" not in content
+
+    def test_stale_worktree_sees_the_fix_at_fresh_head(self):
+        # The #911 shape: work is cloned BEFORE the fix; origin then gains it. The local worktree still lacks
+        # the section, but the preflight reads origin's fresh head and reports the claim already resolved.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            _advance_origin(origin, doc=_FIXED_DOC)
+            with open(os.path.join(work, "doc.md")) as fh:
+                self.assertNotIn("## Demonstration", fh.read())      # the local worktree is STALE (still defective)
+            r = checkout_health.claim_at_fresh_head(work, "doc.md", self._demo_section_missing)
+            self.assertTrue(r["ok"])
+            self.assertTrue(r["readable"])
+            self.assertFalse(r["present_at_head"])                   # fresh head HAS the fix -> not present -> suppress
+
+    def test_live_defect_is_present_at_fresh_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            r = checkout_health.claim_at_fresh_head(work, "doc.md", self._demo_section_missing)
+            self.assertTrue(r["ok"])
+            self.assertTrue(r["readable"])
+            self.assertTrue(r["present_at_head"])                    # fresh head still shows the defect -> file
+
+    def test_unreadable_remote_reports_not_ok_without_inspecting_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            _git(work, "remote", "remove", "origin")                 # origin unreadable -> ls-remote fails
+            r = checkout_health.claim_at_fresh_head(work, "doc.md", self._demo_section_missing)
+            self.assertFalse(r["ok"])
+            self.assertNotIn("present_at_head", r)                    # nothing inspected -> caller treats as unverified
+
+    def test_absent_path_is_readable_false_and_never_consults_the_predicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+
+            def _boom(_content):
+                raise AssertionError("still_present must not run when the path is absent at head")
+
+            r = checkout_health.claim_at_fresh_head(work, "missing.md", _boom)
+            self.assertTrue(r["ok"])
+            self.assertFalse(r["readable"])
+            self.assertNotIn("present_at_head", r)
+
+    def test_fresh_default_head_reports_the_default_and_the_verified_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            r = checkout_health.fresh_default_head(work)
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["default"], "main")
+            origin_head = subprocess.run(["git", "-C", origin, "rev-parse", "HEAD"],
+                                         capture_output=True, text=True).stdout.strip()
+            self.assertEqual(r["sha"], origin_head)                  # the freshly-verified advertised commit
+            self.assertIn("slug", r)
+            self.assertIsNone(r["slug"])                             # a local-path origin carries no github slug
+
+    def test_fresh_default_head_is_not_ok_when_origin_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            _git(work, "remote", "remove", "origin")
+            r = checkout_health.fresh_default_head(work)
+            self.assertFalse(r["ok"])
+            self.assertIn("reason", r)
+
+
 if __name__ == "__main__":
     unittest.main()

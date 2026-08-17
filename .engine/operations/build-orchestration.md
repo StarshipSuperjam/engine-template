@@ -156,8 +156,8 @@ Unexpected paths are highlighted for judgment, not automatically forbidden. A mi
 blocks commit recording. A non-aligned judgment requires resolution before submission.
 
 Write genuine deferrals at the code site with the governed [`ENGINE-TODO` marker grammar](../contracts/eADR-0035-deferred-work-marker.md)—which requires no Issue merely to record one—run `engine_todo.py list` in touched areas, and disposition covered work. Verify specifications, harness capability, and delegated findings against
-first-hand authority. Iterate with focused tests; `status` reports unordered activities and cannot know which
-engineering activity is best.
+first-hand authority — including a repository-state claim you would file as an engine Issue, checked against the freshly-fetched default branch of the repo it concerns and open/recently-merged pull requests (`checkout_health.claim_at_fresh_head`): record the verified `owner/repo@sha`, and if the fresh head cannot be read or the checkout is the wrong repo, report it unverified, never auto-closing an existing Issue. Iterate with focused
+tests; `status` reports unordered activities and cannot know which engineering activity is best.
 
 Reconcile the target branch before final validation; if it advanced, resolve by the substance of the change
 (the original base is disclosed evidence, not immutable authority). Regenerate `.engine/knowledge/graph.json`
