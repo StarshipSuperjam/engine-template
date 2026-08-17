@@ -1083,6 +1083,9 @@
   ".engine/tools/demo_760_add_release_tag.py": [
    "core"
   ],
+  ".engine/tools/demo_959_finalize_ready_transition.py": [
+   "core"
+  ],
   ".engine/tools/demo_ack_authority.py": [
    "core"
   ],

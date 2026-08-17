@@ -1684,6 +1684,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_focus_read.py",
     ".engine/tools/demo_reverse_adjacency.py",
     ".engine/tools/demo_release_pr_mergeable.py",
+    ".engine/tools/demo_959_finalize_ready_transition.py",
     ".engine/tools/demo_build_entry_depth_gate.py",
     ".engine/tools/demo_state_cursor_honesty.py",
     # #424 U13a: nine further construction demos brought into the census. Each is maintainer build evidence,
