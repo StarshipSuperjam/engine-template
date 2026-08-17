@@ -9361,7 +9361,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:217b18c582df94a0382d9c9fa1e2f740ad84828cbec4d0c612bb0281c6d7c519",
+        "fingerprint": "sha256:f0d4f20dda545bda0744006c28e230f83fa3f8495a4f597c1643a5cb2de0b583",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -12110,7 +12110,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:a4f0d754c697a5a720dc016fa3f507a0baecf3881cacddf36499ce8401731247",
+        "fingerprint": "sha256:6b8ed552ba210644d38ef96d105f0d19e4475862c95611656568d9192eecfce2",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13680,7 +13680,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:ef556047f9c6825e700339312b251ee206ae5288be7d56ffff9d5d99681fc340",
+        "fingerprint": "sha256:f54ecb5c6397ce08fa0185d209622f26f55ac562acb14e63a1b5e9f05b0a1863",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14676,7 +14676,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:5edbd328bb0ba4555a78995738b0123fe4a59cd29adb153b11f7b29382ab2b0a",
+        "fingerprint": "sha256:ff9c69a20d651a237bb150d1bfa82c073afc828046a219eac01bb570f71d15e5",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -16053,7 +16053,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:3db9d35065606de4efe6d89a4bf795d80b44fd5186b2840af9667511f8efa029",
+        "fingerprint": "sha256:e9027113018615c96c09724c3ffc87b0d83b16a500aa5bf15438d8b2b92a5384",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17480,7 +17480,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:4655c6f67e37668b0eca41a7ecf49ad375b29ea8bce2cfa4e994fecdb70d0420",
+        "fingerprint": "sha256:8170ff8ab3ef872f0bf848a01649ccc26b4474886e71c5083245669dfe384031",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",

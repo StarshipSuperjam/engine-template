@@ -683,6 +683,15 @@ class SandboxAwareNoTokenTests(_Base):
         self.assertIn("does not by itself mean", res["message"])   # the single-homed #808 note is wired in
         self.assertIn("sandbox", res["message"])
 
+    def test_now_message_no_token_is_the_note_not_a_network_error(self):
+        # The `now` (push) verb: a no-token failure must get the sandbox-aware note, NOT the "steady internet
+        # connection" message a genuine network fault gets.
+        note = bv._now_message({"ok": False, "error": "no-token"})
+        self.assertIn("does not by itself mean", note)
+        self.assertNotIn("internet connection", note)
+        net = bv._now_message({"ok": False, "error": "unreachable"})
+        self.assertIn("internet connection", net)                  # genuine network errors keep their message
+
 
 if __name__ == "__main__":
     unittest.main()

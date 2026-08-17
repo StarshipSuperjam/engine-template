@@ -1116,7 +1116,14 @@ def _now_message(result: dict) -> str:
         return "Memory backup isn't set up yet. Ask me to set up the backup first."
     if err == "public":
         return _heads_up_public().split(": ", 1)[-1]
-    if err in ("push-failed", "unreachable", "no-token"):
+    if err == "no-token":
+        # StarshipSuperjam/engine-template#808: a no-token read is NOT a network fault — inside a sandbox the
+        # keyring is unreachable while the login is fine — so route it through the single-homed note, not the
+        # "steady internet connection" message the genuine-network cases get.
+        import boot  # noqa: E402 — lazy: keep boot's heavy import graph off this module's load path
+        return ("I couldn't update the backup just now — your memory on this computer is safe and complete. "
+                + boot.gh_unreachable_note())
+    if err in ("push-failed", "unreachable"):
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. Try "
                 "again when you have a steady internet connection.")
     return "I couldn't update the backup just now. Your memory on this computer is safe and complete."
