@@ -619,6 +619,13 @@ for _argv in (["show"], ["demo"], ["apply-demo"], ["finish-demo"], ["collision-d
     with contextlib.redirect_stdout(_buf):
         _rc = instantiator.main(_argv)
     assert _rc == 0, (_argv, _rc, _buf.getvalue()[-400:])
+# #755: arrive() composes its PR body via module_manager.render_arrival_pr_body, which `import release_cut` —
+# release_cut is import-safe on this bare (jsonschema-blocked) floor ONLY because its jsonschema binding is lazy.
+# Render the arrival body here so a regression that drags jsonschema back onto the arrival floor fails loudly.
+import module_manager as _mm
+_ab = _mm.render_arrival_pr_body(module_ids=["m1"], claude_floor="inserted", agents_floor="inserted",
+                                 default_branch="main", protected=True)
+assert "## Purpose" in _ab and "## AI involvement" in _ab, ("ARRIVAL-BODY-BROKEN", _ab[:200])
 print("STARTABLE-OK")
 """
 
@@ -3078,8 +3085,11 @@ class TestArrive(unittest.TestCase):
             check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
                                          release_root=release)
             class1 = [c for c in check["collisions"] if c["klass"] == 1]
-            paths = set(class1[0]["paths"]) if class1 else set()
-            # The COMPLETE set: ONLY the two genuine operator files — nothing the release ships or a runtime dir.
+            # The COMPLETE class-1 set across every class-1 copy (#755 made the release fixture faithfully ship
+            # `.github/pull_request_template.md`, so the operator's byte-DIFFERENT copy now surfaces on the
+            # engine-owned-slot copy (#861) rather than the generic exclusive one — still surfaced, never silently
+            # overwritten; the union proves nothing the release ships or a runtime dir leaked in either).
+            paths = {p for c in class1 for p in c["paths"]}
             self.assertEqual(paths, {".github/pull_request_template.md", ".engine/operator-notes.txt"})
             # Explicitly: a module manifest (NOT in the provides-derived owned set) is still resume-dropped
             # because the release ships it — the tech-review flood case.
@@ -3588,6 +3598,34 @@ class TestArrive(unittest.TestCase):
             self.assertEqual(len(prs), 1)
             self.assertIn("could NOT be turned on", prs[0]["body"])
             self.assertNotIn("has already been turned on", prs[0]["body"])
+
+    def test_arrival_pr_body_carries_the_full_contract(self):
+        # #755: the arrival PR body — which no target-repo check can reject before merge (the completeness gate
+        # and its workflow arrive IN this PR) — must clear the SAME real pr-body-completeness gate every engine
+        # PR does, at the actual opener boundary. Also pin the arrival-specific promises the gate cannot see: the
+        # post-merge finalize action, and the checkless-arrival honesty (never claiming the engine's own checks
+        # run on this PR).
+        import validate
+        prs = []
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v0.5.0", tier="team",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None,
+                              opener=lambda **k: prs.append(k) or {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(len(prs), 1)
+            body = prs[0]["body"]
+            rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
+            passed, findings = validate.kind_presence(rule, {"pr_body": body})
+            self.assertTrue(passed, f"arrival PR body failed the completeness gate: {findings}")
+            self.assertEqual(findings, [])
+            self.assertIn("Your merge is the binding gate", body)             # a consent-preamble anchor
+            self.assertIn("## AI involvement", body)                          # the last required section
+            self.assertIn("bootstrap.py finalize", body)                      # the post-merge action, in Review
+            self.assertNotIn("suite runs on this pull request", body.lower())  # checkless-arrival honesty
+            self.assertIn("not yet running on this pull request", body.lower())
 
     def test_accept_proceeds_inserts_one_floor_and_opens_one_pr_for_the_target(self):
         import wiring

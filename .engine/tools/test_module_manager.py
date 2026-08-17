@@ -2072,6 +2072,75 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         self.assertLess(caveat_idx, suspect_idx, "the suspect caveat must introduce the suspect list")
 
 
+class TestArrivalPrBodyIsTemplateConforming(unittest.TestCase):
+    """#755: the brownfield arrival PR body — the project's FIRST view of the engine, which no target-repo check
+    can reject before merge — must clear the SAME `pr-body-completeness` gate every engine PR does, while being
+    honest about the checkless arrival (the engine's own checks are not required until the post-merge finalize)."""
+
+    def _rule(self):
+        return module_manager.validate.load_json(
+            os.path.join(module_manager.validate.CHECK_DIR, "pr-body-completeness.json"))
+
+    def _rich(self, **over):
+        facts = dict(engine_release="v0.5.0", tier="team", module_ids=[f"m{i}" for i in range(9)],
+                     overlaid_count=715, overlap_count=3, kept_as_is_count=1,
+                     claude_floor="inserted", agents_floor="inserted",
+                     home_repository="StarshipSuperjam/engine-template", default_branch="main", protected=True)
+        facts.update(over)
+        return module_manager.render_arrival_pr_body(**facts)
+
+    def test_rendered_arrival_body_clears_the_completeness_gate(self):
+        body = self._rich()
+        passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
+        self.assertTrue(passed, f"arrival PR body failed the completeness gate: {findings}")
+        self.assertEqual(findings, [])
+
+    def test_rendered_arrival_body_clears_the_gate_even_when_minimal(self):
+        # A quiet arrival (no overlaps, protection not applied, no update home) must still be a complete,
+        # conforming consent surface — never a half-filled template.
+        body = module_manager.render_arrival_pr_body(module_ids=[], overlap_count=0, claude_floor="inserted",
+                                                     agents_floor="skipped", home_repository=None,
+                                                     default_branch="main", protected=False)
+        passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
+        self.assertTrue(passed, f"minimal arrival PR body failed the completeness gate: {findings}")
+
+    def test_arrival_validation_never_claims_the_full_suite_runs_on_this_pr(self):
+        # Consent honesty (the sharpest arrival divergence from the upgrade body): the target has no engine
+        # checks yet — they arrive IN this PR and run only after finalize — so the body must NOT claim a CI/full
+        # suite runs on or gates this pull request, and it must say the checks arm at the post-merge finalize.
+        low = self._rich().lower()
+        self.assertNotIn("full suite runs on this pull request", low)
+        self.assertNotIn("suite runs on this pull request", low)
+        self.assertNotIn("ci suite", low)
+        self.assertIn("not yet running on this pull request", low)
+        self.assertIn("bootstrap.py finalize", self._rich())  # the post-merge action, case-preserved
+
+    def test_arrival_body_surfaces_a_must_see_degraded_floor(self):
+        # A floor the engine could NOT insert (a malformed local fence) is a must-see negative on the one surface
+        # the operator reads before merging the whole engine — it must render a visible line, not be dropped.
+        body = self._rich(claude_floor="degraded")
+        self.assertIn("Could NOT add the engine's instruction block to your Claude guide", body)
+        passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
+        self.assertTrue(passed, f"degraded-floor arrival body failed the gate: {findings}")
+
+    def test_arrival_body_preserves_the_conditional_protection_honesty(self):
+        # The protection claim is conditional on what actually happened (pinned end-to-end by the instantiator
+        # test); at the renderer level, the not-applied path must never read as protected.
+        on = self._rich(protected=True)
+        self.assertIn("has already been turned on", on)
+        self.assertNotIn("could NOT be turned on", on)
+        off = self._rich(protected=False)
+        self.assertIn("could NOT be turned on", off)
+        self.assertNotIn("has already been turned on", off)
+
+    def test_arrival_body_literalizes_externally_derived_values(self):
+        # The branch name and update-home slug are external strings; a stray Markdown metacharacter must not
+        # reshape the sole consent surface.
+        body = self._rich(default_branch="feat/*x_y", home_repository="o/r`z")
+        self.assertIn("feat/\\*x\\_y", body)
+        self.assertIn("o/r\\`z", body)
+
+
 class TestLifecycleRendersCarryCoherenceWarrant(unittest.TestCase):
     """#400 F5: the add/remove/upgrade renders must carry the structural-not-fitness coherence warrant, so an
     operator never misreads a bare "consistent" line as "the module works." The warrant is single-homed in
