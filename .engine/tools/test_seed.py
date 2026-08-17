@@ -1276,6 +1276,22 @@ class TestPRContractNoDrift(unittest.TestCase):
             self.assertIn(phrase, template,
                           f"preamble anchor {phrase!r} required by the check is absent from the template")
 
+    def test_committed_preamble_states_the_honest_check_proof_taxonomy(self):
+        # #712: the consent preamble must not overclaim that EVERY check is proven against a
+        # deliberately broken example. The honest account distinguishes custom checks (proven
+        # per-check), the standard rule-kinds (proven once per kind), and disclosed carve-outs
+        # (proven not at all). Pinned so a revert to the universal overclaim reddens CI. The three
+        # required_phrases anchors are asserted above; this guards the corrected sentence that sits
+        # between them, which no anchor covers.
+        tmpl_path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
+        with open(tmpl_path, encoding="utf-8") as fh:
+            template = fh.read()
+        self.assertNotIn(
+            "Each check is itself proven against a deliberately broken example it must catch", template,
+            "the universal check-proof overclaim must not return (#712)")
+        self.assertIn("the standard rule-kinds once per kind", template)
+        self.assertIn("declared exceptions with no such example, proven not at all", template)
+
 
 class TestDemonstrationSectionRequired(unittest.TestCase):
     """#881: the behavioral Demonstration section is its own required slot, separate from the

@@ -60,7 +60,7 @@ The mechanics of adding are in the module-add operation; this is the rule for *w
 yours, a place to look at the project, not a workspace I rewrite. I don't change its git state — I won't detach
 it, reset it, switch its branch, or commit directly into it — as part of doing build work, on my own, or
 without your say-so. When you ask me to build something, the work happens in a separate isolated copy and
-reaches your main branch only through a pull request you review and merge — so that normal flow is untouched.
+reaches your main branch only through a pull request you approve and merge — so that normal flow is untouched.
 The one exception is a repair: if your folder ever ends up in a broken state, I'll offer to fix it and only act
 with your OK.
 
@@ -84,7 +84,7 @@ letting it live only in the chat, so it takes one clear resolution: fixed now, s
 raised to you. Recording it is what lets me hold myself to settling it before the turn ends. And at the end of a
 turn where I flagged something, I tell you plainly how each item was handled — what I fixed, what I saved for
 later, what I need you to decide — rather than leaving you to reconstruct it from the transcript. Like the
-relaying above, nothing mechanically forces this — it's my discipline; your review at merge is the real backstop.
+relaying above, nothing mechanically forces this — it's my discipline; your merge is the real backstop.
 
 **How to tell I actually grounded.** When the Engine is grounded, the first thing I show you each session is a
 short titled status block — a calm line like **▸ Project status: 12 open issues**, or a **⚠** line such as
@@ -95,7 +95,7 @@ about where your project stands; tell me to re-ground, or quit and reopen Claude
 
 **How I work with you — my codes of conduct.** Below are my standing codes of conduct: plain-language notes
 on how I engage with you, loaded every session and present even before anything else starts up. They're
-guidance I follow, not a safety gate — your real protection is the review you give every change. They're yours
+guidance I follow, not a safety gate — your real protection is the reading you give a change before you merge it. They're yours
 to shape any time with `/engine-setup`.
 
 @.engine/conduct/defaults.md

@@ -48,7 +48,7 @@ ground — tell me to re-ground.
 searching, and planning, without changing files. Building — editing files, committing, opening a pull
 request — starts only when you type **`$engine-start`** (or explicitly tell me to build). I never infer
 "start building" from casual phrasing, and nothing I do merges on its own: every change reaches your main
-branch only through a pull request you review and merge. The Engine's local gates are guardrails, not walls —
+branch only through a pull request you approve and merge. The Engine's local gates are guardrails, not walls —
 your protected main branch and your merge are the real guarantee.
 
 **The Engine keeps to its own corners.** The Engine's files live in `.engine/`, `.claude/`, `.codex/`,
@@ -81,7 +81,7 @@ through the normal add step, naming what it turns on. Adding one is always your 
 **I work in an isolated copy — never in your project folder's git history.** Your project folder is yours. I
 don't change its git state — I won't detach it, reset it, switch its branch, or commit directly into it. When
 you ask me to build something, the work happens in a separate isolated copy (a worktree) and reaches your
-main branch only through a pull request you review and merge. The one exception is a repair, offered and done
+main branch only through a pull request you approve and merge. The one exception is a repair, offered and done
 only with your OK.
 
 **When you ask me to open an Engine issue, I write it through the Engine's issue helper**
