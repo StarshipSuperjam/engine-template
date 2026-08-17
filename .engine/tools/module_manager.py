@@ -88,6 +88,7 @@ import module_coherence  # noqa: E402  (the present-set reader + the coherence l
 import module_catalog    # noqa: E402  (the degrade-safe optional-module catalog reader — offer text + the decline discriminator)
 import bootstrap         # noqa: E402  (ControlPlane.de_bootstrap — the clean-removal control-plane leg; one-way)
 import engine_write      # noqa: E402  (the engine-owned write boundary — homed once, StarshipSuperjam/engine-template#862/StarshipSuperjam/engine-template#923)
+import derived_state      # noqa: E402  (the derived-committed set + its regeneration — single owner, StarshipSuperjam/engine-template#925)
 
 
 # ---- paths (computed from validate.ROOT at CALL time so a test/demo can redirect ROOT) --------
@@ -1349,11 +1350,11 @@ def _overlay_copy_map(tree_root: str, manifests_by_id: dict) -> dict:
 # than a per-file alarm — single-sourced here so behaviour and notice cannot disagree. `product-spec-matrix.json`
 # is regenerated only where the OPTIONAL product-design module (and a settled `docs/spec/`) is present; skipped,
 # never fabricated, otherwise.
-REGENERATED_DERIVED = (
-    ".engine/self-map.md",
-    ".engine/knowledge/graph.json",
-    ".engine/product-spec-matrix.json",
-)
+# Single-sourced from the derived-state substrate (`derived_state.MEMBERS`) so the derived-committed set has
+# exactly one owner: a new derived artifact registers there and reaches this reconcile tail, the overwrite
+# disclosure, and every other boundary at once, rather than in several hand-maintained tuples that drift
+# (StarshipSuperjam/engine-template#925). Kept as a module attribute for back-compat readers (overlay_disclosure).
+REGENERATED_DERIVED = derived_state.paths()
 
 
 def _preserved_present(dest_root: "str | None" = None) -> set:
@@ -2659,64 +2660,29 @@ def _stage_worktree() -> None:
         pass
 
 
-def _regen_indexes() -> None:
-    """Regenerate the deployed-state-dependent index files listed in REGENERATED_DERIVED — the self-map, the
-    knowledge graph, and the product-spec-matrix — from the reconciled tree, so they describe the DEPLOYED
-    shape (post first-run projection), NOT the construction shape the release ships. The overlay delivers the
-    release's construction versions, but each derives from / fingerprints the surface the reconcile just
-    changed, so the shipped copy would drift (self-map-drift / knowledge-coverage; the matrix's own drift
-    gate). The self-map and graph are `core`'s; the product-spec-matrix is the same shape but supplied by the
-    OPTIONAL product-design module — it derives from the deployment's OWN `docs/spec/`, so an update refreshes
-    its format without freezing the deployment's settled-criteria rows (StarshipSuperjam/engine-template#814). Each is regenerated ONLY where
-    the tree already carries it (never fabricated on a minimal fixture, nor on a deployment that never settled
-    a spec), and the product-design generator is imported LAZILY and guarded (the module, hence its tool, is
-    absent on a deployment without it). Best-effort: a regen failure surfaces as a drift finding, never a crash
-    mid-upgrade — but WHERE it surfaces differs: the self-map and graph drift is caught PRE-OPEN by the
-    structural gate (`self-map-drift` / `knowledge-coverage`, a clean refusal that opens nothing), whereas the
-    product-spec-matrix's drift check is NOT in that offline subset, so a swallowed matrix-regen failure is
-    caught instead by the full `engine-ci` run on the OPENED pull request (a red required check) — still never
-    silent, but post-open rather than a pre-open refusal."""
-    import self_map            # lazy: only the reconcile tail needs the generators
-    import knowledge_gen
+def _regen_indexes() -> list:
+    """Regenerate the deployed-state-dependent index files from the reconciled tree, so they describe the
+    DEPLOYED shape (post first-run projection), NOT the construction shape the release ships. The overlay
+    delivers the release's construction versions, but each derives from / fingerprints the surface the
+    reconcile just changed, so the shipped copy would drift (self-map-drift / knowledge-coverage; the matrix's
+    own drift gate). The set, the presence rule (never fabricate on a minimal tree / no settled spec), the
+    symlink guard, and the lazy optional-module import all live in ONE place now — the derived-state substrate
+    (`derived_state.regenerate`, StarshipSuperjam/engine-template#925) — rather than being re-implemented here.
 
-    # Resolve each REGENERATED_DERIVED path to its generator. Pass an EXPLICIT target under the CURRENT
-    # validate.ENGINE_DIR: the generators' own default-path constants are bound at import to the real repo, so
-    # a bare generate() would write there even under a redirected tree (a test/demo fixture). ENGINE_DIR IS
-    # redirected, so the path built from it writes the tree actually being reconciled.
-    def _generator(rel: str):
-        if rel == ".engine/self-map.md":
-            return self_map.generate
-        if rel == ".engine/knowledge/graph.json":
-            return knowledge_gen.generate
-        if rel == ".engine/product-spec-matrix.json":
-            try:
-                from product_design import obligation_matrix   # OPTIONAL module: absent is EXPECTED → skip
-            except ImportError:
-                return None
-            return obligation_matrix.generate
-        # A REGENERATED_DERIVED member with no generator here is a MAINTENANCE BUG — the tuple and this resolver
-        # must stay in lockstep, or the disclosure would promise 'regenerated' for a file the update never
-        # rebuilds. Fail LOUD (this runs outside the regen swallow below), never a silent skip.
-        raise KeyError(f"REGENERATED_DERIVED member {rel!r} has no generator in _regen_indexes — add one")
-
-    for rel in REGENERATED_DERIVED:
-        target = os.path.join(validate.ENGINE_DIR, *rel.split("/")[1:])
-        if not os.path.isfile(target):
-            continue   # the tree does not carry this index (a minimal fixture / no settled spec) — never fabricate
-        # StarshipSuperjam/engine-template#862: os.path.isfile FOLLOWS a symlink, so a live symlink at an engine index would be regenerated
-        # THROUGH it — an out-of-tree write (self-map/matrix use a plain open('w')). Refuse via the shared
-        # predicate (StarshipSuperjam/engine-template#923): SKIP the regen — keep this a `continue`, never a raise, even if the isfile check
-        # above is ever reordered — so no write follows the link; the drift gate (arrival's index gate / the
-        # upgrade reconcile) then surfaces the un-regenerated index as a hard finding, disclosed never silent.
-        if engine_write.write_through_symlink_reason(target, validate.ROOT):
-            continue
-        gen = _generator(rel)          # OUTSIDE the swallow: an unmapped member is a loud maintenance bug
-        if gen is None:
-            continue                   # optional module absent — nothing to regenerate here
-        try:
-            gen(path=target)           # a genuine regen failure IS swallowed (drift-gate backstop), never a crash
-        except Exception:  # noqa: BLE001 — a regen failure surfaces as a drift finding, not a traceback
-            pass
+    Import dispatch: the substrate targets the CURRENT `validate.ENGINE_DIR`, which this tail has redirected,
+    so it writes the tree being reconciled. Each member's outcome comes back explicit (regenerated / unchanged
+    / skipped-absent / skipped-symlink / skipped-no-generator / failed) — never a swallowed exception. A
+    `failed` result is surfaced here as a plain note but is ADVISORY, not a new refusal: the downstream drift
+    gate remains the authority (self-map-drift / knowledge-coverage pre-open for the core indexes; the matrix's
+    own check in the full engine-ci run post-open), so an upgrade whose committed output is already canonical is
+    not newly refused by a transient generator hiccup. Returns the per-member results for any caller that wants
+    them; today's callers rely on the drift gate and ignore the return."""
+    results = derived_state.regenerate()   # single owner; import dispatch honours the redirected ENGINE_DIR
+    for r in results:
+        if r.status == "failed":
+            # Surfaced, never swallowed — but non-blocking: the drift gate is what refuses.
+            print(f"note: could not regenerate {r.path}: {r.error}", file=sys.stderr)
+    return results
 
 
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,

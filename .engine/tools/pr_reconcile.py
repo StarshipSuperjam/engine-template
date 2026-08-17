@@ -41,10 +41,23 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import repo_identity     # noqa: E402  (resolve_default_branch — the shared default-branch resolver)
+import derived_state     # noqa: E402  (the derived-committed set + regeneration — single owner, StarshipSuperjam/engine-template#925)
 
-# The two derived-committed members, repo-relative (the exact paths git reports in a conflict). Membership
-# is by property (a fully source-deterministic committed file); v1 has exactly these two.
-MEMBERS = (".engine/knowledge/graph.json", ".engine/self-map.md")
+# The registered reconcile set — derived-committed members whose conflicts are spurious (a pure function of
+# source, so regenerate-to-resolve, never hand-merge). Single-sourced from the derived-state substrate
+# (StarshipSuperjam/engine-template#925). The RUNTIME set that assess/_regen_members act on is present-AND-generator-resolvable
+# (`_reconcile_members`): a member whose OPTIONAL generator is absent stays OUT of the spurious set, so its
+# conflict classifies authored (needs-manual) and refuses — never append-merged and then discovered to be
+# un-regenerable. `_CORE_MEMBERS` is the always-present pair (self-map + graph) that marks a tree as an engine
+# tree at all — the fork-main / external-contribution guard.
+MEMBERS = derived_state.paths(reconcile=True)
+_CORE_MEMBERS = tuple(m.path for m in derived_state.members(reconcile=True) if m.optional_module is None)
+
+
+def _reconcile_members(root: str) -> set:
+    """The present-and-regenerable reconcile members for THIS tree — F-risk-3: gate on generator-resolvability,
+    not mere file presence, so a present-file / absent-generator artifact stays OUT of the spurious set."""
+    return set(derived_state.paths(reconcile=True, present_root=root))
 
 # An inline identity so a merge/commit never fails for lack of a configured git user on the operator's machine.
 _IDENT = ["-c", "user.email=engine@local", "-c", "user.name=engine"]
@@ -155,7 +168,7 @@ def _merge_tree(base: str, root: str, head: str = "HEAD") -> tuple[str, list[str
 def _members_present(root: str) -> bool:
     """The derived-committed members exist in the tree — the external-contribution / fork-main guard (a product/upstream
     contribution branch carries no engine files and is NEVER regenerated onto; locked build-orchestration)."""
-    return all(os.path.isfile(os.path.join(root, m)) for m in MEMBERS)
+    return all(os.path.isfile(os.path.join(root, m)) for m in _CORE_MEMBERS)
 
 
 # ---- detect (READ-ONLY, boot-relayed) --------------------------------------------------------
@@ -218,7 +231,8 @@ def assess(*, root: str | None = None, default: str | None = None, fetch: bool =
     kind, paths = mt
     if kind == "clean":
         return {"status": "healthy", "base": base, "conflicted": []}
-    authored = [p for p in paths if p not in set(MEMBERS)]
+    member_set = _reconcile_members(root)   # present + generator-resolvable only (F-risk-3)
+    authored = [p for p in paths if p not in member_set]
     if authored:
         return {"status": "needs-manual", "reason": "authored-conflict", "base": base, "conflicted": paths}
     return {"status": "fixable", "base": base, "conflicted": paths}    # ⊆ members, non-empty → lossless
@@ -227,17 +241,13 @@ def assess(*, root: str | None = None, default: str | None = None, fetch: bool =
 # ---- reconcile (the executor; lossless-or-refuse; NO force-push) ------------------------------
 
 def _regen_members(root: str) -> bool:
-    """Regenerate the two members FROM the reconciled tree by running the tree's OWN generators (so a throwaway
-    copy regenerates itself, exactly as an integrate session does — the demo-fidelity rule). Both must succeed."""
-    for tool in ("knowledge_gen.py", "self_map.py"):
-        try:
-            p = subprocess.run([sys.executable, os.path.join(root, ".engine", "tools", tool), "generate"],
-                             capture_output=True, text=True, timeout=300, check=False, cwd=root)
-        except Exception:  # noqa: BLE001
-            return False
-        if p.returncode != 0:
-            return False
-    return True
+    """Regenerate the present reconcile members FROM the reconciled tree by running the tree's OWN generators
+    (subprocess dispatch — a throwaway copy regenerates itself, exactly as an integrate session does, the
+    demo-fidelity rule). Single-sourced through the derived-state substrate (StarshipSuperjam/engine-template#925); regenerates exactly
+    the present-and-resolvable set assess() classified as spurious. All must succeed."""
+    results = derived_state.regenerate(
+        derived_state.paths(reconcile=True, present_root=root), root=root, dispatch="subprocess")
+    return bool(results) and all(r.status in ("regenerated", "unchanged") for r in results)
 
 
 def reconcile(*, apply: bool = False, root: str | None = None, default: str | None = None) -> dict:
@@ -261,6 +271,10 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
     if not pre:
         return {"status": "needs-manual", "reason": "no-head", "applied": False}
     base = a["base"]
+    # The RUNTIME reconcile set for this tree — present AND generator-resolvable (F-risk-3). The executor
+    # stages/verifies exactly these, never the static declared set: `git add`ing a declared-but-absent member
+    # (e.g. the product-spec-matrix on a deployment without the product-design module) would fail the add.
+    members_here = _reconcile_members(root)
 
     def _restore() -> None:
         _ok(["merge", "--abort"], root)            # convenience while a merge is in progress
@@ -273,11 +287,11 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
     merged_clean = _ok([*_IDENT, "merge", "--no-ff", "--no-edit", base], root)
     if not merged_clean:
         conflicted = set(_unmerged(root))
-        if not conflicted or (conflicted - set(MEMBERS)):     # an authored / unexpected conflict appeared
+        if not conflicted or (conflicted - members_here):     # an authored / unexpected conflict appeared
             return _refuse("unexpected-conflict")
         if not _regen_members(root):
             return _refuse("regen-failed")
-        if not _ok(["add", *MEMBERS], root) or not _ok([*_IDENT, "commit", "--no-edit"], root):
+        if not _ok(["add", *sorted(members_here)], root) or not _ok([*_IDENT, "commit", "--no-edit"], root):
             return _refuse("commit-failed")
     else:
         # The merge auto-completed (the members textually auto-merged). Regenerate anyway so the committed
@@ -285,7 +299,7 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
         if not _regen_members(root):
             return _refuse("regen-failed")
         if _dirty(root):
-            if not _ok(["add", *MEMBERS], root) or not _ok(
+            if not _ok(["add", *sorted(members_here)], root) or not _ok(
                     [*_IDENT, "commit", "-m", "Regenerate engine index files from the reconciled tree"], root):
                 return _refuse("commit-failed")
 

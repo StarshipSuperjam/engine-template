@@ -29,6 +29,22 @@ class TestRoster(unittest.TestCase):
         self.assertEqual([r.path for r in results], list(ds.paths()))
 
 
+class TestSingleSource(unittest.TestCase):
+    """The migrated consumers resolve their derived set FROM the registry — a future hard-coded copy that
+    diverges fails here. Scoped to the consumers this substrate migrates (F-feas-4): sites that enumerate a
+    DIFFERENT set for a different purpose are deliberately out of this binding."""
+
+    def test_module_manager_regenerated_derived_is_the_registry(self):
+        import module_manager
+        self.assertEqual(tuple(module_manager.REGENERATED_DERIVED), ds.paths())
+
+    def test_pr_reconcile_members_is_the_reconcile_registry(self):
+        # pr_reconcile is migrated in the generalize step (with the present-gated reconcile set); once it
+        # delegates, its MEMBERS is the reconcile registry.
+        import pr_reconcile
+        self.assertEqual(tuple(pr_reconcile.MEMBERS), ds.paths(reconcile=True))
+
+
 class TestPresence(unittest.TestCase):
     def test_present_requires_a_resolvable_generator_not_just_a_file(self):
         # F-risk-3: a present file with an ABSENT generator must NOT count as present, so it stays out of

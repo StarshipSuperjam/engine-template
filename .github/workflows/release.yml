@@ -174,8 +174,7 @@ jobs:
       - name: Refresh the generated maps to match the new versions
         run: |
           set -euo pipefail
-          uv run --directory .engine --frozen -- python tools/knowledge_gen.py generate
-          uv run --directory .engine --frozen -- python tools/self_map.py generate
+          uv run --directory .engine --frozen -- python tools/derived_state.py regenerate --release
       # Deployment gate (StarshipSuperjam/engine-template#664): prove this release OPERATES and UPGRADES when deployed BEFORE the pull request
       # is written or opened. Placed after the map refresh and before the PR steps, so a red fails the job and
       # NO pull request is ever opened (the branch/commit/push all live in the final step). Fails CLOSED: any
