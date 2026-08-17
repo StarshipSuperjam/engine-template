@@ -25,6 +25,15 @@ OWNED = [
 
 
 class TestUpstreamClean(unittest.TestCase):
+    # The first sentence of each message is what telemetry publishes VERBATIM as the leak Issue title
+    # (submit.py._leak_record). #777 pins both: the home title is reframed, the stranger title is preserved.
+    STRANGER_TITLE = ("This contribution branch includes files that belong to the Engine, not to the product "
+                      "you're contributing to — and the Engine's files should never ride along into someone "
+                      "else's repository.")
+    HOME_TITLE = ("This contribution to the Engine's own home includes files that belong to just this copy "
+                  "of the Engine — your own saved state, settings, or private tuning — not to the shared "
+                  "template.")
+
     def test_clean_product_only_diff_passes(self):
         fs = upstream_clean_check.findings("soft", changed=["src/app.py", "README.md"], owned=OWNED)
         self.assertEqual(fs, [])
@@ -79,6 +88,39 @@ class TestUpstreamClean(unittest.TestCase):
         self.assertIsNone(seen["cap"], "the no-arg leak check must read changed_paths uncapped (cap=None)")
         self.assertEqual(len(fs), 1)
         self.assertIn(".engine/check/upstream-clean.json", fs[0]["message"])
+
+    def test_stranger_published_title_is_unchanged(self):
+        # #777: the objective is truthful on BOTH targets, so the default (stranger) branch must be preserved
+        # byte-for-byte — a split that silently regressed the stranger title would fail no other test.
+        fs = upstream_clean_check.findings(
+            "soft", changed=["src/app.py", ".engine/check/upstream-clean.json"], owned=OWNED)
+        self.assertEqual(len(fs), 1)
+        self.assertTrue(fs[0]["message"].startswith(self.STRANGER_TITLE), fs[0]["message"])
+
+    def test_engine_home_reframes_the_published_title_and_stays_title_safe(self):
+        # #777: contributing to the Engine's OWN home, the flagged files are this copy's own state — the
+        # published title must name that, never the backwards "someone else's repository" framing. And the
+        # offending path must stay OUT of the first sentence (the verbatim Issue title), only ever in the body.
+        fs = upstream_clean_check.findings(
+            "soft", changed=["src/app.py", ".engine/state/state.json"], owned=[".engine/state/state.json"],
+            contributing_to_engine_home=True)
+        self.assertEqual(len(fs), 1)
+        msg = fs[0]["message"]
+        self.assertTrue(msg.startswith(self.HOME_TITLE), msg)          # published title = the home framing
+        self.assertNotIn("someone else's repository", msg)             # never the backwards stranger wording
+        self.assertIn(".engine/state/state.json", msg)                 # offending path still named (in the body)
+        self.assertNotIn(".engine/state/state.json", msg.split(". ", 1)[0])  # ...but NOT in the title sentence
+
+    def test_home_framing_selects_wording_not_detection(self):
+        # The home flag is framing-only: the SAME diff+owned fires the same single finding on the same path
+        # under either framing — only the wording differs. Detection never depends on the flag.
+        kw = dict(changed=["src/app.py", ".engine/check/upstream-clean.json"], owned=OWNED)
+        stranger = upstream_clean_check.findings("soft", **kw)
+        home = upstream_clean_check.findings("soft", contributing_to_engine_home=True, **kw)
+        self.assertEqual(len(stranger), 1)   # both framings fire exactly one finding...
+        self.assertEqual(len(home), 1)       # ...on the same path (detection is flag-independent)
+        self.assertEqual(stranger[0]["location"], home[0]["location"])
+        self.assertNotEqual(stranger[0]["message"], home[0]["message"])
 
     def test_demo_self_check_passes_on_real_logic(self):
         self.assertEqual(quiet_call.run(upstream_clean_check.demo), 0)
