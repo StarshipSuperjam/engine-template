@@ -40,12 +40,35 @@ OWN health applies `--label engine` AT creation, regardless of who asked for it.
 product-design spec Issue is the named exception: its body is a plain-prose specification, a
 different realization of the same channel, not authored through this helper.
 
-CLI (operator-runnable demo):
+CLI (operator-runnable):
   uv run --directory .engine -- python tools/issue_author.py demo
+  uv run --directory .engine -- python tools/issue_author.py preview --input <file|->
+  uv run --directory .engine -- python tools/issue_author.py create  --input <file|-> --confirm
+
+THE preview/create CLI. `preview` reads a structured input (engine-issue-input.v1 shape), validates it,
+resolves the TRUSTED target repository from engine config, and prints the repository, the `engine` label
+(applied by construction), the title, and the rendered body — WITHOUT any network call. `create` does the
+same, then (only with `--confirm`) files the Issue through the supported GitHub boundary
+(`telemetry.GitHubIssues` → `github_client.json_request`), applying the `engine` label by construction, and
+prints the link.
+
+AUTHORITY BOUNDARY (why the input's `repository` cannot steer the filing). The input NAMES an intended
+repository, but the create path RESOLVES the actual target from trusted config (this checkout's own
+identity — `GITHUB_REPOSITORY` in CI, else the git origin slug) and REFUSES to file when the two do not
+match. So an input whose `repository` was influenced by observed content cannot redirect an engine Issue
+off the engine's own channel onto a repository chosen by that content. The label is applied by construction,
+never read from the input.
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
+
+# The input schema governing the preview/create structured input (engine-issue-input.v1). Loaded from disk at
+# call time (never fetched); issue_author stays import-light (telemetry imports it at load), so jsonschema and
+# the schema file are only touched inside the CLI functions, not at module scope.
+_INPUT_SCHEMA_REL = os.path.join(os.path.dirname(__file__), "..", "schemas", "engine-issue-input.v1.json")
 
 # The plainness floor: the one fixed, plain line every engine-authored Issue carries for contract
 # part (1), so a future producer inherits a plain framing by construction (control-plane). It states
@@ -121,6 +144,180 @@ def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=N
     return body
 
 
+# ---- the preview/create CLI (structured for offline unit testing) ---------------------------
+
+class IssueInputError(ValueError):
+    """A structured-input failure the CLI reports as a plain refusal (schema violation, unreadable input,
+    trusted-target mismatch, or a missing confirmation/token) — distinct from a network failure."""
+
+
+def load_input(source: str, *, _stdin=None) -> dict:
+    """Read and JSON-parse the structured input from a file path or `-` (stdin). Raises IssueInputError on an
+    unreadable source or non-object JSON. `_stdin` is an injectable stream for offline tests."""
+    try:
+        if source == "-":
+            raw = (_stdin if _stdin is not None else sys.stdin).read()
+        else:
+            with open(os.path.expanduser(source), "r", encoding="utf-8") as fh:
+                raw = fh.read()
+    except OSError as exc:
+        raise IssueInputError(f"could not read the input from '{source}': {exc}") from None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise IssueInputError(f"the input is not valid JSON: {exc}") from None
+    if not isinstance(data, dict):
+        raise IssueInputError("the input must be a JSON object (engine-issue-input.v1 shape)")
+    return data
+
+
+def validate_input(data: dict) -> dict:
+    """Validate `data` against engine-issue-input.v1 and return it unchanged. Raises IssueInputError naming the
+    first violation. jsonschema and the schema file are loaded lazily here so the module stays import-light."""
+    from jsonschema import Draft202012Validator  # lazy: tool-runtime dep, not needed to import this module
+    with open(_INPUT_SCHEMA_REL, "r", encoding="utf-8") as fh:
+        schema = json.load(fh)
+    errors = sorted(Draft202012Validator(schema).iter_errors(data), key=lambda e: list(e.path))
+    if errors:
+        first = errors[0]
+        where = "/".join(str(p) for p in first.path) or "(root)"
+        raise IssueInputError(f"the input does not match engine-issue-input.v1 at {where}: {first.message}")
+    return data
+
+
+def resolve_trusted_target(*, env=None, root: "str | None" = None) -> "str | None":
+    """The repository this engine may file its OWN health Issues into, resolved from TRUSTED config only — never
+    from the input. `GITHUB_REPOSITORY` (the CI-provided identity) wins; otherwise the checkout's git `origin`
+    slug (read offline from disk). None when neither resolves (the create path then refuses — fail closed)."""
+    environ = os.environ if env is None else env
+    declared = environ.get("GITHUB_REPOSITORY")
+    if declared and declared.strip():
+        return declared.strip()
+    import repo_identity  # lazy: pulls in validate; only needed at CLI runtime
+    return repo_identity.origin_slug(root)
+
+
+def body_from_input(data: dict) -> str:
+    """Render the Issue body from the validated input through the one body contract (render_engine_issue_body).
+    References carry (label, link) fields (engine-issue-input.v1) — mapped to the renderer's (label, url) pairs."""
+    references = [(ref["label"], ref["link"]) for ref in data.get("references", [])] or None
+    return render_engine_issue_body(
+        what_this_is=data["what_this_is"], whats_next=data["whats_next"],
+        references=references, urgency=data.get("urgency"))
+
+
+def _target_matches(requested: str, trusted: "str | None") -> bool:
+    """The requested repository matches the trusted-resolved target (case/normalization-insensitive). False when
+    the target is unresolved — an unverifiable target is never treated as a match (fail closed)."""
+    if not trusted:
+        return False
+    import repo_identity  # lazy
+    return repo_identity.slug_eq(requested, trusted)
+
+
+def preview_text(data: dict, trusted: "str | None") -> str:
+    """The operator-facing preview string: requested repository, trusted target and whether they agree, the
+    engine label (by construction), the title, and the rendered body. Pure — no network, nothing filed."""
+    import telemetry  # lazy: for the label constant (issue_author is imported by telemetry at load)
+    requested = data["repository"]
+    if trusted is None:
+        agree = ("  ✗ this checkout's own repository could not be resolved from trusted config — `create` will "
+                 "refuse to file until it can (fail closed).")
+    elif _target_matches(requested, trusted):
+        agree = "  ✓ the requested repository matches the trusted target."
+    else:
+        agree = ("  ✗ the requested repository does NOT match the trusted target — `create` will refuse to file "
+                 "(an input cannot steer the filing off the engine's own channel).")
+    return (
+        "ENGINE ISSUE — PREVIEW (nothing has been filed)\n\n"
+        f"Repository (requested in the input): {requested}\n"
+        f"Repository (trusted target, where create WILL file): {trusted or '(unresolved)'}\n"
+        f"{agree}\n"
+        f"Label applied by construction: {telemetry.ENGINE_DOMAIN_LABEL}\n"
+        f"Title: {data['title']}\n\n"
+        "--- rendered body ---\n"
+        f"{body_from_input(data)}\n"
+        "---------------------\n"
+        "To file it, re-run with `create --input <same input> --confirm`."
+    )
+
+
+def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_factory=None) -> str:
+    """File the engine Issue and return its link. Resolves the trusted target and REFUSES (IssueInputError) if
+    the input's repository does not match it, or if no target/token can be resolved. The `engine` label is
+    applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
+    offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
+    environ = os.environ if env is None else env
+    trusted = resolve_trusted_target(env=environ, root=root)
+    if trusted is None:
+        raise IssueInputError(
+            "refusing to file: this checkout's own repository could not be resolved from trusted config "
+            "(no GITHUB_REPOSITORY and no git origin) — the target cannot be verified.")
+    if not _target_matches(data["repository"], trusted):
+        raise IssueInputError(
+            f"refusing to file: the input names '{data['repository']}' but this engine's trusted target is "
+            f"'{trusted}'. An engine Issue is filed only into the engine's own repository; correct the input's "
+            "`repository` to the trusted target (an input cannot redirect the filing elsewhere).")
+    token = environ.get("GITHUB_TOKEN")
+    if not token or not token.strip():
+        raise IssueInputError("refusing to file: no GITHUB_TOKEN is set, so the Issue cannot be filed.")
+    if issues_factory is None:
+        import telemetry  # lazy
+        issues_factory = telemetry.GitHubIssues
+    issues = issues_factory(trusted, token.strip())
+    created = issues.open_issue(data["title"], body_from_input(data))
+    return created.get("html_url") or f"https://github.com/{trusted}/issues/{created.get('number', '')}"
+
+
+def _cli_preview(source: str) -> int:
+    try:
+        data = validate_input(load_input(source))
+    except IssueInputError as exc:
+        print(f"Refused — {exc}", file=sys.stderr)
+        return 2
+    print(preview_text(data, resolve_trusted_target()))
+    return 0
+
+
+def _cli_create(source: str, confirm: bool) -> int:
+    if not confirm:
+        print("Refused — `create` files a GitHub Issue, so it needs explicit confirmation. Re-run with "
+              "`--confirm` (use `preview` first to see exactly what will be filed).", file=sys.stderr)
+        return 2
+    try:
+        data = validate_input(load_input(source))
+        link = create_issue(data)
+    except IssueInputError as exc:
+        print(f"Refused — {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # a network / GitHub failure (e.g. telemetry.DegradedReadError) — report plainly
+        print(f"Could not file the Issue: {exc}", file=sys.stderr)
+        return 1
+    print(f"Filed: {link}")
+    return 0
+
+
+def _parse_cli(argv: list) -> "tuple[str, bool]":
+    """Extract `--input <value>` and `--confirm` from a subcommand's args. Raises IssueInputError when
+    `--input` is missing or has no value (the one required flag both subcommands share)."""
+    source, confirm = None, False
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--input" and i + 1 < len(argv):
+            source = argv[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--input="):
+            source = tok.split("=", 1)[1]
+        elif tok == "--confirm":
+            confirm = True
+        i += 1
+    if not source:
+        raise IssueInputError("this command needs `--input <file|->`.")
+    return source, confirm
+
+
 def _demo() -> int:
     print("ISSUE-AUTHORING HELPER DEMO — one body assembled from the contract's parts.\n")
     body = render_engine_issue_body(
@@ -177,8 +374,20 @@ def _demo() -> int:
     return 0
 
 
+def main(argv: list) -> int:
+    verb = argv[0] if argv else None
+    if verb == "demo":
+        return _demo()
+    if verb in ("preview", "create"):
+        try:
+            source, confirm = _parse_cli(argv[1:])
+        except IssueInputError as exc:
+            print(f"Refused — {exc}", file=sys.stderr)
+            return 2
+        return _cli_preview(source) if verb == "preview" else _cli_create(source, confirm)
+    print(__doc__)
+    return 0
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "demo":
-        sys.exit(_demo())
-    else:
-        print(__doc__)
+    sys.exit(main(sys.argv[1:]))
