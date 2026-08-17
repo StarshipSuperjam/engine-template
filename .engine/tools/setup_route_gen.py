@@ -103,14 +103,17 @@ def derive() -> dict:
     return out
 
 
-def check(tier: str = "hard") -> list:
+def check(tier: str = "hard", root: str | None = None) -> list:
     """Findings when a committed setup route is missing or diverges from its derived text, or a stray
     `engine-setup-*` route exists with no offerable module behind it. The drift gate for the derived-committed
-    routes (mirrors codex_gen's render-equality contract)."""
+    routes (mirrors codex_gen's render-equality contract). The DERIVATION always reads the real manifests; only
+    the COMMITTED-side reads are rooted at `root` (default validate.ROOT) — the seam the negative-fixture
+    meta-check uses to point the committed routes at a seeded tree while the derivation stays real."""
+    base = root or validate.ROOT
     findings = []
     expected = derive()
     for rel, text in sorted(expected.items()):
-        path = os.path.join(validate.ROOT, rel)
+        path = os.path.join(base, rel)
         if not os.path.isfile(path):
             findings.append(validate.finding(tier, f"The setup route {rel} is missing; regenerate the setup "
                             f"routes with `setup_route_gen.py generate`."))
@@ -122,8 +125,9 @@ def check(tier: str = "hard") -> list:
                                 f"`setup_route_gen.py generate`."))
     # A stray engine-setup-<id> route whose module is not an offerable present module is orphan generation.
     expected_names = {os.path.basename(os.path.dirname(rel)) for rel in expected}
-    if os.path.isdir(SKILLS_DIR):
-        for name in sorted(os.listdir(SKILLS_DIR)):
+    skills_dir = os.path.join(base, ".claude", "skills")
+    if os.path.isdir(skills_dir):
+        for name in sorted(os.listdir(skills_dir)):
             if name.startswith(_NAME_PREFIX) and name not in expected_names:
                 findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
                                 f"behind it — a stale generated route. Remove it or restore its module."))

@@ -114,5 +114,34 @@ class TestDeriveAndGenerate(unittest.TestCase):
             self.assertEqual(json.load(open(p)), result, "the derived catalog is written to disk")
 
 
+class TestDriftCheck(unittest.TestCase):
+    """The derived-committed drift gate: a hand-edited or absent catalog is flagged; a freshly generated one
+    is in sync (a declined-module entry, having no manifest, is legitimately not flagged)."""
+
+    def test_freshly_generated_catalog_is_in_sync(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "module-catalog.json")
+            mc.generate(p)
+            self.assertEqual(mc.check("hard", path=p), [])
+
+    def test_hand_edited_present_entry_is_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "module-catalog.json")
+            mc.generate(p)
+            data = json.load(open(p, encoding="utf-8"))
+            for e in data:
+                if e["id"] == "github-projects-sync":   # a PRESENT offerable module — derive rebuilds it
+                    e["description"] = "HAND EDITED — the generator would never write this"
+            _write(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            fs = [f for f in mc.check("hard", path=p) if f["severity"] == "hard"]
+            self.assertTrue(fs, "a hand-edited present-module entry must be flagged as drift")
+            self.assertIn("out of date", fs[0]["message"])
+
+    def test_absent_catalog_is_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            fs = mc.check("hard", path=os.path.join(d, "nope.json"))
+            self.assertTrue(any(f["severity"] == "hard" for f in fs))
+
+
 if __name__ == "__main__":
     unittest.main()

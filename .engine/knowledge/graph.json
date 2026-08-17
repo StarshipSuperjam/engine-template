@@ -1712,6 +1712,34 @@
       "type": "check"
     },
     {
+      "id": "check:module-catalog-drift",
+      "kind": "custom/script",
+      "name": ".engine/check/module-catalog-drift.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:module_catalog_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "module-catalog-drift",
+      "source": {
+        "fingerprint": "sha256:07f15ed8597ce34999919c3b45270ab60fbf7426a59df49356b446ec881c9b5e",
+        "path": ".engine/check/module-catalog-drift.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:module-manifest",
       "kind": "schema",
       "name": ".engine/check/module-manifest.json",
@@ -2503,6 +2531,34 @@
       "source": {
         "fingerprint": "sha256:ef42ad2b6eacd40cb59c60db662f2870580be377b107ff92230ffa3230805a12",
         "path": ".engine/check/self-map-drift.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:setup-route-drift",
+      "kind": "custom/script",
+      "name": ".engine/check/setup-route-drift.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:setup_route_drift_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "setup-route-drift",
+      "source": {
+        "fingerprint": "sha256:3e4245936acfd06870078e12b59227e3055b2391dcb150a829f50e2370b9d640",
+        "path": ".engine/check/setup-route-drift.json"
       },
       "status": "active",
       "suites": [
@@ -5883,7 +5939,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:5bb207f7c04af05ebd1c42ab973e56ecaa01b686f066f6cda336580fd5544c94",
+        "fingerprint": "sha256:dac6b2c275d71fd6fb322b861e20135e8c686d4fb1fbbcfb8e0fd518bb7153ee",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6093,7 +6149,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:a65122f87f1049dc61d8c44ac102dd91c87b5478e467958760e7a8aeaede45c2",
+        "fingerprint": "sha256:2875666e36eb88fa5e5dbfaf2d61426999ce7dd11ffbc17b92865b01dc4a665a",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -9910,7 +9966,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:9cded3a569df610cc9b8aa738429bb15d115c1b7583c75c9026f1a5790a77112",
+        "fingerprint": "sha256:c036aec8c59614c5fafd072eb083bd2e5c27207c29c34fd2c5135d740e413389",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -12140,7 +12196,7 @@
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:1fd8ef9809a1c5996595903aeee0a21bab9bbafedbc0105702eb45462170ed88",
+        "fingerprint": "sha256:f49b3837873b750cf001f1348407d662c1ce32cafdc4f88716625c059edfea61",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
@@ -12755,11 +12811,35 @@
       },
       "slug": "module_catalog",
       "source": {
-        "fingerprint": "sha256:5533bf00ec0be882815766becd237e6e2408237cc25aedfbadd5f133430c0a13",
+        "fingerprint": "sha256:89376ce121aab067929111807c617de9b44b9928b36855af463952bd820a9127",
         "path": ".engine/tools/module_catalog.py"
       },
       "status": "active",
       "summary": "Shared reader for the optional-module catalog — the single home that reads",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:module_catalog_check",
+      "name": ".engine/tools/module_catalog_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_catalog",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_catalog_check",
+      "source": {
+        "fingerprint": "sha256:717c2b497f9d56b0da50b7a1c96b1efb1270cf26db78f6b78ac303f543070af9",
+        "path": ".engine/tools/module_catalog_check.py"
+      },
+      "status": "active",
+      "summary": "Module-catalog drift gate — the thin custom/script entry for engine/check/module-catalog-drift.",
       "type": "tool"
     },
     {
@@ -13662,7 +13742,7 @@
       },
       "slug": "route_budget_check",
       "source": {
-        "fingerprint": "sha256:50b3a8fd29a938097d535c26f250f12b35e48d4d94792b2659628ab164c8ba9d",
+        "fingerprint": "sha256:16544a4aa8d37f5df0a55d2249d7479283de505143314cc7642b138e2abc17fb",
         "path": ".engine/tools/route_budget_check.py"
       },
       "status": "active",
@@ -13687,7 +13767,7 @@
       },
       "slug": "route_target_existence_check",
       "source": {
-        "fingerprint": "sha256:a90b0159400d277e87b8cab689456e89cfe075cf59955d653832f892340a4f40",
+        "fingerprint": "sha256:c0fe88e72a0c7f2b7e0242af94f362eb73089949f818f38b658bbe80e56f3255",
         "path": ".engine/tools/route_target_existence_check.py"
       },
       "status": "active",
@@ -13827,7 +13907,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:ab64df6da40de2fed5f68936fc8db65342693e813e3f57290b1931f341f34ae7",
+        "fingerprint": "sha256:c976a1d50d8ee0f129614a0348901f4caea7cd7fa2338e7f6b451ca17679c4ef",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -13899,6 +13979,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:setup_route_drift_check",
+      "name": ".engine/tools/setup_route_drift_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:setup_route_gen",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "setup_route_drift_check",
+      "source": {
+        "fingerprint": "sha256:d0e003d440737acd05e00a1385414b314eb43a380537e101630518ebaea78b8f",
+        "path": ".engine/tools/setup_route_drift_check.py"
+      },
+      "status": "active",
+      "summary": "Setup-route drift gate — the thin custom/script entry for engine/check/setup-route-drift.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:setup_route_gen",
@@ -13915,7 +14019,7 @@
       },
       "slug": "setup_route_gen",
       "source": {
-        "fingerprint": "sha256:7f0228c1f8a4c8277cb6c1d87b6bb508d35a78d87812ef62403107493fc2c7fb",
+        "fingerprint": "sha256:e431be1eaa4f52bc9902cedc9294533bf691cbff1b51e8611e315ad9f42092ce",
         "path": ".engine/tools/setup_route_gen.py"
       },
       "status": "active",
@@ -16519,7 +16623,7 @@
       },
       "slug": "test_module_catalog",
       "source": {
-        "fingerprint": "sha256:275677089d10e2b9bdd1dc129d952c64a0311aac108f7cfb2c786cd1280e8b18",
+        "fingerprint": "sha256:8800c23aff5afe1588d80a1fadfd34674bcf81f6381b7aece3140e164f028d7f",
         "path": ".engine/tools/test_module_catalog.py"
       },
       "status": "active",
@@ -16614,7 +16718,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4a2ff9b4f95c804f4108171d7634c771315484c9c39b9c4f463baf75f936715d",
+        "fingerprint": "sha256:3dc4617dc8b3dc67490cce2a1ad3c3da7565ee9570e257c6b288af4bc044678f",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17455,6 +17559,52 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_route_budget_check",
+      "name": ".engine/tools/test_route_budget_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:route_budget_check"
+        ]
+      },
+      "slug": "test_route_budget_check",
+      "source": {
+        "fingerprint": "sha256:3e01523fe75bae0a9c6fa4f419e504e7593e05245e753f022fb3eb279681f1e9",
+        "path": ".engine/tools/test_route_budget_check.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for route_budget_check — the model-route projection budget guard (ADR 0336).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_route_target_existence_check",
+      "name": ".engine/tools/test_route_target_existence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:route_target_existence_check"
+        ]
+      },
+      "slug": "test_route_target_existence_check",
+      "source": {
+        "fingerprint": "sha256:80032424f632e71f324efc0816e3f9fe78a9c91c9ecf5b24b174c607a3fa4ae0",
+        "path": ".engine/tools/test_route_target_existence_check.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for route_target_existence_check — the route-target guard (ADR 0336).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_scaffold",
       "name": ".engine/tools/product_design/test_scaffold.py",
       "owner": "product-design",
@@ -17819,6 +17969,29 @@
       },
       "status": "active",
       "summary": "test_semantic.py — the guarantees meaning-based recall makes, and the ones it must never break.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_setup_route_gen",
+      "name": ".engine/tools/test_setup_route_gen.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:setup_route_gen"
+        ]
+      },
+      "slug": "test_setup_route_gen",
+      "source": {
+        "fingerprint": "sha256:e14864f930ba70d154e0d7a4d3806ec5a8695050e614d288cbaad86fc1c5bd2b",
+        "path": ".engine/tools/test_setup_route_gen.py"
+      },
+      "status": "active",
+      "summary": "Tests for setup_route_gen — the per-module setup-route generator + its derived-committed drift gate.",
       "type": "tool"
     },
     {

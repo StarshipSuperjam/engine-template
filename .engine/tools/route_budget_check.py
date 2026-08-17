@@ -51,8 +51,12 @@ def _twin_is_model_startable(base: str, slug: str) -> bool:
 def findings(tier: str, root: str | None = None) -> list:
     base = root or validate.ROOT
     out = []
-    reachable = [r for r in skill_discovery.records("claude", root=base)
-                 if r["frontmatter"].get("invocation") in codex_gen._MODEL_REACHABLE]
+    # strict=True is the GUARD posture: a skill whose frontmatter cannot be parsed RAISES here (crash → the
+    # custom/script runner turns it into a hard finding) rather than being silently dropped from the projection.
+    # Reachability is the platform-truth question (an omitted invocation is model-auto = reachable), so a route
+    # that skips the invocation line the schema invites is still held to the budget, never silently exempt.
+    reachable = [r for r in skill_discovery.records("claude", root=base, strict=True)
+                 if codex_gen.is_platform_reachable(r["frontmatter"].get("invocation"))]
 
     total = 0
     for rec in reachable:

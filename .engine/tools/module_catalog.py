@@ -117,6 +117,12 @@ def derive(path: str | None = None) -> list:
     return [derived[k] for k in sorted(derived)]
 
 
+def _serialize(catalog: list) -> str:
+    """The catalog's canonical committed text. The SINGLE serialization both `generate` (which writes it) and
+    `check` (which compares against it) use, so a drift check cannot disagree with what generate would write."""
+    return json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
+
+
 def generate(path: str | None = None) -> list:
     """Write the derived, merge-preserving catalog to `.engine/provisioning/module-catalog.json` and return it.
     Run in the SOURCE repo where every module is present (so it lists all offerable modules); shipped unchanged
@@ -124,9 +130,34 @@ def generate(path: str | None = None) -> list:
     target = path or CATALOG_PATH
     catalog = derive(target)
     with open(target, "w", encoding="utf-8") as fh:
-        json.dump(catalog, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+        fh.write(_serialize(catalog))
     return catalog
+
+
+def check(tier: str = "hard", path: str | None = None) -> list:
+    """Drift gate: the committed catalog must equal the canonical serialization of the derived catalog, so a
+    hand-edit to a present module's entry — or a stale catalog left after a manifest `presentation` change —
+    turns the check red until it is regenerated. A DECLINED-module entry (no present manifest) is preserved by
+    `derive` and so is legitimately not flagged; it has no manifest source of truth. Returns [] when in sync,
+    one hard finding (carrying the plain-language regenerate guidance) on drift or an absent catalog. `path`
+    overrides only the committed-side read (the derivation still reads the real manifests), which is the seam
+    the negative-fixture meta-check uses to witness the gate biting a stale catalog."""
+    target = path or CATALOG_PATH
+    canonical = _serialize(derive(target))
+    try:
+        with open(target, encoding="utf-8") as fh:
+            committed = fh.read()
+    except OSError:
+        committed = None
+    if committed == canonical:
+        return []
+    return [validate.finding(
+        tier,
+        "The module catalog (.engine/provisioning/module-catalog.json) is out of date — it no longer matches "
+        "the module manifests' presentation records it is generated from (it must never be hand-authored). "
+        "Regenerate it with `uv run --directory .engine -- python tools/module_catalog.py generate` and commit "
+        "the result.",
+        {"file": ".engine/provisioning/module-catalog.json", "line": None})]
 
 
 if __name__ == "__main__":

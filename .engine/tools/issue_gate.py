@@ -29,11 +29,14 @@ loose "any token containing both 'label' and 'engine'" (which would false-deny a
 merely says e.g. "relabel the engine room"). The connector arm reads the tool's structured `labels` field.
 
 A NUDGE, NOT A WALL — best-effort and fail-open, stated honestly. The shell-string check is incomplete: an
-alias / eval / substitution / a body assembled in a variable all evade it and resolve to None → ALLOW. The
-connector arm only covers tools whose name ends `github_create_issue`. The catch-all for everything the gate
-misses is the `on:issues` CI backstop; the only unbypassable guarantee is the protected-branch merge. The
-helper's OWN create path files through a Python GitHub boundary (not Bash, not a connector), so it is never
-caught by this gate.
+alias / eval / substitution / a body assembled in a variable all evade it and resolve to None → ALLOW. It also
+recognizes Issue CREATION only, not a later label edit: `gh issue edit <n> --add-label engine` adds the engine
+label to an already-created Issue and is not routed (the Issue already exists and is scoped to the current
+repo, so there is no target-redirection risk; its body is caught after the fact by the `on:issues` backstop).
+The connector arm covers only GitHub issue-creation tools (a name ending `create_issue` and containing
+`github`). The catch-all for everything the gate misses is the `on:issues` CI backstop; the only unbypassable
+guarantee is the protected-branch merge. The helper's OWN create path files through a Python GitHub boundary
+(not Bash, not a connector), so it is never caught by this gate.
 
 SELF-CONTAINED RUNTIME. No network, no label application, no import of the helper at runtime (it holds no
 producer roster).

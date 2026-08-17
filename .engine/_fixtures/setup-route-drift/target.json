@@ -1,0 +1,5 @@
+{
+  "env": {
+    "SETUP_ROUTE_FIXTURE_ROOT": ".engine/_fixtures/setup-route-drift/root"
+  }
+}

@@ -274,11 +274,15 @@ def render_modules(manifests: list) -> list:
 
 
 def _first_sentence(text: str) -> str:
-    """The first sentence of a description — what /engine-help shows the operator. Splits on the first
-    sentence-ending period followed by a space; falls back to the whole (single-sentence) text."""
+    """The first sentence of a description. Splits on the first sentence-ending period followed by a space OR a
+    newline (matching engine_help._first_sentence, so the two operator-facing readouts render a description's
+    first sentence identically); falls back to the whole (single-sentence) text."""
     text = (text or "").strip()
-    idx = text.find(". ")
-    return text[:idx + 1] if idx != -1 else text
+    for sep in (". ", ".\n"):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[:idx + 1]
+    return text
 
 
 def _render_targets(targets) -> str:
@@ -419,7 +423,9 @@ def _gather_route_rows(manifests: list) -> list:
         rows.append({
             "slug": rec["slug"],
             "invocation": inv if isinstance(inv, str) else "(unset)",
-            "reachable": inv in codex_gen._MODEL_REACHABLE,
+            # Platform-truth reachability (an omitted invocation is model-auto = reachable), the same notion the
+            # route checks enforce — so the readout classifies an invocation-less model-auto skill as a route.
+            "reachable": codex_gen.is_platform_reachable(inv),
             # Typeable = the operator can type it: every invocation class EXCEPT model-only, which alone sets
             # user-invocable: false. operator-typed and model-auto are both typeable (engine-recall is both a
             # typed command and an automatic route), so it appears under Operator commands and Automatic routes.

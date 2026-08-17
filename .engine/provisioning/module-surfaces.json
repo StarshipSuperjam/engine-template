@@ -624,6 +624,9 @@
   ".engine/check/model-bindings-schema.json": [
    "validators-core"
   ],
+  ".engine/check/module-catalog-drift.json": [
+   "validators-core"
+  ],
   ".engine/check/module-manifest.json": [
    "validators-core"
   ],
@@ -697,6 +700,9 @@
    "validators-core"
   ],
   ".engine/check/self-map-drift.json": [
+   "validators-core"
+  ],
+  ".engine/check/setup-route-drift.json": [
    "validators-core"
   ],
   ".engine/check/shipped-issue-references.json": [
@@ -1830,6 +1836,9 @@
   ".engine/tools/module_catalog.py": [
    "core"
   ],
+  ".engine/tools/module_catalog_check.py": [
+   "core"
+  ],
   ".engine/tools/module_coherence.py": [
    "core"
   ],
@@ -1978,6 +1987,9 @@
    "core"
   ],
   ".engine/tools/selftest.py": [
+   "core"
+  ],
+  ".engine/tools/setup_route_drift_check.py": [
    "core"
   ],
   ".engine/tools/setup_route_gen.py": [
@@ -2301,6 +2313,12 @@
   ".engine/tools/test_review_recipe_equivalence.py": [
    "core"
   ],
+  ".engine/tools/test_route_budget_check.py": [
+   "core"
+  ],
+  ".engine/tools/test_route_target_existence_check.py": [
+   "core"
+  ],
   ".engine/tools/test_scent.py": [
    "core"
   ],
@@ -2329,6 +2347,9 @@
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
+   "core"
+  ],
+  ".engine/tools/test_setup_route_gen.py": [
    "core"
   ],
   ".engine/tools/test_shipped_issue_references_check.py": [

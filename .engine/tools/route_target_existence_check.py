@@ -45,12 +45,16 @@ def _target_exists(base: str, kind: str, ref: str) -> bool:
 def findings(tier: str, root: str | None = None) -> list:
     base = root or validate.ROOT
     out = []
-    for rec in skill_discovery.records("claude", root=base):
+    # strict=True is the GUARD posture: an unparseable skill RAISES here (crash → hard finding via the runner)
+    # rather than silently vanishing from the scan.
+    for rec in skill_discovery.records("claude", root=base, strict=True):
         slug = rec["slug"]
         fm = rec["frontmatter"]
         loc = {"file": os.path.relpath(rec["path"], base), "line": None}
         targets = fm.get("engine-targets")
-        reachable = fm.get("invocation") in codex_gen._MODEL_REACHABLE
+        # Platform-truth reachability: an omitted invocation is model-auto = reachable, so a route that skips
+        # the invocation line the schema invites is still required to name its targets, never silently exempt.
+        reachable = codex_gen.is_platform_reachable(fm.get("invocation"))
 
         if not targets:
             if reachable:
