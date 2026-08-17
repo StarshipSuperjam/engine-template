@@ -236,7 +236,7 @@ def compose_comment(registers: dict, home: str | None) -> str:
             "If that was a one-off, this is just so you know. If you want the change to last, the durable home "
             f"for an edit to engine machinery is upstream in the engine project these files come from{home_hint} "
             "— a fix there travels to every update. And if what you actually want is to customize how the engine "
-            "behaves, the settings that *do* survive an update are your tunable policy (via `/engine-tune`) and "
+            "behaves, the settings that *do* survive an update are your tunable policy (via `/engine-setup`) and "
             "your operator notes — those are preserved; these files are not.")
     if derived:
         parts.append(

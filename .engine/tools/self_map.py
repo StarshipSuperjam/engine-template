@@ -273,12 +273,83 @@ def render_modules(manifests: list) -> list:
     return out
 
 
-def render_map(catalog: dict, manifests: list, engine: dict) -> str:
+def _first_sentence(text: str) -> str:
+    """The first sentence of a description. Splits on the first sentence-ending period followed by a space OR a
+    newline (matching engine_help._first_sentence, so the two operator-facing readouts render a description's
+    first sentence identically); falls back to the whole (single-sentence) text."""
+    text = (text or "").strip()
+    for sep in (". ", ".\n"):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[:idx + 1]
+    return text
+
+
+def _render_targets(targets) -> str:
+    """A route's canonical targets rendered for a table cell: each as `kind \\`ref\\` (availability)`, joined
+    by `; `. An absent/empty target list renders the ASCII sentinel `(none)` (a route that points nowhere)."""
+    if not isinstance(targets, list) or not targets:
+        return "(none)"
+    parts = []
+    for t in targets:
+        if not isinstance(t, dict):
+            continue
+        parts.append(f"{_cell(t.get('kind', '?'))} {_code(t.get('ref', '?'))} "
+                     f"({_cell(t.get('availability', '?'))})")
+    return "; ".join(parts) if parts else "(none)"
+
+
+def render_routes(rows: list) -> list:
+    """The commands-and-routes portion: how a person reaches the engine. Two tables derived from the engine
+    skills — the OPERATOR COMMANDS a person types (user-invocable skills), and the AUTOMATIC ROUTES the
+    assistant may follow on its own (model-reachable skills), each row carrying its owning module, and each
+    route its canonical targets with their active/module-conditional/home-only state. `rows` is the gathered
+    route-row list (from _gather_route_rows); an empty list renders the section with empty tables (the shape a
+    synthetic fixture with no skills yields), so the render stays pure and deterministic."""
+    operator = sorted((r for r in rows if r.get("typeable")), key=lambda r: r["slug"])
+    routes = sorted((r for r in rows if r.get("reachable")), key=lambda r: r["slug"])
+    out = [
+        "## Commands and routes",
+        "",
+        f"How you reach your engine: the commands a person types, and the automatic routes the assistant "
+        f"may follow on your behalf ({len(operator)} operator commands, {len(routes)} automatic routes).",
+        "",
+        "### Operator commands",
+        "",
+        "| command | what it does | module |",
+        "| --- | --- | --- |",
+    ]
+    for r in operator:
+        out.append(f"| {_code(r['slug'])} | {_cell(_first_sentence(r['description']))} | {_code(r['owner'])} |")
+    out += [
+        "",
+        "### Automatic routes",
+        "",
+        "Routes the assistant may follow on its own to reach an engine workflow, with what each points at "
+        "and whether that target is always present, module-conditional, or home-only.",
+        "",
+        "A note on runtimes: on Claude these routes are hidden from the operator's typed menu (they are "
+        "model-only, so `engine-help` never lists them); on Codex, which has no hidden-route selector, the "
+        "same routes are also explicitly visible and typeable. That is the one deliberate provider asymmetry, "
+        "and this map is where it is disclosed.",
+        "",
+        "| route | reachable as | points at | module |",
+        "| --- | --- | --- | --- |",
+    ]
+    for r in routes:
+        out.append(f"| {_code(r['slug'])} | {_cell(r['invocation'])} | {_render_targets(r['targets'])} | "
+                   f"{_code(r['owner'])} |")
+    return out
+
+
+def render_map(catalog: dict, manifests: list, engine: dict, routes: list = ()) -> str:
     """The whole deterministic Markdown map. Sections joined by a blank line; LF newlines; no
     trailing whitespace; exactly one final newline — so regenerate-and-compare is a valid equality
-    test. Contains no `](` sequence (paths are code spans), so link-integrity passes."""
+    test. Contains no `](` sequence (paths are code spans), so link-integrity passes. `routes` is the
+    gathered route rows (empty by default, so a fixture render stays deterministic)."""
     surfaces = (catalog or {}).get("surfaces", {})
-    sections = [render_header(engine), render_surfaces(surfaces), render_modules(manifests)]
+    sections = [render_header(engine), render_surfaces(surfaces), render_modules(manifests),
+                render_routes(list(routes))]
     lines = []
     for i, sec in enumerate(sections):
         if i:
@@ -325,9 +396,51 @@ def load_sources():
     return catalog, manifests, engine
 
 
+def _skill_owner_map(manifests: list) -> dict:
+    """{skill-slug: owning-module-id} from each manifest's `provides.skill` (a list of
+    `.claude/skills/<slug>/SKILL.md` paths). The first owner wins (a skill is owned once)."""
+    owner: dict = {}
+    for m in manifests:
+        mid = m.get("id", "?")
+        for entry in ((m.get("provides") or {}).get("skill") or []):
+            slug = os.path.basename(os.path.dirname(str(entry)))
+            owner.setdefault(slug, mid)
+    return owner
+
+
+def _gather_route_rows(manifests: list) -> list:
+    """The commands-and-routes rows for the map, gathered from the on-disk engine skills (the PRESENT set —
+    a route first-run retired is simply absent, so the deployed map never advertises it). Each row is
+    {slug, invocation, reachable, typeable, description, targets, owner}. Sorted by slug (deterministic).
+    Reachability is imported from codex_gen._MODEL_REACHABLE (the single home)."""
+    import skill_discovery  # lazy: the shared skill-discovery helper (IO)
+    import codex_gen        # lazy: single home of _MODEL_REACHABLE
+    owner = _skill_owner_map(manifests)
+    rows = []
+    for rec in skill_discovery.records("claude"):
+        fm = rec["frontmatter"]
+        inv = fm.get("invocation")
+        rows.append({
+            "slug": rec["slug"],
+            "invocation": inv if isinstance(inv, str) else "(unset)",
+            # Platform-truth reachability (an omitted invocation is model-auto = reachable), the same notion the
+            # route checks enforce — so the readout classifies an invocation-less model-auto skill as a route.
+            "reachable": codex_gen.is_platform_reachable(inv),
+            # Typeable = the operator can type it: every invocation class EXCEPT model-only, which alone sets
+            # user-invocable: false. operator-typed and model-auto are both typeable (engine-recall is both a
+            # typed command and an automatic route), so it appears under Operator commands and Automatic routes.
+            "typeable": inv != "model-only",
+            "description": fm.get("description") or "",
+            "targets": fm.get("engine-targets") or [],
+            "owner": owner.get(rec["slug"], "(unowned)"),
+        })
+    return sorted(rows, key=lambda r: r["slug"])
+
+
 def canonical_map() -> str:
-    """The canonical map rendered from the live sources."""
-    return render_map(*load_sources())
+    """The canonical map rendered from the live sources (surfaces, modules, and the commands-and-routes rows)."""
+    catalog, manifests, engine = load_sources()
+    return render_map(catalog, manifests, engine, _gather_route_rows(manifests))
 
 
 def read_committed(path: str):

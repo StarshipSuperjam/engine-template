@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/setup-route-drift",
+  "target": { "context": "setup-route-drift" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/setup_route_drift_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The per-module setup routes (.claude/skills/engine-setup-<module-id>/SKILL.md) are derived-committed artifacts: they are generated from the offerable module manifests' presentation records and must never be hand-authored. This check regenerates them from those manifests and compares; if a committed route was hand-edited, left stale after a presentation change, or is missing, it goes red. To fix it, regenerate with `uv run --directory .engine -- python tools/setup_route_gen.py generate` and commit the result."
+}

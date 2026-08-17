@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ROUTE_TARGET_FIXTURE_ROOT": ".engine/_fixtures/route-target-existence/root"
+  }
+}

@@ -66,15 +66,15 @@ class TestSelectable(unittest.TestCase):
 
     def test_grouped_in_fixed_category_order(self):
         entries = [
-            {"verb": "engine-vv", "description": "x", "category": "Verification & Validation"},
-            {"verb": "engine-pm", "description": "x", "category": "Product Management"},
+            {"id": "vv", "description": "x", "category": "Verification & Validation"},
+            {"id": "pm", "description": "x", "category": "Product Management"},
         ]
         self.assertEqual(list(inst.selectable(entries).keys()),
                          ["Product Management", "Verification & Validation"], "PM before V&V (fixed order)")
 
     def test_unrecognized_category_kept_last_not_dropped(self):
-        entries = [{"verb": "engine-x", "description": "x", "category": "Made Up"},
-                   {"verb": "engine-pm", "description": "y", "category": "Product Management"}]
+        entries = [{"id": "x", "description": "x", "category": "Made Up"},
+                   {"id": "pm", "description": "y", "category": "Product Management"}]
         keys = list(inst.selectable(entries).keys())
         self.assertIn("Made Up", keys, "an unexpected category is kept, never silently dropped")
         self.assertEqual(keys[-1], "Made Up", "an unexpected category sorts after the recognized ones")
@@ -106,15 +106,17 @@ class TestPresentGather(unittest.TestCase):
         self.assertIn("who reviews changes here", out, "the identity choice is presented")
         self.assertIn("will be removed from this project", out, "the destructive-on-confirm outcome is stated")
 
-    def test_present_catalog_lists_the_command(self):
+    def test_present_catalog_lists_the_module_by_description(self):
+        # Every offerable module is listed by its plain-language description under its discipline — there is no
+        # per-module command to type (modules are added by id via the engine-setup dispatcher).
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
-                            "category": "Product Management"}], fh)
+                json.dump([{"id": "x", "description": "Does x.", "category": "Product Management"}], fh)
             out = self._gather(p)
-            self.assertIn("engine-x — Does x.", out)
+            self.assertIn("• Does x.", out)
             self.assertIn("Product Management", out)
+            self.assertNotIn("engine-x", out, "no per-module command token is shown")
 
     def test_command_less_module_listed_by_description_not_a_fake_command(self):
         # A command-less optional module (no verb) is offered by its plain description — never an empty "• —"
@@ -141,7 +143,7 @@ class TestPresentGather(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "a", "verb": "engine-a", "description": "Does a.",
+                json.dump([{"id": "a", "description": "Does a.",
                             "category": "Product Management"}], fh)
             with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
                 out = inst.present_gather(catalog_path=p, manifests=manifests)
@@ -156,7 +158,7 @@ class TestPresentGather(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
+                json.dump([{"id": "x", "description": "Does x.",
                             "category": "Product Management"}], fh)
             with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
                 out = inst.present_gather(catalog_path=p, manifests=[])
@@ -180,7 +182,7 @@ class TestPresentGather(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
+                json.dump([{"id": "x", "description": "Does x.",
                             "category": "Product Management"}], fh)
             with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
                 out = inst.present_gather(catalog_path=p, manifests=[])
@@ -509,31 +511,25 @@ class TestCatalogSchemaConformance(unittest.TestCase):
     def test_committed_catalog_and_a_good_entry_validate(self):
         import jsonschema
         schema = self._schema()
-        jsonschema.validate([], schema)  # the empty catalog this repo ships
-        jsonschema.validate([{"id": "x-mod", "verb": "engine-x", "description": "Does x.",
+        jsonschema.validate([], schema)  # the empty catalog shape
+        # A well-formed entry carries id/description/category (+ optional status) and NO per-module verb.
+        jsonschema.validate([{"id": "x-mod", "description": "Does x.",
                               "category": "Product Management", "status": "optional"}], schema)
 
     def test_missing_required_field_is_rejected(self):
         import jsonschema
         schema = self._schema()
         with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.validate([{"id": "x", "verb": "engine-x"}], schema)  # no description/category
+            jsonschema.validate([{"id": "x"}], schema)  # no description/category
 
-    def test_command_less_entry_validates_without_a_verb(self):
-        # verb is optional now (#254): a command-less optional module omits it and still validates.
-        import jsonschema
-        schema = self._schema()
-        jsonschema.validate([{"id": "design-review", "description": "Reviews plans.",
-                              "category": "Verification & Validation"}], schema)
-
-    def test_explicit_empty_verb_is_rejected(self):
-        # A command-less module must OMIT verb, not set it to "" — a present-but-empty verb violates the
-        # command pattern and is caught (the schema check fails loud rather than relaying a malformed entry).
+    def test_unknown_field_is_rejected(self):
+        # The catalog is a closed shape (additionalProperties:false): a stray field — for instance the retired
+        # per-module `verb` — is rejected, so a stale or malformed entry fails loud rather than being relayed.
         import jsonschema
         schema = self._schema()
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate([{"id": "x", "description": "d", "category": "Product Management",
-                                  "verb": ""}], schema)
+                                  "verb": "engine-x"}], schema)
 
 
 class TestCLI(unittest.TestCase):
@@ -1435,7 +1431,7 @@ class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
 
 class TestSeedConduct(unittest.TestCase):
     """#409: the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md
-    exists it is operator config, so a resumed/re-run apply never clobbers a /engine-conduct-tuned stance (the
+    exists it is operator config, so a resumed/re-run apply never clobbers a /engine-setup-tuned stance (the
     seed-then-own law). Mirrors _seed_security's existence guard."""
 
     def _plant_seed(self, root, body):
@@ -1476,7 +1472,7 @@ class TestSeedConduct(unittest.TestCase):
                 outcome = inst._seed_conduct(self.fail, inst.load_copy())
                 now = inst._read_text_or(target, "")
         self.assertEqual(outcome, "present")
-        self.assertEqual(now, tuned, "a /engine-conduct-tuned operator.md is left exactly as it was")
+        self.assertEqual(now, tuned, "a /engine-setup-tuned operator.md is left exactly as it was")
 
     def test_resume_is_idempotent_a_second_seed_is_a_no_op(self):
         with tempfile.TemporaryDirectory() as d:
@@ -3696,7 +3692,7 @@ class TestArrive(unittest.TestCase):
             cat = inst._catalog_path(release)
             with open(cat, encoding="utf-8") as fh:
                 entries = json.load(fh)
-            entries.append({"id": mid, "verb": "engine-onby", "category": "Verification & Validation",
+            entries.append({"id": mid, "category": "Verification & Validation",
                             "status": "default-on", "description": "A default-on practice add-on."})
             inst._write_json(cat, entries)
 
@@ -3818,7 +3814,7 @@ class TestArrive(unittest.TestCase):
             cat = inst._catalog_path(release)
             with open(cat, encoding="utf-8") as fh:
                 entries = json.load(fh)
-            entries.append({"id": mid, "verb": "engine-onby", "category": "Verification & Validation",
+            entries.append({"id": mid, "category": "Verification & Validation",
                             "status": "default-on", "description": "A default-on practice add-on."})
             inst._write_json(cat, entries)
         with tempfile.TemporaryDirectory() as d:

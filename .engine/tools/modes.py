@@ -580,9 +580,10 @@ def handler(payload: dict) -> dict:
     deny — and its redirect reason — dropped."""
     tool_name = payload.get("tool_name", "") if isinstance(payload, dict) else ""
     tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
-    # The engine-Issue conformance reroute — fires in Explore AND Build (the body contract is unconditional),
-    # so it is checked before the stance short-circuit. issue_gate holds the matcher; here we wrap its reason.
-    reroute = issue_gate.non_conforming_reason(tool_name, tool_input)
+    # The engine-Issue reroute — fires in Explore AND Build (the channel rule is unconditional), so it is
+    # checked before the stance short-circuit. issue_gate holds the matcher; here we wrap its reason. It now
+    # reroutes EVERY direct engine-labelled creation (Bash/API/connector) to the helper's create CLI.
+    reroute = issue_gate.reroute_reason(tool_name, tool_input)
     if reroute is not None:
         return hooks.decide("deny", reroute)
     # The protected-merge nudge — also STANCE-INDEPENDENT (the session never merges the protected branch in

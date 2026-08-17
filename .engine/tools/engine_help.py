@@ -31,10 +31,10 @@ Design fidelity notes (for a maintainer reading the source, not the operator):
   (skill_coherence_check.engine_skills), which lets the raise propagate to fail closed: a detection guard
   must never silently pass, an operator listing must never go blank. Same discovery, opposite posture by
   design.
-- The ~typed-name + engine-glob logic is intentionally a small local copy, not an import of the check
-  tool's private helper (a verb tool must not reach up into a guard tool) nor an addition to the seed
-  validator. When a third skill-globbing tool appears, extract a shared skill-discovery helper that
-  exposes the raw per-file parse and lets each caller choose its posture.
+- The typed-name + engine-glob logic used to be a small local copy; it now lives in the shared
+  skill-discovery helper (`skill_discovery`) that this listing, the self-election guard, and the Codex
+  render all read — the helper the note here long predicted, which exposes the raw per-file parse and
+  lets each caller keep its own posture (this listing skips a malformed file; the guard lets it raise).
 """
 from __future__ import annotations
 import glob
@@ -44,15 +44,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import module_catalog  # noqa: E402  (the shared optional-module catalog reader — one parse path, no drift)
+import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + parse path, no drift)
 
-# The engine's own commands carry the engine- prefix (the engine/operator wall); this is the same scope
-# the self-election guard governs. The legacy commands directory lives under .claude/commands/. The two
-# runtime trees carry the SAME verbs (the Codex tree is a committed render of the Claude one), so the
-# listing dedupes by typed name and surfaces a verb present in only one tree as partially installed.
-_CLAUDE_VERB_GLOBS = (".claude/skills/engine-*/SKILL.md", ".claude/commands/engine-*.md")
-_CODEX_VERB_GLOBS = (".agents/skills/engine-*/SKILL.md",)
-_ENGINE_VERB_GLOBS = _CLAUDE_VERB_GLOBS + _CODEX_VERB_GLOBS
-
+# The two runtime trees carry the SAME verbs (the Codex tree is a committed render of the Claude one), so the
+# listing dedupes by typed name and surfaces a verb present in only one tree as partially installed. The trees
+# and the engine- prefix (the engine/operator wall) live in skill_discovery, the shared discovery home.
 # What a one-tree-only verb's listing appends, so a broken mirror is surfaced, never hidden. Every engine
 # command now has both twins (no runtime-only verb is expected); the sanctioned asymmetries live in the
 # provider-exception ledger, and this line simply tells the operator which runtime a verb works on today if a
@@ -61,45 +57,44 @@ _ONLY_CLAUDE_NOTE = " (currently only available when working in Claude Code)"
 _ONLY_CODEX_NOTE = " (currently only available when working in Codex)"
 
 _HEADER = "Commands you can type:"
-_AVAILABLE_HEADER = "You can also add these by installing more parts of your Engine:"
-_EMPTY_AVAILABLE_LINE = "More commands become available as you add optional parts to your Engine."
+_AVAILABLE_HEADER = "You can also add these through your Engine's setup — ask me, or run engine-setup:"
+_EMPTY_AVAILABLE_LINE = "More capabilities become available as you add optional parts to your Engine through setup."
 _POINTER = "New to the Engine? Ask me to open the getting-started guide — it walks you through the basics."
-
-
-def _typed_name(path: str) -> str:
-    """The command the operator types for a verb file: the skill DIRECTORY name (a SKILL.md), or the
-    legacy command FILENAME (a .claude/commands/<name>.md). Mirrors the self-election guard's helper."""
-    parent = os.path.basename(os.path.dirname(path))
-    if parent and parent != "commands":
-        return parent
-    return os.path.splitext(os.path.basename(path))[0]
 
 
 def installed_verbs(root: str | None = None) -> list:
     """The engine's installed operator-invocable commands as a list of {name, description}, sorted by the
-    typed name. Globs only the engine-prefixed command files and keeps only the commands the operator can
-    invoke — the operator-invocable axis: `operator-typed` and `model-auto` (an omitted invocation defaults
-    to model-auto), but not `model-only`, which is hidden from the operator's menu. Each file's frontmatter
-    parse is guarded: a malformed command file is skipped rather than allowed to crash the whole listing
-    (degrade, never blank — the always-answers guarantee)."""
-    base = root or validate.ROOT
+    typed name. Reads only the engine-prefixed skills (through the shared `skill_discovery` helper) and keeps
+    only the commands the operator can invoke — the operator-invocable axis: `operator-typed` and `model-auto`
+    (an omitted invocation defaults to model-auto), but not `model-only`, which is hidden from the operator's
+    menu. The discovery runs in the non-strict posture: a malformed skill file is skipped rather than allowed
+    to crash the whole listing (degrade, never blank — the always-answers guarantee)."""
+    # The CLAUDE source is the sole authority on operator-invocability. A model-only route renders its Codex
+    # twin WITHOUT an `invocation` field (the twin's policy lives in agents/openai.yaml, not its frontmatter),
+    # so reading the Codex frontmatter would default every route to model-auto and silently re-admit the whole
+    # model-only surface to the operator's menu. So the hidden set is computed once from the Claude tree and
+    # applied to BOTH trees below — a route the Claude source marks non-operator-invocable is hidden on every
+    # runtime, matching the ADR-0336 rule that engine-help never exposes automatic routes.
+    hidden = set()
+    for rec in skill_discovery.records("claude", root=root, include_commands=True):
+        inv = rec["frontmatter"].get("invocation") or "model-auto"
+        if inv not in ("operator-typed", "model-auto"):
+            hidden.add(rec["slug"])
     seen: dict = {}
-    for tree, patterns in (("claude", _CLAUDE_VERB_GLOBS), ("codex", _CODEX_VERB_GLOBS)):
-        for pattern in patterns:
-            for path in sorted(glob.glob(os.path.join(base, pattern))):
-                try:
-                    fm = validate.frontmatter(path)
-                except Exception:
-                    # A broken command file must not blank the list — skip it, keep answering.
-                    continue
-                inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
-                if inv not in ("operator-typed", "model-auto"):
-                    continue   # model-only is hidden from the operator's menu; an unknown value too
-                name = _typed_name(path)
-                entry = seen.setdefault(name, {"name": name, "description": "", "trees": set()})
-                entry["trees"].add(tree)
-                if tree == "claude" or not entry["description"]:   # the Claude source's description wins
-                    entry["description"] = str(fm.get("description") or "") or entry["description"]
+    for tree in ("claude", "codex"):
+        # Claude also carries the legacy flat commands; the Codex tree has none.
+        for rec in skill_discovery.records(tree, root=root, include_commands=(tree == "claude")):
+            name = rec["slug"]
+            if name in hidden:
+                continue   # non-operator-invocable on its Claude source — hidden from the menu on every runtime
+            fm = rec["frontmatter"]
+            inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
+            if inv not in ("operator-typed", "model-auto"):
+                continue   # a Codex-only oddity declaring a non-invocable value; the Claude-side set already caught model-only
+            entry = seen.setdefault(name, {"name": name, "description": "", "trees": set()})
+            entry["trees"].add(tree)
+            if tree == "claude" or not entry["description"]:   # the Claude source's description wins
+                entry["description"] = str(fm.get("description") or "") or entry["description"]
     # Annotate a one-tree-only verb ONLY when BOTH runtime trees are actually populated — a repo
     # carrying just the Claude adapter (or a minimal test tree) gets no noise; once both adapters
     # are present, a verb missing its twin is surfaced, never hidden.
@@ -130,20 +125,30 @@ def _installed_module_ids() -> set:
         return set()
 
 
-def available_verbs(catalog_path: str | None = None) -> list:
-    """The optional, not-yet-installed commands, RELAYED from the committed module catalog the first-run
-    setup maintains — or an empty list when the catalog is absent, empty, or damaged (it narrows the
-    listing, never breaks it). Returns each as {name, description}: the command the operator would type
-    once the module is installed, plus its one-line gloss, sorted by the command. A module that is already
-    installed is EXCLUDED (its command shows under the installed commands instead). A command-less optional
-    module (one with no `verb`) is also EXCLUDED here: this index lists things to type, and that module has
-    nothing to type — it is still offered in the first-run walkthrough by its description. This tool only
-    relays; provisioning owns the catalog and the shared `module_catalog` reader parses it, so this index and
-    the first-run walkthrough cannot drift in how they read it. `catalog_path` is injectable for tests; the
-    committed catalog is read by default."""
+def _first_sentence(text: str) -> str:
+    """A concise one-line gloss for the add-on section: the description's first sentence (up to the first
+    sentence-ending '. '), or the whole thing when it is already short. Keeps the /engine-help add-on
+    section a scannable index rather than reprinting the full setup-walkthrough paragraph."""
+    text = (text or "").strip()
+    for sep in (". ", ".\n"):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[:idx + 1]
+    return text
+
+
+def available_addons(catalog_path: str | None = None) -> list:
+    """The optional, not-yet-installed add-ons, RELAYED from the committed module catalog — or an empty list
+    when the catalog is absent, empty, or damaged (it narrows the listing, never breaks it). Returns each as
+    {id, description}: the add-on's stable id and a concise one-line gloss (its description's first sentence),
+    sorted by id. An already-installed module is EXCLUDED. There is no per-module `verb`: add-ons are reached
+    through natural-language setup routes and the permanent engine-setup dispatcher, so this section presents
+    them BY DESCRIPTION under an 'available through engine-setup' heading rather than as typeable commands.
+    This tool only relays; provisioning owns the catalog and the shared `module_catalog` reader parses it, so
+    this index and the first-run walkthrough cannot drift. `catalog_path` is injectable for tests."""
     installed = _installed_module_ids()
-    return [{"name": e["verb"], "description": e["description"]}
-            for e in module_catalog.entries(catalog_path) if e["id"] not in installed and e["verb"]]
+    return [{"id": e["id"], "description": _first_sentence(e["description"])}
+            for e in module_catalog.entries(catalog_path) if e["id"] not in installed]
 
 
 def ambient_provider() -> "str | None":
@@ -191,7 +196,7 @@ def render(installed: list, available: list, prefix: "str | None" = "/") -> str:
     if available:
         lines.append(_AVAILABLE_HEADER)
         lines.append("")
-        lines.extend(_verb_line(v, prefix) for v in available)
+        lines.extend(f"  {a['description']}" for a in available)
     else:
         lines.append(_EMPTY_AVAILABLE_LINE)
     lines.append("")
@@ -208,7 +213,7 @@ def _demo() -> int:
     import tempfile
 
     print("Your Engine's commands, the way /engine-help lists them:\n")
-    live = render(installed_verbs(), available_verbs())
+    live = render(installed_verbs(), available_addons())
     print(live)
     print("\n" + "-" * 70 + "\n")
     print("The same listing when a command file is broken — to show the help always answers.\n"
@@ -226,7 +231,7 @@ def _demo() -> int:
         with open(os.path.join(broken_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
             fh.write("---\ndescription: [this line is broken\ninvocation: operator-typed\n---\n\n"
                      "## Steps\n\n1. Go.\n")
-        broken_listing = render(installed_verbs(root=tmp), available_verbs(None))
+        broken_listing = render(installed_verbs(root=tmp), available_addons(None))
         print(broken_listing)
     print("\nThe broken command was skipped, the rest are still listed, and nothing crashed — so\n"
           "\"what can I do here?\" always gets an answer, even during an outage or with a damaged file.")
@@ -245,7 +250,7 @@ def main(argv: list) -> int:
         return _demo()
     provider = ambient_provider()
     prefix = {"claude": "/", "codex": "$"}.get(provider)   # None (unknown) → both forms shown
-    print(render(installed_verbs(), available_verbs(), prefix))
+    print(render(installed_verbs(), available_addons(), prefix))
     return 0
 
 

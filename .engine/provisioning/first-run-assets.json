@@ -48,8 +48,5 @@
     ".engine/operations/engine-development.md",
     "assets/engine_banner.jpg"
   ],
-  "directories": [
-    ".claude/skills/engine-setup",
-    ".agents/skills/engine-setup"
-  ]
+  "directories": []
 }

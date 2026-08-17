@@ -518,9 +518,12 @@ class TestRetiredAssetFilter(unittest.TestCase):
 
     def test_deployed_shape_filters_the_real_retired_entries(self):
         # The real defect end-to-end: the REAL census + the REAL core manifest, on a tree where the retired
-        # files and directories are absent (the post-first-run deployed shape) — the map must drop EVERY
-        # advertised entry the retire step removes, across every provides group (files AND entries under
-        # retired directories), and keep every sibling that survives.
+        # files (and, if any, directories) are absent (the post-first-run deployed shape) — the map must drop
+        # EVERY advertised entry the retire step removes and keep every sibling that survives. Since ADR 0336
+        # made engine-setup a permanent dispatcher, the census retires no DIRECTORIES anymore, so the
+        # directories leg is asserted only when the census actually retires one (its path-boundary logic stays
+        # covered by test_prefix_match_is_directory_boundary_safe); the files leg (retired operation assets in
+        # core's provides) is the live subject here.
         census_src = os.path.join(validate.ENGINE_DIR, "provisioning", "first-run-assets.json")
         core_src = os.path.join(validate.ENGINE_DIR, "modules", "core", "manifest.json")
         core = validate.load_json(core_src)
@@ -534,11 +537,12 @@ class TestRetiredAssetFilter(unittest.TestCase):
         entries = [p for group in (core.get("provides") or {}).values() for p in (group or [])]
         doomed = sorted(p for p in entries if is_doomed(p))
         survivors = sorted(p for p in entries if not is_doomed(p))
-        self.assertGreaterEqual(len(doomed), 4,
-                                "the defect's class must exist: the retired operation file plus the "
-                                "setup-skill files under the retired directories")
-        self.assertTrue(any(any(p == d or p.startswith(d + "/") for d in retired_dirs) for p in doomed),
-                        "at least one doomed entry must come from the directories leg")
+        self.assertTrue(doomed,
+                        "the retired operation assets advertised in core's provides must be filtered out of "
+                        "the deployed shape")
+        if retired_dirs:  # only a real subject when the census retires by directory (none do post-ADR-0336)
+            self.assertTrue(any(any(p == d or p.startswith(d + "/") for d in retired_dirs) for p in doomed),
+                            "at least one doomed entry must come from the directories leg")
         self.assertTrue(survivors)
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".engine", "provisioning"))

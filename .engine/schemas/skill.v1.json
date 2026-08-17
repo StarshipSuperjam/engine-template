@@ -32,6 +32,42 @@
     "status": {
       "description": "OPTIONAL engine field — where this skill sits in the 'artifact' lifecycle; an omitted status means active. active = a live skill (the default the moment it merges); deprecated = in managed phase-out, kept while the operator is pointed elsewhere; retired = no longer in use, kept for history. There is deliberately no 'draft' or 'proposed' state, because draftness is a branch state, not a governance value (a skill is born active on merge to the protected branch). No core consumer reads this field yet; it is the spec-faithful lifecycle slot the later migration machinery will read, matching the doc and operation surfaces. Though this schema is open, status is defined here so a value outside active/deprecated/retired is rejected. Set this field only to mark a skill deprecated or retired.",
       "enum": ["active", "deprecated", "retired"]
+    },
+    "engine-targets": {
+      "description": "OPTIONAL structured route authority — the canonical operation(s), tool(s), or subordinate skill(s) this skill routes work into. This is the SINGLE SOURCE the generators and maps read to build routes-to knowledge edges and the engine-parts route readout: delegation is declared here as structured data, never inferred from prose. Present on an automatic model route (a model-only or model-auto skill that recognizes intent and enters a canonical procedure); an operator-typed command skill that IS its own procedure needs none. Each target carries a first-class availability so a route whose target only exists on some deployments (a declined optional module, or the home repository) is generated and checked as tolerated-absent rather than a dangling reference: an availability of module-conditional REQUIRES an owner module id, and both the routes-to derivation and the target-existence check treat a marked-conditional target whose owner is absent as no-edge, no-finding.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref", "availability"],
+        "properties": {
+          "kind": {
+            "description": "What the target is: an operation runbook (.engine/operations/*.md), a tool (a .engine/tools module or CLI), or a subordinate skill (another engine skill's directory slug).",
+            "enum": ["operation", "tool", "skill"]
+          },
+          "ref": {
+            "description": "The target's reference: a repository-relative path for an operation or tool, or the directory slug for a subordinate skill.",
+            "type": "string",
+            "minLength": 1
+          },
+          "availability": {
+            "description": "When the target exists. active = present on every deployment (the default expectation, verified to exist). home-only = present only in the engine home repository (a development runbook), rendered and checked as tolerated-absent elsewhere. module-conditional = present only when a named optional module is installed; REQUIRES `owner`.",
+            "enum": ["active", "home-only", "module-conditional"]
+          },
+          "owner": {
+            "description": "REQUIRED when availability is module-conditional: the id of the optional module whose presence the target depends on. The routes-to derivation and the target-existence check tolerate this target's absence when the owner module is not installed.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "availability": { "const": "module-conditional" } }, "required": ["availability"] },
+            "then": { "required": ["kind", "ref", "availability", "owner"] }
+          }
+        ]
+      }
     }
   }
 }

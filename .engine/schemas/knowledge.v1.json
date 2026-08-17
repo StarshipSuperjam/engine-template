@@ -196,6 +196,11 @@
               "description": "For an interface entity: the tool that implements its named fallback, derived by joining the interface's `fallback.handle` through .mcp.json's server registration to the tool the server runs. Present only when the fallback handle resolves to an in-graph tool.",
               "type": "array",
               "items": { "$ref": "#/$defs/entityId" }
+            },
+            "routes_to": {
+              "description": "For a skill entity: the operation, tool, or subordinate-skill entities this skill routes work into, derived from its `engine-targets` frontmatter (the single structured delegation authority — never inferred from prose). An edge is recorded only to a target present in this graph, so a target absent on this deployment (a declined module-conditional target, or a home-only runbook outside the engine's home) yields no edge. Present only when the skill declares at least one in-graph target.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/entityId" }
             }
           }
         }

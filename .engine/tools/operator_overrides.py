@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The operator policy-override FILE reader — the single home for reading the
-per-deployment tuning file the `/engine-tune` command writes.
+per-deployment tuning file the `/engine-setup` command writes.
 
 The override is committed **operator config**: a per-deployment file that supersedes named policy
 tuning values per-key at read time. Its shape
@@ -67,7 +67,7 @@ def slice_for(policy_id: str, path: str = OVERRIDES_PATH) -> dict:
 #
 # So a retirement is RECORDED here, in one plain sentence, and the three places that meet the operator read it
 # from this one map: the module migration that removes the entry at upgrade, the check that explains it if the
-# entry survives anyway, and `/engine-tune` when the operator clears it by hand. This file is deliberately the
+# entry survives anyway, and `/engine-setup` when the operator clears it by hand. This file is deliberately the
 # home rather than the check's own script: that script is the enforcement callable behind a hard gate, so
 # editing it routes through the guardrail acknowledgment, and a future retirement should not have to.
 #

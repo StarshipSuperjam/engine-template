@@ -209,7 +209,7 @@ class TestComment(unittest.TestCase):
         self.assertIn(".engine/tools/boot.py", body)
         self.assertIn("does not block your merge", body)
         self.assertIn("upstream", body)
-        self.assertIn("/engine-tune", body)
+        self.assertIn("/engine-setup", body)
         self.assertIn(HOME, body)                                        # the durable home is named
 
     def test_derived_register_renders_a_calm_regenerated_line_not_the_alarm(self):

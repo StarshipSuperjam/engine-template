@@ -1,15 +1,39 @@
 {
  "surfaces": {
-  ".agents/skills/engine-board-setup/SKILL.md": [
-   "github-projects-sync"
-  ],
-  ".agents/skills/engine-board-setup/agents/openai.yaml": [
-   "github-projects-sync"
-  ],
-  ".agents/skills/engine-conduct/SKILL.md": [
+  ".agents/skills/engine-change-conduct/SKILL.md": [
    "core"
   ],
-  ".agents/skills/engine-conduct/agents/openai.yaml": [
+  ".agents/skills/engine-change-conduct/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-check-impact/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-check-impact/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-configure-codex/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-configure-codex/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-configure-memory-backup/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-configure-memory-backup/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-coordinate-build/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-coordinate-build/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-design-product/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-design-product/agents/openai.yaml": [
    "core"
   ],
   ".agents/skills/engine-design/SKILL.md": [
@@ -18,10 +42,64 @@
   ".agents/skills/engine-design/agents/openai.yaml": [
    "product-design"
   ],
+  ".agents/skills/engine-develop-engine/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-develop-engine/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-drop-operator-pin/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-drop-operator-pin/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-enable-protection/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-enable-protection/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-file-engine-issue/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-file-engine-issue/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-file-upstream-issue/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-file-upstream-issue/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-help/SKILL.md": [
    "core"
   ],
   ".agents/skills/engine-help/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-install-engine/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-install-engine/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-addons/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-addons/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-setup/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-setup/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-onboard-project/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-onboard-project/agents/openai.yaml": [
    "core"
   ],
   ".agents/skills/engine-parts/SKILL.md": [
@@ -30,10 +108,22 @@
   ".agents/skills/engine-parts/agents/openai.yaml": [
    "core"
   ],
+  ".agents/skills/engine-prepare-routine/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-prepare-routine/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-recall/SKILL.md": [
    "core"
   ],
   ".agents/skills/engine-recall/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-release-project/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-release-project/agents/openai.yaml": [
    "core"
   ],
   ".agents/skills/engine-release/SKILL.md": [
@@ -42,16 +132,100 @@
   ".agents/skills/engine-release/agents/openai.yaml": [
    "core"
   ],
+  ".agents/skills/engine-remove-engine/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-remove-engine/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-restore-operator-pin/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-restore-operator-pin/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-routine/SKILL.md": [
    "routine-mode"
   ],
   ".agents/skills/engine-routine/agents/openai.yaml": [
    "routine-mode"
   ],
+  ".agents/skills/engine-save-operator-pin/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-save-operator-pin/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-dependency-discipline/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-dependency-discipline/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-design-review/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-design-review/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-external-contribution/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-external-contribution/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-github-projects-sync/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-github-projects-sync/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-migration-discipline/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-migration-discipline/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-product-design/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-product-design/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-qa-review/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-setup-qa-review/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-setup/SKILL.md": [
    "core"
   ],
   ".agents/skills/engine-setup/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-show-help/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-show-help/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-show-parts/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-show-parts/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-show-status/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-show-status/agents/openai.yaml": [
    "core"
   ],
   ".agents/skills/engine-start/SKILL.md": [
@@ -66,16 +240,40 @@
   ".agents/skills/engine-status/agents/openai.yaml": [
    "core"
   ],
-  ".agents/skills/engine-tune/SKILL.md": [
+  ".agents/skills/engine-submit-upstream-contribution/SKILL.md": [
    "core"
   ],
-  ".agents/skills/engine-tune/agents/openai.yaml": [
+  ".agents/skills/engine-submit-upstream-contribution/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-switch-reviewers/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-switch-reviewers/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-tune-settings/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-tune-settings/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-upgrade-engine/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-upgrade-engine/agents/openai.yaml": [
    "core"
   ],
   ".agents/skills/engine-upgrade/SKILL.md": [
    "core"
   ],
   ".agents/skills/engine-upgrade/agents/openai.yaml": [
+   "core"
+  ],
+  ".agents/skills/engine-validate-codex/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-validate-codex/agents/openai.yaml": [
    "core"
   ],
   ".claude/agents/engine-audit.md": [
@@ -108,31 +306,118 @@
   ".claude/agents/engine-qa-review-usability.md": [
    "qa-review"
   ],
-  ".claude/skills/engine-board-setup/SKILL.md": [
-   "github-projects-sync"
+  ".claude/skills/engine-change-conduct/SKILL.md": [
+   "core"
   ],
-  ".claude/skills/engine-conduct/SKILL.md": [
+  ".claude/skills/engine-check-impact/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-configure-codex/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-configure-memory-backup/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-coordinate-build/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-design-product/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-design/SKILL.md": [
    "product-design"
   ],
+  ".claude/skills/engine-develop-engine/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-drop-operator-pin/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-enable-protection/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-file-engine-issue/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-file-upstream-issue/SKILL.md": [
+   "core"
+  ],
   ".claude/skills/engine-help/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-install-engine/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-manage-addons/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-manage-setup/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-onboard-project/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-parts/SKILL.md": [
    "core"
   ],
+  ".claude/skills/engine-prepare-routine/SKILL.md": [
+   "core"
+  ],
   ".claude/skills/engine-recall/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-release-project/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-release/SKILL.md": [
    "core"
   ],
+  ".claude/skills/engine-remove-engine/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-restore-operator-pin/SKILL.md": [
+   "core"
+  ],
   ".claude/skills/engine-routine/SKILL.md": [
    "routine-mode"
   ],
+  ".claude/skills/engine-save-operator-pin/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-dependency-discipline/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-design-review/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-external-contribution/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-github-projects-sync/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-migration-discipline/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-product-design/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-setup-qa-review/SKILL.md": [
+   "core"
+  ],
   ".claude/skills/engine-setup/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-show-help/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-show-parts/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-show-status/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-start/SKILL.md": [
@@ -141,10 +426,22 @@
   ".claude/skills/engine-status/SKILL.md": [
    "core"
   ],
-  ".claude/skills/engine-tune/SKILL.md": [
+  ".claude/skills/engine-submit-upstream-contribution/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-switch-reviewers/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-tune-settings/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-upgrade-engine/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-upgrade/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-validate-codex/SKILL.md": [
    "core"
   ],
   ".codex/agents/engine-audit.toml": [
@@ -327,6 +624,9 @@
   ".engine/check/model-bindings-schema.json": [
    "validators-core"
   ],
+  ".engine/check/module-catalog-drift.json": [
+   "validators-core"
+  ],
   ".engine/check/module-manifest.json": [
    "validators-core"
   ],
@@ -393,7 +693,16 @@
   ".engine/check/release-integrity.json": [
    "validators-core"
   ],
+  ".engine/check/route-budget.json": [
+   "validators-core"
+  ],
+  ".engine/check/route-target-existence.json": [
+   "validators-core"
+  ],
   ".engine/check/self-map-drift.json": [
+   "validators-core"
+  ],
+  ".engine/check/setup-route-drift.json": [
    "validators-core"
   ],
   ".engine/check/shipped-issue-references.json": [
@@ -814,6 +1123,9 @@
    "core"
   ],
   ".engine/schemas/doc.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/engine-issue-input.v1.json": [
    "core"
   ],
   ".engine/schemas/engine.v1.json": [
@@ -1524,6 +1836,9 @@
   ".engine/tools/module_catalog.py": [
    "core"
   ],
+  ".engine/tools/module_catalog_check.py": [
+   "core"
+  ],
   ".engine/tools/module_coherence.py": [
    "core"
   ],
@@ -1647,6 +1962,12 @@
   ".engine/tools/review_integrity.py": [
    "core"
   ],
+  ".engine/tools/route_budget_check.py": [
+   "core"
+  ],
+  ".engine/tools/route_target_existence_check.py": [
+   "core"
+  ],
   ".engine/tools/scent.py": [
    "core"
   ],
@@ -1668,10 +1989,19 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/setup_route_drift_check.py": [
+   "core"
+  ],
+  ".engine/tools/setup_route_gen.py": [
+   "core"
+  ],
   ".engine/tools/shipped_issue_references_check.py": [
    "core"
   ],
   ".engine/tools/skill_coherence_check.py": [
+   "core"
+  ],
+  ".engine/tools/skill_discovery.py": [
    "core"
   ],
   ".engine/tools/spec_referent.py": [
@@ -1983,6 +2313,12 @@
   ".engine/tools/test_review_recipe_equivalence.py": [
    "core"
   ],
+  ".engine/tools/test_route_budget_check.py": [
+   "core"
+  ],
+  ".engine/tools/test_route_target_existence_check.py": [
+   "core"
+  ],
   ".engine/tools/test_scent.py": [
    "core"
   ],
@@ -2013,6 +2349,9 @@
   ".engine/tools/test_selftest_hermeticity.py": [
    "core"
   ],
+  ".engine/tools/test_setup_route_gen.py": [
+   "core"
+  ],
   ".engine/tools/test_shipped_issue_references_check.py": [
    "core"
   ],
@@ -2020,6 +2359,9 @@
    "core"
   ],
   ".engine/tools/test_skill_coherence_check.py": [
+   "core"
+  ],
+  ".engine/tools/test_skill_discovery.py": [
    "core"
   ],
   ".engine/tools/test_spec_referent.py": [

@@ -389,7 +389,7 @@ FALLBACK_COPY = {
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
         "to work with you (for example, speaking plainly, and explaining choices before you make them). "
         "They're here from the first session, and they're yours: change, add, or remove any of them any time "
-        "with /engine-conduct ($engine-conduct in Codex). I didn't put them in place silently — this note is me telling you they're here."
+        "with /engine-setup ($engine-setup in Codex). I didn't put them in place silently — this note is me telling you they're here."
     ),
     "product-version-seeded": (
         "Your project now carries its own version file — product-version.json at the top level, starting at "
@@ -472,7 +472,7 @@ def selectable(catalog_entries: list) -> dict:
     # Drop empty recognized groups, keep any non-empty (including an unexpected category), category order first.
     ordered = [c for c in _CATEGORY_ORDER if grouped.get(c)]
     extra = sorted(c for c in grouped if c not in _CATEGORY_ORDER and grouped.get(c))
-    return {c: sorted(grouped[c], key=lambda e: (e.get("verb", ""), e.get("id", ""))) for c in ordered + extra}
+    return {c: sorted(grouped[c], key=lambda e: e.get("id", "")) for c in ordered + extra}
 
 
 def optional_dependency_closure(manifests) -> dict:
@@ -556,18 +556,15 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
             gloss = _CATEGORY_GLOSS.get(category, "")
             lines.append(f"  {category}" + (f" — {gloss}:" if gloss else ":"))
             for entry in entries:
-                # A command-bearing module leads with its command; a command-less one (no verb — fired by a
-                # gate, never typed) leads with its plain-language description, so the menu never shows a
-                # command-shaped token an operator can't actually type.
+                # Every offerable module leads with its plain-language description: there is no per-module
+                # command to type — modules are reached through natural-language setup routes and the permanent
+                # engine-setup dispatcher, so the menu never shows a command-shaped token an operator can't type.
                 # The status decides the DEFAULT, so it is stated inline rather than left to be inferred from
                 # silence: an operator who says nothing must know what they have just agreed to.
                 # The mark LEADS the line. These descriptions run to several hundred characters, and the one
                 # token that decides what happens if the operator says nothing cannot be at the end of them.
                 mark = _STATUS_MARK.get(entry.get("status") or "optional", "")
-                if entry["verb"]:
-                    lines.append(f"    • {mark}{entry['verb']} — {entry['description']}")
-                else:
-                    lines.append(f"    • {mark}{entry['description']}")
+                lines.append(f"    • {mark}{entry['description']}")
                 # Its dependency closure: any OTHER optional feature this one pulls in (required-spine deps
                 # are never surfaced — they are always present). Vacuous until an optional module depends on
                 # another optional one, but presented at the choice moment so the pull-in is never a surprise.
@@ -1089,8 +1086,8 @@ def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
 
 _EMPTY_OPERATOR = (
     "---\ncodes: []\n---\n\n"
-    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct "
-    "($engine-conduct in Codex). They sit "
+    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-setup "
+    "($engine-setup in Codex). They sit "
     "alongside the engine's defaults and take priority when they share an id. This file is yours: an engine "
     "update never overwrites it. It starts empty — the engine's defaults are already in force. -->\n"
 )
@@ -1100,7 +1097,7 @@ def _seed_conduct(say, copy=None) -> str:
     """Seed the operator's codes-of-conduct override from the maintainer's template seed — the seed-then-own
     pattern, the same SHAPE and DISCLOSURE as _seed_security, and like it COPY-IF-ABSENT: once
     .engine/conduct/operator.md exists it is operator config, so the engine NEVER overwrites it — a
-    resumed/re-run apply leaves a /engine-conduct-tuned stance exactly as it is (returns "present"). On first
+    resumed/re-run apply leaves a /engine-setup-tuned stance exactly as it is (returns "present"). On first
     run copies .engine/provisioning/conduct-seed.md into the committed .engine/conduct/operator.md; an absent or
     empty seed yields a valid empty override, never an error. Then discloses, in plain language, that the stance
     is present and theirs to tune — only when it actually seeds. Paths are validate.ROOT-relative, so a
@@ -1773,8 +1770,11 @@ _FIRST_RUN_ASSET_FILES = (
     # no empty directory).
     "assets/engine_banner.jpg",
 )
-_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
-                         os.path.join(".agents", "skills", "engine-setup"))
+# engine-setup is now the PERMANENT setup dispatcher (ADR 0336): it survives first-run so an operator can
+# manage add-ons, conduct, reviewers, protection, backup, and module configuration afterwards. It is therefore
+# NOT retired, so this set is empty. The instantiator and genuinely construction-only assets still retire; the
+# dispatcher must behave correctly after they are gone.
+_FIRST_RUN_ASSET_DIRS = ()
 
 # Every retirement target must be engine-owned. The `.engine/` subtree is wholly the engine's, even on a
 # brownfield "add the engine to an existing project" arrival; `.claude/` and `.agents/` are NOT — there they
@@ -2044,7 +2044,7 @@ def _build_fixture(root: str) -> None:
     _write_json(os.path.join(eng, "modules", "extras-demo", "manifest.json"),
                 {"id": "extras-demo", "version": "1.0.0", "status": "optional", "provides": {}, "depends": {}})
     _write_json(os.path.join(eng, "provisioning", "module-catalog.json"),
-                [{"id": "extras-demo", "verb": "engine-extras", "category": "Verification & Validation",
+                [{"id": "extras-demo", "category": "Verification & Validation",
                   "status": "optional",
                   "description": "A practice add-on for this demonstration — checks and tests your work."}])
     _write_json(os.path.join(eng, "schemas", "surface-catalog.json"), {"surfaces": {}})

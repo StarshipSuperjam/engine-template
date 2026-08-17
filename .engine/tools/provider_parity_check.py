@@ -36,6 +36,7 @@ import tomllib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + slug-identity path)
 
 LEDGER_REL = os.path.join(".engine", "policies", "provider-exceptions.json")
 
@@ -157,11 +158,9 @@ def findings(tier: str, root: str | None = None) -> list:
                        f"'{name}' launches a different program on each runtime ({claude_mcp[name]} "
                        f"vs {codex_mcp[name]}). The two runtimes must reach the same helper.", None))
 
-    # SKILLS
-    claude_skills = {os.path.basename(os.path.dirname(p)) for p in
-                     glob.glob(os.path.join(base, ".claude", "skills", "engine-*", "SKILL.md"))}
-    codex_skills = {os.path.basename(os.path.dirname(p)) for p in
-                    glob.glob(os.path.join(base, ".agents", "skills", "engine-*", "SKILL.md"))}
+    # SKILLS (both runtime trees enumerated through the shared skill-discovery helper — one glob + slug home)
+    claude_skills = {skill_discovery.slug(p) for p in skill_discovery.skill_files("claude", base)}
+    codex_skills = {skill_discovery.slug(p) for p in skill_discovery.skill_files("codex", base)}
     for verb in sorted(claude_skills - codex_skills):
         miss("skill", verb, "Claude Code", f"the typed command '{verb}'")
     for verb in sorted(codex_skills - claude_skills):

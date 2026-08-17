@@ -1,84 +1,84 @@
 #!/usr/bin/env python3
-"""The engine-Issue conformance reroute gate — the matcher (modes registers it; this holds the logic).
+"""The engine-Issue reroute gate — the matcher (modes registers it; this holds the logic).
 
 WHAT THIS IS. A pure-logic matcher the Explore/Build PreToolUse hook (modes.handler) consults on every tool
-call: when a session types a Bash command that files an `engine`-labelled GitHub Issue whose body is NOT in
-the control-plane body contract's shape, this returns a plain redirect reason; modes wraps it in
+call: when a session makes a DIRECT creation of an `engine`-labelled GitHub Issue — a Bash `gh`/API command, or
+a connector issue-creation tool — this returns a plain redirect reason; modes wraps it in
 hooks.decide("deny", reason) so the platform blocks the call and feeds the reason back to the session, which
-re-files through the issue-authoring helper. A conforming body, an unlabelled or non-engine Issue, every read /
+re-files through the issue-authoring helper's `create` CLI. An unlabelled or non-engine Issue, every read /
 list / view / comment / close, and anything the matcher cannot parse all return None → the call proceeds.
 
-This routes the engine-labelled channel from posture to a channel-scoped
-reroute gate. It is the engine-side counterpart of the proven workspace reference
-— the matcher logic is mined from it, with three
-deliberate engine-side changes:
-  • The deny rides modes' hooks.decide channel (exit 0 + hookSpecificOutput), NOT the reference's exit-2 — the
-    platform reads exit-2 as a crash and DROPS the reason, and the reason IS the redirect (it names the three
-    required parts, the in-repo helper, and the --body-file fallback), so it must survive.
-  • Label detection is PRECISE — only a real `--label`/`-l`/`--label=`/`labels[]=` field carrying `engine`,
-    never the reference's loose "any token containing both 'label' and 'engine'" (which false-denies an
-    innocent Issue whose body merely says e.g. "relabel the engine room").
-  • A heredoc body is recovered from the raw command string, because a cold session commonly files via
-    `gh issue create --body-file - <<'EOF' … EOF` (the body on stdin) — which the token path cannot see.
+WHY EVERY ENGINE-LABELLED CREATION, NOT JUST A MALFORMED ONE. The helper now offers a supported create path
+(`issue_author.py preview/create`) that resolves the correct TARGET repository from trusted config, applies the
+`engine` label by construction, and renders the body in the engine's format. So the gate routes ALL direct
+engine-Issue creation onto that one path — not only bodies that happen to look malformed. Three properties come
+free once the filing goes through the helper: an input cannot steer the Issue off the engine's own channel
+(trusted-target resolution), the label cannot be dropped by accident (applied by construction), and the body is
+always legible. A hand-rolled `gh issue create --label engine` gets none of those, so it is rerouted regardless
+of how its body reads.
 
-KEYS ON BODY SHAPE, NEVER PROVENANCE. The gate checks for the contract's structural MARKERS, so a body
-written by hand passes exactly as one rendered by the helper. Body TRUTHFULNESS stays posture (a less-truthful
-body costs legibility, never a guardrail; the weakening guard is untouched) — the gate guarantees shape, not truthfulness.
+THE CI BACKSTOP KEEPS THE BODY-SHAPE JOB. This in-session gate is best-effort and fail-open (below); the
+fail-loud catch-all is the `on:issues` conformance workflow (`issue_conformance_ci.py`), which checks the
+landed body against the contract MARKERS. Those markers live HERE as the single source that backstop imports
+(`CONTRACT_MARKERS`), coupled to issue_author's real output by test_issue_conformance_ci — so an operator-facing
+copy change to the framing or the headers breaks that test, never the backstop silently. This gate no longer
+inspects the body itself (it reroutes on the creation + label alone); the markers remain the backstop's contract.
+
+LABEL DETECTION IS PRECISE. Only a real `--label`/`-l`/`--label=`/`labels[]=` field carrying `engine`, never a
+loose "any token containing both 'label' and 'engine'" (which would false-deny an innocent Issue whose body
+merely says e.g. "relabel the engine room"). The connector arm reads the tool's structured `labels` field.
 
 A NUDGE, NOT A WALL — best-effort and fail-open, stated honestly. The shell-string check is incomplete: an
-alias / eval / substitution / a piped (non-heredoc) stdin / a temp-file written in the SAME chained command
-(not yet on disk when the gate fires) all evade it and resolve to None → ALLOW. The heredoc recovery is one
-more best-effort form recovered, never a closing of the hole. (Conversely a body passed as an unexpanded shell
-variable — `-b "$BODY"` — cannot be read, so it reroutes even if its value would conform; the redirect's
-`--body-file` path is the clean way through.) The catch-all for everything the gate misses is the `on:issues`
-CI backstop; the only unbypassable guarantee is the protected-branch merge.
+alias / eval / substitution / a body assembled in a variable all evade it and resolve to None → ALLOW. It also
+recognizes Issue CREATION only, not a later label edit: `gh issue edit <n> --add-label engine` adds the engine
+label to an already-created Issue and is not routed (the Issue already exists and is scoped to the current
+repo, so there is no target-redirection risk; its body is caught after the fact by the `on:issues` backstop).
+The connector arm covers only GitHub issue-creation tools (a name ending `create_issue` and containing
+`github`). The catch-all for everything the gate misses is the `on:issues` CI backstop; the only unbypassable
+guarantee is the protected-branch merge. The helper's OWN create path files through a Python GitHub boundary
+(not Bash, not a connector), so it is never caught by this gate.
 
 SELF-CONTAINED RUNTIME. No network, no label application, no import of the helper at runtime (it holds no
-producer roster). The markers are pinned here as the SINGLE SOURCE the CI backstop also imports; a test
-(test_issue_gate) couples them to issue_author's actual output so an operator-facing copy change to the framing
-or the headers breaks the test, never the gate silently.
+producer roster).
 
 CLI (operator-runnable demo; the live gate is what modes' wired hook invokes):
   uv run --directory .engine -- python tools/issue_gate.py demo   # a scripted allow/deny demonstration
 """
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import sys
 
-# The engine-domain label marking the channel the body contract governs (telemetry.ENGINE_DOMAIN_LABEL). An
-# Issue without it is ordinary backlog or a human/operator Issue, and is never gated.
+# The engine-domain label marking the channel the gate governs (telemetry.ENGINE_DOMAIN_LABEL). An Issue
+# without it is ordinary backlog or a human/operator Issue, and is never gated.
 ENGINE_LABEL = "engine"
 
 # The body-contract markers the issue-authoring helper always emits (issue_author.py: the framing floor + the
-# two required section headers). A conforming body carries all three; a free-text body carries none. The
-# framing floor is matched as an ASCII substring (it stops before the em-dash / curly apostrophe in the helper's
-# _FRAMING) so a hand-written body using straight punctuation still passes. SINGLE SOURCE: the on:issues CI
-# backstop imports these same constants, and test_issue_gate pins them to issue_author's real output.
+# two required section headers). SINGLE SOURCE: the on:issues CI backstop imports these to check the LANDED
+# body's shape, and test_issue_conformance_ci pins them to issue_author's real output. This in-session gate no
+# longer inspects the body, but keeps the constant as the backstop's single source of truth.
 CONTRACT_MARKERS = (
     "The engine opened this item",
     "**What this is.**",
     "**What happens next.**",
 )
 
-# The in-repo helper the redirect points at (NOT the workspace reference's cross-repo "../engine-template/…").
+# The in-repo helper the redirect points at.
 HELPER = ".engine/tools/issue_author.py"
 
-# The redirect reason, surfaced to the session by modes.handler via hooks.decide. Names what is wrong, the three
-# parts the format guarantees, the helper to render them, the manual --body-file fallback, AND the escape hatch
-# (drop the label) — so a legitimate non-engine note that tripped the gate is never stranded.
+# The redirect reason, surfaced to the session by modes.handler via hooks.decide. Names why the call was held,
+# the supported create path (with its preview companion), AND the escape hatch (drop the label) — so a
+# legitimate non-engine note that tripped the gate is never stranded.
 DENY_REASON = (
-    f"This looks like an engine Issue — it carries the `{ENGINE_LABEL}` label — but its body isn't "
-    "in the engine's Issue format, so it would read as raw text when the operator reviews it. "
-    "Re-file it so the body carries the three parts the format guarantees:\n\n"
-    "    *The engine opened this item itself — you didn't create it.*\n"
-    "    **What this is.** <what this item is and why it's here>\n"
-    "    **What happens next.** <what the operator must decide, or what happens next>\n\n"
-    f"Render the body with the helper ({HELPER} — call render_engine_issue_body), or write those "
-    "three parts directly, then file with `--body-file`. If you actually meant a plain personal "
-    f"note rather than an engine Issue, drop the `{ENGINE_LABEL}` label and re-run."
+    f"This directly creates an engine Issue — it carries the `{ENGINE_LABEL}` label. Engine Issues are filed "
+    "through the engine's Issue helper, which resolves the correct target repository, applies the label by "
+    "construction, and renders the body in the engine's format. File it through the helper instead:\n\n"
+    f"    uv run --directory .engine -- python {HELPER} preview --input <file|->   # see exactly what will be filed\n"
+    f"    uv run --directory .engine -- python {HELPER} create  --input <file|-> --confirm\n\n"
+    "The input is the engine-issue-input.v1 shape (repository, title, what_this_is, whats_next, optional "
+    "references/urgency). If you actually meant a plain personal note rather than an engine Issue, drop the "
+    f"`{ENGINE_LABEL}` label and re-run."
 )
 
 
@@ -127,8 +127,8 @@ _API_LABEL_FIELD = re.compile(r"^labels?(\[\])?=(.*)$")
 
 def _has_engine_label(tokens: list[str]) -> bool:
     """True iff the command carries the engine-domain label at a REAL label flag/field — never a loose substring
-    match on body/title text (the reference's `"label" in tok and "engine" in tok` clause false-denied an
-    innocent Issue whose prose merely mentioned both words)."""
+    match on body/title text (a `"label" in tok and "engine" in tok` clause would false-deny an innocent Issue
+    whose prose merely mentioned both words)."""
     for i, tok in enumerate(tokens):
         if tok in ("--label", "-l") and i + 1 < len(tokens) and _label_value_carries_engine(tokens[i + 1]):
             return True
@@ -140,68 +140,38 @@ def _has_engine_label(tokens: list[str]) -> bool:
     return False
 
 
-def _read_file(path: str) -> str | None:
-    """The contents of a --body-file path, or None when not inspectable (stdin `-`, or an unreadable file)."""
-    if path == "-":  # stdin — not inspectable from the token path (a heredoc is recovered separately, below)
-        return None
-    try:
-        with open(os.path.expanduser(path), "r", encoding="utf-8") as fh:
-            return fh.read()
-    except OSError:
-        return None
+def _connector_carries_engine(tool_input) -> bool:
+    """True iff a connector issue-creation tool's structured input carries the engine label. The label field is
+    a list of strings (`{"labels": ["engine", …]}`) or, defensively, a comma-string — mirroring the precise
+    membership test the Bash arm uses, never a loose substring match on the title/body."""
+    if not isinstance(tool_input, dict):
+        return False
+    labels = tool_input.get("labels")
+    if isinstance(labels, str):
+        return _label_value_carries_engine(labels)
+    if isinstance(labels, (list, tuple)):
+        return ENGINE_LABEL in [str(x).strip() for x in labels]
+    return False
 
 
-def _extract_body(tokens: list[str]) -> str | None:
-    """The Issue body from the tokens, or None when the token form gives no inspectable body.
-
-    Covers `gh issue create` inline (-b/--body/--body=) and --body-file/-F <path>, plus the `gh api` field form
-    (-f/-F/--field/--raw-field body=<value>). `-F` is overloaded — body-file for `gh issue create`, a typed
-    field for `gh api` — so a `body=`-prefixed value is read as an inline field and a bare path as a file."""
-    for i, tok in enumerate(tokens):
-        if tok in ("-b", "--body") and i + 1 < len(tokens):
-            return tokens[i + 1]
-        if tok.startswith("--body="):
-            return tok.split("=", 1)[1]
-        if tok.startswith("body="):  # gh api field form: -f/-F body=<value>
-            return tok.split("=", 1)[1]
-    for i, tok in enumerate(tokens):
-        if tok in ("-F", "--body-file") and i + 1 < len(tokens) and "=" not in tokens[i + 1]:
-            return _read_file(tokens[i + 1])
-        if tok.startswith("--body-file="):
-            return _read_file(tok.split("=", 1)[1])
-    return None
+def _is_connector_issue_creation(tool_name) -> bool:
+    """True for a connector GitHub issue-creation tool. Matches a name that ENDS in `create_issue` and carries
+    `github` somewhere — so the real MCP GitHub server's `mcp__github__create_issue` (double-underscore harness
+    naming defeats a literal `github_create_issue` suffix), a Composio `mcp__composio__github_create_issue`, and
+    a bare `github_create_issue` all match, while an unrelated `jira_create_issue` does not."""
+    if not isinstance(tool_name, str):
+        return False
+    lowered = tool_name.lower()
+    return lowered.endswith("create_issue") and "github" in lowered
 
 
-# A heredoc in the RAW command string: `<<['"]?DELIM['"]? …rest of line\n …body… \n[ \t]*DELIM` (the `<<-`
-# form's indented terminator allowed). Matched on the raw string, NOT shlex tokens — shlex silently shreds a
-# heredoc (it strips the quotes and word-splits the body), so the token path is blind to it.
-_HEREDOC_RE = re.compile(
-    r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\r?\n"  # opening: <<['"]?DELIM['"]? + rest of the line
-    r"(.*?)"                                                  # the heredoc body (non-greedy)
-    r"\r?\n[ \t]*\2[ \t]*(?:\r?\n|$)",                        # terminator: DELIM alone on its own line (CRLF ok)
-    re.DOTALL,
-)
-
-
-def _extract_heredoc_body(command: str) -> str | None:
-    """The body of the FIRST here-document in the raw command string, or None when there is none / it is
-    unterminated. Used ONLY when the token path found no body (the `--body-file -` stdin case), so an inline
-    `--body "… a << b …"` is always checked as its own inline body, never mis-read as a heredoc. Best-effort:
-    if an earlier, unrelated heredoc precedes the `gh`-bound one, this reads that earlier body and may
-    fail-open — the CI backstop is the catch-all."""
-    m = _HEREDOC_RE.search(command)
-    return m.group(3) if m else None
-
-
-def _is_conforming(body: str) -> bool:
-    return all(marker in body for marker in CONTRACT_MARKERS)
-
-
-def non_conforming_reason(tool_name: str, tool_input) -> str | None:
-    """The reroute decision for one tool call. Returns the redirect REASON string when the call is an
-    engine-labelled issue-creation with an inspectable, NON-conforming body; otherwise None (out of scope, or
-    conforming, or not inspectable → fail-open ALLOW). Pure and side-effect-free; modes.handler wraps a returned
-    reason in hooks.decide("deny", reason)."""
+def reroute_reason(tool_name, tool_input) -> str | None:
+    """The reroute decision for one tool call. Returns the redirect REASON string when the call is a DIRECT
+    engine-labelled Issue creation (a Bash `gh`/API form, or a connector issue-creation tool); otherwise None
+    (out of scope, not engine-labelled, or not inspectable → fail-open ALLOW). Pure and side-effect-free;
+    modes.handler wraps a returned reason in hooks.decide("deny", reason)."""
+    if _is_connector_issue_creation(tool_name):
+        return DENY_REASON if _connector_carries_engine(tool_input) else None
     if tool_name != "Bash":
         return None
     command = ""
@@ -213,59 +183,50 @@ def non_conforming_reason(tool_name: str, tool_input) -> str | None:
         tokens = shlex.split(command)
     except ValueError:
         return None  # unparseable shell string (unbalanced quotes, etc.) — fail open
-    if not _is_issue_creation(tokens) or not _has_engine_label(tokens):
-        return None
-    body = _extract_body(tokens)
-    if body is None:
-        body = _extract_heredoc_body(command)  # recover a heredoc body the token path could not see
-    if body is None:
-        return None  # no inspectable body (piped stdin / editor prompt / unreadable file) — fail open
-    if _is_conforming(body):
-        return None
-    return DENY_REASON
+    if _is_issue_creation(tokens) and _has_engine_label(tokens):
+        return DENY_REASON
+    return None
 
 
 # ---- the operator-runnable demo (the live gate is the wired modes hook) ----------------------
 
-_CONFORMING_BODY = (
-    "*The engine opened this item itself — you didn't create it.*\n\n"
-    "**What this is.** A demo item.\n\n"
-    "**What happens next.** Nothing — this is a demonstration."
-)
-
 
 def _demo() -> int:
-    """A scripted demonstration over the REAL non_conforming_reason: a labelled free-text Issue is rerouted; a
-    labelled conforming Issue, an unlabelled free-text Issue, and a labelled free-text Issue passed by heredoc
-    are all decided as designed. Self-checks and returns 1 on any unexpected verdict (the failure path)."""
-    def verdict(command: str) -> str:
-        reason = non_conforming_reason("Bash", {"command": command})
-        return "REROUTE" if reason else "ALLOW"
+    """A scripted demonstration over the REAL reroute_reason: an engine-labelled creation (Bash inline, Bash
+    heredoc, `gh api`, and a connector tool) is rerouted regardless of body shape; an unlabelled or
+    different-labelled creation, a mere mention of "engine", and a non-creation are allowed. Self-checks and
+    returns 1 on any unexpected verdict (the failure path)."""
+    def verdict(tool_name: str, tool_input) -> str:
+        return "REROUTE" if reroute_reason(tool_name, tool_input) else "ALLOW"
 
     heredoc = "gh issue create --label engine --body-file - <<'EOF'\njust some free text\nEOF"
-    conforming_heredoc = f"gh issue create --label engine --body-file - <<'EOF'\n{_CONFORMING_BODY}\nEOF"
+    conforming = (
+        "*The engine opened this item itself — you didn't create it.*\n\n"
+        "**What this is.** A demo item.\n\n**What happens next.** Nothing.")
     cases = [
-        ("engine label + free-text body (inline)", 'gh issue create --label engine -b "just some free text"', "REROUTE"),
-        ("engine label + conforming body (inline)", f'gh issue create --label engine -b {shlex.quote(_CONFORMING_BODY)}', "ALLOW"),
-        ("NO engine label + free-text body", 'gh issue create -b "just some free text"', "ALLOW"),
-        ("a different label + free-text body", 'gh issue create --label bug -b "just some free text"', "ALLOW"),
-        ("body merely MENTIONS engine + label", 'gh issue create -b "please relabel the engine room"', "ALLOW"),
-        ("engine label + free-text body (heredoc on stdin)", heredoc, "REROUTE"),
-        ("engine label + conforming body (heredoc on stdin)", conforming_heredoc, "ALLOW"),
-        ("not a creation (gh issue comment)", "gh issue comment 5 --body whatever", "ALLOW"),
+        ("engine label + free-text body (Bash inline)", "Bash", {"command": 'gh issue create --label engine -b "free text"'}, "REROUTE"),
+        ("engine label + CONFORMING body (still rerouted)", "Bash", {"command": f'gh issue create --label engine -b {shlex.quote(conforming)}'}, "REROUTE"),
+        ("engine label via gh api field", "Bash", {"command": "gh api repos/o/r/issues -f 'labels[]=engine' -f title=x"}, "REROUTE"),
+        ("engine label (heredoc on stdin)", "Bash", {"command": heredoc}, "REROUTE"),
+        ("NO engine label", "Bash", {"command": 'gh issue create -b "free text"'}, "ALLOW"),
+        ("a different label", "Bash", {"command": 'gh issue create --label bug -b "free text"'}, "ALLOW"),
+        ("body merely MENTIONS engine", "Bash", {"command": 'gh issue create -b "please relabel the engine room"'}, "ALLOW"),
+        ("not a creation (gh issue comment)", "Bash", {"command": "gh issue comment 5 --body whatever"}, "ALLOW"),
+        ("connector create_issue + engine label", "mcp__github__github_create_issue", {"title": "x", "labels": ["engine"]}, "REROUTE"),
+        ("connector create_issue, no engine label", "mcp__github__github_create_issue", {"title": "x", "labels": ["bug"]}, "ALLOW"),
     ]
-    print("The engine-Issue reroute gate — what it decides for each command (this runs the real matcher):\n")
+    print("The engine-Issue reroute gate — what it decides for each call (this runs the real matcher):\n")
     ok = True
-    for label, command, expected in cases:
-        got = verdict(command)
+    for label, tool_name, tool_input, expected in cases:
+        got = verdict(tool_name, tool_input)
         flag = "" if got == expected else "  <- UNEXPECTED"
         if got != expected:
             ok = False
-        print(f"  {label:52} -> {got}{flag}")
+        print(f"  {label:50} -> {got}{flag}")
     print("\nA REROUTE feeds the session this redirect (it is NOT shown to the operator):\n")
     print("    " + DENY_REASON.replace("\n", "\n    "))
     if not ok:
-        print("\nDEMO UNEXPECTED: a command did not get the verdict the gate's contract promises.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: a call did not get the verdict the gate's contract promises.", file=sys.stderr)
         return 1
     return 0
 

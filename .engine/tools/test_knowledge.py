@@ -72,6 +72,72 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(knowledge_gen._instance_slug("tool", ".engine/tools/projects_sync/__init__.py"),
                          "projects_sync.__init__")
 
+    def test_routes_to_resolves_operation_tool_and_skill_targets(self):
+        # A skill's engine-targets resolve: an operation/tool by repository-relative path (path_to_id), a
+        # subordinate skill by `skill:<slug>`. Only targets that resolve to a REAL entity are kept, sorted.
+        path_to_id = {
+            ".engine/operations/memory-recall.md": "operation:memory-recall",
+            ".engine/tools/issue_author.py": "tool:issue_author",
+        }
+        entity_ids = set(path_to_id.values()) | {"skill:engine-help", "skill:engine-recall"}
+        targets = [
+            {"kind": "operation", "ref": ".engine/operations/memory-recall.md", "availability": "active"},
+            {"kind": "tool", "ref": ".engine/tools/issue_author.py", "availability": "active"},
+            {"kind": "skill", "ref": "engine-help", "availability": "active"},
+        ]
+        self.assertEqual(
+            knowledge_gen._routes_to_targets(targets, path_to_id, entity_ids, "skill:engine-recall"),
+            ["operation:memory-recall", "skill:engine-help", "tool:issue_author"])
+
+    def test_routes_to_tolerates_an_absent_target_no_edge(self):
+        # A module-conditional target whose owner module is not installed (its path/slug is absent from the
+        # entity set) yields NO edge — the graph records only edges to entities it actually holds. Same for a
+        # home-only runbook absent outside the home repo, and a broken `active` reference (the target-existence
+        # check owns that judgment, not the graph).
+        path_to_id = {".engine/operations/present.md": "operation:present"}
+        entity_ids = set(path_to_id.values())
+        targets = [
+            {"kind": "operation", "ref": ".engine/operations/present.md", "availability": "active"},
+            {"kind": "operation", "ref": ".engine/operations/declined.md",
+             "availability": "module-conditional", "owner": "some-optional-module"},
+            {"kind": "skill", "ref": "engine-nonexistent", "availability": "home-only"},
+        ]
+        self.assertEqual(
+            knowledge_gen._routes_to_targets(targets, path_to_id, entity_ids, "skill:engine-x"),
+            ["operation:present"], "only the present target yields an edge; absent targets are silently dropped")
+
+    def test_routes_to_drops_self_edges_and_malformed_entries(self):
+        entity_ids = {"skill:engine-x", "tool:foo"}
+        path_to_id = {".engine/tools/foo.py": "tool:foo"}
+        targets = [
+            {"kind": "skill", "ref": "engine-x"},                    # a self-edge — dropped
+            {"kind": "tool", "ref": ".engine/tools/foo.py"},         # kept
+            {"kind": "tool"},                                        # no ref — skipped
+            {"kind": "mystery", "ref": "whatever"},                  # unknown kind — skipped
+            "not-a-dict",                                            # malformed entry — skipped
+        ]
+        self.assertEqual(
+            knowledge_gen._routes_to_targets(targets, path_to_id, entity_ids, "skill:engine-x"),
+            ["tool:foo"])
+
+    def test_routes_to_absent_or_non_list_targets_is_empty(self):
+        # The common case — a skill with no engine-targets (an operator-typed command that IS its own
+        # procedure) — yields no routes_to edge, so the derivation stays inert until a route declares targets.
+        self.assertEqual(knowledge_gen._routes_to_targets(None, {}, set(), "skill:engine-x"), [])
+        self.assertEqual(knowledge_gen._routes_to_targets("not-a-list", {}, set(), "skill:engine-x"), [])
+        self.assertEqual(knowledge_gen._routes_to_targets([], {}, set(), "skill:engine-x"), [])
+
+    def test_routes_to_dedupes_repeated_targets(self):
+        path_to_id = {".engine/operations/x.md": "operation:x"}
+        entity_ids = set(path_to_id.values())
+        targets = [
+            {"kind": "operation", "ref": ".engine/operations/x.md", "availability": "active"},
+            {"kind": "operation", "ref": ".engine/operations/x.md", "availability": "active"},
+        ]
+        self.assertEqual(
+            knowledge_gen._routes_to_targets(targets, path_to_id, entity_ids, "skill:engine-x"),
+            ["operation:x"])
+
     def test_surface_for_longest_prefix(self):
         surfaces = {"check": {"location": ".engine/check/"}, "schema": {"location": ".engine/schemas/"}}
         self.assertEqual(knowledge_gen._surface_for(".engine/check/x.json", surfaces), "check")

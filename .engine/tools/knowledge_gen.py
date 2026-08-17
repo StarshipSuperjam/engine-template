@@ -654,6 +654,40 @@ def _entrypoint_for(rel: str, tree, hook_tools: set, mcp_tools: set, ci_tools: s
 
 # ---- pure derivation layer (no committed-file IO; fixture-testable) --------------------------
 
+def _routes_to_targets(engine_targets, path_to_id: dict, entity_ids, self_id: str) -> list:
+    """The resolved `routes_to` target ids for ONE skill's `engine-targets` frontmatter value (pure — operates
+    on the already-parsed list plus the path->id map and the known entity id set). `engine-targets` is the
+    SINGLE authority for a skill's delegation (structured data, never inferred from prose): each entry names an
+    operation or tool by its repository-relative path, or a subordinate skill by its directory slug. An
+    operation/tool ref resolves through `path_to_id`; a skill ref resolves to `skill:<slug>`.
+
+    An edge is kept ONLY when the target resolves to a REAL entity (and is not the skill itself), so a target
+    that is ABSENT on this deployment yields no edge and no dangling reference — a declined `module-conditional`
+    target whose owner module is not installed, or a `home-only` development runbook outside the engine's home
+    repository, simply resolves to nothing. Whether an absence is legitimate (conditional / home-only) or a
+    broken `active` reference that should exist is the target-existence CHECK's judgment, never the graph's: the
+    graph records only edges to entities it actually holds. Sorted and de-duplicated for byte-determinism."""
+    if not isinstance(engine_targets, list):
+        return []
+    resolvers = {
+        "operation": lambda ref: path_to_id.get(ref),
+        "tool": lambda ref: path_to_id.get(ref),
+        "skill": lambda ref: f"skill:{ref}",
+    }
+    out = set()
+    for target in engine_targets:
+        if not isinstance(target, dict):
+            continue                                       # a malformed entry is caught by the skill's schema
+        resolver = resolvers.get(target.get("kind"))
+        ref = target.get("ref")
+        if resolver is None or not isinstance(ref, str) or not ref:
+            continue
+        tid = resolver(ref)
+        if tid in entity_ids and tid != self_id:           # a real entity, never a self-edge
+            out.add(tid)
+    return sorted(out)
+
+
 def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dict,
                     deployment_contracts=()) -> list:
     """The whole entity set, derived from the live sources, sorted by id. `manifests` is the list of
@@ -783,6 +817,22 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
     for src_id, targets in _supersedes_edges(contract_entities, contract_fm_by_id, canon_ids).items():
         if targets:
             entities[src_id]["predicates"]["supersedes"] = targets
+
+    # Pass 3c — `routes_to` edges (skill -> the operation / tool / subordinate skill it routes work into),
+    # read from each skill's `engine-targets` frontmatter (the single delegation authority; needs the full
+    # path->id map, so it runs after Pass 2). Re-parses the skill's SKILL.md like Pass 3 re-loads a check rule;
+    # a malformed skill harvests nothing (its own schema check is the gate). Absent targets tolerate silently
+    # (see `_routes_to_targets`), so this stays inert until a skill actually declares targets.
+    for rel, eid in path_to_id.items():
+        if entities[eid]["type"] != "skill":
+            continue
+        try:
+            fm = validate.frontmatter(os.path.join(validate.ROOT, rel)) or {}
+        except Exception:
+            continue                                       # a malformed skill is caught by its own schema check
+        tids = _routes_to_targets(fm.get("engine-targets"), path_to_id, entities, eid)
+        if tids:
+            entities[eid]["predicates"]["routes_to"] = tids
 
     # Pass 4 — code-dependency (imports/tests), wiring (enforced_by/wires_hook/implemented_by), and per-tool
     # identity attributes (summary/entrypoint/guarded), all from the tool tree's DECLARED facts. A dangling

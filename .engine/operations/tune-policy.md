@@ -5,8 +5,9 @@ title: Tune an engine setting — adjust a tuning value through a reviewed chang
 ## Purpose
 
 Let a non-engineer change one of the engine's tuning numbers — how patient its background monitoring is, or
-how it weighs what to show first — without hand-editing a file. Enter this whenever the operator types
-`/engine-tune` or asks to change one of these settings. The end state: the operator's choice is saved and
+how it weighs what to show first — without hand-editing a file. Enter this whenever the operator asks to
+change one of these settings — reached through the `/engine-setup` dispatcher or by asking directly. The end
+state: the operator's choice is saved and
 prepared as a pull request they approve, so it takes effect only on their say-so and survives an engine
 update.
 

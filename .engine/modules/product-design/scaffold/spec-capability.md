@@ -32,3 +32,11 @@ columns plain; only the last column's wording is fixed.>
 | --- | --- | --- |
 | What must be true for this to be done | How that is confirmed | operator |
 | Another thing that must be true | How that is confirmed | engine |
+
+## Operator and automatic workflow routing
+
+<How this capability is reached. Name the operator command(s) a person types to use it, and the automatic
+routes that let the assistant recognize and run it on the operator's behalf — or say plainly that it is
+internal and no command or automatic route names it. If the engine should offer or generate a route for this
+capability (for example, a setup route the engine offers when the module is available), say which and when.
+Every written-up capability answers this here, even if the answer is "not operator- or model-reachable".>

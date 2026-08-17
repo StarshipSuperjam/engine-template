@@ -24,49 +24,38 @@ custom/script kind turns into a hard fail-closed finding. `demo` prints an opera
 narration of the guard.
 """
 from __future__ import annotations
-import glob
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + slug-identity + parse path)
 
 # The engine governs only its OWN skills (the engine- prefix); operator product skills stay un-governed.
-_ENGINE_SKILL_GLOBS = (".claude/skills/engine-*/SKILL.md", ".claude/commands/engine-*.md")
 _MESSAGE = ("An engine command that only the operator should type must be one the assistant cannot start "
             "on its own. Set the command back to operator-only in its .claude/skills/<name>/SKILL.md so "
             "the assistant cannot invoke it itself.")
 
 
-def _typed_name(path: str) -> str:
-    """The command the operator types for a skill file: the skill DIRECTORY name (a SKILL.md), or the
-    legacy command FILENAME (a .claude/commands/<name>.md)."""
-    parent = os.path.basename(os.path.dirname(path))
-    if parent and parent != "commands":
-        return parent
-    return os.path.splitext(os.path.basename(path))[0]
-
-
 def engine_skills(root: str | None = None, skills_dir: str | None = None) -> list:
-    """Parse the present engine-prefixed skills' frontmatter. Inject the typed name as `name` when the
+    """Parse the present engine-prefixed skills' frontmatter, through the shared `skill_discovery` helper in
+    its STRICT (fail-closed) posture — a malformed skill raises rather than being skipped, so a detection
+    guard never silently passes over an unparseable skill. Inject the typed name as `name` when the
     frontmatter omits it, so a finding names the command the operator would actually see.
 
-    `skills_dir` is the negative-fixture meta-check's seam (StarshipSuperjam/engine-template#286): glob `engine-*/SKILL.md` directly under
-    that directory instead of a real `.claude/skills` tree — so a committed negative fixture is NOT
-    discovered by Claude Code's own skill loader (which scans `.claude/skills/**`) and shipped into every
-    adopter as a phantom skill. The coherence logic over the parsed frontmatter is identical either way."""
+    `skills_dir` is the negative-fixture meta-check's seam (StarshipSuperjam/engine-template#286): glob
+    `engine-*/SKILL.md` directly under that directory instead of a real `.claude/skills` tree — so a
+    committed negative fixture is NOT discovered by Claude Code's own skill loader (which scans
+    `.claude/skills/**`) and shipped into every adopter as a phantom skill. The coherence logic over the
+    parsed frontmatter is identical either way. (The self-election detection itself stays in
+    validate.skill_coherence_findings — the shared helper centralizes only the discovery, not the guard.)"""
     skills = []
-    if skills_dir:
-        patterns = [os.path.join(skills_dir, "engine-*", "SKILL.md")]
-    else:
-        base = root or validate.ROOT
-        patterns = [os.path.join(base, p) for p in _ENGINE_SKILL_GLOBS]
-    for pattern in patterns:
-        for path in sorted(glob.glob(pattern)):
-            fm = dict(validate.frontmatter(path))
-            fm.setdefault("name", _typed_name(path))
-            skills.append(fm)
+    for rec in skill_discovery.records("claude", root=root, skills_dir=skills_dir,
+                                       strict=True, include_commands=True):
+        fm = dict(rec["frontmatter"])
+        fm.setdefault("name", rec["slug"])
+        skills.append(fm)
     return skills
 
 

@@ -2,7 +2,7 @@
 """Stale-saved-setting check — surfaces, in plain operator language, a saved tuning value
 that will not apply.
 
-The `/engine-tune` command saves per-deployment tuning values that supersede the shipped policy defaults.
+The `/engine-setup` command saves per-deployment tuning values that supersede the shipped policy defaults.
 After an engine update a saved value can stop applying: the policy no longer carries that setting
 (renamed or removed), the setting is a fixed one that can't be changed, or — only if the file was hand-edited
 past the command — the value is not a number. In each case the engine uses its own default instead. This
@@ -38,7 +38,7 @@ _STRUCTURAL = {"attention": frozenset(attention_rank.PRECEDENCE_KEYS) | frozense
 
 _FILE = ".engine/operator-overrides.json"
 _STALE = ("A saved setting no longer exists: “{key}” isn't one of the engine's settings anymore, "
-          "so the engine is using its own value for it instead. Type /engine-tune to set a setting the "
+          "so the engine is using its own value for it instead. Type /engine-setup to set a setting the "
           f"engine still has, or remove this one from your saved settings ({_FILE}).")
 # The same situation when the engine KNOWS why the setting went away (operator_overrides.RETIRED). It names
 # the reason instead of leaving the operator to guess at a change they did not make, and points at the
@@ -46,12 +46,12 @@ _STALE = ("A saved setting no longer exists: “{key}” isn't one of the engine
 # before this can fire, so reaching this line means the value outlived its retirement some other way.
 _RETIRED = ("A setting you saved has been retired: “{key}” — {reason}. The engine is using its own value for "
             "it instead, so nothing is behaving unexpectedly. An engine update normally clears this out for "
-            f"you; to clear it now, type /engine-tune forget {{key}}, or remove it from {_FILE}.")
+            f"you; to clear it now, remove it from {_FILE} (or reset your settings through /engine-setup).")
 _FIXED = ("A saved setting can't be changed: “{key}” is structural — it encodes part of the engine's safety "
-          "order, so the engine is ignoring the saved value. Type /engine-tune to change a setting you can, "
+          "order, so the engine is ignoring the saved value. Type /engine-setup to change a setting you can, "
           f"or remove this one from your saved settings ({_FILE}).")
 _NOTNUM = ("A saved setting isn't a number: “{key}” is set to something that isn't a number, so the "
-           f"engine is using its own value for it instead. Type /engine-tune to set it again, or fix it in "
+           f"engine is using its own value for it instead. Type /engine-setup to set it again, or fix it in "
            f"your saved settings ({_FILE}).")
 
 

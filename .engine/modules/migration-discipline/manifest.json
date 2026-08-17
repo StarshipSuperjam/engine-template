@@ -2,6 +2,11 @@
   "id": "migration-discipline",
   "version": "0.1.0",
   "status": "optional",
+  "presentation": {
+    "description": "A standing rule for your project's database migrations — the scripts that change your database's shape or move its data. Before a change that could lose data or can't be undone, the engine is set to stop and bring you in — pausing to ask when you're working with it, and holding the work for you to see when it's running unattended — in plain language and with a safer option, instead of pressing ahead on its own. It's a habit the engine follows, backed by the pull request you review and approve, not an automatic scanner — and it never runs a migration for you. Optional, and removable anytime.",
+    "category": "Software Configuration Management",
+    "setup_trigger": "set up database migration safety"
+  },
   "provides": {
     "policy": [
       ".engine/policies/migration-discipline.md"

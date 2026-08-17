@@ -255,32 +255,44 @@ class TestCodexCoherenceExemptionIsSourceBound(unittest.TestCase):
 
     def test_the_exemption_must_be_DECLARED_not_inferred_from_an_omission(self):
         # The gate and the renderer must agree on failing closed: a command that simply omits the key is
-        # protected, so a forgotten declaration can never silently become a model-startable command.
-        self.assertNotIn("engine-recall", [])  # anchor: the exemption is by declaration, checked below
+        # protected, so a forgotten declaration can never silently become a model-startable command. Under
+        # ADR 0336 the exempt set is the whole model-route roster, not a single command — but the invariant is
+        # unchanged: every exempt skill EXPLICITLY declares a model-reachable invocation (model-auto or
+        # model-only); none is exempt by omission, and engine-recall states its reachability outright.
         import glob
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         exempt = [os.path.basename(os.path.dirname(p))
                   for p in sorted(glob.glob(os.path.join(root, "..", ".claude", "skills", "engine-*",
                                                          "SKILL.md")))
                   if not self.check._source_demands_protection(os.path.basename(os.path.dirname(p)))]
-        self.assertEqual(exempt, ["engine-recall"])
-        fm = validate.frontmatter(os.path.join(root, "..", ".claude", "skills", "engine-recall", "SKILL.md"))
-        self.assertEqual(fm.get("invocation"), "model-auto",
-                         "the exempt command must state its reachability, not imply it by omission")
+        self.assertIn("engine-recall", exempt, "the deliberately model-reachable command stays exempt")
+        for name in exempt:
+            fm = validate.frontmatter(os.path.join(root, "..", ".claude", "skills", name, "SKILL.md"))
+            self.assertIn(fm.get("invocation"), ("model-auto", "model-only"),
+                          f"{name} is exempt, so it must DECLARE its reachability, not imply it by omission")
 
     def test_every_operator_typed_skill_still_renders_refusing_implicit_invocation(self):
-        # The end-to-end property the narrowing must not have broken: exactly one shipped command is
-        # model-reachable, and every other one still refuses. Reads the real committed renders.
+        # The end-to-end property the narrowing must not have broken: a Codex render is model-startable EXACTLY
+        # when its Claude source declares a model-reachable invocation, and every operator-typed command still
+        # refuses. Reads the real committed renders. (ADR 0336: the reachable set is the model-route roster, no
+        # longer a single command.)
         import glob
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        reachable = []
+        reachable = set()
         for policy_path in sorted(glob.glob(os.path.join(root, "..", ".agents", "skills", "engine-*",
                                                          "agents", "openai.yaml"))):
             name = os.path.basename(os.path.dirname(os.path.dirname(policy_path)))
             if "allow_implicit_invocation: true" in validate.read(policy_path):
-                reachable.append(name)
-        self.assertEqual(reachable, ["engine-recall"],
-                         "only the deliberately model-reachable command may carry a reachable render")
+                reachable.add(name)
+        declared = set()
+        for src in glob.glob(os.path.join(root, "..", ".claude", "skills", "engine-*", "SKILL.md")):
+            name = os.path.basename(os.path.dirname(src))
+            if validate.frontmatter(src).get("invocation") in ("model-auto", "model-only"):
+                declared.add(name)
+        self.assertEqual(reachable, declared,
+                         "a Codex render is model-startable exactly when its Claude source declares reachability")
+        self.assertIn("engine-recall", reachable,
+                      "the deliberately model-reachable command carries a reachable render")
 
     def test_the_residual_protection_depends_on_the_claude_side_coherence_rule(self):
         # Load-bearing dependency, pinned so a future narrowing of the sibling rule turns something red HERE.

@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/module-catalog-drift",
+  "target": { "path": ".engine/provisioning/module-catalog.json" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/module_catalog_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The optional-module catalog (.engine/provisioning/module-catalog.json) is a derived-committed artifact: it is generated from the module manifests' presentation records and must never be hand-authored. This check regenerates it from those manifests and compares; if the committed file was hand-edited or left stale after a presentation change, it goes red. To fix it, regenerate with `uv run --directory .engine -- python tools/module_catalog.py generate` and commit the result."
+}

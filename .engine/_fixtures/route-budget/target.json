@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ROUTE_BUDGET_FIXTURE_ROOT": ".engine/_fixtures/route-budget/root"
+  }
+}

@@ -94,7 +94,7 @@ don't need — you can add it later, and each one is removable.
 - **Product design** (`/engine-design`) — describe what you want to build in plain words, and the Engine helps
   you write it down clearly, checks it's complete and well-formed, and settles it as the description to build
   from. It checks the description, never whether the idea is a good one — that stays your call.
-- **Project board** (`/engine-board-setup`) — a GitHub Projects board showing what's next, what needs your
+- **Project board** (`/engine-setup`) — a GitHub Projects board showing what's next, what needs your
   review, and known issues. Never required: the Engine works the same from your issues and pull requests, and
   you can delete the board later without losing anything.
 

@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
-"""Tests for issue_gate — the engine-Issue conformance reroute matcher.
+"""Tests for issue_gate — the engine-Issue reroute matcher.
 
-These lock the load-bearing behaviours a non-engineer cannot read code to verify: that an engine-labelled
-issue-creation with a NON-conforming body is rerouted (a reason returned), that a conforming, unlabelled, or
-out-of-scope call is allowed (None), that label detection is PRECISE (an innocent body that merely mentions
-"engine"/"label" is never denied), that a heredoc body on stdin is recovered while a true piped stdin fails
-open, and — the drift pin — that the helper's real output passes the gate and carries every CONTRACT_MARKER, so
-an operator-facing copy change to the framing/headers breaks THIS test rather than the gate silently.
+These lock the load-bearing behaviours a non-engineer cannot read code to verify: that EVERY direct
+engine-labelled Issue creation is rerouted (a reason returned) regardless of body shape — a Bash `gh`/API
+form, a heredoc, or a connector issue-creation tool; that an unlabelled, other-labelled, or out-of-scope call
+is allowed (None); that label detection is PRECISE (an innocent body that merely mentions "engine"/"label" is
+never denied); that the matcher fails open on anything it cannot parse; and — the drift pin — that the helper's
+real output carries every CONTRACT_MARKER, so an operator-facing copy change to the framing/headers breaks THIS
+test rather than the CI backstop silently.
 """
 from __future__ import annotations
 
-import os
 import shlex
-import tempfile
 import unittest
 
 import issue_author
 import issue_gate
 import quiet_call  # capture a demo walkthrough's stdout so it can't bury the suite summary
 
-# A conforming body is whatever the helper actually renders (couples the test to the real contract output).
+# A conforming body is whatever the helper actually renders. Under the widened gate it is rerouted just like a
+# free-text body (the create CLI is the supported path, not a hand-rolled `gh` with a helper-rendered body).
 CONFORMING = issue_author.render_engine_issue_body(what_this_is="a demo item", whats_next="nothing to do")
 FREE_TEXT = "just some free text with no contract markers at all"
 
 
 def _reason(command: str):
     """The gate's verdict for a Bash command string: a reason str (reroute) or None (allow)."""
-    return issue_gate.non_conforming_reason("Bash", {"command": command})
+    return issue_gate.reroute_reason("Bash", {"command": command})
 
 
 def _create(body: str, *, label: str | None = "engine", flag: str = "-b") -> str:
@@ -37,40 +37,78 @@ def _create(body: str, *, label: str | None = "engine", flag: str = "-b") -> str
     return " ".join(parts)
 
 
-class TestRerouteDenies(unittest.TestCase):
-    """An engine-labelled issue-creation with a non-conforming body returns the redirect reason."""
+class TestEveryEngineCreationReroutes(unittest.TestCase):
+    """Every direct engine-labelled creation returns the redirect reason — the widened contract: the body's
+    shape no longer decides, only that it is an engine-labelled creation."""
 
     def test_inline_free_text_is_rerouted(self):
         self.assertIsNotNone(_reason(_create(FREE_TEXT)))
 
+    def test_inline_CONFORMING_body_is_still_rerouted(self):
+        # The key behaviour change: even a body that already matches the contract is rerouted, because the
+        # supported path is the create CLI (trusted target + label-by-construction), not `gh` with a good body.
+        self.assertIsNotNone(_reason(_create(CONFORMING)))
+
     def test_label_equals_form_is_rerouted(self):
-        cmd = f"gh issue create --label=engine -b {shlex.quote(FREE_TEXT)}"
-        self.assertIsNotNone(_reason(cmd))
+        self.assertIsNotNone(_reason(f"gh issue create --label=engine -b {shlex.quote(FREE_TEXT)}"))
 
     def test_engine_in_a_comma_list_is_rerouted(self):
-        cmd = f"gh issue create --label engine,bug -b {shlex.quote(FREE_TEXT)}"
-        self.assertIsNotNone(_reason(cmd))
+        self.assertIsNotNone(_reason(f"gh issue create --label engine,bug -b {shlex.quote(FREE_TEXT)}"))
 
     def test_gh_api_field_form_is_rerouted(self):
         cmd = ("gh api repos/o/r/issues -X POST "
                f"-f {shlex.quote('labels[]=engine')} -f {shlex.quote('body=' + FREE_TEXT)}")
         self.assertIsNotNone(_reason(cmd))
 
+    def test_heredoc_engine_creation_is_rerouted(self):
+        cmd = "gh issue create --label engine --body-file - <<'EOF'\n" + FREE_TEXT + "\nEOF"
+        self.assertIsNotNone(_reason(cmd))
+
     def test_chained_command_is_rerouted(self):
         self.assertIsNotNone(_reason("cd /tmp && " + _create(FREE_TEXT)))
 
-    def test_reason_names_the_helper_and_the_escape_hatch(self):
+    def test_reason_names_the_create_cli_and_the_escape_hatch(self):
         reason = _reason(_create(FREE_TEXT))
-        self.assertIn(".engine/tools/issue_author.py", reason)            # the in-repo helper, not cross-repo
-        self.assertIn("render_engine_issue_body", reason)
-        self.assertIn("drop the `engine` label", reason)                  # the not-an-engine-Issue escape hatch
+        self.assertIn(".engine/tools/issue_author.py", reason)   # the in-repo helper, not a cross-repo path
+        self.assertIn("create", reason)                          # points at the supported create path
+        self.assertIn("--confirm", reason)
+        self.assertIn("drop the `engine` label", reason)         # the not-an-engine-Issue escape hatch
 
 
-class TestRerouteAllows(unittest.TestCase):
-    """A conforming, unlabelled, or out-of-scope call is allowed (None) — the channel stays narrow."""
+class TestConnectorArm(unittest.TestCase):
+    """A connector issue-creation tool (name ends `github_create_issue`) is rerouted when it carries the engine
+    label, and only then — the label is read from the structured input, never inferred from prose."""
 
-    def test_conforming_body_is_allowed(self):
-        self.assertIsNone(_reason(_create(CONFORMING)))
+    def test_the_real_github_mcp_tool_name_is_rerouted(self):
+        # S1 regression: the official GitHub MCP server exposes `mcp__github__create_issue` (harness
+        # double-underscore naming), which a literal `github_create_issue` suffix would MISS. The
+        # ends-in-create_issue + contains-github rule catches it; jira does not (see below).
+        for name in ("mcp__github__create_issue", "mcp__composio__github_create_issue", "github_create_issue"):
+            self.assertIsNotNone(issue_gate.reroute_reason(name, {"title": "x", "labels": ["engine"]}),
+                                 f"{name} carrying the engine label must reroute")
+
+    def test_connector_with_engine_label_is_rerouted(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__github__github_create_issue", {"title": "x", "labels": ["engine", "bug"]}))
+
+    def test_connector_with_engine_label_as_comma_string_is_rerouted(self):
+        self.assertIsNotNone(issue_gate.reroute_reason(
+            "mcp__github__github_create_issue", {"title": "x", "labels": "engine,bug"}))
+
+    def test_connector_without_engine_label_is_allowed(self):
+        self.assertIsNone(issue_gate.reroute_reason(
+            "mcp__github__github_create_issue", {"title": "x", "labels": ["bug"]}))
+
+    def test_connector_with_no_labels_field_is_allowed(self):
+        self.assertIsNone(issue_gate.reroute_reason("some__github_create_issue", {"title": "x"}))
+
+    def test_similarly_named_but_not_a_github_creator_is_allowed(self):
+        # a `create_issue` that does not end in the precise suffix is not swept in
+        self.assertIsNone(issue_gate.reroute_reason("jira_create_issue", {"labels": ["engine"]}))
+
+
+class TestAllows(unittest.TestCase):
+    """An unlabelled, other-labelled, or out-of-scope call is allowed (None) — the channel stays narrow."""
 
     def test_unlabelled_free_text_is_allowed(self):
         self.assertIsNone(_reason(_create(FREE_TEXT, label=None)))
@@ -86,9 +124,9 @@ class TestRerouteAllows(unittest.TestCase):
     def test_pr_creation_is_allowed(self):
         self.assertIsNone(_reason(f"gh pr create --label engine -b {shlex.quote(FREE_TEXT)}"))
 
-    def test_non_bash_tool_is_allowed(self):
-        self.assertIsNone(issue_gate.non_conforming_reason("Edit", {"file_path": "/x"}))
-        self.assertIsNone(issue_gate.non_conforming_reason("Bash", {}))   # empty command
+    def test_non_bash_non_connector_tool_is_allowed(self):
+        self.assertIsNone(issue_gate.reroute_reason("Edit", {"file_path": "/x"}))
+        self.assertIsNone(issue_gate.reroute_reason("Bash", {}))   # empty command
 
     def test_echoed_creation_command_is_not_a_creation(self):
         # command-position anchored: the verb inside an argument (echo/grep) is not a real invocation
@@ -97,8 +135,8 @@ class TestRerouteAllows(unittest.TestCase):
 
 
 class TestLabelDetectionPrecise(unittest.TestCase):
-    """B1 regression: label detection keys on a REAL label flag/field, never a loose substring on prose —
-    an innocent Issue whose body/title merely mentions "engine" and "label" is NOT denied."""
+    """Label detection keys on a REAL label flag/field, never a loose substring on prose — an innocent Issue
+    whose body/title merely mentions "engine" and "label" is NOT denied."""
 
     def test_body_mentioning_engine_and_label_is_allowed(self):
         self.assertIsNone(_reason("gh issue create --title t -b 'please relabel the engine room'"))
@@ -110,95 +148,31 @@ class TestLabelDetectionPrecise(unittest.TestCase):
         self.assertIsNone(_reason(_create(FREE_TEXT, label="engineering")))
 
 
-class TestHeredocBody(unittest.TestCase):
-    """A heredoc body (on stdin via `--body-file -`) is recovered from the raw command string; a true piped
-    stdin or an inline body containing `<<` is handled correctly."""
-
-    def test_heredoc_free_text_is_rerouted(self):
-        cmd = "gh issue create --label engine --body-file - <<'EOF'\n" + FREE_TEXT + "\nEOF"
-        self.assertIsNotNone(_reason(cmd))
-
-    def test_heredoc_conforming_body_is_allowed(self):
-        cmd = "gh issue create --label engine --body-file - <<'EOF'\n" + CONFORMING + "\nEOF"
-        self.assertIsNone(_reason(cmd))
-
-    def test_unquoted_and_dash_heredoc_forms_are_recovered(self):
-        for opener in ("<<EOF", "<<-EOF", '<<"EOF"'):
-            cmd = f"gh issue create --label engine --body-file - {opener}\n{FREE_TEXT}\nEOF"
-            self.assertIsNotNone(_reason(cmd), f"{opener} heredoc must be recovered")
-
-    def test_piped_stdin_without_heredoc_fails_open(self):
-        # echo … | gh … --body-file -  : the body is on a real pipe, invisible — fail open (CI backstop catches).
-        self.assertIsNone(_reason("printf 'free text' | gh issue create --label engine --body-file -"))
-
-    def test_inline_body_with_double_angle_is_checked_inline_not_as_heredoc(self):
-        # S2: an inline --body that happens to contain `<<` must be checked as the inline body, never mis-read
-        # as a heredoc. A conforming inline body containing `<<` must therefore ALLOW.
-        body = CONFORMING + "\n\nNote: compare a << b in the code."
-        self.assertIsNone(_reason(_create(body)))
-
-    def test_crlf_heredoc_free_text_is_rerouted(self):
-        cmd = "gh issue create --label engine --body-file - <<'EOF'\r\n" + FREE_TEXT + "\r\nEOF"
-        self.assertIsNotNone(_reason(cmd))
-
-
-class TestBodyFileOnDisk(unittest.TestCase):
-    """A `--body-file <path>` already on disk is read and checked (the temp-file-then-create form)."""
-
-    def _create_with_file(self, contents: str) -> str:
-        fd, path = tempfile.mkstemp(suffix=".md")
-        self.addCleanup(os.remove, path)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(contents)
-        return f"gh issue create --label engine --body-file {shlex.quote(path)}"
-
-    def test_free_text_file_is_rerouted(self):
-        self.assertIsNotNone(_reason(self._create_with_file(FREE_TEXT)))
-
-    def test_conforming_file_is_allowed(self):
-        self.assertIsNone(_reason(self._create_with_file(CONFORMING)))
-
-    def test_unreadable_file_fails_open(self):
-        self.assertIsNone(_reason("gh issue create --label engine --body-file /no/such/path-xyz.md"))
-
-
 class TestFailOpen(unittest.TestCase):
     """Anything the matcher cannot parse resolves to None (allow) — the nudge, never a wall."""
 
     def test_unparseable_shell_fails_open(self):
         self.assertIsNone(_reason('gh issue create --label engine -b "unterminated'))
 
-    def test_gh_api_with_uninspectable_payload_fails_open(self):
-        # body supplied via --input <file> (not read) — labelled but no inspectable body → fail open.
-        self.assertIsNone(_reason("gh api repos/o/r/issues -X POST -f 'labels[]=engine' --input payload.json"))
-
     def test_non_string_or_absent_command_fails_open_without_raising(self):
-        # the matcher must not raise on a weird payload shape (a non-str command would make shlex.split call
-        # .read()); it resolves to None, never an exception.
         for bad in (123, ["a", "b"], None):
-            self.assertIsNone(issue_gate.non_conforming_reason("Bash", {"command": bad}))
-        self.assertIsNone(issue_gate.non_conforming_reason("Bash", "not-a-dict"))
-        self.assertIsNone(issue_gate.non_conforming_reason("Bash", None))
+            self.assertIsNone(issue_gate.reroute_reason("Bash", {"command": bad}))
+        self.assertIsNone(issue_gate.reroute_reason("Bash", "not-a-dict"))
+        self.assertIsNone(issue_gate.reroute_reason("Bash", None))
+
+    def test_connector_with_non_dict_input_fails_open(self):
+        self.assertIsNone(issue_gate.reroute_reason("mcp__github__github_create_issue", "not-a-dict"))
+        self.assertIsNone(issue_gate.reroute_reason("mcp__github__github_create_issue", None))
 
 
-class TestHelperCoupling(unittest.TestCase):
-    """The drift pins: the gate's pinned markers ARE in the helper's real output, and the helper's output
-    passes the gate end-to-end — so a copy change to the framing/headers breaks a test, not the gate."""
+class TestBackstopMarkerCoupling(unittest.TestCase):
+    """The drift pin: the CONTRACT_MARKERS the gate publishes for the CI backstop ARE in the helper's real
+    output — so a copy change to the framing/headers breaks THIS test, not the backstop silently."""
 
     def test_helper_output_carries_every_contract_marker(self):
         body = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b")
         for marker in issue_gate.CONTRACT_MARKERS:
-            self.assertIn(marker, body, f"the helper output must carry the gate marker {marker!r}")
-
-    def test_helper_authored_creation_passes_the_gate_end_to_end(self):
-        body = issue_author.render_engine_issue_body(
-            what_this_is="The engine noticed something.", whats_next="The operator decides X.")
-        fd, path = tempfile.mkstemp(suffix=".md")
-        self.addCleanup(os.remove, path)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        cmd = f"gh issue create --label engine --body-file {shlex.quote(path)}"
-        self.assertIsNone(_reason(cmd), "a body authored through the helper must pass the reroute gate")
+            self.assertIn(marker, body, f"the helper output must carry the backstop marker {marker!r}")
 
 
 class TestDemo(unittest.TestCase):

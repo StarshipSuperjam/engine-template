@@ -6,7 +6,8 @@ title: Author a code of conduct — add, revise, or retire how the AI works with
 
 Let a non-engineer shape the standing behavioral stance — the codes of conduct that say how the AI engages
 (plain language, explaining before acting, pushing back, and the like) — without hand-editing a file blind.
-Enter this whenever the operator types `/engine-conduct` or asks to change how the assistant works with them.
+Enter this whenever the operator asks to change how the assistant works with them — reached through the
+`/engine-setup` dispatcher or by asking directly.
 The end state: the operator's change to their own codes of conduct is written and prepared as a pull request
 they approve, so it takes effect only on their say-so and survives an engine update.
 

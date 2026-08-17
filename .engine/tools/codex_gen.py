@@ -45,6 +45,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + slug-identity path)
 import agent_bindings  # noqa: E402  (single source for which reviewer roles have depth-scaled, un-pinned effort)
 
 AGENT_SRC_GLOB = os.path.join(".claude", "agents", "engine-*.md")
@@ -97,6 +98,18 @@ def skill_policy(invocation) -> str:
     disable it on Codex, a runtime-partial build. The self-election safety property is preserved and defaults
     toward it — only an explicit model-auto / model-only declaration renders implicit invocation allowed."""
     return _OPENAI_YAML_MODEL_STARTABLE if invocation in _MODEL_REACHABLE else _OPENAI_YAML_TYPED
+
+
+def is_platform_reachable(invocation) -> bool:
+    """Whether a skill is model-reachable ON THE CLAUDE PLATFORM — the platform-truth question the route
+    budget/target checks and the engine-parts readout ask: an OMITTED invocation means model-auto (the
+    platform default), so it IS reachable. This is the DELIBERATE OPPOSITE of `skill_policy`'s default above:
+    `skill_policy` renders the Codex twin and must fail CLOSED on omission (never hand Codex a command the
+    author did not clearly mark reachable), whereas the enforcement checks must fail OPEN toward COVERAGE — a
+    route that IS reachable on Claude but skips the invocation line (which the schema invites for an "ordinary"
+    skill) must still be held to the target-existence and budget rules, not silently escape them. Mirrors
+    validate.skill_coherence_findings' `effective = inv or "model-auto"`."""
+    return (invocation or "model-auto") in _MODEL_REACHABLE
 
 
 def _split_frontmatter(path: str):
@@ -202,13 +215,11 @@ def _agent_sources(root: str) -> list:
 
 
 def _skill_sources(root: str) -> list:
-    out = []
-    for src_dir in sorted(glob.glob(os.path.join(root, SKILL_SRC_ROOT, "engine-*"))):
-        slug = os.path.basename(src_dir)
-        if slug in SKILL_EXCLUDE or not os.path.isfile(os.path.join(src_dir, "SKILL.md")):
-            continue
-        out.append(src_dir)
-    return out
+    # The engine skill directories come from the shared discovery helper (one glob + slug-identity home);
+    # this renderer keeps its own SKILL_EXCLUDE posture. render_skill still reads the source `invocation`
+    # itself and maps it fail-closed — the helper centralizes discovery, never the policy interpretation.
+    return [src_dir for src_dir in skill_discovery.skill_dirs("claude", root)
+            if os.path.basename(src_dir) not in SKILL_EXCLUDE]
 
 
 def expected_renders(root: str | None = None) -> dict:

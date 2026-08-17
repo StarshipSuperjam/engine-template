@@ -947,8 +947,8 @@ def _classify_available_modules(available, present_ids, pre_overlay_known, *,
     manifests) — the discriminator between a NET-NEW `default-on` module (never known here → auto-install opt-out)
     and a previously-DECLINED one (known but absent → offer, NEVER resurrect). `catalog_trusted=False` (the
     pre-overlay catalog could not be read) means the discriminator is UNPROVEN, so `default-on` FAILS CLOSED to
-    offer-only; `required` is unaffected (it can never be declined). `catalog_text` maps id → {"description","verb"}
-    for offer wording.
+    offer-only; `required` is unaffected (it can never be declined). `catalog_text` maps id → {"description"}
+    for offer wording (an add-on is offered by its description and added by id — there is no per-module verb).
 
     Classification by the RELEASE manifest's `status`: `required` → install (mandatory — the deployment needs it
     for coherence; a required module with an unmet dependency STAYS in `install` so the tail's
@@ -956,7 +956,7 @@ def _classify_available_modules(available, present_ids, pre_overlay_known, *,
     → install when net-new AND the catalog is trusted, else offer. `optional`/`experimental`/anything else →
     offer (never auto-installed). A `default-on` whose dependency the deployment will still lack is demoted to an
     offer (never pull an unchosen module in as a side effect). Returns
-    `{"install": [{"id","status","prior_declined"}], "offered": [{"id","status","description","verb"}]}`, install
+    `{"install": [{"id","status","prior_declined"}], "offered": [{"id","status","description"}]}`, install
     dependency-ordered, offered id-sorted."""
     present, known, text = set(present_ids or ()), set(pre_overlay_known or ()), (catalog_text or {})
     install, offered = [], []
@@ -964,7 +964,7 @@ def _classify_available_modules(available, present_ids, pre_overlay_known, *,
     def _as_offer(mid, status):
         info = text.get(mid) or {}
         offered.append({"id": mid, "status": status or "optional",
-                        "description": info.get("description") or "", "verb": info.get("verb") or ""})
+                        "description": info.get("description") or ""})
 
     for m in sorted(available, key=lambda e: e.get("id") or ""):
         mid, status = m.get("id"), (m.get("status") or "optional")
@@ -1038,7 +1038,7 @@ def classify_available_modules(release_tree, present_ids, pre_overlay_known, *,
             continue
         if m["id"] not in skip:
             available.append({"id": m["id"], "status": m.get("status"), "depends": m.get("depends") or {}})
-    catalog_text = {e["id"]: {"description": e.get("description"), "verb": e.get("verb")}
+    catalog_text = {e["id"]: {"description": e.get("description")}
                     for e in module_catalog.entries(
                         path=os.path.join(release_tree, ".engine", "provisioning", "module-catalog.json"))
                     if e.get("id")}
@@ -2879,7 +2879,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             tail["notes"].append(note)
             if status != "required":   # a required failure is handled by the completeness refusal, not an offer
                 tail["modules_offered"].append(
-                    {"id": mid, "status": status, "verb": "",
+                    {"id": mid, "status": status,
                      "description": entry.get("description")
                      or f"(the engine could not turn this on automatically: {reason})"})
     # Required-completeness refusal: a REQUIRED module the release adds that could not be installed leaves an

@@ -1,0 +1,15 @@
+{
+  "id": "engine/check/route-target-existence",
+  "target": {
+    "context": "route-target-existence"
+  },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/route_target_existence_check.py"
+  },
+  "tier": "hard",
+  "suites": [
+    "CI"
+  ],
+  "message": "Every automatic route must name a workflow it can actually reach. This check reads each route's structured engine-targets and goes red when a model-reachable route names no target at all, when a target marked active does not exist on disk, or when a target is malformed (unknown kind, missing ref, unrecognized availability, or a module-conditional target with no owner). Targets marked module-conditional or home-only are allowed to be absent. To fix: correct the reference, add the missing target, or mark a legitimately-absent target module-conditional/home-only."
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""`/engine-tune` tool — adjust a tunable engine setting through a reviewed change.
+"""`/engine-setup` tool — adjust a tunable engine setting through a reviewed change.
 
-Backs the `/engine-tune` operator command: an
+Backs the `/engine-setup` operator command: an
 engine-mediated way for a non-engineer to change one of the engine's tuning numbers, **never a hand-edit**.
 The flow is: show the current effective value → the operator picks a new number → validate it → save it to
 the committed operator-override file → open it as a pull request the operator approves → confirm. The saved
@@ -178,7 +178,7 @@ def _pr_body(policy_id: str, key: str, value) -> str:
     """The plain-language pull-request body the operator reviews and merges. Names the change for the record
     and explains, in plain words, that merging is what makes it take effect and that it survives updates."""
     return (
-        f"You used `/engine-tune` to change an engine setting. This pull request saves your choice.\n\n"
+        f"You used `/engine-setup` to change an engine setting. This pull request saves your choice.\n\n"
         f"- Setting: `{key}` (in {policy_id})\n"
         f"- New value: `{value}`\n\n"
         "Merging this is what makes the change take effect — nothing changes until you do. Your choice is "
@@ -396,7 +396,7 @@ def forget_value(policy_id: str, key: str, *, override_path: str = OVERRIDES_PAT
     branch = "engine-tune-clear-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{policy_id}-{key}")
     title = f"Maintenance: clear a retired engine setting ({policy_id}: {key})"
     body = (
-        f"You used `/engine-tune` to clear a saved setting the engine no longer has. This pull request removes "
+        f"You used `/engine-setup` to clear a saved setting the engine no longer has. This pull request removes "
         f"it.\n\n- Setting: `{key}` (in {policy_id})\n"
         + (f"- Why it was retired: {reason}\n" if reason else "")
         + "\nThe value was already being ignored, so nothing about how the engine behaves changes when you "
@@ -436,7 +436,7 @@ def _show_lines(policy_id: str, override_slice: dict | None = None) -> list:
         return [f"There are no settings you can adjust in {policy_id}."]
     lines = [f"Settings you can adjust in {policy_id}:"]
     lines.extend(f"  {k}: {eff.get(k)}" for k in keys)
-    lines.append("To change one, run /engine-tune and pick a setting and a new number.")
+    lines.append("To change one, run /engine-setup and pick a setting and a new number.")
     return lines
 
 
@@ -492,7 +492,7 @@ def main(argv: list) -> int:
 
 
 def _demo() -> int:
-    """An operator-runnable demonstration of `/engine-tune` that fakes ONLY the boundary (the pull-request
+    """An operator-runnable demonstration of `/engine-setup` that fakes ONLY the boundary (the pull-request
     opener) and runs the REAL save + the REAL merge + the REAL live-attention read. Everything happens in a
     throwaway temporary override file (your real settings are NOT touched, and NO pull request is opened)."""
     import tempfile
@@ -510,7 +510,7 @@ def _demo() -> int:
         print("1) The settings you can adjust today, with their current values:\n")
         print("\n".join("   " + ln for ln in _show_lines("triage-threshold")))
 
-        print("\n2) Changing one — /engine-tune saves it and prepares it as a request you approve:\n")
+        print("\n2) Changing one — /engine-setup saves it and prepares it as a request you approve:\n")
         print("   " + _REASSURANCE)
         res = set_value("triage-threshold", "persistence", 5, override_path=override, opener=fake_opener)
         print("   " + res["message"])
@@ -529,7 +529,7 @@ def _demo() -> int:
         print(f"   budget_orientation the engine reads — before: {before.get('budget_orientation')}, "
               f"after your change: {after.get('budget_orientation')}")
 
-        print("\n5) Things /engine-tune will not do — it refuses safely, in plain words:\n")
+        print("\n5) Things /engine-setup will not do — it refuses safely, in plain words:\n")
         for pid, key, val, why in (
                 ("triage-threshold", "persistence", "lots", "not a number"),
                 ("attention", "precedence_blocking_debt", 9, "a fixed safety setting"),

@@ -136,6 +136,28 @@ class TestModuleSchema(unittest.TestCase):
         self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "depends": {"core": ">=1.0.0"}}), [])
 
 
+class TestRetiredVerbUpgradeNotices(unittest.TestCase):
+    """ADR-0336 S3: the three retired verbs each carry a version-keyed upgrade notice on their owning module,
+    naming the `engine-setup` replacement — so an operator upgrading across the removal is told where the
+    capability went, rather than a stale name silently failing."""
+
+    def _notices(self, module_id: str) -> str:
+        m = validate.load_json(os.path.join(validate.ROOT, ".engine", "modules", module_id, "manifest.json"))
+        return " ".join((entry or {}).get("description", "")
+                        for entry in (m.get("retired_capabilities") or {}).values())
+
+    def test_core_notice_names_conduct_and_tune_pointing_at_engine_setup(self):
+        text = self._notices("core")
+        self.assertIn("engine-conduct", text)
+        self.assertIn("engine-tune", text)
+        self.assertIn("engine-setup", text)
+
+    def test_github_projects_sync_notice_names_board_setup_pointing_at_engine_setup(self):
+        text = self._notices("github-projects-sync")
+        self.assertIn("engine-board-setup", text)
+        self.assertIn("engine-setup", text)
+
+
 class TestVersionKeyDuplicateFindings(unittest.TestCase):
     """#694: two keys in a migrations/retired_capabilities block that normalise to the SAME version are refused.
     The leg reads RAW json so it also catches a LITERAL duplicate key (which json.load silently collapses)."""
@@ -550,6 +572,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/manifest-write-funnel.json",
             ".engine/check/memory-pointer-public-safety.json",
             ".engine/check/model-bindings-schema.json",
+            ".engine/check/module-catalog-drift.json",
             ".engine/check/module-manifest.json",
             ".engine/check/ontology-authority-reservation.json",
             ".engine/check/operation-frontmatter.json",
@@ -565,7 +588,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/provider-vocabulary-confinement.json",
             ".engine/check/provisioning-catalog.json",
             ".engine/check/release-integrity.json",
+            ".engine/check/route-budget.json",
+            ".engine/check/route-target-existence.json",
             ".engine/check/self-map-drift.json",
+            ".engine/check/setup-route-drift.json",
             ".engine/check/shipped-issue-references.json",
             ".engine/check/skill-coherence.json",
             ".engine/check/skill-frontmatter.json",
@@ -574,7 +600,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 65 corpus rules")
+        ], "validators-core owns exactly the 69 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = optional_owner("dependency-discipline", [

@@ -5,8 +5,9 @@ Verifies: engine-only scoping (un-prefixed product skills ignored); the operator
 while model-only verbs are excluded); the typed-name source (directory for a skill, filename for
 a legacy command — NOT the display `name`); the load-bearing degradation guarantee (a malformed command
 file is skipped, the listing never raises — contrasted with the merged `validate.frontmatter`, which
-DOES raise on the same input); the available-commands relay (empty when absent, relayed-sorted when
-present, empty on a malformed catalog); and that `render` shows one
+DOES raise on the same input); the available-add-ons relay (empty when absent, relayed-sorted by id when
+present, presented BY DESCRIPTION — there is no per-module verb — with a concise first-sentence gloss,
+empty on a malformed catalog); and that `render` shows one
 plain line — not a bare heading — when nothing is available, carries the getting-started pointer, and is
 deterministically ordered. CLI `main([])`/`main(["demo"])` run.
 """
@@ -20,7 +21,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import engine_help as eh  # noqa: E402
-import module_catalog  # noqa: E402  (the optional-module catalog, for the roster-aware available-verbs expectation)
+import module_catalog  # noqa: E402  (the optional-module catalog, for the roster-aware available-add-ons expectation)
 import validate  # noqa: E402
 
 
@@ -55,6 +56,25 @@ class TestInstalledVerbsDiscovery(unittest.TestCase):
             self.assertEqual(names, ["engine-auto", "engine-help", "engine-pull", "engine-start"],
                              "the engine's own operator-invocable verbs (operator-typed + model-auto), alphabetical; "
                              "model-only and un-prefixed excluded")
+
+    def test_model_only_route_hidden_even_when_its_codex_twin_drops_invocation(self):
+        # B1 regression: a model-only route renders its Codex twin WITHOUT an `invocation` field (the twin's
+        # policy lives in agents/openai.yaml). Reading the Codex frontmatter defaults it to model-auto, which
+        # would silently re-admit the whole model-only route surface to the operator's menu. The Claude source
+        # is the authority: the route must stay hidden on BOTH trees.
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)                 # a real command
+            _write(os.path.join(d, ".claude/skills/engine-route/SKILL.md"), _MODEL_ONLY)              # Claude: model-only
+            # the Codex twin as codex_gen actually renders it — name/description only, NO invocation:
+            _write(os.path.join(d, ".agents/skills/engine-route/SKILL.md"),
+                   "---\nname: engine-route\ndescription: A model-driven one.\n---\n\n## Steps\n\n1. Go.\n")
+            # a real command's twin, so BOTH trees are populated (the one-tree-only annotation path is exercised)
+            _write(os.path.join(d, ".agents/skills/engine-start/SKILL.md"),
+                   "---\nname: engine-start\ndescription: Start building.\n---\n\n## Steps\n\n1. Go.\n")
+            names = [v["name"] for v in eh.installed_verbs(root=d)]
+            self.assertIn("engine-start", names)
+            self.assertNotIn("engine-route", names,
+                             "a model-only route must stay hidden even though its Codex twin drops invocation")
 
     def test_typed_name_is_the_directory_not_the_display_label(self):
         with tempfile.TemporaryDirectory() as d:
@@ -111,68 +131,74 @@ class TestMalformedDegrades(unittest.TestCase):
             self.assertNotIn("engine-broken", names, "the malformed command is skipped, not crashing the list")
 
 
-class TestAvailableVerbsRelay(unittest.TestCase):
+class TestAvailableAddonsRelay(unittest.TestCase):
     def test_absent_catalog_returns_empty(self):
         # An explicit missing path narrows to nothing.
         with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(eh.available_verbs(os.path.join(d, "nope.json")), [])
-        # No path = the committed catalog (the shared reader's default). `available_verbs` lists the optional
-        # modules that are NOT installed (so the operator could install them), excluding the ones already
-        # installed. In THIS repo every catalog module is installed, so the list is empty; a deployment that
-        # DECLINED one legitimately sees it offered here, so derive the expectation from the installed set
-        # rather than asserting empty (#646). This still checks the filter both ways: no installed module leaks
-        # in, and every declined verb-bearing one is offered.
+            self.assertEqual(eh.available_addons(os.path.join(d, "nope.json")), [])
+        # No path = the committed catalog (the shared reader's default). `available_addons` lists the optional
+        # modules that are NOT installed (so the operator could add them), excluding the ones already installed.
+        # In THIS repo every catalog module is installed, so the list is empty; a deployment that DECLINED one
+        # legitimately sees it offered here, so derive the expectation from the installed set rather than
+        # asserting empty (#646). This still checks the filter both ways: no installed module leaks in, and
+        # every declined module is offered. Add-ons are presented BY DESCRIPTION — there is no per-module verb.
         installed = eh._installed_module_ids()
-        expected = sorted(e["verb"] for e in module_catalog.entries()
-                          if e["id"] not in installed and e["verb"])
-        self.assertEqual([v["name"] for v in eh.available_verbs(None)], expected)
+        expected = sorted(e["id"] for e in module_catalog.entries() if e["id"] not in installed)
+        self.assertEqual([a["id"] for a in eh.available_addons(None)], expected)
 
-    def test_available_offers_a_not_installed_module_verb(self):
-        # Two-directional proof: the home repo has every catalog module installed, so available_verbs(None) is
-        # empty and the live assertion never exercises the "offered" branch. Given a catalog with a verb-bearing
-        # module absent from engine.json packages, available_verbs offers it — the roster-aware behavior a
-        # deployment that DECLINED it relies on (#646).
+    def test_available_offers_a_not_installed_module(self):
+        # Two-directional proof: the home repo has every catalog module installed, so available_addons(None) is
+        # empty and the live assertion never exercises the "offered" branch. Given a catalog with a module
+        # absent from engine.json packages, available_addons offers it — the roster-aware behavior a deployment
+        # that DECLINED it relies on (#646).
         with tempfile.TemporaryDirectory() as dd:
             p = os.path.join(dd, "catalog.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "an-uninstalled-module", "verb": "engine-new", "description": "New.",
+                json.dump([{"id": "an-uninstalled-module", "description": "New.",
                             "category": "Product Management"}], fh)
-            self.assertEqual([v["name"] for v in eh.available_verbs(p)], ["engine-new"])
+            self.assertEqual([a["id"] for a in eh.available_addons(p)], ["an-uninstalled-module"])
 
-    def test_present_catalog_relayed_sorted(self):
-        # The catalog's per-entry command is `verb` (the reconciled cross-slice shape the shared
-        # `module_catalog` reader parses); /engine-help shows it as the typed command (its `name`).
+    def test_present_catalog_relayed_sorted_by_id(self):
+        # The catalog carries no per-module verb; add-ons are offered by id-order and shown by description.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "catalog.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"id": "z-mod", "verb": "engine-zeta", "description": "Z.",
-                            "category": "Product Management"},
-                           {"id": "a-mod", "verb": "engine-alpha", "description": "A.",
-                            "category": "Verification & Validation"}], fh)
-            got = eh.available_verbs(p)
-            self.assertEqual([v["name"] for v in got], ["engine-alpha", "engine-zeta"], "relayed, sorted")
-            self.assertEqual(got[0]["description"], "A.", "the gloss rides the command")
+                json.dump([{"id": "z-mod", "description": "Z.", "category": "Product Management"},
+                           {"id": "a-mod", "description": "A.", "category": "Verification & Validation"}], fh)
+            got = eh.available_addons(p)
+            self.assertEqual([a["id"] for a in got], ["a-mod", "z-mod"], "relayed, sorted by id")
+            self.assertEqual(got[0]["description"], "A.", "the gloss rides the entry")
+
+    def test_gloss_is_the_first_sentence(self):
+        # An add-on is presented by a concise gloss — the description's first sentence — not the full
+        # setup-walkthrough paragraph, so /engine-help stays a scannable index.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "catalog.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "wordy-mod", "category": "Product Management",
+                            "description": "Short summary. Then a longer second sentence with detail."}], fh)
+            self.assertEqual(eh.available_addons(p)[0]["description"], "Short summary.")
 
     def test_malformed_catalog_returns_empty(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "catalog.json")
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write("{not valid json")
-            self.assertEqual(eh.available_verbs(p), [], "a broken catalog narrows, never breaks")
+            self.assertEqual(eh.available_addons(p), [], "a broken catalog narrows, never breaks")
 
-    def test_command_less_module_is_excluded(self):
-        # A command-less optional module (no verb) reaches the shared reader now (#254), but /engine-help lists
-        # things to type — so available_verbs filters it out HERE, while the verb-bearing module is still shown.
+    def test_command_less_module_is_still_offered(self):
+        # There is no longer any per-module verb, so a module the catalog carries with only a description (a
+        # lens-style module fired by a gate, never typed) is STILL offered under engine-setup by its description
+        # — the opposite of the retired verb-only behavior, which used to filter it out.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "catalog.json")
             with open(p, "w", encoding="utf-8") as fh:
                 json.dump([{"id": "lens-mod", "description": "A review lens, fired by the gate.",
                             "category": "Verification & Validation"},
-                           {"id": "cmd-mod", "verb": "engine-do", "description": "Has a command.",
+                           {"id": "cmd-mod", "description": "Another capability.",
                             "category": "Product Management"}], fh)
-            got = eh.available_verbs(p)
-            self.assertEqual([v["name"] for v in got], ["engine-do"],
-                             "the command-less module is excluded from /engine-help; the command-bearing one stays")
+            self.assertEqual([a["id"] for a in eh.available_addons(p)], ["cmd-mod", "lens-mod"],
+                             "every offerable module is presented by description; none is filtered on a verb")
 
 
 class TestRender(unittest.TestCase):
@@ -187,9 +213,11 @@ class TestRender(unittest.TestCase):
         self.assertNotIn(eh._AVAILABLE_HEADER, out)
 
     def test_available_rendered_when_present(self):
+        # Add-ons render under the engine-setup heading BY DESCRIPTION (no typeable verb).
         out = eh.render([{"name": "engine-start", "description": "Start."}],
-                        [{"name": "engine-extra", "description": "Extra."}])
-        self.assertIn("/engine-extra", out)
+                        [{"id": "extra-mod", "description": "An extra capability."}])
+        self.assertIn("An extra capability.", out)
+        self.assertIn(eh._AVAILABLE_HEADER, out)
         self.assertNotIn(eh._EMPTY_AVAILABLE_LINE, out)
 
     def test_verb_without_description_renders_alone_no_dangling_dash(self):

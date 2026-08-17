@@ -3,7 +3,7 @@
 
 It answers, in plain words, a question a non-engineer can't read code to verify: *when the engine writes
 down an unusual burst of my own engine decisions as permanent records, does boot TELL me — and does my
-own /engine-tune of the limit actually change when it appears, rather than the shipped default silently
+own /engine-setup of the limit actually change when it appears, rather than the shipped default silently
 winning?*
 
 It runs the REAL logic end-to-end — telemetry's own `derive_contract_rate` / `contract_rate_threshold` /
@@ -16,7 +16,7 @@ It shows, and CHECKS (so this demo can FAIL — it is a falsification, not a sho
   * NUDGE ON A BURST — a fourth crosses the limit and boot renders the plain "over-recorded?" line, in
     plain language (no engine jargon), naming a real next move (ask to see what got recorded);
   * THE TUNE GOVERNS — with the burst unchanged, raising the limit to 5 via a tune makes it go silent
-    again (proving a reviewed /engine-tune actually governs, not the shipped default);
+    again (proving a reviewed /engine-setup actually governs, not the shipped default);
   * ONLY THE OPERATOR'S OWN DECISIONS COUNT — the engine's own founding records (dated historically) never
     push the meter, so a fresh project and an engine upgrade stay quiet;
   * DEGRADE IS SILENT, NEVER FALSE — an unreadable clock suppresses the line rather than showing a number.
@@ -93,8 +93,8 @@ def main() -> int:
             dash = _dashboard_with(line)
             if "over-recorded" not in dash.lower():
                 failures.append("the dashboard must render the nudge on a burst")
-            if "/engine-tune" not in line:
-                failures.append("the nudge must offer /engine-tune")
+            if "/engine-setup" not in line:
+                failures.append("the nudge must offer /engine-setup")
             for jargon in ("eADR", "stream", "severity", "persistence"):
                 if jargon in line:
                     failures.append(f"the nudge must not use backstage vocabulary ({jargon})")

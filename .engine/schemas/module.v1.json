@@ -161,6 +161,33 @@
         }
       }
     },
+    "presentation": {
+      "description": "Optional. The canonical, single-source presentation record for an offer­able module — the operator-facing gloss and category, a concise automatic setup trigger, and an optional setup-operation path. The committed optional-module catalog (.engine/provisioning/module-catalog.json) and each module's generated setup route are DERIVED from this record: it is authored here, on the manifest, and never hand-authored in the catalog. Present only for a module that is offered at setup (an optional/default-on/experimental module a non-engineer may choose); a required or internal module omits it. Category is pinned to exactly the same closed set the provisioning-catalog uses, so a schema-valid manifest cannot generate a schema-invalid catalog entry.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "category"],
+      "properties": {
+        "description": {
+          "description": "One plain-language sentence answering what the module does and who it is for, in the operator's own voice with no engine jargon. This is the gloss the setup walkthrough, /engine-help, and the module's setup route all relay.",
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "description": "The software-discipline group the module is presented under, pinned to the same three fixed groups as the provisioning-catalog so the derived catalog entry is always schema-valid.",
+          "enum": ["Product Management", "Software Configuration Management", "Verification & Validation"]
+        },
+        "setup_trigger": {
+          "description": "Optional. A concise plain-language phrase describing the natural-language request that should reach this module's generated setup route (for example 'set up a project board'). Used only to author the generated setup route's recognition description; it is not a matcher and grants no authority.",
+          "type": "string",
+          "minLength": 1
+        },
+        "setup_operation": {
+          "description": "Optional. Repository-relative path to the module's setup operation runbook (under .engine/operations/) that the module's setup route enters once the module is installed. Absent when the module has no dedicated setup operation; in that case the setup route reports the capability is active and routes work to the module's canonical workflow.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "retired_capabilities": {
       "description": "Version-keyed announcements that a capability this module used to offer has been REMOVED. This is neither the module-level `status: retired` (which retires a whole module) nor a `migrations` entry (which runs code to reshape state): a retired-capability entry runs nothing and reshapes nothing. It exists solely so an operator who upgrades ACROSS the version is told, in the update's pull request and its preview, that something they could ask for before is gone. Each key is the module version at which the capability went away; its value is the plain-language line the operator reads. Entries are selected by the SAME version RANGE as `migrations` — shown once when an upgrade crosses the version, never to a fresh adopter who never had the capability — and fire only while THIS module is still present, so a capability retired by removing the whole module cannot be announced here (that removal is the release cut's own inventory, and an announcement meant to outlive its module belongs in a module that survives). Once shipped, a key is NEVER removed: an engine upgrading from an older version must still cross it to see the notice, and unlike a migration there is no no-op form to fall back on — to stop announcing is simply not an option. This key raises a module's version floor at the release cut but does not certify severity: a breaking removal must still carry its own major/impact signal. Empty or absent for a module that has retired nothing.",
       "type": "object",
