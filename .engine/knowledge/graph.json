@@ -6318,7 +6318,7 @@
       },
       "slug": "codex-incident-replay",
       "source": {
-        "fingerprint": "sha256:1fb6c6df3be7aaef28fa42812f60990f8a694c07b446953d89b798cfa3851d7c",
+        "fingerprint": "sha256:c485e7c83285db96d985acdcd240a41157531a8d304b287a38c2577385e21961",
         "path": ".engine/operations/codex-incident-replay.md"
       },
       "status": "active",
@@ -9361,7 +9361,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:74b4e1aade26e70219afa4a69d9b45e4ad926e024a5f5edeb95937d541772c60",
+        "fingerprint": "sha256:675c3695ed64028706707f4467bdfb1c3a4c3919c55b95bc0a105e09c4e32b8b",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c3fb4f0adcad677e9796aeb0af50a9d6ae80a53c714581d4464b40099570cde9",
+        "fingerprint": "sha256:9d8b0ee53fc61c3fe427ef24cc8ecc0bd91547f7f411dfbc76700298d29396d6",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -13680,7 +13680,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:69ccb1245a52d41d6d52f6ad2f90421b2e38d9fc1a8f23c670c0821464f87e80",
+        "fingerprint": "sha256:ef556047f9c6825e700339312b251ee206ae5288be7d56ffff9d5d99681fc340",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14732,7 +14732,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:4767a737d0d324fb937b5a449de69c28d345a2ff127fb4cb89507ddffe8271e7",
+        "fingerprint": "sha256:d81cefaa335ab8383a3909ef4181ff02de60fdf33de4c8b1304b818b52777919",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

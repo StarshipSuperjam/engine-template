@@ -866,7 +866,7 @@ def _demo_live() -> int:
         return 0
     gh = bv._gh()
     if gh is None:
-        print(f"\n  {bv._MSG_NO_TOKEN}")
+        print(f"\n  {bv._msg_no_token()}")
         return 0
     import secrets
     project_name = project.split("/")[-1]

@@ -244,43 +244,46 @@ class TestRepoSlug(unittest.TestCase):
         self.assertIsNone(self._slug("https://EvilGitHub.com/owner/name.git"))
 
 
-class TestGhAuthState(unittest.TestCase):
-    """`gh_token_state` classifies token resolution, and the shared note never declares an unresolved token
-    invalid — the StarshipSuperjam/engine-template#808 guarantee that a sandboxed check is inconclusive, not
-    proof the login expired. A non-engineer cannot read the classifier; these pin its name↔behaviour."""
+class TestGhUnreachableNote(unittest.TestCase):
+    """gh_token()'s resolution and the single-homed sandbox-aware note: an unresolved token is reported as
+    inconclusive — never invalid/expired, and without leaning either way — the
+    StarshipSuperjam/engine-template#808 guarantee. A non-engineer cannot read the note logic; these pin its
+    name↔behaviour."""
 
-    def _state(self, *, env_token=None, cli_token):
+    def _token(self, *, env_token=None, cli_token):
         # Clear the CI short-circuit and inject what the local `gh auth token` read would return, so the
-        # classifier is exercised exactly as it runs on a laptop or inside a sandbox.
+        # resolution is exercised exactly as it runs on a laptop or inside a sandbox.
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("GITHUB_TOKEN", None)
             if env_token is not None:
                 os.environ["GITHUB_TOKEN"] = env_token
             with mock.patch.object(boot, "_run", return_value=cli_token):
-                return boot.gh_token_state()
+                return boot.gh_token()
 
-    def test_env_token_is_present(self):
-        self.assertEqual(self._state(env_token="ghp_env", cli_token=None), boot.GH_TOKEN_PRESENT)
+    def test_env_token_resolves(self):
+        self.assertEqual(self._token(env_token="ghp_env", cli_token=None), "ghp_env")
 
-    def test_cli_token_is_present(self):
+    def test_cli_token_resolves(self):
         # No env token, but the operator's local `gh` store resolves one — a logged-in laptop.
-        self.assertEqual(self._state(cli_token="ghp_cli"), boot.GH_TOKEN_PRESENT)
+        self.assertEqual(self._token(cli_token="ghp_cli"), "ghp_cli")
 
-    def test_no_token_reachable_is_unresolved_not_signed_out(self):
-        # env absent AND `gh auth token` returns nothing (a real logout OR a sandbox that cannot reach the
-        # host keyring — indistinguishable from here). The classifier must NOT presume either; it is UNRESOLVED.
-        self.assertEqual(self._state(cli_token=None), boot.GH_TOKEN_UNRESOLVED)
+    def test_no_token_reachable_is_none(self):
+        # env absent AND `gh auth token` returns nothing — a real logout OR a sandbox that cannot reach the
+        # host keyring, indistinguishable from here. gh_token() reports None either way; the note must NOT
+        # presume which.
+        self.assertIsNone(self._token(cli_token=None))
 
-    def test_unreachable_note_is_sandbox_aware_and_makes_no_invalidity_verdict(self):
-        note = boot.gh_unreachable_note()
-        low = note.lower()
-        # It offers the real remedy: the token likely works OUTSIDE the sandbox.
+    def test_unreachable_note_is_inconclusive_and_makes_no_invalidity_verdict(self):
+        low = boot.gh_unreachable_note().lower()
+        # It offers the real remedy: the token may work OUTSIDE the sandbox.
         self.assertIn("sandbox", low)
         self.assertIn("outside", low)
         # `gh auth login` is only ever offered CONDITIONALLY (genuinely signed out) — never as the verdict.
         self.assertIn("only if", low)
-        # And it explicitly refuses the false "your token is invalid/expired" conclusion #808 is about.
-        self.assertIn("does not mean your token is invalid or expired", low)
+        # It explicitly refuses the false "your token is invalid/expired" conclusion #808 is about...
+        self.assertIn("does not by itself mean your token is invalid or expired", low)
+        # ...without leaning the other way (the earlier "most likely fine" verdict was evidence-free).
+        self.assertNotIn("most likely fine", low)
 
 
 class TestFirstRunOffer(unittest.TestCase):

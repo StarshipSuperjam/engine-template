@@ -83,12 +83,12 @@ the boot briefing, the guardrail-ack path, the owned-build submit flow, or the G
 
 5. **Scenario 4 — a sandboxed GitHub check is reported inconclusive, never "expired".** In a session whose
    shell is sandboxed away from the host credential store (the keyring is unreachable) while the host `gh` is
-   genuinely logged in, run one token-consuming command — e.g. `python tools/bootstrap.py check`.
-   - **Pass bar (observable output):** `boot.gh_token_state()` is `unresolved` and the operator-facing line is
-     the single-homed `boot.gh_unreachable_note()` — it names the sandbox, says the login is likely fine but
-     unreachable, and does **not** call the token invalid/expired nor offer `gh auth login` as the sole action.
-     Rerun the same command from outside the sandbox (or with escalation approved): a token resolves (`present`)
-     and it proceeds. Evidence is the two deterministic outputs — inconclusive inside, successful outside.
+   genuinely logged in, run one read-only token-consuming command — e.g. `python tools/bootstrap.py status`.
+   - **Pass bar (observable output):** `boot.gh_token()` resolves no token, and the operator-facing line is the
+     single-homed `boot.gh_unreachable_note()` — an inconclusive heads-up that does **not** call the token
+     invalid/expired, does not lean on a probability, and does not offer `gh auth login` as the sole action.
+     Rerun the same command from outside the sandbox (or with the escalation approved): a token resolves and it
+     proceeds. Evidence is the two deterministic outputs — inconclusive inside, successful outside.
    - **False-pass tell:** the inside-sandbox output declares the token invalid/expired, or names `gh auth login`
      as the only action — the false verdict StarshipSuperjam/engine-template#808 removed.
    - **Not verified:** if the platform cannot present a sandbox that blocks the host keyring while the host stays

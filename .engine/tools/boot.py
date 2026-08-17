@@ -199,38 +199,20 @@ def gh_token() -> str | None:
     return _run(["gh", "auth", "token"])
 
 
-# The two states GitHub-token resolution can be in from THIS process — the distinction
-# StarshipSuperjam/engine-template#808 turns on. PRESENT: a token resolved (env, or the operator's local `gh`
-# credential store). UNRESOLVED: none was reachable from here — which is INCONCLUSIVE, never proof of a
-# signed-out or an invalid token, because a sandbox that cannot reach the host credential store yields the
-# exact same result as a genuinely logged-out machine.
-GH_TOKEN_PRESENT = "present"
-GH_TOKEN_UNRESOLVED = "unresolved"
-
-
-def gh_token_state() -> str:
-    """Classify GitHub-token resolution from this process: GH_TOKEN_PRESENT when `gh_token()` resolves a
-    token (the environment, or the operator's local `gh` store), else GH_TOKEN_UNRESOLVED.
-
-    UNRESOLVED is deliberately INCONCLUSIVE and must never be surfaced as "signed out" or "invalid/expired":
-    inside a sandbox (e.g. Codex) `gh auth token` is a LOCAL credential-store read that fails simply because
-    the sandbox cannot reach the host keyring, returning the same None as a genuinely logged-out machine
-    (StarshipSuperjam/engine-template#808). A genuinely REJECTED token is a distinct API-layer 401, seen at
-    request time — never inferred here."""
-    return GH_TOKEN_PRESENT if gh_token() else GH_TOKEN_UNRESOLVED
-
-
 def gh_unreachable_note() -> str:
-    """The one operator-facing sentence a caller prints when no GitHub token resolved from here
-    (GH_TOKEN_UNRESOLVED) — single-homed so the wording cannot drift across the callers. It frames the
-    result as inconclusive rather than a verdict on the login: a check that fails from inside a sandbox does
-    NOT mean the token is invalid or expired (StarshipSuperjam/engine-template#808)."""
+    """The one operator-facing sentence a caller prints when `gh_token()` resolves no token from here —
+    single-homed so the wording cannot drift across the callers. `gh auth token` is a LOCAL credential-store
+    read, so its failure means only that no token was reachable FROM HERE: inside a sandbox (e.g. Codex) the
+    host keyring is unreachable and the read fails exactly as a genuinely signed-out machine would. The note
+    therefore stays inconclusive — it never declares the token invalid or expired, and it does not lean either
+    way, because at this point the process cannot tell a sandbox from a real logout. A genuinely rejected token
+    is a distinct API-layer 401, seen at request time. StarshipSuperjam/engine-template#808."""
     return (
-        "No GitHub token was reachable from here. If you're running inside a sandbox (for example Codex), "
-        "your GitHub login is most likely fine but unreachable from inside it — rerun this from a shell "
-        "outside the sandbox, or approve the escalation. Only if you're genuinely signed out does "
-        "`gh auth login` apply; a check that fails from inside a sandbox does not mean your token is "
-        "invalid or expired."
+        "No GitHub token was reachable from here. This does not by itself mean your token is invalid or "
+        "expired. If you're running inside a sandbox (for example Codex), your GitHub login is likely intact "
+        "but unreachable from inside it — rerun this from a shell outside the sandbox, or approve the "
+        "sandbox's escalation prompt for this command. Only if you're genuinely signed out does "
+        "`gh auth login` apply."
     )
 
 
