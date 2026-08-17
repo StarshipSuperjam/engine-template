@@ -818,6 +818,26 @@ class TestApplyAugmentsProductRuleset(unittest.TestCase):
         self.assertEqual(res.mode, "repaired")
         self.assertNotIn("POST", [c[0] for c in fake.writes()])            # repaired, not created
 
+    def test_pre_existing_protection_recognizes_a_freshness_only_gap(self):
+        # A branch fully protected EXCEPT freshness (an operator's own non-strict checks rule) has substantial
+        # pre-existing protection, so the freshness message must NOT read as "nothing in force"
+        # (StarshipSuperjam/engine-template#915). The freshness message can never appear in the empty-rules
+        # baseline, so _pre_existing_protection must strip it before the subset test — this pins that fix.
+        rules = [
+            {"type": "pull_request", "parameters": {"required_review_thread_resolution": True}},
+            {"type": "required_status_checks", "parameters": {
+                "strict_required_status_checks_policy": False,
+                "required_status_checks": [{"context": "engine-ci"}, {"context": "engine-guard"}]}},
+            {"type": "non_fast_forward"}, {"type": "deletion"},
+        ]
+        pg = bootstrap.protection_guard
+        missing = pg.missing_floor(rules, pg.REQUIRED_CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)  # freshness IS the only gap
+        self.assertTrue(bootstrap.ControlPlane._pre_existing_protection(missing, bootstrap.SOLO))
+        # a truly-unprotected branch (nothing in force) is NOT pre-existing protection
+        none = pg.missing_floor([], pg.REQUIRED_CHECKS)
+        self.assertFalse(bootstrap.ControlPlane._pre_existing_protection(none, bootstrap.SOLO))
+
 
 class TestDeBootstrapAugmented(unittest.TestCase):
     # The fixtures here represent the POST-augment state: the product ruleset as it stands AFTER arrival

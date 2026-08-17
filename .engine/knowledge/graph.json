@@ -14813,7 +14813,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:98d46a0e7cb68d5f993a50f584393be2a75b37716c3b56f3011643d217d6484d",
+        "fingerprint": "sha256:c7f9eb480d5557fe6c90dd55a9ad80a93e4d281fc2b11b0080083a686669589d",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
