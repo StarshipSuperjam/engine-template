@@ -220,6 +220,56 @@ class TestReconcile(unittest.TestCase):
             r = pr_reconcile.reconcile(apply=False, root=work, default="main")
             self.assertEqual(r["status"], "fixable")
             self.assertFalse(r["applied"])
+
+
+class TestPrepare(unittest.TestCase):
+    """prepare() — proactively make THIS branch an integration candidate against fresh main."""
+
+    def test_up_to_date_head_is_healthy(self):
+        with tempfile.TemporaryDirectory() as holder:
+            _origin, work = _repo(holder)
+            _git(work, "checkout", "-q", "-b", "feature")   # feature == main == origin/main
+            r = pr_reconcile.prepare(apply=True, root=work, default="main")
+            self.assertEqual(r["status"], "healthy")
+            self.assertTrue(r["up_to_date"])
+            self.assertFalse(r["applied"])                  # nothing to bring forward
+
+    def test_dry_run_reports_behind_without_mutating(self):
+        with tempfile.TemporaryDirectory() as holder:
+            _origin, work = _repo(holder)
+            _diverge(work, feature_member=GRAPH, main_member=SELFMAP)   # different members -> clean, behind
+            before = _git(work, "rev-parse", "HEAD").stdout.strip()
+            r = pr_reconcile.prepare(apply=False, root=work, default="main")
+            self.assertEqual(r["status"], "prepared")       # WOULD bring up to date
+            self.assertFalse(r["up_to_date"])
+            self.assertFalse(r["applied"])
+            self.assertEqual(_git(work, "rev-parse", "HEAD").stdout.strip(), before)   # untouched
+
+    def test_brings_a_behind_branch_up_to_date(self):
+        with tempfile.TemporaryDirectory() as holder, \
+                mock.patch.object(pr_reconcile, "_regen_members", _fake_regen):
+            _origin, work = _repo(holder)
+            _diverge(work, feature_member=GRAPH, main_member=SELFMAP)   # clean divergence, feature behind
+            r = pr_reconcile.prepare(apply=True, root=work, default="main")
+            self.assertEqual(r["status"], "prepared")
+            self.assertTrue(r["applied"])
+            # the branch now merges cleanly into main and the push landed (an integration candidate)
+            self.assertEqual(pr_reconcile._merge_tree(r["base"], work), ("clean", []))
+            self.assertEqual(_git(work, "rev-parse", "feature").stdout,
+                             _git(work, "rev-parse", "origin/feature").stdout)
+            # both authored contributions survive
+            self.assertTrue(os.path.isfile(os.path.join(work, ".engine/tools/feat_a.py")))
+            self.assertTrue(os.path.isfile(os.path.join(work, ".engine/tools/feat_b.py")))
+
+    def test_refuses_an_authored_conflict_and_mutates_nothing(self):
+        with tempfile.TemporaryDirectory() as holder:
+            _origin, work = _repo(holder)
+            _diverge(work, shared_authored="clash")         # both sides edit the same authored file
+            before = _git(work, "rev-parse", "HEAD").stdout.strip()
+            r = pr_reconcile.prepare(apply=True, root=work, default="main")
+            self.assertEqual(r["status"], "needs-manual")
+            self.assertEqual(r["reason"], "authored-conflict")
+            self.assertEqual(_git(work, "rev-parse", "HEAD").stdout.strip(), before)   # untouched
             self.assertEqual(_git(work, "rev-parse", "HEAD").stdout.strip(), before)
 
     def test_authored_conflict_refused_untouched(self):

@@ -29,7 +29,15 @@ conflict.
 CLI:  python tools/pr_reconcile.py             # classify THIS branch's PR (offer line or "no conflict")
       python tools/pr_reconcile.py reconcile   # dry-run: what the fix WOULD do (no mutation)
       python tools/pr_reconcile.py reconcile --apply   # reconcile THIS PR (only if fixable)
+      python tools/pr_reconcile.py prepare     # dry-run: proactively make THIS branch an integration candidate
+      python tools/pr_reconcile.py prepare --apply     # bring up to date + regenerate + push (never merges)
       python tools/pr_reconcile.py demo        # a lossless-recovery + safe-refuse walkthrough on throwaway repos
+
+`prepare` generalizes the reactive stranded-PR reconcile into the proactive integration-preparation primitive
+the serialized integration coordinator (`integration_queue.py`) calls: it brings a reviewed candidate up to
+date against the current protected head and regenerates its derived state BEFORE merge, refusing any authored
+conflict. It proves the candidate MERGEABLE; the coordinator's `prove_ready` proves the checks green on the
+pushed head (freshness, StarshipSuperjam/engine-template#915). It never merges the protected branch.
 """
 from __future__ import annotations
 
@@ -261,7 +269,22 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
     a = assess(root=root, default=default)
     if a["status"] != "fixable" or not apply:
         return {**a, "applied": False}
+    return _execute_bring_up_to_date(root, a["base"], final_status="reconciled")
 
+
+def _is_ancestor(ancestor: str, rev: str, root: str) -> bool:
+    """True iff `ancestor` is an ancestor of `rev` — i.e. `rev` already contains it. Used to tell an
+    already-up-to-date integration candidate (base ⊆ HEAD) from one that must be brought forward."""
+    return _ok(["merge-base", "--is-ancestor", ancestor, rev], root)
+
+
+def _execute_bring_up_to_date(root: str, base: str, *, final_status: str) -> dict:
+    """The shared lossless executor (reconcile + prepare): an APPEND-ONLY merge of `base` (NO history
+    rewrite, NO force-push), regenerate the present derived members from the reconciled tree, re-verify the
+    branch merges cleanly, then a plain push. ANY surprise → `git reset --hard` to the captured pre-state and
+    a needs-manual refusal. It NEVER merges the protected branch itself and NEVER force-pushes. On success it
+    returns `final_status` ('reconciled' for a stranded-PR fix, 'prepared' for a proactive integration
+    candidate)."""
     branch = _current_branch(root)
     if not branch:
         return {"status": "needs-manual", "reason": "detached-head", "applied": False}
@@ -270,7 +293,6 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
     pre = _run(["rev-parse", "HEAD"], root)
     if not pre:
         return {"status": "needs-manual", "reason": "no-head", "applied": False}
-    base = a["base"]
     # The RUNTIME reconcile set for this tree — present AND generator-resolvable (F-risk-3). The executor
     # stages/verifies exactly these, never the static declared set: `git add`ing a declared-but-absent member
     # (e.g. the product-spec-matrix on a deployment without the product-design module) would fail the add.
@@ -310,7 +332,37 @@ def reconcile(*, apply: bool = False, root: str | None = None, default: str | No
     # Plain push (NON-force). A non-fast-forward rejection means someone advanced the branch → refuse.
     if not _ok(["push", "origin", branch], root):
         return _refuse("push-rejected")
-    return {"status": "reconciled", "branch": branch, "base": base, "applied": True}
+    return {"status": final_status, "branch": branch, "base": base, "applied": True}
+
+
+def prepare(*, apply: bool = False, root: str | None = None, default: str | None = None) -> dict:
+    """Proactively make THIS branch an integration candidate against the freshly-fetched protected head — the
+    primitive the serialized integration coordinator calls before a candidate is surfaced ready.
+
+    Classify BEFORE mutation (via `assess`). If ANY authored/source conflict exists → STOP: needs-manual,
+    nothing mutated, both branches intact (authored overlap is never guessed away). If the head already
+    contains the current base it is already an integration candidate → `healthy`, nothing to do. Otherwise
+    (behind, whether cleanly or with a derived-member-only conflict) bring it up to date through the shared
+    lossless executor: append-only merge + regenerate the present derived members + re-verify mergeability +
+    non-force push. `apply=False` is a dry-run that classifies without mutating.
+
+    It brings the candidate up to date and proves it MERGEABLE; it does NOT itself assert the required checks
+    are green on the new head — that is the coordinator's `prove_ready`, which reads GitHub's checks on the
+    exact pushed head (freshness bound through protection_guard, StarshipSuperjam/engine-template#915). And it never merges the
+    protected branch: bringing a candidate up to date is not merging it."""
+    root = root or validate.ROOT
+    default = default or _default_branch(root)
+    a = assess(root=root, default=default)
+    if a["status"] == "needs-manual":
+        return {**a, "applied": False}
+    base, branch = a["base"], _current_branch(root)
+    up_to_date = bool(base) and _is_ancestor(base, "HEAD", root)
+    if not apply:
+        return {"status": "healthy" if up_to_date else "prepared", "base": base, "branch": branch,
+                "conflicted": a.get("conflicted", []), "up_to_date": up_to_date, "applied": False}
+    if up_to_date:
+        return {"status": "healthy", "base": base, "branch": branch, "up_to_date": True, "applied": False}
+    return _execute_bring_up_to_date(root, base, final_status="prepared")
 
 
 # ---- operator-facing CLI copy (plain words; no git verbs reach the operator surface) ----------
@@ -352,6 +404,22 @@ def main(argv: list) -> int:
         return _demo()
     if argv and argv[0] == "reconcile":
         return _plain_reconcile(apply="--apply" in argv)
+    if argv and argv[0] == "prepare":
+        r = prepare(apply="--apply" in argv)
+        status = r["status"]
+        if status == "healthy":
+            print("This branch is already up to date with the latest main — nothing to prepare.")
+        elif status == "prepared":
+            print("Prepared: I brought this branch up to date with the latest main and regenerated its "
+                  "derived files. It now merges cleanly." if r.get("applied")
+                  else "This branch is behind the latest main; I can bring it up to date and regenerate its "
+                       "derived files (run with --apply).")
+        elif status == "needs-manual" and r.get("reason") == "authored-conflict":
+            print("This branch conflicts with the latest main in your own edited files — that's a real "
+                  "decision for you, so I've left both untouched.")
+        else:
+            print(f"Could not prepare this branch ({r.get('reason', status)}); nothing was changed.")
+        return 0 if status in ("healthy", "prepared") else 1
     # Default: classify THIS branch (build a GitHub reader the way boot does, lazily to avoid an import cycle).
     import boot
     repo, token = boot.repo_slug(), boot.gh_token()
