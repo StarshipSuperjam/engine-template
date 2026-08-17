@@ -148,25 +148,31 @@ class TestWorkerFloorScoping(unittest.TestCase):
 
 
 class TestRenderTransforms(_FixtureTree):
-    def test_agent_render_carries_the_floor_and_pins_no_model(self):
+    def test_reviewer_render_carries_the_floor_pins_no_model_and_un_pins_effort(self):
+        # A reviewer twin (role pre-submission-review) carries the read-only floor and NO model id, and — since
+        # #677 — NO model_reasoning_effort either: the cold reviewer's effort is depth-scaled at launch by
+        # spawning it as a non-full-history fork with reasoning_effort from the resolved depth, so the twin must
+        # not bake an effort the spawn would have to override.
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
         self.assertEqual(data["sandbox_mode"], "read-only")
         self.assertNotIn("model", data)
-        self.assertEqual(data["model_reasoning_effort"], "high")     # judgment tier
+        self.assertNotIn("model_reasoning_effort", data,
+                         "a reviewer twin un-pins effort so the depth-scaled reasoning_effort governs at spawn")
         self.assertIn("read-only", data["developer_instructions"])
         self.assertIn("Do not run shell commands", data["developer_instructions"],
                       "a Bash-denylisting source renders the no-shell instruction line")
         self.assertIn("Review the widget.", data["developer_instructions"])
 
     def test_stamped_effort_sources_from_frontmatter_and_model_never_leaks(self):
-        # A persona stamped with model:/effort: by agent_bindings render — Codex takes the effort from the
-        # stamped frontmatter (not the tier fallback, which would be 'high'), and STILL emits no model id
-        # (a pinned model in a persona rots). This guards the codex_gen change + the no-model-leak rule.
-        stamped = AGENT_SRC.replace("model-tier: judgment\n",
-                                    "model-tier: judgment\nmodel: sonnet\neffort: low\n")
+        # A NON-reviewer persona stamped with model:/effort: by agent_bindings render (the audit persona keeps
+        # its effort, unlike the un-pinned reviewer roles) — Codex takes the effort from the stamped frontmatter
+        # (not the tier fallback, which would be 'high'), and STILL emits no model id (a pinned model in a
+        # persona rots). This guards the codex_gen change + the no-model-leak rule.
+        stamped = AGENT_SRC.replace("role: pre-submission-review\n", "role: audit\n").replace(
+            "model-tier: judgment\n", "model-tier: judgment\nmodel: sonnet\neffort: low\n")
         _write(os.path.join(self.root, ".claude", "agents", "qa-review-widget.md"), stamped)
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")

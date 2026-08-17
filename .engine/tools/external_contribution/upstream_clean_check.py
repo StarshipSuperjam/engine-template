@@ -16,9 +16,9 @@ one exists. Read-only: it inspects path lists only and never writes a file (the 
 
 Where the inputs come from (both injectable, so tests and the demo run fully offline):
   - `changed`: defaults to `work_record.changed_paths(cap=None)` — the branch's outgoing diff paths, read
-    UNCAPPED (StarshipSuperjam/engine-template#416). The live caller is `submit.py` (`clean_findings`), which supplies the cross-fork
-    outgoing diff (the product branch against the upstream's default) through `changed`; the no-argument
-    default is the local branch diff. The read is uncapped because this is a SAFETY predicate: `changed_paths`
+    UNCAPPED (StarshipSuperjam/engine-template#416). The live caller is the submission flow (`submit.py`), which supplies the
+    cross-fork outgoing diff (the product branch against the upstream's default) through `changed`; the
+    no-argument default is the local branch diff. The read is uncapped because this is a SAFETY predicate: `changed_paths`
     caps at 50 for orientation, and a cap could let an engine path sort past it and slip the leak intersection
     (a false negative), so every engine-owned hit is seen — the listed set is the complete intersection, not a
     truncated heads-up.
@@ -28,19 +28,25 @@ Where the inputs come from (both injectable, so tests and the demo run fully off
     foundation infrastructure (CLAUDE.md, the engine workflows, .github/CODEOWNERS, the tool-runtime
     lockfiles, ...).
 
-Suite / trigger: this rule rides the `pre-close` suite only (never CI). In an ordinary same-repo deployment
-the Engine's files legitimately live alongside the work, so a CI-firing version would warn on every normal
-engine change; it is meaningful only against an OUTGOING cross-fork contribution. The live caller is the
-submission flow — `submit.py.clean_findings` runs the predicate (`findings()`) against the cross-fork diff
-(StarshipSuperjam/engine-template#416: no longer dormant — StarshipSuperjam/engine-template#415 wired it). The no-argument validator surface (`emit_findings`,
-below) is a PURE read-only print and deliberately does NOT emit telemetry: the `pre-close` suite is collected
-on every clean turn-close (close.py's advisory pass, dispatched by suite membership — `target.context` is not
-enforced), and a GitHub write there would break close.py's "a local run reaches no GitHub event" invariant.
-So the "emits a telemetry finding when it fires" duty is the submission flow's, at submit time over a real outgoing diff — it lives in
-`submit.py`, never this validator entry (StarshipSuperjam/engine-template#416, rejected as unsafe).
+Trigger: this rule joins NO validate suite (StarshipSuperjam/engine-template#777 removed it from `pre-close`). It is meaningful only
+against an OUTGOING cross-fork contribution: in an ordinary same-repo deployment the Engine's files
+legitimately live alongside the work, so a suite-firing version would either warn on every normal engine
+change (CI) or compute a finding nothing surfaces — the `pre-close` advisory pass surfaces only `hard`
+findings, and this rule is `soft`, so its pre-close output was discarded. The live caller is the submission
+flow — `submit.py` runs the predicate (`findings()`) at submit time against the cross-fork diff and, on a
+real leak, publishes it via telemetry-on-fire. The check declaration is retained, not deleted: it is the
+entitized knowledge-graph surface, the operator-facing message-of-record, and the `params.script` this
+module is resolved through; an empty `suites` array is the schema's blessed shape for a rule invoked
+directly rather than by a suite.
 
-Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits
-0. A separate `demo` subcommand runs a falsifiable self-check.
+The no-argument entry (`emit_findings`, below) is now a PURE read-only print for a direct/manual run and for
+the falsifiable `demo` self-check (discovered by walking `.engine/tools/**/*.py`, independent of suites); it
+deliberately does NOT emit telemetry. The "emits a telemetry finding when it fires" duty is the submission
+flow's, at submit time over a real outgoing diff — it lives in `submit.py`, never this entry
+(StarshipSuperjam/engine-template#416, rejected as unsafe).
+
+Contract: run with NO arguments (a direct/manual read-only surface — no longer suite-dispatched), it prints a
+finding.v1 JSON array to stdout and exits 0. A separate `demo` subcommand runs a falsifiable self-check.
 """
 from __future__ import annotations
 import json
@@ -59,8 +65,32 @@ import work_record  # noqa: E402 — changed_paths: the outgoing-diff reader (in
 import module_coherence  # noqa: E402 — engine_owned_paths: the file-precise CODEOWNERS engine-owned set
 
 
-def _offending_message(paths: list) -> str:
+def _offending_message(paths: list, *, contributing_to_engine_home: bool = False) -> str:
+    """The operator-facing leak message. This string is PUBLISHED verbatim by the submission flow's
+    telemetry-on-fire (`submit.py._leak_record`): its FIRST SENTENCE becomes a GitHub Issue title and the whole
+    of it is embedded in the body. Two constraints follow and are load-bearing, not cosmetic: (1) it
+    interpolates ONLY the offending path list — never a repo slug, branch/ref, or any other
+    environment-controlled value — so nothing arbitrary reaches a published Issue; (2) it keeps that path list
+    OUT of the first sentence, so the published title stays a fixed, safe string.
+
+    `contributing_to_engine_home` selects FRAMING only and carries no detection meaning (the caller has already
+    narrowed the flagged set by home-ness — StarshipSuperjam/engine-template#556). It mirrors the two-branch shape of
+    `submit.py._leak_narration` — its framing/tone only, never its interpolation set:
+      - the stranger-target branch (default): the files belong to the Engine and would ride into a repository
+        the operator does not own;
+      - the engine-home branch: the target IS the Engine's own home, so the flagged files are just this copy's
+        own saved state/settings/private tuning — they belong here, not in the shared template. It must NEVER
+        say "someone else's repository", which would be backwards (the framing `_leak_narration` refuses)."""
     listed = ", ".join(paths)
+    if contributing_to_engine_home:
+        return (
+            "This contribution to the Engine's own home includes files that belong to just this copy of the "
+            "Engine — your own saved state, settings, or private tuning — not to the shared template. "
+            f"The files are: {listed}. Your engine code and its maps do travel with a contribution like this, "
+            "but these files — your own saved state, settings, or private tuning — belong only here. To fix "
+            "it, take those files off this branch before you submit — this copy keeps them, nothing is lost. "
+            "This is a heads-up, not a block — nothing is stopped."
+        )
     return (
         "This contribution branch includes files that belong to the Engine, not to the product you're "
         "contributing to — and the Engine's files should never ride along into someone else's repository. "
@@ -73,7 +103,7 @@ def _offending_message(paths: list) -> str:
     )
 
 
-def findings(tier: str, *, changed=None, owned=None) -> list:
+def findings(tier: str, *, changed=None, owned=None, contributing_to_engine_home: bool = False) -> list:
     """The upstream-clean findings, as a list of finding.v1 dicts.
 
     Empty list = a clean contribution (no engine-owned path in the outgoing diff). A single `soft` nudge,
@@ -81,6 +111,12 @@ def findings(tier: str, *, changed=None, owned=None) -> list:
     `tier` severity (`soft`) — never `hard`. `changed` and `owned` are injectable (defaulting to the real
     diff reader and the real engine-owned set) so tests and the demo run fully offline; the submission flow
     supplies the cross-fork diff through `changed` without touching this predicate.
+
+    `contributing_to_engine_home` selects the finding MESSAGE FRAMING only (stranger-target vs the Engine's own
+    home) — it does NOT change detection: which paths are flagged is decided entirely by `changed`/`owned`, and
+    the caller narrows `owned` by home-ness (StarshipSuperjam/engine-template#556) before calling. The submission flow passes the
+    home boolean it already computed so the published telemetry message is truthful on both targets
+    (StarshipSuperjam/engine-template#777).
     """
     if changed is None:
         changed = work_record.changed_paths(cap=None)  # StarshipSuperjam/engine-template#416: UNCAPPED — a safety predicate must see
@@ -93,7 +129,8 @@ def findings(tier: str, *, changed=None, owned=None) -> list:
         return []
     # Build the location literally from a repo-relative path — `validate.loc()` expects an ABSOLUTE path and
     # would double the `.engine/` prefix on a relpath (the dependency_discipline precedent does the same).
-    return [validate.finding(tier, _offending_message(offending), {"file": offending[0], "line": None})]
+    message = _offending_message(offending, contributing_to_engine_home=contributing_to_engine_home)
+    return [validate.finding(tier, message, {"file": offending[0], "line": None})]
 
 
 def emit_findings() -> int:
@@ -104,7 +141,8 @@ def emit_findings() -> int:
 
 def demo() -> int:
     """Prove the nudge fires on a leaked engine path, passes a clean product-only diff, catches a leaked
-    foundation file, and stays quiet on an empty diff — RETURNS NON-ZERO if any invariant is broken (the
+    foundation file, stays quiet on an empty diff, and frames the engine-home case truthfully (naming this
+    copy's own state, never "someone else's repository") — RETURNS NON-ZERO if any invariant is broken (the
     falsification can fail). Fully offline: every case injects `changed`/`owned`, so no git runs and the real
     working tree is never touched."""
     owned = [
@@ -128,6 +166,15 @@ def demo() -> int:
     cases.append(("an empty diff passes clean (no finding)",
                   {"changed": [], "owned": owned},
                   lambda fs: fs == []))
+    # StarshipSuperjam/engine-template#777: the engine-home framing names this copy's own state and NEVER the stranger
+    # "someone else's repository" wording (which would be backwards when the target IS the Engine's home).
+    cases.append(("the engine-home framing names this copy's own state, not someone else's repository",
+                  {"changed": ["src/feature.py", ".engine/check/upstream-clean.json"], "owned": owned,
+                   "contributing_to_engine_home": True},
+                  lambda fs: len(fs) == 1
+                  and ".engine/check/upstream-clean.json" in fs[0]["message"]
+                  and "just this copy of the Engine" in fs[0]["message"]
+                  and "someone else's repository" not in fs[0]["message"]))
 
     failures = []
     for label, kw, ok in cases:
@@ -143,7 +190,8 @@ def demo() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO PASSED — the upstream-clean nudge fires on a leaked engine path, passes a clean "
-          "product-only diff, catches a leaked foundation file, and stays quiet on an empty diff.")
+          "product-only diff, catches a leaked foundation file, stays quiet on an empty diff, and frames the "
+          "engine-home case as this copy's own state rather than someone else's repository.")
     return 0
 
 

@@ -16,7 +16,9 @@
     "quick": [],
     "standard": [
       "product-intent",
-      "architecture"
+      "architecture",
+      "feasibility",
+      "risk-governance"
     ],
     "thorough": [
       "product-intent",

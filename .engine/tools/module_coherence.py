@@ -150,6 +150,15 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # overlay's "never touch product".)
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
+                   # Per-deployment review-depth EFFORT retune (.engine/operator-review-effort.json, read by
+                   # operator_review_effort.py — StarshipSuperjam/engine-template#677). Preserved by being outside
+                   # every module's `provides`, so a deployment's depth-effort tuning survives an engine update
+                   # while the shipped `review_depths` defaults still upgrade. DELIBERATELY carries NO dedicated
+                   # engine/check/operator-* shape gate, unlike operator-guarded-paths / operator-local-references:
+                   # its reader degrades a malformed slice to the SHIPPED default (the strong anchor), the safe
+                   # direction, so a missing shape check cannot silently weaken review — same rationale as
+                   # operator-overrides.json, which likewise carries none.
+                   ".engine/operator-review-effort.json",
                    ".engine/conduct/operator.md",
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
                    ".engine/provisioning/readme-seed.md"}
@@ -590,19 +599,20 @@ def block_eligible_registrations() -> list:
     """The block declarations the block-registry leg governs, ASSEMBLED from each owning system's own
     declaration — hooks names no invariant itself (the block-budget law), so the registry
     is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
-    (modes.BLOCK_INVARIANT) and its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT) —
-    both PreToolUse blocks modes' single handler composes, named a member by the
+    (modes.BLOCK_INVARIANT), its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT), and its
+    protected-merge nudge (modes.MERGE_BLOCK_INVARIANT) — three PreToolUse blocks modes' single handler
+    composes, each named a member by the
     block-budget law — and close's findings-disposition gate on Stop (close.BLOCK_INVARIANT). Each entry
     is {event, name, owner, modes}; the leg reads `event` and `modes`. These — NOT bare
     .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
     command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
-    declares none). So the leg validates three REAL members on block-eligible events (PreToolUse, Stop) →
+    declares none). So the leg validates four REAL members on block-eligible events (PreToolUse, Stop) →
     green; it would fire the moment any owner declared a block on a non-eligible event or without its
     modes. (owes → the module manager: if the block-owner set grows past 2–3 it may refactor this
     consumer-side assembly to a registry-discovery pattern.)"""
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
             + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
-               dict(close.BLOCK_INVARIANT)])
+               dict(modes.MERGE_BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:

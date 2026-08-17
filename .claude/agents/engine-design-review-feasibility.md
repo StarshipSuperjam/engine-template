@@ -5,7 +5,6 @@ role: plan-review
 lens: feasibility
 model-tier: judgment
 model: opus
-effort: high
 permissions: read-only
 output-contract: plan-review-finding.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash]

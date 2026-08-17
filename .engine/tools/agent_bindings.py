@@ -8,6 +8,16 @@ for a new model landscape is one edit to model-bindings.json followed by `agent_
 reports drift — a persona whose stamped model/effort no longer matches the binding, or an override that names
 no installed persona — and backs the coherence unit test (test_agent_bindings.py). It edits only the two
 frontmatter lines it owns; the persona's prose and every other frontmatter field are untouched.
+
+REVIEWER ROLES CARRY MODEL BUT NOT EFFORT (StarshipSuperjam/engine-template#677). A reviewer persona's effort is
+NOT stamped, because the operator's review-depth choice scales reviewer EFFORT at launch — on Claude via the
+session `--effort` (which governs a subagent only when its frontmatter does not pin an overriding effort), on
+Codex by spawning each cold reviewer as a non-full-history fork (`fork_turns="none"`) with `reasoning_effort`
+set from the resolved depth (so the un-pinned twin carries no `model_reasoning_effort` to override). So `render`
+stamps only `model:` for the reviewer roles and `check` expects no `effort:` line on them (model-drift is still
+caught; a stray reviewer effort line is flagged). A missing session `--effort` falls back to Claude Code's
+default effort (`high`), which equals the judgment-tier anchor — so an un-pinned reviewer never degrades below
+the anchor. Workers and the audit persona still carry BOTH stamps (their effort is not depth-scaled).
 """
 from __future__ import annotations
 import json
@@ -17,11 +27,23 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repo_identity  # noqa: E402  (dependency-light home-repo signal; scopes the dangling-override leg)
+import operator_review_effort  # noqa: E402  (per-deployment per-depth effort override; layered by depth_effort)
 
 _AGENTS_REL = os.path.join(".claude", "agents")
 _BINDINGS_REL = os.path.join(".engine", "policies", "model-bindings.json")
 _FM_KEY = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
 _OWNED = re.compile(r"^(model|effort):")   # the two lines this tool owns (not 'model-tier', which starts model-)
+# The reviewer roles whose EFFORT is depth-scaled at launch, so it is NOT stamped here (see the module
+# docstring). Keyed by role INCLUSION, never "everything but worker" — the audit persona (role: audit) keeps
+# its effort stamp, so an exclusion of workers alone would wrongly un-pin it.
+EFFORT_UNPINNED_ROLES = frozenset({"plan-review", "pre-submission-review"})
+
+
+def _stamps_effort(fm: dict) -> bool:
+    """True when this persona's effort is stamped into frontmatter (workers, audit); False for the reviewer
+    roles whose effort the review-depth choice scales at launch. `codex_gen` reuses EFFORT_UNPINNED_ROLES so the
+    Codex twin omits `model_reasoning_effort` for exactly the same roles."""
+    return fm.get("role") not in EFFORT_UNPINNED_ROLES
 
 
 def _root(root: str | None = None) -> str:
@@ -42,6 +64,20 @@ def resolve(name: str, model_tier: str, bindings: dict) -> dict:
     if not tier:
         raise KeyError(f"no binding for capability tier {model_tier!r}")
     return {"model": tier["model"], "effort": tier["effort"]}
+
+
+def depth_effort(depth: str, bindings: dict, root: str | None = None) -> str | None:
+    """The reasoning effort the review-depth `depth` runs its reviewers at — the single depth dial
+    (StarshipSuperjam/engine-template#677). A deployment's committed per-depth override wins over the shipped
+    `review_depths` default; absent either, returns None (the depth runs reviewers at their un-pinned session
+    effort, i.e. Claude Code's default). `quick` has no reviewers and so no effort. Model is NOT resolved here:
+    it stays the per-lens tiers+overrides at every depth."""
+    override = operator_review_effort.load(operator_review_effort.overrides_path(root))
+    slice_ = override.get(depth)
+    if slice_ and slice_.get("effort"):
+        return slice_["effort"]
+    shipped = (bindings.get("review_depths") or {}).get(depth)
+    return shipped["effort"] if shipped else None
 
 
 def _agent_files(root: str) -> list[str]:
@@ -66,9 +102,11 @@ def _frontmatter(text: str):
     return lines, end, fm
 
 
-def _stamp(text: str, model: str, effort: str) -> str:
-    """Return `text` with `model:`/`effort:` set immediately after the `model-tier:` line, preserving every
-    other line. Removes any existing model/effort lines first, so the render is idempotent."""
+def _stamp(text: str, model: str, effort: str | None) -> str:
+    """Return `text` with `model:` (and `effort:` when `effort` is not None) set immediately after the
+    `model-tier:`/`implementation-class:` line, preserving every other line. Removes any existing model/effort
+    lines first, so the render is idempotent. `effort is None` un-pins effort (the reviewer roles), leaving the
+    session `--effort` to govern it at launch."""
     parsed = _frontmatter(text)
     if not parsed:
         raise ValueError("persona has no frontmatter")
@@ -80,7 +118,8 @@ def _stamp(text: str, model: str, effort: str) -> str:
         # Reviewers anchor the stamp after model-tier; workers (no model-tier) after implementation-class.
         if line.startswith("model-tier:") or line.startswith("implementation-class:"):
             out.append(f"model: {model}")
-            out.append(f"effort: {effort}")
+            if effort is not None:
+                out.append(f"effort: {effort}")
     rebuilt = "\n".join(["---", *out, "---", *lines[end + 1:]])
     return rebuilt + "\n" if text.endswith("\n") else rebuilt
 
@@ -111,7 +150,8 @@ def render(root: str | None = None) -> list[str]:
             continue
         _, _, fm = parsed
         binding = _binding_for(fm, bindings)
-        new = _stamp(text, binding["model"], binding["effort"])
+        effort = binding["effort"] if _stamps_effort(fm) else None
+        new = _stamp(text, binding["model"], effort)
         if new != text:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(new)
@@ -132,8 +172,16 @@ def check(root: str | None = None) -> list[str]:
             continue
         _, _, fm = parsed
         names.add(fm["name"])
-        want = _binding_for(fm, bindings)
-        got = {"model": fm.get("model"), "effort": fm.get("effort")}
+        binding = _binding_for(fm, bindings)
+        if _stamps_effort(fm):
+            want = {"model": binding["model"], "effort": binding["effort"]}
+            got = {"model": fm.get("model"), "effort": fm.get("effort")}
+        else:
+            # A reviewer role: model is stamped (anchor), effort is un-pinned so the session --effort scales
+            # it by depth — so the correct stamped state carries NO effort line. Flag a wrong model, and flag
+            # a stray effort line that would override the session and defeat depth scaling.
+            want = {"model": binding["model"], "effort": None}
+            got = {"model": fm.get("model"), "effort": fm.get("effort")}
         if got != want:
             problems.append(f"{fm['name']}: stamped {got} != binding {want} — run agent_bindings.py render")
     # A dangling override — one naming no installed persona — is a source-authoring concern: in the engine's

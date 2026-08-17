@@ -209,6 +209,8 @@ How you reach your engine: the commands a person types, and the automatic routes
 
 Routes the assistant may follow on its own to reach an engine workflow, with what each points at and whether that target is always present, module-conditional, or home-only.
 
+A note on runtimes: on Claude these routes are hidden from the operator's typed menu (they are model-only, so `engine-help` never lists them); on Codex, which has no hidden-route selector, the same routes are also explicitly visible and typeable. That is the one deliberate provider asymmetry, and this map is where it is disclosed.
+
 | route | reachable as | points at | module |
 | --- | --- | --- | --- |
 | `engine-change-conduct` | model-only | operation `.engine/operations/conduct-author.md` (active) | `core` |

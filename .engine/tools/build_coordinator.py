@@ -703,6 +703,50 @@ def cmd_status(args, store: StateStore) -> None:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
 
 
+def cmd_depths(args, store: "StateStore | None") -> None:
+    """Advisory, read-only: which review depths are worth OFFERING for this repo's installed reviewer roster,
+    and the reviewer effort each resolves to. Consulted before `approve` so the operator is never asked to pick
+    a depth that buys nothing over a lighter one (StarshipSuperjam/engine-template#763). The exact offer rule
+    (a depth runs at least one lens the last lighter offered depth does not, or the same non-empty lens-set at
+    higher effort) is single-homed in `build_coordinator_review.available_depths`, which this delegates to;
+    `quick` is always offered (the floor). This shapes the consent surface only — `required()`/`approve`
+    remain the sole mechanical lens authority, so a collapsed depth bound anyway still resolves to quick's roster.
+    Needs no Build state (it reads the protocol, the installed personas, and the shipped/operator effort)."""
+    import agent_bindings  # lazy: keep the coordinator's common path import-light, as cmd_validate does
+    protocol = _protocol()
+    plan_roster = _installed("plan")
+    deliverable_roster = _installed("deliverable")
+    bindings = _bindings()
+    efforts = {depth: agent_bindings.depth_effort(depth, bindings, root=str(ROOT))
+               for depth in review.DEPTH_ORDER}
+    offered = review.available_depths(protocol, plan_roster, deliverable_roster, efforts)
+    detail = {}
+    for depth in review.DEPTH_ORDER:
+        detail[depth] = {
+            "offered": depth in offered,
+            "effort": efforts[depth],
+            "plan_lenses": [item["lens"] for item in _required(protocol, "plan", depth, plan_roster)],
+            "deliverable_lenses": [item["lens"] for item in _required(protocol, "deliverable", depth, deliverable_roster)],
+        }
+    if args.json:
+        print(json.dumps({"available": offered, "depths": detail}, indent=2, sort_keys=True))
+        return
+    print("Available review depths (only those that add coverage or effort over a lighter one):")
+    for depth in offered:
+        d = detail[depth]
+        if not d["plan_lenses"] and not d["deliverable_lenses"]:
+            print(f"  {depth}: no cold reviewers — your own read plus the automatic checks")
+        else:
+            effort = d["effort"] or "session default"
+            # Name the lenses, not just their count, so the operator can see WHICH reviewer a heavier depth adds.
+            print(f"  {depth}: reviewer effort {effort}")
+            print(f"      plan lenses: {', '.join(d['plan_lenses']) or 'none'}")
+            print(f"      deliverable lenses: {', '.join(d['deliverable_lenses']) or 'none'}")
+    collapsed = [depth for depth in review.DEPTH_ORDER if depth not in offered]
+    if collapsed:
+        print("Collapsed (adds nothing over a lighter depth, so not offered): " + ", ".join(collapsed))
+
+
 def _write_json_artifact(prefix: str, value: Any) -> tuple[str, str]:
     return core.write_json_artifact(prefix, value)
 
@@ -2071,6 +2115,7 @@ def parser() -> argparse.ArgumentParser:
     migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
+    depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
     record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
@@ -2108,8 +2153,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
-        stateless = (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1") or \
-                    (args.command == "contract" and getattr(args, "contract_command", None) == "template")
+        stateless = (args.command == "depths"
+                     or (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1")
+                     or (args.command == "contract" and getattr(args, "contract_command", None) == "template"))
         if not args.state and not standalone and not stateless:
             raise CoordinatorError("--state is required for this command")
         if standalone and (not args.repository or not args.depth):

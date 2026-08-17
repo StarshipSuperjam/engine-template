@@ -1026,6 +1026,17 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         with mock.patch.object(bc, "_status", return_value=incomplete), mock.patch.object(bc.github, "pr_state", return_value=pr), mock.patch.object(bc, "_run", return_value=ancestor), self.assertRaisesRegex(bc.CoordinatorError, "incomplete"):
             bc._submit_preview(self.store, str(self.plan_path))
 
+    def test_submit_preview_refuses_a_pr_that_is_not_open(self):
+        # A finalize transition on a merged/closed/missing claim must refuse, never mark ready
+        # (StarshipSuperjam/engine-template#959 names "missing PRs" among the failure cases).
+        self.seed()
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"complete"), "complete": True}}))
+        ready = {"phase": "ready", "head_commit": HEAD_A, "required_evidence": [], "engineering_judgment": []}
+        not_open = {"number": 7, "state": "CLOSED", "isDraft": False, "headRefOid": HEAD_A,
+                    "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "complete"}
+        with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc.github, "pr_state", return_value=not_open), self.assertRaisesRegex(bc.CoordinatorError, "not open"):
+            bc._submit_preview(self.store, str(self.plan_path))
+
     def test_cli_has_no_merge_command(self):
         command_action = next(action for action in bc.parser()._actions if getattr(action, "choices", None))
         self.assertNotIn("merge", command_action.choices)
@@ -1435,6 +1446,54 @@ class TestV1Migration(CoordinatorCase):
         if major >= bc.PLAN_V1_REMOVE_AT_MAJOR and v1_reader_present:
             self.fail(f"Engine major {major} has reached the v1 sunset ({bc.PLAN_V1_REMOVE_AT_MAJOR}) but the "
                       f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
+
+
+class TestDepthsVerb(unittest.TestCase):
+    """The `depths` advisory verb — the runnable form of the #763 chooser collapse. Stateless: it reads the
+    committed protocol, the installed roster, and the shipped/operator per-depth effort, and offers only the
+    depths that add coverage or effort over a lighter one."""
+
+    @staticmethod
+    def _roster(*lenses):
+        return [{"lens": lens, "path": f".claude/agents/{lens}.md", "digest": "d"} for lens in lenses]
+
+    def _run(self, plan_roster, deliverable_roster, as_json=False):
+        def installed(stage):
+            return plan_roster if stage == "plan" else deliverable_roster
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", side_effect=installed), contextlib.redirect_stdout(out):
+            bc.cmd_depths(argparse.Namespace(json=as_json), None)
+        return out.getvalue()
+
+    def test_full_roster_offers_all_three_with_stepped_effort(self):
+        plan_roster = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        deliverable_roster = self._roster("spec-conformance", "divergence-hunter", "usability",
+                                          "technical-integrity", "security-governance")
+        result = json.loads(self._run(plan_roster, deliverable_roster, as_json=True))
+        self.assertEqual(result["available"], ["quick", "standard", "thorough"])
+        self.assertIsNone(result["depths"]["quick"]["effort"])
+        # Depth scales reviewer effort off the shipped review_depths defaults (standard steps down, thorough
+        # holds the anchor); no operator override in the tree, so these are the shipped values.
+        self.assertEqual(result["depths"]["standard"]["effort"], "medium")
+        self.assertEqual(result["depths"]["thorough"]["effort"], "high")
+        # Standard's plan gate runs all four lenses (the reopened row) — coverage over per-lens depth.
+        self.assertEqual(len(result["depths"]["standard"]["plan_lenses"]), 4)
+
+    def test_zero_reviewers_collapse_to_quick_alone(self):
+        # The #763 heart: with no installed reviewers every heavier depth buys nothing, so only quick is offered.
+        text = self._run([], [])
+        self.assertIn("quick: no cold reviewers", text)
+        self.assertIn("Collapsed", text)
+        result = json.loads(self._run([], [], as_json=True))
+        self.assertEqual(result["available"], ["quick"])
+
+    def test_depths_needs_no_state(self):
+        # The verb must run before approval, so main() must not demand --state for it.
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(out):
+            rc = bc.main(["depths", "--json"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out.getvalue())["available"], ["quick"])
 
 
 if __name__ == "__main__":

@@ -21,11 +21,14 @@ import module_coherence  # noqa: E402
 
 
 class TestBlockCoherenceTool(unittest.TestCase):
-    def test_registrations_returns_the_live_three_member_registry(self):
-        # With no fixture env, the tool reads the real assembled registry (3 members, each with modes).
+    def test_registrations_returns_the_live_four_member_registry(self):
+        # With no fixture env, the tool reads the real assembled registry (4 members, each with modes):
+        # modes' explore write-gate, its engine-Issue reroute, its protected-merge nudge, and close's
+        # findings-disposition gate.
         regs = bcc.registrations()
         names = {b["name"] for b in regs}
-        self.assertEqual(names, {"explore-write-gate", "engine-issue-conformance", "findings-disposition"})
+        self.assertEqual(names, {"explore-write-gate", "engine-issue-conformance",
+                                 "protected-merge-nudge", "findings-disposition"})
         self.assertTrue(all(b.get("modes") for b in regs), "every member declares its modes")
         self.assertEqual(regs, module_coherence.block_eligible_registrations())
 

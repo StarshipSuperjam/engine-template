@@ -54,11 +54,31 @@ does **not** override any deterministic control: protected `main`, human merge, 
 Build authority, and guardrail acknowledgment are unaffected by any posture. Posture selects self-instructions
 and model bindings only; it never modulates a review gate.
 
-To retune the fleet, edit `.engine/policies/model-bindings.json`: each capability tier (`judgment`,
+**Operator-chosen review depth is a separate axis from posture, and it scales reviewer EFFORT — not model.**
+The operator's Quick/Standard/Thorough choice sets how much reasoning effort the reviewers spend (the
+per-depth `review_depths` block in `.engine/policies/model-bindings.json`), realized on Claude by the session
+`--effort` governing the un-pinned reviewer roles and on Codex by spawning each cold reviewer as a
+non-full-history fork (`fork_turns="none"`) with `reasoning_effort` set from the resolved depth. On both
+runtimes the reviewer twin/persona is un-pinned (carries no baked effort), so the launch value governs — a
+Codex full-history fork would instead inherit the parent task's effort, which is why cold review uses
+`fork_turns="none"`. `quick` spawns no cold reviewers, so it sets no effort. This is
+the operator's explicit, per-change consent, not the engine silently taking an environment shortcut, so it
+applies in **every** posture, including the conservative default: the "make no model-dependent shortcuts"
+instruction there is about the engine choosing a *model* on its own, which review depth never does — the model
+stays the per-lens capability match at every depth. Depth thus modulates review *spend* by consent while the
+rule above (posture never modulates a review *gate* — which lenses must run and pass) still holds.
+
+To retune the fleet's models, edit `.engine/policies/model-bindings.json`: each capability tier (`judgment`,
 `mechanical`) and each per-persona override binds a durable model alias (opus, sonnet, haiku, …; never a
 versioned id) and an effort (`low`/`medium`/`high`). Then run `uv run --directory .engine -- python
 tools/agent_bindings.py render` to stamp the personas; a CI check fails with that exact instruction if the
-bindings and the stamped personas ever drift.
+bindings and the stamped personas ever drift. **In the engine's home repository** that direct edit is the
+retune path. **In a deployed repository** `model-bindings.json` is engine-owned and an engine update overlays
+it, so a hand-edit there does not survive the update — retune the per-depth review effort instead through
+`uv run --directory .engine -- python tools/operator_review_effort.py set <standard|thorough> <low|medium|high>`,
+which writes the preserved `.engine/operator-review-effort.json` that survives updates and layers over the
+shipped defaults. (Retuning a deployed repo's *model* bindings so they survive an update is not yet supported —
+that is a known, separate gap; only the per-depth review effort has an update-surviving override today.)
 
 ## Rationale
 

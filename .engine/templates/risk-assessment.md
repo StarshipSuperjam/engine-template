@@ -20,13 +20,13 @@ length_budget: 70
 
 ## How careful — your choice
 
-You choose how careful this should be; the suggestion above is the default. What each level actually adds depends on which review packs are installed — "What I'll run" above is the authoritative list for this change.
+You choose how careful this should be; the suggestion above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top, and how hard each reviewer looks. "What I'll run" above is the authoritative list for this change. I only offer levels that would actually add something here: if a heavier level would run exactly what a lighter one does, I don't offer it.
 
-- **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks that run on every change) — no extra review passes. The lightest: least gets caught before it ships, so you lean most on your own read at merge.
-- **Standard review** — the usual review passes for a change like this, where review packs are installed — a middle amount of checking.
-- **Thorough review** — every review pass available, looking hardest at the risky parts — the most gets caught before it ships.
+- **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks, and the full test suite, that run on every change) — no separate reviewers. The lightest: with no independent review, the least gets caught before it ships, so you lean most on your own read at merge.
+- **Standard review** — a focused subset of the independent reviews, each at the effort configured for Standard — more independent review than Quick. ("What I'll run" above lists exactly which lenses run at each gate.)
+- **Thorough review** — every independent review available, each at the effort configured for Thorough — the most independent review, so the most gets caught before it ships.
 
-<Whenever no review packs are installed you MUST add this note, so the choice is never misread as buying review that will not run: "No review packs are installed yet, so standard and thorough currently run the same as quick — just the automatic checks. Installing a review pack is what adds deeper review.">
+<Present ONLY the levels that add something here — derive them from what review is installed and what each depth would run, dropping any heavier level that would run exactly what a lighter one does. When only Quick would add anything (no review packs installed, or none that add coverage for this change), you MUST present Quick alone and say so plainly rather than offer a choice that buys nothing: "No extra review adds anything here, so this is my own read plus the automatic checks — installing a review pack is what would add deeper review to choose from." The levels promise what will RUN, never that the result is guaranteed correct — your review at merge is the gate.>
 
 ## If this weakens a safety guardrail
 
