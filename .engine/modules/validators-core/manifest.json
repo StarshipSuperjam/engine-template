@@ -66,6 +66,7 @@
       ".engine/check/self-map-drift.json",
       ".engine/check/setup-route-drift.json",
       ".engine/check/shipped-issue-references.json",
+      ".engine/check/shipped-local-references.json",
       ".engine/check/skill-coherence.json",
       ".engine/check/skill-frontmatter.json",
       ".engine/check/skill-shape.json",

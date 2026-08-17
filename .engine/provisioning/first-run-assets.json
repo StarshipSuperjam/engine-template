@@ -46,7 +46,8 @@
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
     ".engine/operations/engine-development.md",
-    "assets/engine_banner.jpg"
+    "assets/engine_banner.jpg",
+    ".engine/operator-local-references.json"
   ],
   "directories": []
 }

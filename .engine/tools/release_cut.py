@@ -79,6 +79,8 @@ import validate
 import module_coherence
 import module_manager
 import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (StarshipSuperjam/engine-template#923)
+import local_references  # the declared local-reference vocabulary (StarshipSuperjam/engine-template#639)
+import shipped_local_references_check  # the shipped-surface scan this cut reuses as its backstop (StarshipSuperjam/engine-template#943)
 
 SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
@@ -625,6 +627,49 @@ def _default_on_dependency_violations(present: dict) -> list:
     return out
 
 
+def _local_reference_violations() -> "tuple[list, str]":
+    """(violations, note) for the shipped local-reference floor at an ENGINE cut (StarshipSuperjam/engine-template#943).
+
+    A bare declared local reference — a decision-record id, a spec section, a ticket prefix — on a traveling
+    surface names a record a generated repository cannot reach: a dead pointer for every downstream reader. This
+    scans the CANDIDATE tree's shipped surface against the deployment's declared vocabulary — the SAME scan the
+    per-PR floor `shipped_local_references_check` runs, reused via its `hits()` so the two never disagree about
+    the surface — and returns one refusal per hit. The release cut is the last-line backstop behind that per-PR
+    floor; it refuses BEFORE `apply` writes, and is set in BOTH classify() modes (a first cut has no
+    predecessor to lean on, and must not ship dangling references either).
+
+    The `note` is the DISCLOSED-not-silent half (operator decision on StarshipSuperjam/engine-template#943): when the deployment has declared
+    NO vocabulary (absent/empty/unusable/unreadable) there is nothing to scan — a legitimate steady state for a
+    product with no shorthand of its own, but at an engine cut a removed or emptied declaration would silently
+    switch this floor off. So rather than pass wordlessly the cut states plainly that the scan did not run. It
+    never REFUSES on an absent declaration (that is not a defect); it only refuses to be silent. The declaration
+    is deliberately left unguarded so tuning it stays cheap (StarshipSuperjam/engine-template#639); this note is the visibility that
+    replaces a guard. Reads validate.ROOT — the candidate tree being cut — for both the declaration and the
+    scan, so the two never disagree about which tree is the release; tests repoint validate.ROOT via _Tree."""
+    root = validate.ROOT
+    vocabulary, state = local_references.load_vocabulary(os.path.join(root, local_references.DECLARATION_REL))
+    if not vocabulary:
+        return [], (
+            "This release was not scanned for bare local references that would dangle in a generated "
+            f"repository: no local-reference vocabulary is declared (`{local_references.DECLARATION_REL}` is "
+            f"{state}). That is fine for a product with no shorthand of its own; if this is the engine's own "
+            "release, restore the declaration so the floor runs.")
+    found = shipped_local_references_check.hits(root, vocabulary)
+    if found is None:
+        return ([
+            "the shipped surface could not be enumerated to scan for bare local references — the first-run "
+            "retire census (.engine/provisioning/first-run-assets.json) is unreadable, so this release cannot "
+            "be confirmed free of dangling references"], "")
+    out = []
+    for h in found:
+        where = h.get("where") or "(unknown file)"
+        line = h.get("line")
+        loc = where + (f" line {line}" if line else "")
+        out.append(f"{loc} carries a bare local reference ({h.get('token')}) that ships into every generated "
+                   f"repository, where it names a record the reader cannot reach")
+    return out, ""
+
+
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     """The proposal: the floor per package + engine, the change inventory, and the impact statements.
     In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
@@ -635,6 +680,11 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     impacts: list[dict] = []
     package_floor: dict[str, str] = {}
     engine_level = "none"
+    # The shipped local-reference backstop — a bare declared local reference on a traveling surface would dangle
+    # in every generated repository (StarshipSuperjam/engine-template#943). Baseline-independent (it reads the candidate tree, not the
+    # diff), so it is computed once and set in BOTH modes; the note discloses an absent declaration rather than
+    # passing silently.
+    lref_violations, lref_note = _local_reference_violations()
 
     if baseline.first_cut:
         inventory.append(
@@ -654,6 +704,10 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             # A default-on module depending on a not-guaranteed-present capability — baseline-independent, so it is
             # refused on the FIRST cut too (the diff siblings above need a baseline and so are absent here).
             "default_on_dependency_violations": _default_on_dependency_violations(present),
+            # A bare declared local reference on a traveling surface (StarshipSuperjam/engine-template#943) — baseline-independent, so the
+            # FIRST cut is scanned too; the note discloses an absent declaration rather than passing silently.
+            "local_reference_violations": lref_violations,
+            "local_reference_note": lref_note,
         }
 
     # diff mode — compare the present set against the baseline release tree
@@ -746,6 +800,11 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # A default-on module depending on a capability outside {required, default-on} — one a deployment may lack,
         # so it cannot be coherently installed everywhere; refused at the cut so the author fixes it once (StarshipSuperjam/engine-template#891).
         "default_on_dependency_violations": _default_on_dependency_violations(present),
+        # A bare declared local reference on a traveling surface — a dead pointer for every downstream reader;
+        # refused at the cut as the last-line backstop behind the per-PR floor (StarshipSuperjam/engine-template#943). The note discloses an
+        # absent declaration rather than passing silently.
+        "local_reference_violations": lref_violations,
+        "local_reference_note": lref_note,
     }
 
 
@@ -1505,6 +1564,12 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
         f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."]
     if not product:      # the deployment gate is an ENGINE-cut instrument; it is inert on a product cut
         validation_bullets += _deployment_check_lines(deployment_gate)
+    # The shipped local-reference floor's DISCLOSED-not-silent note (StarshipSuperjam/engine-template#943): present only when no local-reference
+    # vocabulary was declared at the cut, so the scan did not run. Surfaced in the maintainer's evidence bundle
+    # here — not only the propose step's log — so a removed/emptied declaration is visible at merge, never silent.
+    lref_note = proposal.get("local_reference_note")
+    if lref_note:
+        validation_bullets.append(f"- ⚠ {lref_note}")
     out += pr_section(
         "Validation",
         "The engine's own tooling produced this and `engine-ci` checks it — the mechanical floor.",
@@ -1601,6 +1666,11 @@ def _cmd_propose(args) -> int:
     proposal["merged_prs"] = ([] if args.baseline_tree
                               else merged_pr_titles(baseline.ref, _current_sha()))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
+    # DISCLOSED-not-silent: if no local-reference vocabulary is declared, the shipped local-reference floor did
+    # not run. Never a refusal (an absent declaration is a legitimate steady state), but never silent either at an
+    # engine cut, so a removed/emptied declaration is visible (StarshipSuperjam/engine-template#943).
+    if proposal.get("local_reference_note"):
+        print(proposal["local_reference_note"], file=sys.stderr)
     # A dropped migration key, a dropped retired-capability notice, a whole-module removal with no plain-language
     # notice, a survivor that still depends on a removed module, or a default-on module depending on a capability
     # not guaranteed present everywhere — each would break a deployer's upgrade (the first three silently, the last
@@ -1614,7 +1684,8 @@ def _cmd_propose(args) -> int:
     rem_viol = proposal.get("removed_capability_violations") or []
     dep_viol = proposal.get("dependency_violations") or []
     don_viol = proposal.get("default_on_dependency_violations") or []
-    if mig_viol or ret_viol or rem_viol or dep_viol or don_viol:
+    lref_viol = proposal.get("local_reference_violations") or []
+    if mig_viol or ret_viol or rem_viol or dep_viol or don_viol or lref_viol:
         recovery = ["nothing was written and no release was opened."]
         if mig_viol:
             recovery.append("Restore each dropped upgrade step to the capability's settings file; to retire a "
@@ -1633,9 +1704,14 @@ def _cmd_propose(args) -> int:
             recovery.append("Make each such dependency required or default-on, or lower the dependent to optional "
                             "so it is not installed by default — a default-on module may depend only on "
                             "capabilities guaranteed present on every deployment.")
+        if lref_viol:
+            recovery.append("For each flagged line, name the capability the reference means instead of the bare "
+                            "identifier, or move it to a form that travels — an engine eADR-#### record, or a "
+                            "fully-qualified owner/repo#N — so a reader of a generated repository is not left with "
+                            "a pointer to nothing.")
         _print_refusal({"reason": "a required release record or module dependency is missing, dropped, or "
-                                  "inconsistent",
-                        "violations": mig_viol + ret_viol + rem_viol + dep_viol + don_viol,
+                                  "inconsistent, or a bare local reference would ship on a traveling surface",
+                        "violations": mig_viol + ret_viol + rem_viol + dep_viol + don_viol + lref_viol,
                         "recovery": " ".join(recovery)})
         return 2
     return 0

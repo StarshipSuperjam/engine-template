@@ -118,6 +118,26 @@ class TestClosureScan(unittest.TestCase):
         # very closure check (an exact-path constant in a surviving file).
         self.assertEqual(frc._REGENERATED_RETIRED_ASSETS, frozenset({".engine/audits/audit-digest.md"}))
 
+    def test_an_absent_tolerant_retired_asset_is_not_flagged_but_a_gone_for_good_one_is(self):
+        # #943 carve-out: the engine's own local-reference vocabulary is retired at first-run (so a fresh repo
+        # starts absent), and its surviving readers tolerate the absent file — so a literal reference to its path
+        # is NOT a dangling reference and the path leg skips it, while a gone-for-good path beside it is still
+        # caught. Uses the REAL _ABSENT_TOLERANT_RETIRED_ASSETS, so removing the carve-out breaks this.
+        with tempfile.TemporaryDirectory() as d:
+            _build(d, files=[".engine/tools/removed_mod.py", ".engine/operator-local-references.json",
+                             ".engine/operations/gone-for-good.md"],
+                   survivors={"reader.py": ('open(".engine/operator-local-references.json")\n'
+                                            'open(".engine/operations/gone-for-good.md")\n')})
+            findings = frc.check(d)
+            self.assertEqual(len(findings), 1, "only the gone-for-good removed path should be flagged")
+            self.assertIn("gone-for-good.md", findings[0]["message"])
+            self.assertNotIn("operator-local-references", findings[0]["message"])
+
+    def test_the_absent_tolerant_allowlist_holds_only_the_local_reference_vocabulary(self):
+        # Drift guard: the engine's own local-reference vocabulary is the sole absent-tolerant retired asset today.
+        self.assertEqual(frc._ABSENT_TOLERANT_RETIRED_ASSETS,
+                         frozenset({".engine/operator-local-references.json"}))
+
     def test_a_prose_mention_is_not_flagged(self):
         # module_catalog.py mentions `instantiator.py` in a docstring; an exact-path-only match must not flag it.
         with tempfile.TemporaryDirectory() as d:

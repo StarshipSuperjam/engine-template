@@ -315,7 +315,7 @@ def _read_instance_guards(path: str | None = None) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# TIER (eADR-0040). The guarded SET is unchanged (D-268's property); what changed is what a match does:
+# TIER (eADR-0040). The guarded SET is unchanged (its property-defined membership is preserved); what changed is what a match does:
 # "hard" blocks the merge pending the operator's deliberate `guardrail-ack`; "soft" is a plain-language
 # disclosure and the check passes — the protected-branch merge review judges the change. The hard criterion is
 # a PROPERTY, not a roster: a weakening with NO mechanical on-disk correlate to catch it and no

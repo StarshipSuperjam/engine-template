@@ -1769,6 +1769,17 @@ _FIRST_RUN_ASSET_FILES = (
     # no-op) and the only thing in `assets/` in greenfield, and an emptied `assets/` does not travel (git commits
     # no empty directory).
     "assets/engine_banner.jpg",
+    # The engine's OWN local-reference vocabulary (StarshipSuperjam/engine-template#943). engine-template commits
+    # `.engine/operator-local-references.json` declaring `D-` so the shipped local-reference floor scans its own
+    # traveling surfaces for bare decision-record ids in THIS repo. That declaration is engine-template's, not a
+    # generated product's — the StarshipSuperjam/engine-template#639 contract is that this file ships ABSENT ("the normal steady state for
+    # every deployment"), so it is retired at first-run and a fresh repo starts with no vocabulary of its own to
+    # declare later. Retiring it dangles no reference: the survivors that read its path (local_references /
+    # shipped_local_references_check / operator_local_references_check / submit) all tolerate an absent
+    # declaration by construction, so it is carved out of the first-run reference-closure check
+    # (_ABSENT_TOLERANT_RETIRED_ASSETS there), never left to fail a generated repo's first CI run. Mirrored in
+    # first-run-assets.json (parity-tested).
+    ".engine/operator-local-references.json",
 )
 # engine-setup is now the PERMANENT setup dispatcher (ADR 0336): it survives first-run so an operator can
 # manage add-ons, conduct, reviewers, protection, backup, and module configuration afterwards. It is therefore

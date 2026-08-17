@@ -324,6 +324,17 @@ def _retire_fault_message() -> str:
         f"file from the project's history — it is permanent data — then re-run this check.")
 
 
+# --- shared shipped-surface primitives (StarshipSuperjam/engine-template#943) ----------------------------
+# The enumeration and prose extraction above define the ENGINE's shipped, scannable surface ONCE. The shipped
+# local-reference floor (`shipped_local_references_check.py`) and the release-cut gate reuse these so every
+# floor scans exactly the surface this check does — one definition, no drift. Public aliases; the private
+# originals stay for this module's own callers below.
+scan_targets = _scan_targets
+py_prose_fragments = _py_prose_fragments
+text_fragments = _text_fragments
+retire_set = _retire_set
+
+
 def check(root: str | None = None) -> list:
     """Every offending reference as a list of `hard` findings (empty = no bare reference ships). No-ops
     (empty) OUTSIDE the home repo. WITHIN the home repo it fails CLOSED on an unreadable retire census."""

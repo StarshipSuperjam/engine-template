@@ -148,6 +148,11 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # not read them as orphans either. (The SEEDED root files — SECURITY.md, README.md — need no carve-out: they
 # live outside .engine/, so the ownership walk never reaches them; they are product territory preserved by the
 # overlay's "never touch product".)
+# ONE exception to "absent in this construction repo" above (StarshipSuperjam/engine-template#943): `.engine/operator-local-references.json`
+# IS committed here, declaring `D-` so the shipped local-reference floor scans engine-template's own traveling
+# surfaces. It stays operator-owned config all the same (in no `provides`, preserved across upgrade), and is
+# retired at first-run (instantiator._FIRST_RUN_ASSET_FILES) so a generated deployment still starts absent — the
+# StarshipSuperjam/engine-template#639 ships-ABSENT steady state holds for every downstream repo; only the engine's own home carries it.
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
                    # Per-deployment review-depth EFFORT retune (.engine/operator-review-effort.json, read by

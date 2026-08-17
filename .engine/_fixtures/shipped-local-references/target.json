@@ -1,0 +1,6 @@
+{
+  "env": {
+    "ENGINE_REF_SCAN_ROOT": ".engine/_fixtures/shipped-local-references",
+    "ENGINE_LOCAL_REFERENCES_PATH": ".engine/_fixtures/shipped-local-references/local-references.json"
+  }
+}

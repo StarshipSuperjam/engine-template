@@ -594,6 +594,120 @@ class DefaultOnDependencyGuard(unittest.TestCase):
         self.assertNotIn("default_on_dependency_violations", p)
 
 
+class ShippedLocalReferenceGuard(unittest.TestCase):
+    # #943: a bare DECLARED local reference (a decision-record id, spec section, ticket prefix) on a traveling
+    # surface names a record a generated repository cannot reach — a dead pointer for every downstream reader.
+    # The cut scans the candidate tree's shipped surface against the deployment's declared vocabulary — the SAME
+    # scan the per-PR floor (shipped_local_references_check) runs, reused via its hits() — and refuses on any hit;
+    # baseline-independent, so it runs in first-cut mode too. When NO vocabulary is declared the cut DISCLOSES
+    # that the scan did not run rather than passing silently, and never refuses on that (an absent declaration is
+    # a legitimate steady state). A synthetic `ZZ-` vocabulary is seeded so the fixture token is not a real
+    # engine decision-record reference.
+    def _seed(self, root, *, declare=True, bad=True, census=True):
+        if census:
+            _write(os.path.join(root, ".engine", "provisioning", "first-run-assets.json"),
+                   {"files": [], "dirs": []})
+        if declare:
+            _write(os.path.join(root, ".engine", "operator-local-references.json"), {"id_prefixes": ["ZZ-"]})
+        if bad:
+            p = os.path.join(root, ".engine", "tools", "seeded_tool.py")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write('"""A seeded shipped tool citing ZZ-1 by bare identifier."""\n\n\ndef go():\n    return None\n')
+
+    def _classify(self, *, declare=True, bad=True, census=True, first_cut=False):
+        base = _baseline_tree({"core": _module("core")})
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                self._seed(t.root, declare=declare, bad=bad, census=census)
+                baseline = (rc.Baseline("v0.0.0", True, "first") if first_cut
+                            else rc.Baseline("v0.0.9", False, "diff"))
+                return rc.classify(baseline, None if first_cut else base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_a_bare_local_reference_on_a_traveling_surface_is_refused(self):
+        p = self._classify(declare=True, bad=True)
+        self.assertTrue(any("ZZ-1" in x for x in p["local_reference_violations"]),
+                        p["local_reference_violations"])
+        self.assertEqual(p["local_reference_note"], "")
+
+    def test_a_clean_declared_tree_is_not_flagged(self):
+        p = self._classify(declare=True, bad=False)
+        self.assertEqual(p["local_reference_violations"], [])
+        self.assertEqual(p["local_reference_note"], "")
+
+    def test_an_unreadable_retire_census_refuses_the_cut(self):
+        # fail CLOSED at the RELEASE gate: a declared vocabulary but no readable first-run census means the
+        # shipped surface cannot be enumerated, so the cut cannot confirm nothing leaks — it must REFUSE, never
+        # silently pass. This is the gate-side translation of hits()==None, separate from the CI check's own
+        # handling, so it needs its own test (a future `if not found` simplification would silently break it).
+        p = self._classify(declare=True, bad=False, census=False)
+        v = p["local_reference_violations"]
+        self.assertEqual(len(v), 1)
+        self.assertIn("could not be enumerated", v[0])
+        self.assertEqual(p["local_reference_note"], "")
+
+    def test_an_absent_declaration_discloses_a_note_and_does_not_refuse(self):
+        # operator decision on #943: no declared vocabulary -> the scan did not run; disclose it, never refuse.
+        p = self._classify(declare=False, bad=True)
+        self.assertEqual(p["local_reference_violations"], [])
+        self.assertIn("was not scanned", p["local_reference_note"])
+
+    def test_the_first_cut_is_scanned_too(self):
+        # classify() omits the diff siblings in first-cut mode, but this floor is baseline-independent and must
+        # be present and enforced on the first cut (a first release must not ship a dangling reference either).
+        p = self._classify(declare=True, bad=True, first_cut=True)
+        self.assertTrue(any("ZZ-1" in x for x in p["local_reference_violations"]))
+
+    def test_propose_refuses_with_a_plain_reason(self):
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core")})
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                self._seed(t.root, declare=True, bad=True)
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 2)                       # non-zero => the propose step fails the cut
+            self.assertIn("ZZ-1", err.getvalue())           # the offending token is named
+            self.assertIn("local reference", err.getvalue().lower())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_propose_discloses_the_note_without_refusing_when_undeclared(self):
+        # a seeded bad token but NO declaration: the scan does not run, so the cut is NOT refused (exit 0) — but
+        # the disclosed note appears, so a removed/emptied declaration is never silent.
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core")})
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                self._seed(t.root, declare=False, bad=True)
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 0)
+            self.assertIn("was not scanned", err.getvalue())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_product_cut_has_no_local_reference_field(self):
+        # engine-mode only: a product cut is built by _product_proposal, which never computes this floor.
+        p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
+        self.assertNotIn("local_reference_violations", p)
+        self.assertNotIn("local_reference_note", p)
+
+
 class Apply(unittest.TestCase):
     def test_raise_only_refuses_engine_non_increase(self):
         # the ENGINE version must strictly increase — an equal engine version is refused (a cut always moves it)
@@ -829,6 +943,19 @@ class RenderPRBody(unittest.TestCase):
         # maintainer-facing register: no internal machinery vocabulary leaks
         for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
             self.assertNotIn(banned, body)
+
+    def test_the_local_reference_note_renders_into_validation_when_no_vocabulary_is_declared(self):
+        # #943 disclosed-not-silent: with no local-reference vocabulary declared at the cut, the note that the
+        # shipped-reference scan did NOT run must reach the maintainer's evidence bundle — the release PR body's
+        # Validation section — not only the propose step's log. A bare tree declares nothing, so the note is set.
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        self.assertTrue(proposal["local_reference_note"])   # nothing declared -> the disclosed note is populated
+        body = rc.render_pr_body(proposal, applied)
+        validation = body.split("## Validation", 1)[1].split("## Review", 1)[0]
+        self.assertIn("was not scanned", validation)
+        self.assertIn("⚠", validation)
 
     def test_body_carries_all_nine_required_sections_filled(self):
         # The release pull request must clear the same `pr-body-completeness` gate every engine pull request
