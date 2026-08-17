@@ -524,9 +524,12 @@ class TestDeBootstrap(unittest.TestCase):
 # ====================================================================================================
 
 def product_ruleset(rid=9, name="team protections", checks=("product-ci",), with_pr=True,
-                    with_nff=True, with_deletion=True, bypass=None, thread_resolution=True):
+                    with_nff=True, with_deletion=True, bypass=None, thread_resolution=True, strict=True):
     """A FULL product ruleset object (as GET /rulesets/{id} returns it), carrying the read-only metadata a
-    real GET echoes and a writable body, so the projection (which must strip the former) is exercised."""
+    real GET echoes and a writable body, so the projection (which must strip the former) is exercised.
+    `strict` sets the operator's own freshness flag; default True models an operator whose rule already
+    requires branches up to date (so the augment leaves no freshness residual). Pass strict=False to model
+    an operator rule the engine must DISCLOSE-not-modify a freshness gap on (StarshipSuperjam/engine-template#915)."""
     rules: list = []
     if with_pr:
         rules.append({"type": "pull_request",
@@ -536,7 +539,7 @@ def product_ruleset(rid=9, name="team protections", checks=("product-ci",), with
                       "ruleset_source_type": "Repository", "ruleset_id": rid})
     rules.append({"type": "required_status_checks",
                   "parameters": {"required_status_checks": [{"context": c} for c in checks],
-                                 "strict_required_status_checks_policy": False},
+                                 "strict_required_status_checks_policy": strict},
                   "ruleset_source_type": "Repository", "ruleset_id": rid})
     if with_nff:
         rules.append({"type": "non_fast_forward", "ruleset_id": rid})
@@ -660,10 +663,24 @@ class TestAugmentPayload(unittest.TestCase):
     def test_creates_checks_rule_when_absent(self):
         prod = product_ruleset(checks=())
         prod["rules"] = [r for r in prod["rules"] if r["type"] != "required_status_checks"]
-        payload, added, _ = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
+        payload, added, residual = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
         self.assertEqual(bootstrap._bound_checks(payload["rules"]), set(ENGINE))
         self.assertIn("required_status_checks", added["rules"])
         self.assertEqual(added["checks"], [])           # the created rule's removal covers the checks
+        # The engine-CREATED checks rule carries freshness (StarshipSuperjam/engine-template#915), so it leaves
+        # no residual gap and the created rule is strict.
+        rsc = next(r for r in payload["rules"] if r["type"] == "required_status_checks")
+        self.assertIs(rsc["parameters"]["strict_required_status_checks_policy"], True)
+        self.assertEqual(residual, [])
+
+    def test_existing_non_strict_checks_rule_freshness_gap_is_disclosed_not_modified(self):
+        # An operator whose OWN checks rule does not require branches up to date: the engine adds its checks but
+        # must NOT flip the operator's strict flag; the freshness gap is disclosed as a residual, not fixed.
+        prod = product_ruleset(strict=False)
+        payload, _added, residual = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
+        self.assertTrue(any("up to date with the base" in m for m in residual), residual)
+        rsc = next(r for r in payload["rules"] if r["type"] == "required_status_checks")
+        self.assertFalse(rsc["parameters"]["strict_required_status_checks_policy"])   # NOT flipped
 
     def test_adds_wholly_missing_floor_rule_types(self):
         _payload, added, residual = bootstrap.augment_payload(
@@ -800,6 +817,26 @@ class TestApplyAugmentsProductRuleset(unittest.TestCase):
         res = cp(fake).apply(branch="main", announce=quiet)
         self.assertEqual(res.mode, "repaired")
         self.assertNotIn("POST", [c[0] for c in fake.writes()])            # repaired, not created
+
+    def test_pre_existing_protection_recognizes_a_freshness_only_gap(self):
+        # A branch fully protected EXCEPT freshness (an operator's own non-strict checks rule) has substantial
+        # pre-existing protection, so the freshness message must NOT read as "nothing in force"
+        # (StarshipSuperjam/engine-template#915). The freshness message can never appear in the empty-rules
+        # baseline, so _pre_existing_protection must strip it before the subset test — this pins that fix.
+        rules = [
+            {"type": "pull_request", "parameters": {"required_review_thread_resolution": True}},
+            {"type": "required_status_checks", "parameters": {
+                "strict_required_status_checks_policy": False,
+                "required_status_checks": [{"context": "engine-ci"}, {"context": "engine-guard"}]}},
+            {"type": "non_fast_forward"}, {"type": "deletion"},
+        ]
+        pg = bootstrap.protection_guard
+        missing = pg.missing_floor(rules, pg.REQUIRED_CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)  # freshness IS the only gap
+        self.assertTrue(bootstrap.ControlPlane._pre_existing_protection(missing, bootstrap.SOLO))
+        # a truly-unprotected branch (nothing in force) is NOT pre-existing protection
+        none = pg.missing_floor([], pg.REQUIRED_CHECKS)
+        self.assertFalse(bootstrap.ControlPlane._pre_existing_protection(none, bootstrap.SOLO))
 
 
 class TestDeBootstrapAugmented(unittest.TestCase):

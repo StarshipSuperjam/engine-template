@@ -1023,6 +1023,7 @@ class TestProtectionFloor(unittest.TestCase):
             {"type": "pull_request", "parameters": {
                 "required_review_thread_resolution": True, "required_approving_review_count": 0}},
             {"type": "required_status_checks", "parameters": {
+                "strict_required_status_checks_policy": True,
                 "required_status_checks": [{"context": "engine-ci"}, {"context": "engine-guard"}]}},
             {"type": "non_fast_forward", "parameters": {}},
             {"type": "deletion", "parameters": {}},
@@ -1030,6 +1031,61 @@ class TestProtectionFloor(unittest.TestCase):
 
     def test_full_floor_has_nothing_missing(self):
         self.assertEqual(protection_guard.missing_floor(self._full(), self.CHECKS), [])
+
+    def test_non_strict_checks_rule_flags_freshness(self):
+        # Freshness (StarshipSuperjam/engine-template#915): a required_status_checks rule that binds the checks
+        # but does NOT require the branch to be up to date lets a green proven against an older base merge stale.
+        rules = self._full()
+        rules[1]["parameters"]["strict_required_status_checks_policy"] = False
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_absent_strict_flag_fails_closed_to_not_fresh(self):
+        # An unreadable/omitted strict flag must read as NOT fresh (RED), never as a false green.
+        rules = self._full()
+        rules[1]["parameters"].pop("strict_required_status_checks_policy", None)
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_checkless_arrival_does_not_flag_freshness(self):
+        # In the checkless brownfield-arrival window (required_checks == []) the whole checks rule is absent;
+        # freshness must be suppressed exactly like the check-binding floor, or the arrival false-fails.
+        rules = [
+            {"type": "pull_request", "parameters": {"required_review_thread_resolution": True}},
+            {"type": "non_fast_forward", "parameters": {}},
+            {"type": "deletion", "parameters": {}},
+        ]
+        missing = protection_guard.missing_floor(rules, [])
+        self.assertFalse(any("up to date with the base" in m for m in missing), missing)
+
+    def _lax_checks_rule(self, contexts):
+        return {"type": "required_status_checks", "parameters": {
+            "strict_required_status_checks_policy": False,
+            "required_status_checks": [{"context": c} for c in contexts]}}
+
+    def test_freshness_satisfied_when_any_of_multiple_checks_rules_is_strict(self):
+        # GitHub's evaluated rules aggregate EVERY ruleset targeting the branch, so two required_status_checks
+        # rules can appear (the engine's own strict ruleset alongside an operator's non-strict one — bootstrap's
+        # ambiguous-arrival path). Freshness is satisfied when ANY is strict (most-restrictive wins), regardless
+        # of the array order GitHub returns — the `or`-accumulation, not last-write-wins.
+        base = [r for r in self._full() if r["type"] != "required_status_checks"]
+        strict_rule = self._full()[1]  # the strict rule binding both engine checks
+        lax_rule = self._lax_checks_rule(["product-ci"])
+        for order in ([strict_rule, lax_rule], [lax_rule, strict_rule]):
+            missing = protection_guard.missing_floor(base + order, self.CHECKS)
+            self.assertFalse(any("up to date with the base" in m for m in missing), (order, missing))
+
+    def test_freshness_flagged_when_no_checks_rule_is_strict(self):
+        base = [r for r in self._full() if r["type"] != "required_status_checks"]
+        rules = base + [self._lax_checks_rule(["engine-ci", "engine-guard"]), self._lax_checks_rule(["product-ci"])]
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_solo_floor_from_the_builder_self_satisfies_its_verifier(self):
+        # End-to-end: the solo floor bootstrap WRITES, fed straight into the verifier, must be clean — pins the
+        # builder↔verifier freshness agreement so a future edit to floor_ruleset that drops strict is caught.
+        rules = bootstrap.floor_ruleset(tier=protection_guard.SOLO)["rules"]
+        self.assertEqual(protection_guard.missing_floor(rules, self.CHECKS, tier=protection_guard.SOLO), [])
 
     def test_empty_rules_flags_every_floor_piece(self):
         missing = protection_guard.missing_floor([], self.CHECKS)

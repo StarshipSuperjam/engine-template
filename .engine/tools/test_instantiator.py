@@ -1200,7 +1200,8 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
                    "rules": [{"type": "pull_request",
                               "parameters": {"required_review_thread_resolution": True}},
                              {"type": "required_status_checks",
-                              "parameters": {"required_status_checks": [{"context": "product-ci"}]}},
+                              "parameters": {"required_status_checks": [{"context": "product-ci"}],
+                                             "strict_required_status_checks_policy": True}},
                              {"type": "non_fast_forward"}, {"type": "deletion"}]}
         store = {9: product}
 
