@@ -1431,7 +1431,7 @@ class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
 
 class TestSeedConduct(unittest.TestCase):
     """#409: the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md
-    exists it is operator config, so a resumed/re-run apply never clobbers a /engine-conduct-tuned stance (the
+    exists it is operator config, so a resumed/re-run apply never clobbers a /engine-setup-tuned stance (the
     seed-then-own law). Mirrors _seed_security's existence guard."""
 
     def _plant_seed(self, root, body):
@@ -1472,7 +1472,7 @@ class TestSeedConduct(unittest.TestCase):
                 outcome = inst._seed_conduct(self.fail, inst.load_copy())
                 now = inst._read_text_or(target, "")
         self.assertEqual(outcome, "present")
-        self.assertEqual(now, tuned, "a /engine-conduct-tuned operator.md is left exactly as it was")
+        self.assertEqual(now, tuned, "a /engine-setup-tuned operator.md is left exactly as it was")
 
     def test_resume_is_idempotent_a_second_seed_is_a_no_op(self):
         with tempfile.TemporaryDirectory() as d:

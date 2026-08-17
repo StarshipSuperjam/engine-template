@@ -82,7 +82,7 @@ class TheCheckExplainsTests(_Overrides):
         message = findings[0]["message"]
         self.assertIn("has been retired", message)
         self.assertIn("every message", message)          # the recorded reason reached the operator
-        self.assertIn("/engine-tune forget", message)    # ...and so did the remedy that actually exists
+        self.assertIn("/engine-setup", message)          # ...and so did a remedy that points at a live command
         self.assertNotIn("no longer exists", message)    # not the generic line
 
     def test_an_unrecorded_stale_setting_keeps_the_generic_line(self):
@@ -269,9 +269,11 @@ class TheOneStepClearTests(_Overrides):
         self.assertTrue(tune.drop_override("attention", _RETIRED_KEY, path=self.path))
         self.assertFalse(os.path.exists(self.path))
 
-    def test_the_cli_exposes_the_verb_the_checks_message_tells_the_operator_to_type(self):
-        # The finding says "type /engine-tune forget <key>". If the verb were renamed, that advice would send
-        # the operator at a command that does not exist — the failure this whole workflow exists to remove.
+    def test_the_clear_mechanic_the_message_relies_on_still_works(self):
+        # The retired-setting finding points the operator at /engine-setup and at removing the entry from the
+        # saved-settings file; the underlying clear mechanic (tune.py's `forget`, now reached through the
+        # setup dispatcher rather than a typed /engine-tune command) must still succeed, and the message must
+        # name a command that exists — the failure this whole workflow exists to remove.
         from quiet_call import run as quiet_run
         self.write({"attention": {_RETIRED_KEY: 0.9}})
         code = quiet_run(tune.main, ["forget", "attention", _RETIRED_KEY,
@@ -279,7 +281,7 @@ class TheOneStepClearTests(_Overrides):
         self.assertEqual(code, 0)
         self.assertFalse(os.path.exists(self.path))
         message = policy_override_check._RETIRED.format(key=_RETIRED_KEY, reason="x")
-        self.assertIn("/engine-tune forget", message)
+        self.assertIn("/engine-setup", message)
 
 
 if __name__ == "__main__":

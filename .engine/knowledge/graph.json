@@ -681,19 +681,52 @@
           "module:validators-core"
         ],
         "targets": [
-          "codex-skill:engine-board-setup",
-          "codex-skill:engine-conduct",
+          "codex-skill:engine-change-conduct",
+          "codex-skill:engine-check-impact",
+          "codex-skill:engine-configure-codex",
+          "codex-skill:engine-configure-memory-backup",
+          "codex-skill:engine-coordinate-build",
           "codex-skill:engine-design",
+          "codex-skill:engine-design-product",
+          "codex-skill:engine-develop-engine",
+          "codex-skill:engine-drop-operator-pin",
+          "codex-skill:engine-enable-protection",
+          "codex-skill:engine-file-engine-issue",
+          "codex-skill:engine-file-upstream-issue",
           "codex-skill:engine-help",
+          "codex-skill:engine-install-engine",
+          "codex-skill:engine-manage-addons",
+          "codex-skill:engine-manage-setup",
+          "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
+          "codex-skill:engine-prepare-routine",
           "codex-skill:engine-recall",
           "codex-skill:engine-release",
+          "codex-skill:engine-release-project",
+          "codex-skill:engine-remove-engine",
+          "codex-skill:engine-restore-operator-pin",
           "codex-skill:engine-routine",
+          "codex-skill:engine-save-operator-pin",
           "codex-skill:engine-setup",
+          "codex-skill:engine-setup-dependency-discipline",
+          "codex-skill:engine-setup-design-review",
+          "codex-skill:engine-setup-external-contribution",
+          "codex-skill:engine-setup-github-projects-sync",
+          "codex-skill:engine-setup-memory-semantic-recall",
+          "codex-skill:engine-setup-migration-discipline",
+          "codex-skill:engine-setup-product-design",
+          "codex-skill:engine-setup-qa-review",
+          "codex-skill:engine-show-help",
+          "codex-skill:engine-show-parts",
+          "codex-skill:engine-show-status",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
-          "codex-skill:engine-tune",
-          "codex-skill:engine-upgrade"
+          "codex-skill:engine-submit-upstream-contribution",
+          "codex-skill:engine-switch-reviewers",
+          "codex-skill:engine-tune-settings",
+          "codex-skill:engine-upgrade",
+          "codex-skill:engine-upgrade-engine",
+          "codex-skill:engine-validate-codex"
         ]
       },
       "slug": "codex-skill-frontmatter",
@@ -721,19 +754,52 @@
           "module:validators-core"
         ],
         "targets": [
-          "codex-skill:engine-board-setup",
-          "codex-skill:engine-conduct",
+          "codex-skill:engine-change-conduct",
+          "codex-skill:engine-check-impact",
+          "codex-skill:engine-configure-codex",
+          "codex-skill:engine-configure-memory-backup",
+          "codex-skill:engine-coordinate-build",
           "codex-skill:engine-design",
+          "codex-skill:engine-design-product",
+          "codex-skill:engine-develop-engine",
+          "codex-skill:engine-drop-operator-pin",
+          "codex-skill:engine-enable-protection",
+          "codex-skill:engine-file-engine-issue",
+          "codex-skill:engine-file-upstream-issue",
           "codex-skill:engine-help",
+          "codex-skill:engine-install-engine",
+          "codex-skill:engine-manage-addons",
+          "codex-skill:engine-manage-setup",
+          "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
+          "codex-skill:engine-prepare-routine",
           "codex-skill:engine-recall",
           "codex-skill:engine-release",
+          "codex-skill:engine-release-project",
+          "codex-skill:engine-remove-engine",
+          "codex-skill:engine-restore-operator-pin",
           "codex-skill:engine-routine",
+          "codex-skill:engine-save-operator-pin",
           "codex-skill:engine-setup",
+          "codex-skill:engine-setup-dependency-discipline",
+          "codex-skill:engine-setup-design-review",
+          "codex-skill:engine-setup-external-contribution",
+          "codex-skill:engine-setup-github-projects-sync",
+          "codex-skill:engine-setup-memory-semantic-recall",
+          "codex-skill:engine-setup-migration-discipline",
+          "codex-skill:engine-setup-product-design",
+          "codex-skill:engine-setup-qa-review",
+          "codex-skill:engine-show-help",
+          "codex-skill:engine-show-parts",
+          "codex-skill:engine-show-status",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
-          "codex-skill:engine-tune",
-          "codex-skill:engine-upgrade"
+          "codex-skill:engine-submit-upstream-contribution",
+          "codex-skill:engine-switch-reviewers",
+          "codex-skill:engine-tune-settings",
+          "codex-skill:engine-upgrade",
+          "codex-skill:engine-upgrade-engine",
+          "codex-skill:engine-validate-codex"
         ]
       },
       "slug": "codex-skill-shape",
@@ -1945,7 +2011,7 @@
       },
       "slug": "policy-override-stale",
       "source": {
-        "fingerprint": "sha256:5ce5ced1e42a235ef4457ad97c35fa7296b6328255db49233f19490937f48848",
+        "fingerprint": "sha256:c49a7e3ab89ad0e5d0e9d94f2b41d4a84da975638cdc02be05c1b70777d38bb7",
         "path": ".engine/check/policy-override-stale.json"
       },
       "status": "active",
@@ -2458,19 +2524,52 @@
           "module:validators-core"
         ],
         "targets": [
-          "skill:engine-board-setup",
-          "skill:engine-conduct",
+          "skill:engine-change-conduct",
+          "skill:engine-check-impact",
+          "skill:engine-configure-codex",
+          "skill:engine-configure-memory-backup",
+          "skill:engine-coordinate-build",
           "skill:engine-design",
+          "skill:engine-design-product",
+          "skill:engine-develop-engine",
+          "skill:engine-drop-operator-pin",
+          "skill:engine-enable-protection",
+          "skill:engine-file-engine-issue",
+          "skill:engine-file-upstream-issue",
           "skill:engine-help",
+          "skill:engine-install-engine",
+          "skill:engine-manage-addons",
+          "skill:engine-manage-setup",
+          "skill:engine-onboard-project",
           "skill:engine-parts",
+          "skill:engine-prepare-routine",
           "skill:engine-recall",
           "skill:engine-release",
+          "skill:engine-release-project",
+          "skill:engine-remove-engine",
+          "skill:engine-restore-operator-pin",
           "skill:engine-routine",
+          "skill:engine-save-operator-pin",
           "skill:engine-setup",
+          "skill:engine-setup-dependency-discipline",
+          "skill:engine-setup-design-review",
+          "skill:engine-setup-external-contribution",
+          "skill:engine-setup-github-projects-sync",
+          "skill:engine-setup-memory-semantic-recall",
+          "skill:engine-setup-migration-discipline",
+          "skill:engine-setup-product-design",
+          "skill:engine-setup-qa-review",
+          "skill:engine-show-help",
+          "skill:engine-show-parts",
+          "skill:engine-show-status",
           "skill:engine-start",
           "skill:engine-status",
-          "skill:engine-tune",
-          "skill:engine-upgrade"
+          "skill:engine-submit-upstream-contribution",
+          "skill:engine-switch-reviewers",
+          "skill:engine-tune-settings",
+          "skill:engine-upgrade",
+          "skill:engine-upgrade-engine",
+          "skill:engine-validate-codex"
         ]
       },
       "slug": "skill-frontmatter",
@@ -2498,19 +2597,52 @@
           "module:validators-core"
         ],
         "targets": [
-          "skill:engine-board-setup",
-          "skill:engine-conduct",
+          "skill:engine-change-conduct",
+          "skill:engine-check-impact",
+          "skill:engine-configure-codex",
+          "skill:engine-configure-memory-backup",
+          "skill:engine-coordinate-build",
           "skill:engine-design",
+          "skill:engine-design-product",
+          "skill:engine-develop-engine",
+          "skill:engine-drop-operator-pin",
+          "skill:engine-enable-protection",
+          "skill:engine-file-engine-issue",
+          "skill:engine-file-upstream-issue",
           "skill:engine-help",
+          "skill:engine-install-engine",
+          "skill:engine-manage-addons",
+          "skill:engine-manage-setup",
+          "skill:engine-onboard-project",
           "skill:engine-parts",
+          "skill:engine-prepare-routine",
           "skill:engine-recall",
           "skill:engine-release",
+          "skill:engine-release-project",
+          "skill:engine-remove-engine",
+          "skill:engine-restore-operator-pin",
           "skill:engine-routine",
+          "skill:engine-save-operator-pin",
           "skill:engine-setup",
+          "skill:engine-setup-dependency-discipline",
+          "skill:engine-setup-design-review",
+          "skill:engine-setup-external-contribution",
+          "skill:engine-setup-github-projects-sync",
+          "skill:engine-setup-memory-semantic-recall",
+          "skill:engine-setup-migration-discipline",
+          "skill:engine-setup-product-design",
+          "skill:engine-setup-qa-review",
+          "skill:engine-show-help",
+          "skill:engine-show-parts",
+          "skill:engine-show-status",
           "skill:engine-start",
           "skill:engine-status",
-          "skill:engine-tune",
-          "skill:engine-upgrade"
+          "skill:engine-submit-upstream-contribution",
+          "skill:engine-switch-reviewers",
+          "skill:engine-tune-settings",
+          "skill:engine-upgrade",
+          "skill:engine-upgrade-engine",
+          "skill:engine-validate-codex"
         ]
       },
       "slug": "skill-shape",
@@ -2865,48 +2997,8 @@
       "type": "codex-agent"
     },
     {
-      "id": "codex-skill:engine-board-setup",
-      "name": ".agents/skills/engine-board-setup/SKILL.md",
-      "owner": "github-projects-sync",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:github-projects-sync"
-        ]
-      },
-      "slug": "engine-board-setup",
-      "source": {
-        "fingerprint": "sha256:288d87feff3bda1e8202ea460baa8d61bb067bb7f4f17eb7e151ac7f76cbc1d5",
-        "path": ".agents/skills/engine-board-setup/SKILL.md"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-board-setup.policy",
-      "name": ".agents/skills/engine-board-setup/agents/openai.yaml",
-      "owner": "github-projects-sync",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:github-projects-sync"
-        ]
-      },
-      "slug": "engine-board-setup.policy",
-      "source": {
-        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
-        "path": ".agents/skills/engine-board-setup/agents/openai.yaml"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-conduct",
-      "name": ".agents/skills/engine-conduct/SKILL.md",
+      "id": "codex-skill:engine-change-conduct",
+      "name": ".agents/skills/engine-change-conduct/SKILL.md",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -2916,17 +3008,17 @@
           "module:core"
         ]
       },
-      "slug": "engine-conduct",
+      "slug": "engine-change-conduct",
       "source": {
-        "fingerprint": "sha256:32cfe4b192683595d0505601c5ffc8241184f28e2e5286ea3e5441182520172c",
-        "path": ".agents/skills/engine-conduct/SKILL.md"
+        "fingerprint": "sha256:a70982b51e261b864e923551fd9fc5001352451e1dae367c548a68e8a6b0674e",
+        "path": ".agents/skills/engine-change-conduct/SKILL.md"
       },
       "status": "active",
       "type": "codex-skill"
     },
     {
-      "id": "codex-skill:engine-conduct.policy",
-      "name": ".agents/skills/engine-conduct/agents/openai.yaml",
+      "id": "codex-skill:engine-change-conduct.policy",
+      "name": ".agents/skills/engine-change-conduct/agents/openai.yaml",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -2936,10 +3028,170 @@
           "module:core"
         ]
       },
-      "slug": "engine-conduct.policy",
+      "slug": "engine-change-conduct.policy",
       "source": {
-        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
-        "path": ".agents/skills/engine-conduct/agents/openai.yaml"
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-change-conduct/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-check-impact",
+      "name": ".agents/skills/engine-check-impact/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-check-impact",
+      "source": {
+        "fingerprint": "sha256:c062f6540392215e84432c096c583f75f050fdfb692d84084b0415cccd931ce9",
+        "path": ".agents/skills/engine-check-impact/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-check-impact.policy",
+      "name": ".agents/skills/engine-check-impact/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-check-impact.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-check-impact/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-configure-codex",
+      "name": ".agents/skills/engine-configure-codex/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-configure-codex",
+      "source": {
+        "fingerprint": "sha256:a1481eca7c734c830b02a70f00f90f7662e6587b4108ecd4d7a66ae7291b3591",
+        "path": ".agents/skills/engine-configure-codex/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-configure-codex.policy",
+      "name": ".agents/skills/engine-configure-codex/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-configure-codex.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-configure-codex/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-configure-memory-backup",
+      "name": ".agents/skills/engine-configure-memory-backup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-configure-memory-backup",
+      "source": {
+        "fingerprint": "sha256:f99155ad2db7c77ff70b9c65b440f0c0f03b96e09032e368d07a78d65457fd15",
+        "path": ".agents/skills/engine-configure-memory-backup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-configure-memory-backup.policy",
+      "name": ".agents/skills/engine-configure-memory-backup/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-configure-memory-backup.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-configure-memory-backup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-coordinate-build",
+      "name": ".agents/skills/engine-coordinate-build/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-coordinate-build",
+      "source": {
+        "fingerprint": "sha256:161f371785271f1c649aa1e3dc14e4d953c9af7aacb3bf0afb346c1604f8dc09",
+        "path": ".agents/skills/engine-coordinate-build/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-coordinate-build.policy",
+      "name": ".agents/skills/engine-coordinate-build/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-coordinate-build.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-coordinate-build/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -2965,6 +3217,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-design-product",
+      "name": ".agents/skills/engine-design-product/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-design-product",
+      "source": {
+        "fingerprint": "sha256:2771631f25268b1eabbe2a3d67395aee406655687c1a444e05e991135bd00881",
+        "path": ".agents/skills/engine-design-product/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-design-product.policy",
+      "name": ".agents/skills/engine-design-product/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-design-product.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-design-product/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-design.policy",
       "name": ".agents/skills/engine-design/agents/openai.yaml",
       "owner": "product-design",
@@ -2980,6 +3272,206 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-design/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-develop-engine",
+      "name": ".agents/skills/engine-develop-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-develop-engine",
+      "source": {
+        "fingerprint": "sha256:83eb358d6c8f8d6e083c308a0ab78fa25cbafa1225e55938a60cbe4c4d00b8aa",
+        "path": ".agents/skills/engine-develop-engine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-develop-engine.policy",
+      "name": ".agents/skills/engine-develop-engine/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-develop-engine.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-develop-engine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-drop-operator-pin",
+      "name": ".agents/skills/engine-drop-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-drop-operator-pin",
+      "source": {
+        "fingerprint": "sha256:ad1eee8ab575172055612dba044f7f275684530f4a80011940a91a0e0e0fda52",
+        "path": ".agents/skills/engine-drop-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-drop-operator-pin.policy",
+      "name": ".agents/skills/engine-drop-operator-pin/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-drop-operator-pin.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-drop-operator-pin/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-enable-protection",
+      "name": ".agents/skills/engine-enable-protection/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-enable-protection",
+      "source": {
+        "fingerprint": "sha256:90ae1ee583e747c78b3f3ad50d4dfb059e80ebfb0aadbe789af6756083843f1d",
+        "path": ".agents/skills/engine-enable-protection/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-enable-protection.policy",
+      "name": ".agents/skills/engine-enable-protection/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-enable-protection.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-enable-protection/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-file-engine-issue",
+      "name": ".agents/skills/engine-file-engine-issue/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-file-engine-issue",
+      "source": {
+        "fingerprint": "sha256:11f05780ec5ecc5ff7c328e38f9c8f531e1f18d0da67d71ace82ba536af9122f",
+        "path": ".agents/skills/engine-file-engine-issue/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-file-engine-issue.policy",
+      "name": ".agents/skills/engine-file-engine-issue/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-file-engine-issue.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-file-engine-issue/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-file-upstream-issue",
+      "name": ".agents/skills/engine-file-upstream-issue/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-file-upstream-issue",
+      "source": {
+        "fingerprint": "sha256:3832beb97927146ff99426fb2840ede6c4923f279e5f0a873dcafd22eba12213",
+        "path": ".agents/skills/engine-file-upstream-issue/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-file-upstream-issue.policy",
+      "name": ".agents/skills/engine-file-upstream-issue/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-file-upstream-issue.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-file-upstream-issue/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3025,6 +3517,166 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-install-engine",
+      "name": ".agents/skills/engine-install-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-install-engine",
+      "source": {
+        "fingerprint": "sha256:23960e57103568da4dc7a7e8d8ecf0fb8c9d1b346f1bdda7fd5a6547398363fb",
+        "path": ".agents/skills/engine-install-engine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-install-engine.policy",
+      "name": ".agents/skills/engine-install-engine/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-install-engine.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-install-engine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-addons",
+      "name": ".agents/skills/engine-manage-addons/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-addons",
+      "source": {
+        "fingerprint": "sha256:4587f0562f1ab4220fd6f66b9a8243f5bc8142a0cd57c297e582a7f5b7e477fe",
+        "path": ".agents/skills/engine-manage-addons/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-addons.policy",
+      "name": ".agents/skills/engine-manage-addons/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-addons.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-manage-addons/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-setup",
+      "name": ".agents/skills/engine-manage-setup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-setup",
+      "source": {
+        "fingerprint": "sha256:f94dbe5c2a01be67b7698125b0e25eb658ba953b7ace29a5c59e8eee709dc736",
+        "path": ".agents/skills/engine-manage-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-setup.policy",
+      "name": ".agents/skills/engine-manage-setup/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-setup.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-manage-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-onboard-project",
+      "name": ".agents/skills/engine-onboard-project/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-onboard-project",
+      "source": {
+        "fingerprint": "sha256:d473838c5026171a77d4089e27c0d455403df1a052f0f256c8ccf85c54e5d53b",
+        "path": ".agents/skills/engine-onboard-project/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-onboard-project.policy",
+      "name": ".agents/skills/engine-onboard-project/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-onboard-project.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-onboard-project/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-parts",
       "name": ".agents/skills/engine-parts/SKILL.md",
       "owner": "core",
@@ -3065,6 +3717,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-prepare-routine",
+      "name": ".agents/skills/engine-prepare-routine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-prepare-routine",
+      "source": {
+        "fingerprint": "sha256:68e0b9d7287a0e340e960b3c95aa39f6936ac3291256d65e249a0d16181a8630",
+        "path": ".agents/skills/engine-prepare-routine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-prepare-routine.policy",
+      "name": ".agents/skills/engine-prepare-routine/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-prepare-routine.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-prepare-routine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-recall",
       "name": ".agents/skills/engine-recall/SKILL.md",
       "owner": "core",
@@ -3078,7 +3770,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:b4f727c5651ae4a722440efd5a729df77f1d57517c38d9d72ee7a31cdae9c305",
+        "fingerprint": "sha256:2d8a831b44f456ca563d2089f51940ecc9ab0edf89c59da343927d7e291242b3",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -3125,6 +3817,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-release-project",
+      "name": ".agents/skills/engine-release-project/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release-project",
+      "source": {
+        "fingerprint": "sha256:11fb99ae47db4e036b0cffc0a99cf6c14f08ec23d1ad57c00709added4d226b1",
+        "path": ".agents/skills/engine-release-project/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-release-project.policy",
+      "name": ".agents/skills/engine-release-project/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-release-project.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-release-project/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-release.policy",
       "name": ".agents/skills/engine-release/agents/openai.yaml",
       "owner": "core",
@@ -3140,6 +3872,86 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-release/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-remove-engine",
+      "name": ".agents/skills/engine-remove-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-remove-engine",
+      "source": {
+        "fingerprint": "sha256:b8235538f496ad3f6751a96050c4f2eaf9b40e60dcfed9526db327752b39572e",
+        "path": ".agents/skills/engine-remove-engine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-remove-engine.policy",
+      "name": ".agents/skills/engine-remove-engine/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-remove-engine.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-remove-engine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-restore-operator-pin",
+      "name": ".agents/skills/engine-restore-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-restore-operator-pin",
+      "source": {
+        "fingerprint": "sha256:9e4b4a4302fc31b7a4389719d320e7e8536b06ae1bc3996029ae4cb2dfd9ad38",
+        "path": ".agents/skills/engine-restore-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-restore-operator-pin.policy",
+      "name": ".agents/skills/engine-restore-operator-pin/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-restore-operator-pin.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-restore-operator-pin/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3185,6 +3997,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-save-operator-pin",
+      "name": ".agents/skills/engine-save-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-save-operator-pin",
+      "source": {
+        "fingerprint": "sha256:dee642b615b4c9a3fda5a0ccb25072908b1772d4b1f1df7c3c1d04fff90d9fb3",
+        "path": ".agents/skills/engine-save-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-save-operator-pin.policy",
+      "name": ".agents/skills/engine-save-operator-pin/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-save-operator-pin.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-save-operator-pin/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-setup",
       "name": ".agents/skills/engine-setup/SKILL.md",
       "owner": "core",
@@ -3198,8 +4050,328 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:bc628acf309ee2f8157a4a980ca9924cb01431fe7216a3347e91ef0c2586e20e",
+        "fingerprint": "sha256:c5872fb49eee0b5a1f86a0c6a04c0a154927a2094915759086f4b223e107b299",
         "path": ".agents/skills/engine-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-dependency-discipline",
+      "name": ".agents/skills/engine-setup-dependency-discipline/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-dependency-discipline",
+      "source": {
+        "fingerprint": "sha256:b1a9cda8728e46b7d2cc9d07abe9ffe22ca2fb48f2fd6c27f7f0b2a5ea88e095",
+        "path": ".agents/skills/engine-setup-dependency-discipline/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-dependency-discipline.policy",
+      "name": ".agents/skills/engine-setup-dependency-discipline/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-dependency-discipline.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-dependency-discipline/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-design-review",
+      "name": ".agents/skills/engine-setup-design-review/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-design-review",
+      "source": {
+        "fingerprint": "sha256:7acff59977a201579bec1e36265b2e541c5de6f5d85fe558c316a6a834e53c6d",
+        "path": ".agents/skills/engine-setup-design-review/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-design-review.policy",
+      "name": ".agents/skills/engine-setup-design-review/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-design-review.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-design-review/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-external-contribution",
+      "name": ".agents/skills/engine-setup-external-contribution/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-external-contribution",
+      "source": {
+        "fingerprint": "sha256:4a522f32892633eb2d52b218b403b30382b44fe47934a34f07bbc01e0942e253",
+        "path": ".agents/skills/engine-setup-external-contribution/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-external-contribution.policy",
+      "name": ".agents/skills/engine-setup-external-contribution/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-external-contribution.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-external-contribution/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-github-projects-sync",
+      "name": ".agents/skills/engine-setup-github-projects-sync/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-github-projects-sync",
+      "source": {
+        "fingerprint": "sha256:ed134b8a884eaa16d4e8fdeb79cb358be2cda4707da9aa19f63ce6445e84f8af",
+        "path": ".agents/skills/engine-setup-github-projects-sync/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-github-projects-sync.policy",
+      "name": ".agents/skills/engine-setup-github-projects-sync/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-github-projects-sync.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-github-projects-sync/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-memory-semantic-recall",
+      "name": ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-memory-semantic-recall",
+      "source": {
+        "fingerprint": "sha256:6a5c8c5c01a24ac932858e574c772e3a09cc44d620b6233c36926406d85b9ce5",
+        "path": ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-memory-semantic-recall.policy",
+      "name": ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-memory-semantic-recall.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-migration-discipline",
+      "name": ".agents/skills/engine-setup-migration-discipline/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-migration-discipline",
+      "source": {
+        "fingerprint": "sha256:6ae1bfdfcbece80caba222b27272951ece9ca6d6959ea2576735dd1d4feb11a6",
+        "path": ".agents/skills/engine-setup-migration-discipline/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-migration-discipline.policy",
+      "name": ".agents/skills/engine-setup-migration-discipline/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-migration-discipline.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-migration-discipline/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-product-design",
+      "name": ".agents/skills/engine-setup-product-design/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-product-design",
+      "source": {
+        "fingerprint": "sha256:711a5ade00e8e9e8db7d83501892de6f8cb30f6e8bf7a6d871dae4407518ec89",
+        "path": ".agents/skills/engine-setup-product-design/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-product-design.policy",
+      "name": ".agents/skills/engine-setup-product-design/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-product-design.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-product-design/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-qa-review",
+      "name": ".agents/skills/engine-setup-qa-review/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-qa-review",
+      "source": {
+        "fingerprint": "sha256:a091b9a06fb54e9b68c2be454a7857f918161e8c201286b3dc2a65b6d51279f1",
+        "path": ".agents/skills/engine-setup-qa-review/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup-qa-review.policy",
+      "name": ".agents/skills/engine-setup-qa-review/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-qa-review.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-setup-qa-review/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3220,6 +4392,126 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-help",
+      "name": ".agents/skills/engine-show-help/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-help",
+      "source": {
+        "fingerprint": "sha256:1a3513fd7e5a9efb32c9e4e4c52ec838a6f1cc68f9a83dba5986e438fdfce10c",
+        "path": ".agents/skills/engine-show-help/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-help.policy",
+      "name": ".agents/skills/engine-show-help/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-help.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-show-help/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-parts",
+      "name": ".agents/skills/engine-show-parts/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-parts",
+      "source": {
+        "fingerprint": "sha256:9e44977360db985482d07f64b710cbab95024402270d1ed0e08382c8b57fabf0",
+        "path": ".agents/skills/engine-show-parts/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-parts.policy",
+      "name": ".agents/skills/engine-show-parts/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-parts.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-show-parts/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-status",
+      "name": ".agents/skills/engine-show-status/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-status",
+      "source": {
+        "fingerprint": "sha256:1e358b142a0c44e5a051546c9405ea43df0b64ce52715d9276da04131bcd5f79",
+        "path": ".agents/skills/engine-show-status/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-show-status.policy",
+      "name": ".agents/skills/engine-show-status/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-show-status.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-show-status/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3305,8 +4597,8 @@
       "type": "codex-skill"
     },
     {
-      "id": "codex-skill:engine-tune",
-      "name": ".agents/skills/engine-tune/SKILL.md",
+      "id": "codex-skill:engine-submit-upstream-contribution",
+      "name": ".agents/skills/engine-submit-upstream-contribution/SKILL.md",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -3316,17 +4608,17 @@
           "module:core"
         ]
       },
-      "slug": "engine-tune",
+      "slug": "engine-submit-upstream-contribution",
       "source": {
-        "fingerprint": "sha256:983afb32910c556c2c9cca323f725c1837e4c073e0173be93f6b2d42e029d937",
-        "path": ".agents/skills/engine-tune/SKILL.md"
+        "fingerprint": "sha256:4e011287343702bada5a29215cfb151b96671c005fa1398ad16af96ef8700e49",
+        "path": ".agents/skills/engine-submit-upstream-contribution/SKILL.md"
       },
       "status": "active",
       "type": "codex-skill"
     },
     {
-      "id": "codex-skill:engine-tune.policy",
-      "name": ".agents/skills/engine-tune/agents/openai.yaml",
+      "id": "codex-skill:engine-submit-upstream-contribution.policy",
+      "name": ".agents/skills/engine-submit-upstream-contribution/agents/openai.yaml",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -3336,10 +4628,90 @@
           "module:core"
         ]
       },
-      "slug": "engine-tune.policy",
+      "slug": "engine-submit-upstream-contribution.policy",
       "source": {
-        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
-        "path": ".agents/skills/engine-tune/agents/openai.yaml"
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-submit-upstream-contribution/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-switch-reviewers",
+      "name": ".agents/skills/engine-switch-reviewers/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-switch-reviewers",
+      "source": {
+        "fingerprint": "sha256:ee87a087cd16552e00d75547fa40e25c0ae8106b098d110ac5501edd964f3550",
+        "path": ".agents/skills/engine-switch-reviewers/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-switch-reviewers.policy",
+      "name": ".agents/skills/engine-switch-reviewers/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-switch-reviewers.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-switch-reviewers/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune-settings",
+      "name": ".agents/skills/engine-tune-settings/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune-settings",
+      "source": {
+        "fingerprint": "sha256:005f5b04354a0efb3b3269747dd484c2d73db807bc643a0fd22af596236e3866",
+        "path": ".agents/skills/engine-tune-settings/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune-settings.policy",
+      "name": ".agents/skills/engine-tune-settings/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune-settings.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-tune-settings/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3365,6 +4737,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-upgrade-engine",
+      "name": ".agents/skills/engine-upgrade-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade-engine",
+      "source": {
+        "fingerprint": "sha256:38b8c3ba429f0939bf8171faa423c0e036fada5eba05e513f7169061ea0fac4a",
+        "path": ".agents/skills/engine-upgrade-engine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-upgrade-engine.policy",
+      "name": ".agents/skills/engine-upgrade-engine/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade-engine.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-upgrade-engine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-upgrade.policy",
       "name": ".agents/skills/engine-upgrade/agents/openai.yaml",
       "owner": "core",
@@ -3380,6 +4792,46 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-upgrade/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-validate-codex",
+      "name": ".agents/skills/engine-validate-codex/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-validate-codex",
+      "source": {
+        "fingerprint": "sha256:30b0f3f94953b8b831f498325d09fe8e290699645a69016e7a4180bf1a3c9453",
+        "path": ".agents/skills/engine-validate-codex/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-validate-codex.policy",
+      "name": ".agents/skills/engine-validate-codex/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-validate-codex.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-validate-codex/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -4377,7 +5829,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2ec52eb402926580a6d611c30a199be270beca3eee10b1190a1032660360a410",
+        "fingerprint": "sha256:164f5f94627d05f59d580e67f522b630d5c62d6ef5da73fcb6892f81f13ed70b",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4395,7 +5847,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:befa0842ae54a1344291cfebd1a053c7651ac327465fb89172b81a1c374fa670",
+        "fingerprint": "sha256:df4f096e94e6dde3a583c242d0ad859af593e03764c4c2c807e001f1a5cfe3d1",
         "path": ".engine/modules/dependency-discipline/manifest.json"
       },
       "status": "optional",
@@ -4413,7 +5865,7 @@
       },
       "slug": "design-review",
       "source": {
-        "fingerprint": "sha256:6637839b9e9b334fa9df3cedd5dc3b32569207a190402d15a1507e1e88eb44d8",
+        "fingerprint": "sha256:75cd0265b1c4a3ea959b6bbfeefac9c047e26ce8b32c4f27a4e5dbb856dca232",
         "path": ".engine/modules/design-review/manifest.json"
       },
       "status": "optional",
@@ -4431,7 +5883,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:e0ac862769bac2e6015fc7529114c2322009df63d92bc04568b96670d09e4527",
+        "fingerprint": "sha256:0e8b7f513cd0c28883f414456906fb6ef3230c4fa01c8162cdacc7a2a4021ce2",
         "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
@@ -4452,7 +5904,7 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:26c1a5cf83641b7d9754a877349f64fa589f150ef22f12750c36fbbf74e0fe94",
+        "fingerprint": "sha256:149a72d481dcb3145f2a78d3185e4aff1b07acf5910f84fd24434999b14028ea",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
@@ -4471,7 +5923,7 @@
       },
       "slug": "memory-semantic-recall",
       "source": {
-        "fingerprint": "sha256:6a0620e7bd07b8ae95e028c8f7b79a25f9da2398f364b1d127139688724b64f4",
+        "fingerprint": "sha256:b95cf827830b7992af311cf0542e655042cc0487214cf599855a0d3f1db41a45",
         "path": ".engine/modules/memory-semantic-recall/manifest.json"
       },
       "status": "default-on",
@@ -4512,7 +5964,7 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:0af5064637839a6711d5d31bd3d7e4331bf5a88accbb4c7aa3908fa040892447",
+        "fingerprint": "sha256:b449033606212fc86ad0155b5a4ac672464d97e13532a3aafa6f19ee5b6b8305",
         "path": ".engine/modules/migration-discipline/manifest.json"
       },
       "status": "optional",
@@ -4533,7 +5985,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:d78dcb70e3ac83ab2222433b3ac67348ff0a4ed9af7fa62de947b71f1c6f311d",
+        "fingerprint": "sha256:e6c39b7997d74935a2d070760f67831c67401c5725809f7819ce2f94ef9e9c32",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -4551,7 +6003,7 @@
       },
       "slug": "qa-review",
       "source": {
-        "fingerprint": "sha256:3facd4a004a9ef01d63346c8645d0ecb97c298e1c63f8ce82e1ec44dbf8fe1f9",
+        "fingerprint": "sha256:6383a34e32e6f0c8bc9c08fe43b4e8249acb1a92607665a997372c029c3c6390",
         "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
@@ -4788,7 +6240,7 @@
       },
       "slug": "conduct-author",
       "source": {
-        "fingerprint": "sha256:f161e0fd9a0fc690d544e4d488c65a956bd1eb2a5133ca1517e60b0974bd9899",
+        "fingerprint": "sha256:d106018ab4d6c045b487f0cbbf1f55274bab709cd8bbe665ea947802272d3f4d",
         "path": ".engine/operations/conduct-author.md"
       },
       "status": "active",
@@ -5228,7 +6680,7 @@
       },
       "slug": "tune-policy",
       "source": {
-        "fingerprint": "sha256:daa071e18354bcf2ac08d1dd0d6908939d5961066707fdceb2d8b2011bfde6f8",
+        "fingerprint": "sha256:ae5bc227f8e52738a56ca7d30b96ed899f5432b49f128dba198e94f889b86592",
         "path": ".engine/operations/tune-policy.md"
       },
       "status": "active",
@@ -5290,7 +6742,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:99461797f5507ea339ea658b391dc9bf4b735fefa27920b4af26e673d3dd6691",
+        "fingerprint": "sha256:170025abb30e179bf657cfc4a35a15c3aa5d4bc91282c0c4264019c3d42d4b39",
         "path": ".engine/policies/contract-threshold.md"
       },
       "status": "active",
@@ -5519,7 +6971,7 @@
       },
       "slug": "triage-threshold",
       "source": {
-        "fingerprint": "sha256:ad378c41ddc5aa49f8c1d7256236ad88845c546f88ad30f1b8824a8c06d3ffbb",
+        "fingerprint": "sha256:08f8f08b47533f9b0319508f4b4d642171a1ab1a587e3f77d9864045d7723768",
         "path": ".engine/policies/triage-threshold.md"
       },
       "status": "active",
@@ -5884,6 +7336,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:engine-issue-input.v1",
+      "name": ".engine/schemas/engine-issue-input.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-issue-input.v1",
+      "source": {
+        "fingerprint": "sha256:769ebb45eacbcf9270df3a294f46970c76bea3aae31b0f088d4c2f9369bf2283",
+        "path": ".engine/schemas/engine-issue-input.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:engine.v1",
       "name": ".engine/schemas/engine.v1.json",
       "owner": "core",
@@ -5996,7 +7465,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:2ed8aeaecb22ef9e3ed0c76da9e1ad8bf2c35d027d00f1e02282e210620bb75c",
+        "fingerprint": "sha256:f922d0c1afee336f6ce865be392bdba7def67e491a6bcd7ec99f577d34f95691",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -6030,7 +7499,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:3f43949315a4297833fd43276e3b37b91f5c8bd6791f7df6d20b80364ad82c64",
+        "fingerprint": "sha256:d26590c7dcaac2e5c715161155a44218c350cebd100b47f2301a9455d19b59fb",
         "path": ".engine/schemas/module.v1.json"
       },
       "status": "active",
@@ -6183,7 +7652,7 @@
       },
       "slug": "provisioning-catalog.v1",
       "source": {
-        "fingerprint": "sha256:eaf34b0ccd5adeab660d6b703853fb36b670a46c520f5c2f1f96554058428009",
+        "fingerprint": "sha256:d1f8026d48fd942e840be321c08abbda1d64a62de733a19a2e7de4df07ae789f",
         "path": ".engine/schemas/provisioning-catalog.v1.json"
       },
       "status": "active",
@@ -6200,7 +7669,7 @@
       },
       "slug": "skill.v1",
       "source": {
-        "fingerprint": "sha256:459a4c8100b59cced352bf169970ade630d28d809701f0421ea58ece577a5160",
+        "fingerprint": "sha256:099d789ed7c18c108d1c4d65b0c6eabe8f3285bae790117074cc2f094f7d2cb4",
         "path": ".engine/schemas/skill.v1.json"
       },
       "status": "active",
@@ -6292,31 +7761,9 @@
       "type": "schema"
     },
     {
-      "id": "skill:engine-board-setup",
-      "invocation": "operator-typed",
-      "name": ".claude/skills/engine-board-setup/SKILL.md",
-      "owner": "github-projects-sync",
-      "predicates": {
-        "governed_by": [
-          "schema:skill.v1"
-        ],
-        "provided_by": [
-          "module:github-projects-sync"
-        ]
-      },
-      "slug": "engine-board-setup",
-      "source": {
-        "fingerprint": "sha256:1d26c3a763d7a1c42a494bdf1c8735c820b1c0f38a13c65378b89fffad040799",
-        "path": ".claude/skills/engine-board-setup/SKILL.md"
-      },
-      "status": "active",
-      "title": "engine-board-setup",
-      "type": "skill"
-    },
-    {
-      "id": "skill:engine-conduct",
-      "invocation": "operator-typed",
-      "name": ".claude/skills/engine-conduct/SKILL.md",
+      "id": "skill:engine-change-conduct",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-change-conduct/SKILL.md",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -6324,15 +7771,118 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "operation:conduct-author"
         ]
       },
-      "slug": "engine-conduct",
+      "slug": "engine-change-conduct",
       "source": {
-        "fingerprint": "sha256:46a5301773818c7b74e5080b69ca8db2b2ba8d9243d0b9ad72de8d6002c8a935",
-        "path": ".claude/skills/engine-conduct/SKILL.md"
+        "fingerprint": "sha256:a52a58d82977f026464335cde299464739a7f13ca0288d044c08f12c57b9e4a5",
+        "path": ".claude/skills/engine-change-conduct/SKILL.md"
       },
       "status": "active",
-      "title": "engine-conduct",
+      "title": "engine-change-conduct",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-check-impact",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-check-impact/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:knowledge-impact-check"
+        ]
+      },
+      "slug": "engine-check-impact",
+      "source": {
+        "fingerprint": "sha256:610165c03d415c31f5dfafd309288b366f3e98c220278f76215d4aa10182db4a",
+        "path": ".claude/skills/engine-check-impact/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-check-impact",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-configure-codex",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-configure-codex/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:codex-settings"
+        ]
+      },
+      "slug": "engine-configure-codex",
+      "source": {
+        "fingerprint": "sha256:e10f2d54829ab7be01ecc86754fe7f2bf6570d98f6c9ea3a453785b7b0284cc3",
+        "path": ".claude/skills/engine-configure-codex/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-configure-codex",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-configure-memory-backup",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-configure-memory-backup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:backup_vault"
+        ]
+      },
+      "slug": "engine-configure-memory-backup",
+      "source": {
+        "fingerprint": "sha256:918435bef618b6817f10828ea6d88e4bc0211cf34b438b68bb8693eaddfe86a5",
+        "path": ".claude/skills/engine-configure-memory-backup/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-configure-memory-backup",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-coordinate-build",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-coordinate-build/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:build-orchestration"
+        ]
+      },
+      "slug": "engine-coordinate-build",
+      "source": {
+        "fingerprint": "sha256:0bc71f4e6646ec0e6a96ab3dbd8039f2f869b9795dcc6a821637853e110684a1",
+        "path": ".claude/skills/engine-coordinate-build/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-coordinate-build",
       "type": "skill"
     },
     {
@@ -6358,6 +7908,156 @@
       "type": "skill"
     },
     {
+      "id": "skill:engine-design-product",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-design-product/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:product-intake"
+        ]
+      },
+      "slug": "engine-design-product",
+      "source": {
+        "fingerprint": "sha256:0265733825ee333fe6751e70d4ae77ad6f4b215c114e0e15e3adcd1c5637cd46",
+        "path": ".claude/skills/engine-design-product/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-design-product",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-develop-engine",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-develop-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-development"
+        ]
+      },
+      "slug": "engine-develop-engine",
+      "source": {
+        "fingerprint": "sha256:b3c0087775bc4f8295fd2a18e035e9176ac4f92361c12f2cbab8639b2a9dc1cb",
+        "path": ".claude/skills/engine-develop-engine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-develop-engine",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-drop-operator-pin",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-drop-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:pins"
+        ]
+      },
+      "slug": "engine-drop-operator-pin",
+      "source": {
+        "fingerprint": "sha256:002fb7f0fa6dffce3ce9e3c835d5bc3a522c0973cfa445b99e241d4517873d35",
+        "path": ".claude/skills/engine-drop-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-drop-operator-pin",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-enable-protection",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-enable-protection/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:control-plane-bootstrap"
+        ]
+      },
+      "slug": "engine-enable-protection",
+      "source": {
+        "fingerprint": "sha256:d8372d9178f38c75412b0a88f0e159a0fd4e46c0831ee9e7f42d179b93943fed",
+        "path": ".claude/skills/engine-enable-protection/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-enable-protection",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-file-engine-issue",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-file-engine-issue/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:issue_author"
+        ]
+      },
+      "slug": "engine-file-engine-issue",
+      "source": {
+        "fingerprint": "sha256:bcdefec18249aa5b9e73e776782ace726f095d43e3bb88c8a010ab3f03855bed",
+        "path": ".claude/skills/engine-file-engine-issue/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-file-engine-issue",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-file-upstream-issue",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-file-upstream-issue/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:external-contribution-issue"
+        ]
+      },
+      "slug": "engine-file-upstream-issue",
+      "source": {
+        "fingerprint": "sha256:6782115845aee25d41be8680591a5c79c21b3b2f6094b185182cc5fdebfdda26",
+        "path": ".claude/skills/engine-file-upstream-issue/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-file-upstream-issue",
+      "type": "skill"
+    },
+    {
       "id": "skill:engine-help",
       "invocation": "operator-typed",
       "name": ".claude/skills/engine-help/SKILL.md",
@@ -6377,6 +8077,107 @@
       },
       "status": "active",
       "title": "engine-help",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-install-engine",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-install-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-arrival"
+        ]
+      },
+      "slug": "engine-install-engine",
+      "source": {
+        "fingerprint": "sha256:a9f2db76189fd0031abd313c3cbbd669f33a8daed9fcd8fce006fdb5ee187a70",
+        "path": ".claude/skills/engine-install-engine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-install-engine",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-manage-addons",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-manage-addons/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:module-add",
+          "operation:module-remove"
+        ]
+      },
+      "slug": "engine-manage-addons",
+      "source": {
+        "fingerprint": "sha256:3503fd921f00604bf9493983190238a5c3051b1cebc98c259005f27ecf522de7",
+        "path": ".claude/skills/engine-manage-addons/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-manage-addons",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-manage-setup",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-manage-setup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
+        ]
+      },
+      "slug": "engine-manage-setup",
+      "source": {
+        "fingerprint": "sha256:c4ebb809a12bfb34bf40876f25e68a66a8e8c57cfd501b6d6b75c9ce355a0339",
+        "path": ".claude/skills/engine-manage-setup/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-manage-setup",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-onboard-project",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-onboard-project/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:onboarding-read"
+        ]
+      },
+      "slug": "engine-onboard-project",
+      "source": {
+        "fingerprint": "sha256:61f0a3c249a42307053ec33592907ed4d9d11ea87ea4d4962de21a1669061d35",
+        "path": ".claude/skills/engine-onboard-project/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-onboard-project",
       "type": "skill"
     },
     {
@@ -6402,6 +8203,31 @@
       "type": "skill"
     },
     {
+      "id": "skill:engine-prepare-routine",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-prepare-routine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-routine"
+        ]
+      },
+      "slug": "engine-prepare-routine",
+      "source": {
+        "fingerprint": "sha256:0b6b551915147c58acaf77e7f4ba51b3bc4171117829c446e99bb5df23c09ccf",
+        "path": ".claude/skills/engine-prepare-routine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-prepare-routine",
+      "type": "skill"
+    },
+    {
       "id": "skill:engine-recall",
       "invocation": "model-auto",
       "name": ".claude/skills/engine-recall/SKILL.md",
@@ -6412,11 +8238,15 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "operation:memory-recall",
+          "tool:recall"
         ]
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:73ea870157c75731688a53f274d9f20945c024c17bd716401f789138ef7df8f2",
+        "fingerprint": "sha256:b903be711897f2c4ce197d84a900141d12a625be4f02511809db50b537b83c86",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -6446,6 +8276,82 @@
       "type": "skill"
     },
     {
+      "id": "skill:engine-release-project",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-release-project/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-release",
+          "operation:projects-release-advance"
+        ]
+      },
+      "slug": "engine-release-project",
+      "source": {
+        "fingerprint": "sha256:a9f834a1fdd069cf0cb1f1350df83fecaefd95c7dcacd87bc755093018f721ab",
+        "path": ".claude/skills/engine-release-project/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-release-project",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-remove-engine",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-remove-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-remove"
+        ]
+      },
+      "slug": "engine-remove-engine",
+      "source": {
+        "fingerprint": "sha256:07b6b9d428c15cfcb1db0ae925e3aeaaa453ef50ecc79e9300a564dacb95f218",
+        "path": ".claude/skills/engine-remove-engine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-remove-engine",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-restore-operator-pin",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-restore-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:pins"
+        ]
+      },
+      "slug": "engine-restore-operator-pin",
+      "source": {
+        "fingerprint": "sha256:edd24f026fe53d1180e01c2fa6aae80a988f30f4b31ddf4fbdba9f089b499fe0",
+        "path": ".claude/skills/engine-restore-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-restore-operator-pin",
+      "type": "skill"
+    },
+    {
       "id": "skill:engine-routine",
       "invocation": "operator-typed",
       "name": ".claude/skills/engine-routine/SKILL.md",
@@ -6468,6 +8374,31 @@
       "type": "skill"
     },
     {
+      "id": "skill:engine-save-operator-pin",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-save-operator-pin/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:pins"
+        ]
+      },
+      "slug": "engine-save-operator-pin",
+      "source": {
+        "fingerprint": "sha256:2484c2079cbcbd7c319863723fa6b3342e72b4835ece35fb71a136e106005a8f",
+        "path": ".claude/skills/engine-save-operator-pin/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-save-operator-pin",
+      "type": "skill"
+    },
+    {
       "id": "skill:engine-setup",
       "invocation": "operator-typed",
       "name": ".claude/skills/engine-setup/SKILL.md",
@@ -6482,11 +8413,265 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:05e939bbee4558b88cdb7aad9504e3de9f191f3bf11c3bed770b2b34bfe6dd9f",
+        "fingerprint": "sha256:518f2e2465aafe79ac69d10c49614e31e1685816813b2b574b62974b25e83ddc",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
       "title": "engine-setup",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-dependency-discipline",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-dependency-discipline/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-dependency-discipline",
+      "source": {
+        "fingerprint": "sha256:8a9b8e2b77b437774865d8b6ed4f51c534dc6eed7688348fee39fbe4fc096b71",
+        "path": ".claude/skills/engine-setup-dependency-discipline/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-dependency-discipline",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-design-review",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-design-review/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-design-review",
+      "source": {
+        "fingerprint": "sha256:c081b125ceee4806d628f46f2c1a68ec7054904f52bb70e48e71fa2b6ebeeedd",
+        "path": ".claude/skills/engine-setup-design-review/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-design-review",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-external-contribution",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-external-contribution/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-external-contribution",
+      "source": {
+        "fingerprint": "sha256:bde8c2a2b68bd2919893574ec559dce6be6f567667cc0a1a564a7cfe0117ae11",
+        "path": ".claude/skills/engine-setup-external-contribution/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-external-contribution",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-github-projects-sync",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-github-projects-sync/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:projects-sync-setup"
+        ]
+      },
+      "slug": "engine-setup-github-projects-sync",
+      "source": {
+        "fingerprint": "sha256:799d792347b44a36d8d874486f593ee2ea2c25f32f67061dbd8f983fa3ec3f28",
+        "path": ".claude/skills/engine-setup-github-projects-sync/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-github-projects-sync",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-memory-semantic-recall",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-memory-semantic-recall",
+      "source": {
+        "fingerprint": "sha256:a034c57dd515ac4220174a29ab37868a086f55ab098b97cfd1affd3fe1640a1a",
+        "path": ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-memory-semantic-recall",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-migration-discipline",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-migration-discipline/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-migration-discipline",
+      "source": {
+        "fingerprint": "sha256:3fb3a68276cfed8240a3dea73e2acdf094e483b419f00d2c9da0f87b144caff8",
+        "path": ".claude/skills/engine-setup-migration-discipline/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-migration-discipline",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-product-design",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-product-design/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-product-design",
+      "source": {
+        "fingerprint": "sha256:63191c731188541de11d32c38c05b0e9a714c52506c0b91b1d658549acf8e68e",
+        "path": ".claude/skills/engine-setup-product-design/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-product-design",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup-qa-review",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-setup-qa-review/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup-qa-review",
+      "source": {
+        "fingerprint": "sha256:c4aa1dbee3ca62f537999840bf71fa6b4a352ffce29b34b312a809332a9f25d4",
+        "path": ".claude/skills/engine-setup-qa-review/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup-qa-review",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-show-help",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-show-help/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:engine_help"
+        ]
+      },
+      "slug": "engine-show-help",
+      "source": {
+        "fingerprint": "sha256:8517d68f8f880f422c0c82626ee7489fe63d73c62c21704763c0d308d1b0b348",
+        "path": ".claude/skills/engine-show-help/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-show-help",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-show-parts",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-show-parts/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:self_map"
+        ]
+      },
+      "slug": "engine-show-parts",
+      "source": {
+        "fingerprint": "sha256:f83c4b81001ed57d5e828257926a3d5f41f7f8b1c2f68e2fbdcdde9b148652f6",
+        "path": ".claude/skills/engine-show-parts/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-show-parts",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-show-status",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-show-status/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "tool:engine_status"
+        ]
+      },
+      "slug": "engine-show-status",
+      "source": {
+        "fingerprint": "sha256:8468025c9d1694710541d01e717b836f2da30a2fb636dbcc9745e438dfa62efa",
+        "path": ".claude/skills/engine-show-status/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-show-status",
       "type": "skill"
     },
     {
@@ -6534,9 +8719,9 @@
       "type": "skill"
     },
     {
-      "id": "skill:engine-tune",
-      "invocation": "operator-typed",
-      "name": ".claude/skills/engine-tune/SKILL.md",
+      "id": "skill:engine-submit-upstream-contribution",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-submit-upstream-contribution/SKILL.md",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -6544,15 +8729,68 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "operation:external-contribution-submit"
         ]
       },
-      "slug": "engine-tune",
+      "slug": "engine-submit-upstream-contribution",
       "source": {
-        "fingerprint": "sha256:50340b7b159efb5265749a8abda815eb879246fe22646e47273713d419138a15",
-        "path": ".claude/skills/engine-tune/SKILL.md"
+        "fingerprint": "sha256:0f15b182499dee49fd354b5774645a04c2a30cbce4802f6ae46acef8dbd28fbb",
+        "path": ".claude/skills/engine-submit-upstream-contribution/SKILL.md"
       },
       "status": "active",
-      "title": "engine-tune",
+      "title": "engine-submit-upstream-contribution",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-switch-reviewers",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-switch-reviewers/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-team-switch"
+        ]
+      },
+      "slug": "engine-switch-reviewers",
+      "source": {
+        "fingerprint": "sha256:06f46c6854e1b25d1076e30296a5ec698ad5f47fc6e77ba9b263af8296ed8c3c",
+        "path": ".claude/skills/engine-switch-reviewers/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-switch-reviewers",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-tune-settings",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-tune-settings/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:tune-policy"
+        ]
+      },
+      "slug": "engine-tune-settings",
+      "source": {
+        "fingerprint": "sha256:31a2a3cf2c71df4a28b1b75339425479b847b7c6cf14340886f8897df8e18785",
+        "path": ".claude/skills/engine-tune-settings/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-tune-settings",
       "type": "skill"
     },
     {
@@ -6575,6 +8813,56 @@
       },
       "status": "active",
       "title": "engine-upgrade",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-upgrade-engine",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-upgrade-engine/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:engine-upgrade"
+        ]
+      },
+      "slug": "engine-upgrade-engine",
+      "source": {
+        "fingerprint": "sha256:b9a8eea4b6c3637f22b81d62de32c312c3fc7ff8f95f2a6c0be2dcd1bc9a0f35",
+        "path": ".claude/skills/engine-upgrade-engine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-upgrade-engine",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-validate-codex",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-validate-codex/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:codex-validation"
+        ]
+      },
+      "slug": "engine-validate-codex",
+      "source": {
+        "fingerprint": "sha256:73a058cef6952cab0dc26deaa3b60500085698530c6f00f786670d3fca4c2ee5",
+        "path": ".claude/skills/engine-validate-codex/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-validate-codex",
       "type": "skill"
     },
     {
@@ -6989,7 +9277,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:b63f9a1505fada5ff66778ace6b251edc37618a8e467bbc4c857d05557554b1d",
+        "fingerprint": "sha256:e0499d6f565ff921fd5a3efb98d4d0e78bae2a77536247e3ff43f344c1eb3036",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -7534,6 +9822,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:skill_discovery",
           "tool:validate"
         ],
         "provided_by": [
@@ -7542,7 +9831,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:66938cdff43b0168cf3df7a6e891872c7ddf0ba017bbd091fc9a8f07555c5caf",
+        "fingerprint": "sha256:01261aac72722552164f3ddf8445429f4052369915844d14e940aa457065403a",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -8308,7 +10597,7 @@
       },
       "slug": "demo_contract_rate",
       "source": {
-        "fingerprint": "sha256:9b7a009a244d1820a02a23b9c4f9b58bbfb51c3cb07f35702f24eea66165528f",
+        "fingerprint": "sha256:b06f6a7d1f779246ea34c7207142975641d2a43e7e6f926e062bf96c9582dc24",
         "path": ".engine/tools/demo_contract_rate.py"
       },
       "status": "active",
@@ -9109,6 +11398,7 @@
         "imports": [
           "tool:module_catalog",
           "tool:providers",
+          "tool:skill_discovery",
           "tool:validate"
         ],
         "provided_by": [
@@ -9117,7 +11407,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:67943066a5f0c46fcc69eaafe5b2594932087e0660990ea25e5ecec961a7259a",
+        "fingerprint": "sha256:b33b0c698beb4efd6559d8e349185ce491f8d7eb92a0e5e675841856acd74d78",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -9633,7 +11923,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:eaf0f9d6f7bde0e57af0d65e304cdc8b0eb087aea0211bd814cfd743fadbb40b",
+        "fingerprint": "sha256:ba50f249508b2b77e392a1b00fb56f16fc7f6949a12a9db32db59a3bfd1be34f",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -9818,7 +12108,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:c5e4c367dce80a1904d1d9154ca665323b57171393ed669ee68dd332cfca51e9",
+        "fingerprint": "sha256:aedd5b58b551dc78c01b02cc78fc67a2aa19963d14be4081a1d8b1c5cff05169",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -10344,13 +12634,14 @@
       "type": "tool"
     },
     {
-      "entrypoint": "library",
+      "entrypoint": "cli",
       "guarded": false,
       "id": "tool:module_catalog",
       "name": ".engine/tools/module_catalog.py",
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:module_coherence",
           "tool:validate"
         ],
         "provided_by": [
@@ -10359,7 +12650,7 @@
       },
       "slug": "module_catalog",
       "source": {
-        "fingerprint": "sha256:3ed6a1170bc8eb2b789385c97778e763c0cbe13d675ebe576f9a1b529453a342",
+        "fingerprint": "sha256:5533bf00ec0be882815766becd237e6e2408237cc25aedfbadd5f133430c0a13",
         "path": ".engine/tools/module_catalog.py"
       },
       "status": "active",
@@ -10387,7 +12678,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:fe92605efd895db2048c9962c208eb00fc543439f2c11167dfd1cc4bf493208c",
+        "fingerprint": "sha256:f833d33b67fe5705f80e0ebb08c621da722168a15529c99a168e8e5501878acf",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -10429,7 +12720,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:47be4d8af2dd149f41858860edbaca4efbc45c1bc5bec9f4222aae7808cd3e87",
+        "fingerprint": "sha256:8e8c272b5e32cd5ea426d314b6a80ef6b64300ab764012e569f8c778be33b9e6",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -10568,7 +12859,7 @@
       },
       "slug": "operator_overrides",
       "source": {
-        "fingerprint": "sha256:7fbda24a49b72931402ca9fee32b1c4b264dd10a11325aed6dbde227e981d66c",
+        "fingerprint": "sha256:f72c9d5403031a0462ef897db3bf2574342070f5d4bb1c4dc6d537cc68270003",
         "path": ".engine/tools/operator_overrides.py"
       },
       "status": "active",
@@ -10597,7 +12888,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:eca42e19273526d7e2f35b20996b78f926fa3b013514724b703da0c47939382c",
+        "fingerprint": "sha256:da009da77b4458ca87c205edab8dffe22bbd43fa903605e9cc711ac294d51e9e",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -10672,7 +12963,7 @@
       },
       "slug": "policy_override_check",
       "source": {
-        "fingerprint": "sha256:0fdae3e5bcd733019af6dd7f55dbb0242cb9986d9bbff0853b186bc86cbe42ee",
+        "fingerprint": "sha256:73caf1f2b32f85b8411b3747e3f506a57d277dd7b8454a6a276058140698ecbb",
         "path": ".engine/tools/policy_override_check.py"
       },
       "status": "active",
@@ -10765,7 +13056,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:9a9df34726a6082fbc02d90f251e0a8f575b17d3533b86434d124948e9423cfe",
+        "fingerprint": "sha256:f26e2a5d5072842df264c4ea4203b286684ecc77a34ad96964cdca74999f2a42",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -10824,6 +13115,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:skill_discovery",
           "tool:validate"
         ],
         "provided_by": [
@@ -10832,7 +13124,7 @@
       },
       "slug": "provider_parity_check",
       "source": {
-        "fingerprint": "sha256:b4dc30f459c304031f11d1e4334cad842a5e1a2857f90ce68b2aa23a487f56fb",
+        "fingerprint": "sha256:de79c6029a0e08d1587137ef83b68efc4160ce37b5f9e8fc1f58c64848c00d56",
         "path": ".engine/tools/provider_parity_check.py"
       },
       "status": "active",
@@ -11427,6 +13719,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:setup_route_gen",
+      "name": ".engine/tools/setup_route_gen.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "setup_route_gen",
+      "source": {
+        "fingerprint": "sha256:cf56a9dbacf9217d3ecdfc050695ac0a9dfa17025e83c8bbc29604bf136cd37b",
+        "path": ".engine/tools/setup_route_gen.py"
+      },
+      "status": "active",
+      "summary": "Generator for the per-module setup routes (ADR 0336).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:shipped_issue_references_check",
@@ -11459,6 +13775,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:skill_discovery",
           "tool:validate"
         ],
         "provided_by": [
@@ -11467,11 +13784,34 @@
       },
       "slug": "skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:d99a9987bc99a9d8aa399d39805071e81713bb25476fede89bad437fa769d1e8",
+        "fingerprint": "sha256:6c3eee228e6b78dd1eb26590282bbf00ce7ae5357a0888379711c1c1d8343f61",
         "path": ".engine/tools/skill_coherence_check.py"
       },
       "status": "active",
       "summary": "Skill-set self-election guard — the custom/script entry for engine/check/skill-coherence.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:skill_discovery",
+      "name": ".engine/tools/skill_discovery.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "skill_discovery",
+      "source": {
+        "fingerprint": "sha256:e15a5733bf407da88956657ade182823c50130d82c437b83ae738b6feec3264e",
+        "path": ".engine/tools/skill_discovery.py"
+      },
+      "status": "active",
+      "summary": "Shared skill-discovery helper — the single home for finding the engine's own skills on disk.",
       "type": "tool"
     },
     {
@@ -11648,7 +13988,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:539e10ed7e3e359dfb3770e1cae3dd47d84fca4b559e8bb9d873b4ec4d590633",
+        "fingerprint": "sha256:a11f1a0b7d942b67c9d1e80c16fb8608922a7eb8269917d4ed439d0940751193",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -12053,7 +14393,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:4f6a042c597616336deae9e12999d9e0b155aa2fcc133c70c7c80ff2027be98d",
+        "fingerprint": "sha256:59b6223739f4b7b0d62619278cb3c9de0d1f4f9e207b4fa41525e29d295c2552",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -12511,7 +14851,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:d02e5ae7b515273717608953185fd42f83b860080eb92085a8a98daf2f5fe8e9",
+        "fingerprint": "sha256:1b090df5fe1c4da6a167a9b99cdc49bdfd96453e719afb97e491d342a1c58ad1",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -12860,7 +15200,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:7f7ba42e988e8e8263be9b1da41a6b9dc8f9b09c26e3926c81a60537bae2a08c",
+        "fingerprint": "sha256:40994349386f975dae2d1d883bffd4946060960714e85fb59408b668b36ecbb2",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -13374,7 +15714,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:6609e364ef9a64f96c17e96469b59c99b279a25ae2d005d7fcaad8fd5de6e1b2",
+        "fingerprint": "sha256:caf85f2791d17501dff985f8e9ec37438677090d49cbf40bbeaf6fc8e3cbf66d",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -13579,7 +15919,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:e9a176a25ab3bde6375fcd93569bbe914b7005245c8763ec5ac29956fa47818f",
+        "fingerprint": "sha256:0f640a704798918dbc51078e0ab3fa15243f77e6a85e4c082b1be61f64fdd166",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -13999,11 +16339,11 @@
       },
       "slug": "test_module_catalog",
       "source": {
-        "fingerprint": "sha256:7ae05caf057b62568780889cb034c8d2555570b2da7faaff92e84f14f6f8895a",
+        "fingerprint": "sha256:275677089d10e2b9bdd1dc129d952c64a0311aac108f7cfb2c786cd1280e8b18",
         "path": ".engine/tools/test_module_catalog.py"
       },
       "status": "active",
-      "summary": "Tests for the shared optional-module catalog reader.",
+      "summary": "Tests for the shared optional-module catalog reader/generator.",
       "type": "tool"
     },
     {
@@ -14040,7 +16380,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:e57bdda65f8fddc483fd9fff3a1a671f9908fc5f51bbdaa6d3ad6498753aae62",
+        "fingerprint": "sha256:8a9142cd8d4225a4b0b5a475490512185ac2223b44385d6742269b92c1ae3bfe",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -14289,7 +16629,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:e3718a6eee4bf0fbcfdf50055ff11fb6fd756c276f10e96d401b45ee1eb81659",
+        "fingerprint": "sha256:85ea6b561ccc0f195159980f0d66abad372ac445f186b9464d073ca3eddc19be",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
@@ -14388,7 +16728,7 @@
       },
       "slug": "test_policy_override_check",
       "source": {
-        "fingerprint": "sha256:28dc8045734446d032e5f8a2ab478e963584882188503791370ef4fee056eca2",
+        "fingerprint": "sha256:d4c5db9baec40d249888fe7d9817971dea018445191d133c11f5bedaf2718d69",
         "path": ".engine/tools/test_policy_override_check.py"
       },
       "status": "active",
@@ -14436,7 +16776,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:4c29b1ec806b6c5d72d0c440d47d704eb5dbb25261559c6f71ba8d3f5b378058",
+        "fingerprint": "sha256:fdc5aacf15aeb0ae9c77eff8317bc059c63046efa7793bcf8a34104e273f8c31",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -14805,7 +17145,7 @@
       },
       "slug": "test_retired_settings",
       "source": {
-        "fingerprint": "sha256:d0b4fe027b45a914a48427650350e0044447f3149228b266090ff8554c78a01a",
+        "fingerprint": "sha256:e5c8e25c952ff204f1d2e46bee4a2f73cfbffaf7b041f54db88a7a98623399c5",
         "path": ".engine/tools/test_retired_settings.py"
       },
       "status": "active",
@@ -15169,7 +17509,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:230350ec2c0380e8785d7bd0828d1a0c15dc991960ff37dffbd90d124cfd9670",
+        "fingerprint": "sha256:6329756f9d0eab111c4b650896c76ebf9300ce86814d2fd26417d527fdbdfda9",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
@@ -15351,6 +17691,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_skill_discovery",
+      "name": ".engine/tools/test_skill_discovery.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:skill_discovery"
+        ]
+      },
+      "slug": "test_skill_discovery",
+      "source": {
+        "fingerprint": "sha256:ef34eeaea9cafe107581d14e9362cb1e3e517806043bb9d4d276fcdab537d51a",
+        "path": ".engine/tools/test_skill_discovery.py"
+      },
+      "status": "active",
+      "summary": "Tests for the shared skill-discovery helper.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_spec_form",
       "name": ".engine/tools/product_design/test_spec_form.py",
       "owner": "product-design",
@@ -15516,7 +17879,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:1e37e691787f25fd3832c9d32fb587f144dc2cb897be9cdcd3fe1e8d15ee5b1b",
+        "fingerprint": "sha256:6e86ad87595367d62f683851435821a9232fd45170d3761596125c0fb11c43cc",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -15539,11 +17902,11 @@
       },
       "slug": "test_tune",
       "source": {
-        "fingerprint": "sha256:5d2c00de7a463b6582a5888f8484f202c65e12f0e83a1963f9968ddd87cd951d",
+        "fingerprint": "sha256:7bf672744369d8e95cb902dfcd3eb0e9e136188c9a566195a5d01695e409e7ff",
         "path": ".engine/tools/test_tune.py"
       },
       "status": "active",
-      "summary": "Tests for the `/engine-tune` tool.",
+      "summary": "Tests for the `/engine-setup` tool.",
       "type": "tool"
     },
     {
@@ -15737,11 +18100,11 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:0fde74757a62398e9ddc0fed7908e0dd8992c200e17410d6f94abf235421e0df",
+        "fingerprint": "sha256:b04ce6cf5bd7e23643d2606a98eb7a4f21c9b93d0b0c5574186366ba20b52592",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",
-      "summary": "`/engine-tune` tool — adjust a tunable engine setting through a reviewed change.",
+      "summary": "`/engine-setup` tool — adjust a tunable engine setting through a reviewed change.",
       "type": "tool"
     },
     {

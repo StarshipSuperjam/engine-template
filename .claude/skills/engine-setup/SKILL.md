@@ -1,6 +1,6 @@
 ---
 name: engine-setup
-description: Set up your project for the first time — I'll walk you through a few choices, then get everything ready.
+description: Set up the Engine in a new project, and afterwards manage add-ons, conduct, reviewers, protection, backup, and settings.
 invocation: operator-typed
 disable-model-invocation: true
 allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py disclosure*), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py setup*)
@@ -8,24 +8,38 @@ allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --dire
 
 ## Steps
 
-1. Follow the procedure in `.engine/operations/first-run.md`. In short: run
-   `python3 .engine/tools/instantiator.py show` to welcome the new operator — a plain-language orientation to
-   what's already running (the essentials that come with every Engine, described not chosen) — and present the
-   choices: who reviews changes here, and which optional add-ons to include (each addable later or removable).
-   Take the operator's answers, then confirm to save their choices. From there
-   the engine continues: it installs the choices and turns on the review gate, checks that everything fits
-   together (pausing in plain words if something needs fixing — the operator's choices are never lost), offers the
-   operator a private off-computer backup of the project's memory (creating one only on a clear yes to a named
-   destination), and finally tidies away the one-time setup files.
+1. Work out which case this is:
+   - **A brand-new project the Engine has not been set up in yet** (the one-time setup files are still present
+     and no choices have been installed): run first-time setup by following `.engine/operations/first-run.md`.
+     In short: run `python3 .engine/tools/instantiator.py show` to welcome the new operator — a plain-language
+     orientation to what's already running (the essentials that come with every Engine, described not chosen) —
+     and present the choices: who reviews changes here, and which optional add-ons to include (each addable
+     later or removable). Take the operator's answers, then confirm to save them. From there the engine
+     continues: it installs the choices and turns on the review gate, checks that everything fits together
+     (pausing in plain words if something needs fixing — the operator's choices are never lost), offers the
+     operator a private off-computer backup of the project's memory (creating one only on a clear yes to a
+     named destination), and finally tidies away the one-time setup files.
+   - **A project that is already set up**: this is the permanent way to manage the Engine's configuration. Ask
+     the operator what they'd like to do, and enter the matching procedure:
+     - add or remove an optional add-on — `.engine/operations/module-add.md` / `.engine/operations/module-remove.md`
+     - change the codes of conduct (how the assistant works with them) — `.engine/operations/conduct-author.md`
+     - adjust a tunable setting — `.engine/operations/tune-policy.md`
+     - switch the review team or reviewer mode — `.engine/operations/engine-team-switch.md`
+     - turn on branch protection and the control-plane safeguards — `.engine/operations/control-plane-bootstrap.md`
+     - set up or adjust the memory backup — `uv run --directory .engine -- python tools/memory/backup_vault.py setup`
+     - configure an installed module — follow that module's own setup, when it has one
+   Never install, remove, or change a setting because the operator merely mentioned it; each is their decision,
+   made on a clear yes.
 
 ## Notes
 
-This is the command you type once, in a brand-new project, to set the engine up. It walks you through who
-reviews changes and which optional add-ons to include, then gets everything ready. On a project that is
-already set up, it has nothing to do and says so.
+This is the command you type to set the Engine up in a brand-new project and, from then on, to manage its
+configuration — add-ons, conduct, tuning, reviewer mode, protection, memory backup, and installed-module
+settings. It is a permanent command: it stays after first-run rather than being tidied away with the one-time
+setup files, so there is always one place to manage the project's Engine.
 
-Setup is launched with plain `python3` — not the engine's own tool runner — on purpose: it is the one step
-that has to run *before* it installs that runner, so it cannot depend on it. Every other engine command runs
-through the installed runner; this one alone runs on the system's Python, and only until setup has installed
-the runner. Do not switch this launch to the tool runner — that would stop setup from being able to start on a
-brand-new project.
+First-time setup is launched with plain `python3` — not the engine's own tool runner — on purpose: it is the
+one step that has to run *before* it installs that runner, so it cannot depend on it. Every other engine
+command runs through the installed runner; that first-run launch alone runs on the system's Python, and only
+until setup has installed the runner. Do not switch it to the tool runner — that would stop setup from being
+able to start on a brand-new project.

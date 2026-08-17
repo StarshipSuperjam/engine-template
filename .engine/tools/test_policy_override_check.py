@@ -3,7 +3,7 @@
 Verifies: with no override (the normal state) the check surfaces nothing; a saved value on a current,
 eligible setting surfaces nothing; a saved key the policy no longer carries is surfaced as stale; a saved
 value on a fixed (structural) setting is surfaced as refused; a whole slice for a policy that no longer
-exists is surfaced; and the finding carries the plain `/engine-tune` fix guidance. The CLI emit + demo run.
+exists is surfaced; and the finding carries the plain `/engine-setup` fix guidance. The CLI emit + demo run.
 """
 import contextlib
 import io
@@ -28,13 +28,13 @@ class TestFindings(unittest.TestCase):
         fs = poc.findings("hard", override={"triage-threshold": {"a_setting_that_was_removed": 9}})
         self.assertEqual(len(fs), 1)
         self.assertEqual(fs[0]["severity"], "hard")
-        self.assertIn("/engine-tune", fs[0]["message"], "the fix points the operator at the command")
+        self.assertIn("/engine-setup", fs[0]["message"], "the fix points the operator at the command")
 
     def test_structural_key_is_surfaced_in_plain_language(self):
         fs = poc.findings("hard", override={"attention": {"precedence_blocking_debt": 1}})
         self.assertEqual(len(fs), 1)
         self.assertIn("safety order", fs[0]["message"], "a fixed setting is named plainly")
-        self.assertIn("/engine-tune", fs[0]["message"])
+        self.assertIn("/engine-setup", fs[0]["message"])
 
     def test_non_number_value_is_surfaced(self):
         # A hand-edited non-number on an eligible setting is caught (the engine-mediated command refuses it,

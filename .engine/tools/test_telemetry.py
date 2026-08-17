@@ -446,7 +446,7 @@ class TestTriagePressure(unittest.TestCase):
 class TestContractRate(unittest.TestCase):
     """The contract-rate soft-warn (the contract-threshold policy's third tier): counts the operator's OWN
     engine decisions accepted in the trailing 7 days, reads the tunable limit through the override merge so
-    /engine-tune governs it, and renders a plain nudge only over the limit — render-only, degrade-safe."""
+    /engine-setup governs it, and renders a plain nudge only over the limit — render-only, degrade-safe."""
 
     def _seed(self, directory, name, status, date):
         with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
@@ -490,14 +490,14 @@ class TestContractRate(unittest.TestCase):
         self.assertIsNone(telemetry.contract_rate_line(2, 3))       # under -> nothing
         line = telemetry.contract_rate_line(4, 3)                   # over -> a line
         self.assertIsNotNone(line)
-        self.assertIn("/engine-tune", line)
+        self.assertIn("/engine-setup", line)
         # operator-facing: engine-domain anchor, no backstage vocab
         for banned in ("eADR", "stream", "severity", "persistence", "contract-threshold"):
             self.assertNotIn(banned, line)
 
     def test_threshold_reads_the_default_and_an_override_governs(self):
         self.assertEqual(telemetry.contract_rate_threshold(), 3)                             # shipped default
-        self.assertEqual(telemetry.contract_rate_threshold(override={"contract_rate_max": 5}), 5)  # /engine-tune governs
+        self.assertEqual(telemetry.contract_rate_threshold(override={"contract_rate_max": 5}), 5)  # /engine-setup governs
         self.assertEqual(telemetry.contract_rate_threshold(override={"contract_rate_max": "lots"}), 3)  # garbage refused
 
     def test_instance_dir_agrees_with_the_knowledge_graph_stream_path(self):

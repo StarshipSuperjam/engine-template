@@ -389,7 +389,7 @@ FALLBACK_COPY = {
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
         "to work with you (for example, speaking plainly, and explaining choices before you make them). "
         "They're here from the first session, and they're yours: change, add, or remove any of them any time "
-        "with /engine-conduct ($engine-conduct in Codex). I didn't put them in place silently — this note is me telling you they're here."
+        "with /engine-setup ($engine-setup in Codex). I didn't put them in place silently — this note is me telling you they're here."
     ),
     "product-version-seeded": (
         "Your project now carries its own version file — product-version.json at the top level, starting at "
@@ -1086,8 +1086,8 @@ def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
 
 _EMPTY_OPERATOR = (
     "---\ncodes: []\n---\n\n"
-    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct "
-    "($engine-conduct in Codex). They sit "
+    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-setup "
+    "($engine-setup in Codex). They sit "
     "alongside the engine's defaults and take priority when they share an id. This file is yours: an engine "
     "update never overwrites it. It starts empty — the engine's defaults are already in force. -->\n"
 )
@@ -1097,7 +1097,7 @@ def _seed_conduct(say, copy=None) -> str:
     """Seed the operator's codes-of-conduct override from the maintainer's template seed — the seed-then-own
     pattern, the same SHAPE and DISCLOSURE as _seed_security, and like it COPY-IF-ABSENT: once
     .engine/conduct/operator.md exists it is operator config, so the engine NEVER overwrites it — a
-    resumed/re-run apply leaves a /engine-conduct-tuned stance exactly as it is (returns "present"). On first
+    resumed/re-run apply leaves a /engine-setup-tuned stance exactly as it is (returns "present"). On first
     run copies .engine/provisioning/conduct-seed.md into the committed .engine/conduct/operator.md; an absent or
     empty seed yields a valid empty override, never an error. Then discloses, in plain language, that the stance
     is present and theirs to tune — only when it actually seeds. Paths are validate.ROOT-relative, so a
@@ -1769,8 +1769,11 @@ _FIRST_RUN_ASSET_FILES = (
     # no empty directory).
     "assets/engine_banner.jpg",
 )
-_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
-                         os.path.join(".agents", "skills", "engine-setup"))
+# engine-setup is now the PERMANENT setup dispatcher (ADR 0336): it survives first-run so an operator can
+# manage add-ons, conduct, reviewers, protection, backup, and module configuration afterwards. It is therefore
+# NOT retired, so this set is empty. The instantiator and genuinely construction-only assets still retire; the
+# dispatcher must behave correctly after they are gone.
+_FIRST_RUN_ASSET_DIRS = ()
 
 # Every retirement target must be engine-owned. The `.engine/` subtree is wholly the engine's, even on a
 # brownfield "add the engine to an existing project" arrival; `.claude/` and `.agents/` are NOT — there they

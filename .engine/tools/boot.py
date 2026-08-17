@@ -1102,7 +1102,7 @@ def _recent_members(result: dict) -> list:
     decisions are consolidated into memory, so the merged-PR half will normally take the whole slice and the
     recall block will often be empty. That is the shared budget working as specified — one partition, one
     budget — and the budget VALUES are explicitly uncalibrated build-spec leaves, tunable via
-    `/engine-tune`. Splitting the slice per-source to "fix" it would invent a sub-budget the policy does not
+    `/engine-setup`. Splitting the slice per-source to "fix" it would invent a sub-budget the policy does not
     have. Worth revisiting only with real usage to calibrate against."""
     entry = next((e for e in result.get("partition", []) if e.get("category") == "recent_decisions"), None)
     if not entry:
@@ -1408,8 +1408,8 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     triage_pressure_line = None
     if low_severity_count is not None:
         try:
-            # Read the threshold through the operator-override merge so a reviewed /engine-tune of it governs
-            # live — the line already tells the operator "type /engine-tune", so that tune must actually apply.
+            # Read the threshold through the operator-override merge so a reviewed /engine-setup of it governs
+            # live — the line already tells the operator "type /engine-setup", so that tune must actually apply.
             threshold = int(telemetry.load_thresholds(
                 override=operator_overrides.slice_for("triage-threshold") or None).get("triage_pressure", 0))
             triage_pressure_line = telemetry.triage_pressure_line(low_severity_count, threshold)
@@ -1419,7 +1419,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     # "are decisions being over-recorded?" line once the operator's OWN engine decisions accepted in the last
     # 7 days cross the governed limit, else None. Boot DISPLAYS it read-only (it never writes a record); the
     # count reads only the deployment-owned per-instance decision folder, and the threshold reads through the
-    # override merge so /engine-tune governs it. SUPPRESSED (None) whenever the folder can't be read or the
+    # override merge so /engine-setup governs it. SUPPRESSED (None) whenever the folder can't be read or the
     # count sits at/under the limit — never a false number.
     contract_rate_line = None
     contract_rate = telemetry.derive_contract_rate(moment.utc_now())

@@ -125,7 +125,7 @@ class TestSync(_Base):
         # itself is a pure no-op; the handler is what surfaces the plain-language setup next step).
         result = ps.sync(force=True, config=None, signals=_signals(), gql=None, items=[])
         self.assertEqual(result["status"], ps.NOT_CONFIGURED)
-        self.assertIn("engine-board-setup", result["message"])
+        self.assertIn("engine-setup", result["message"])
 
     def test_writes_only_engine_fields_on_engine_items(self):
         rec, gql = _gql()
@@ -263,9 +263,9 @@ class TestHookHandler(_Base):
     def test_never_configured_surfaces_the_setup_next_step(self):
         # A never-configured board no-ops for a reason the operator can act on -> disclose the next step,
         # not stay silent (the board-absent case is owed a plain-language next step).
-        out = self._handler({"status": ps.NOT_CONFIGURED, "message": "Run /engine-board-setup to create one"})
+        out = self._handler({"status": ps.NOT_CONFIGURED, "message": "Run /engine-setup to create one"})
         self.assertEqual(out.get("action"), "inject")
-        self.assertIn("engine-board-setup", out.get("context", ""))
+        self.assertIn("engine-setup", out.get("context", ""))
 
     def test_clean_and_skipped_stay_silent(self):
         # A clean sync (the board is the surface) and a debounce skip surface nothing.

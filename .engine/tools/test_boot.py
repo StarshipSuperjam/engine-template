@@ -3108,7 +3108,7 @@ class TestContractRateRender(unittest.TestCase):
 
     def test_line_renders_when_present(self):
         line = "I've been writing down more of our engine decisions as permanent decision records than usual"
-        self.assertIn(line, boot.render_dashboard(_signals(contract_rate_line=line + " ... /engine-tune")))
+        self.assertIn(line, boot.render_dashboard(_signals(contract_rate_line=line + " ... /engine-setup")))
 
     def test_no_line_when_suppressed(self):
         dash = boot.render_dashboard(_signals(contract_rate_line=None))

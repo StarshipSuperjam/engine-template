@@ -235,14 +235,14 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
         # this line live from the complete open low-severity count (StarshipSuperjam/engine-template#403), so the offer fires on a real backlog.
         return ("The engine's self-monitoring backlog is growing — there are several low-priority "
                 "engine items open. Nothing here is urgent; you can review them when convenient. "
-                "You can also change when this reminder appears — type /engine-tune.")
+                "You can also change when this reminder appears — type /engine-setup.")
     return None
 
 
 def contract_rate_threshold(policy_path: str | None = None, override: dict | None = None) -> int:
     """The effective limit on how many permanent decision records may be accepted in a 7-day window
     before the nudge fires = the policy's shipped default merged per-key with any operator override
-    (the same read-time merge the triage thresholds use), so a reviewed /engine-tune governs it live
+    (the same read-time merge the triage thresholds use), so a reviewed /engine-setup governs it live
     instead of the shipped default silently winning."""
     fm = validate.frontmatter(policy_path or CONTRACT_THRESHOLD_POLICY_PATH)
     default = fm.get("values") or {}
@@ -296,7 +296,7 @@ def contract_rate_line(count: int, threshold: int) -> str | None:
                 "usual this past week — it's worth a quick look at whether they're being over-recorded. "
                 "Nothing here is urgent. Ask me to show you what got recorded and why, and I'll help you tell "
                 "the keepers from the ones that could just ride a pull request instead. To change when this "
-                "note appears, type /engine-tune.")
+                "note appears, type /engine-setup.")
     return None
 
 

@@ -353,7 +353,7 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
     cfg = config if config is not None else load_config()
     if cfg is None:
         return {"status": NOT_CONFIGURED,
-                "message": "No progress board is set up for this project yet. Run /engine-board-setup to "
+                "message": "No progress board is set up for this project yet. Run /engine-setup to "
                            "create one — until then the engine just works from your issues and pull "
                            "requests as usual."}
     now = now or datetime.now(timezone.utc)
@@ -367,7 +367,7 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
     label = cfg.get("label") or telemetry.ENGINE_DOMAIN_LABEL
     if not project_id:
         return {"status": DEGRADED,
-                "message": "Your progress board's settings look incomplete. Run /engine-board-setup again "
+                "message": "Your progress board's settings look incomplete. Run /engine-setup again "
                            "to reconnect it. Nothing else is affected — your issues and pull requests are "
                            "unchanged."}
 
@@ -401,7 +401,7 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
         return {"status": DEGRADED,
                 "message": "The engine couldn't reach your progress board to refresh it "
                            f"({exc}). It will try again next session; your issues and pull requests are "
-                           "unchanged. If the board was deleted, run /engine-board-setup to make a new one."}
+                           "unchanged. If the board was deleted, run /engine-setup to make a new one."}
 
     _stamp_sync(now_ts)
     msg = (f"Refreshed the board for {len(items)} item(s) ({written} field update(s))." if items
@@ -414,7 +414,7 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
 def _session_start_handler(payload) -> dict:
     """The SessionStart sweep: a debounced, best-effort sync. DISCLOSES the one plain-language next step
     whenever the board no-ops for a reason the operator can act on — a never-configured board
-    (NOT_CONFIGURED: "run /engine-board-setup") or a board that WAS set up but cannot be reached (DEGRADED).
+    (NOT_CONFIGURED: "run /engine-setup") or a board that WAS set up but cannot be reached (DEGRADED).
     SILENT on a debounce skip or a clean sync (the board itself is the surface). Read-only, so it runs in
     every stance."""
     session_id = (payload or {}).get("session_id") if isinstance(payload, dict) else None
@@ -446,7 +446,7 @@ def _cmd_check() -> int:
     """Plain-language health of the projection — never errors."""
     cfg = load_config()
     if cfg is None:
-        print("No progress board is set up yet. Run /engine-board-setup to create one.")
+        print("No progress board is set up yet. Run /engine-setup to create one.")
         return 0
     project = cfg.get("project") or {}
     token = boot.gh_token()
@@ -458,7 +458,7 @@ def _cmd_check() -> int:
         board = resolve_board(BoardGraphQL(token), project.get("id"))
     except DegradedReadError as exc:
         print(f"A board is set up, but the engine couldn't reach it ({exc}). If it was deleted, run "
-              "/engine-board-setup to make a new one.")
+              "/engine-setup to make a new one.")
         return 0
     auto = board.get("auto_add_enabled")
     auto_line = ("auto-add is on" if auto else
@@ -608,7 +608,7 @@ def _demo_body() -> int:
     if nc.get("status") != NOT_CONFIGURED:
         failures.append(f"a never-configured board should be NOT_CONFIGURED, got {nc.get('status')}")
     decided = _session_start_handler({"session_id": "demo"})
-    if decided.get("action") != "inject" or "engine-board-setup" not in decided.get("context", ""):
+    if decided.get("action") != "inject" or "engine-setup" not in decided.get("context", ""):
         failures.append(f"a never-configured board should surface the setup step, got {decided}")
 
     if failures:

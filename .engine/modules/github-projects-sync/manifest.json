@@ -16,13 +16,8 @@
       ".engine/operations/projects-release-advance.md",
       ".engine/operations/projects-sync-setup.md"
     ],
-    "skill": [
-      ".claude/skills/engine-board-setup/SKILL.md"
-    ],
-    "codex-skill": [
-      ".agents/skills/engine-board-setup/SKILL.md",
-      ".agents/skills/engine-board-setup/agents/openai.yaml"
-    ]
+    "skill": [],
+    "codex-skill": []
   },
   "wires": [
     {

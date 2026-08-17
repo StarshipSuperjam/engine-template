@@ -130,7 +130,7 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 
 # OPERATOR_CONFIG — committed operator-authored config the ownership leg must NOT read as orphans: the
 # per-deployment operator policy-override of tunable policy values (.engine/operator-overrides.json, written
-# by /engine-tune) and the per-deployment instance guarded-paths declaration (.engine/operator-guarded-paths.json,
+# by /engine-setup) and the per-deployment instance guarded-paths declaration (.engine/operator-guarded-paths.json,
 # StarshipSuperjam/engine-template#532 — the deployment's own extra product-side paths for the weakening guard to watch, unioned in by
 # weakening_guard.is_guardrail and shape-gated by engine/check/operator-guarded-paths) and the per-deployment
 # local-reference vocabulary (.engine/operator-local-references.json — the references that mean something only
