@@ -60,6 +60,8 @@
       ".engine/check/provider-vocabulary-confinement.json",
       ".engine/check/provisioning-catalog.json",
       ".engine/check/release-integrity.json",
+      ".engine/check/route-budget.json",
+      ".engine/check/route-target-existence.json",
       ".engine/check/self-map-drift.json",
       ".engine/check/shipped-issue-references.json",
       ".engine/check/skill-coherence.json",

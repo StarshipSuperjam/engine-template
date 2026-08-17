@@ -3,6 +3,10 @@ name: engine-setup-memory-semantic-recall
 description: search my saved history by meaning
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

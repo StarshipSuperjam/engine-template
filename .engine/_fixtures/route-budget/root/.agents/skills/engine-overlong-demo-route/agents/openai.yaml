@@ -1,0 +1,3 @@
+# GENERATED twin (fixture): model-startable, so the route-budget check's Codex-parity leg passes here.
+policy:
+  allow_implicit_invocation: true

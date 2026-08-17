@@ -1,0 +1,15 @@
+{
+  "id": "engine/check/route-budget",
+  "target": {
+    "context": "route-budget"
+  },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/route_budget_check.py"
+  },
+  "tier": "hard",
+  "suites": [
+    "CI"
+  ],
+  "message": "The engine's automatic routes are what an AI runtime scans to map a plain request onto an engine workflow, so the surface must stay compact and legible and must reach both runtimes. This check projects every model-reachable route as (name, description, path) and goes red when any route's description runs past 120 characters, when the whole projection exceeds a 6000-character budget, or when a route reachable on Claude has no model-startable Codex twin. To fix: tighten the route descriptions, or regenerate the Codex renders so both runtimes carry the route."
+}

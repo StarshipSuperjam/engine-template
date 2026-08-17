@@ -3,6 +3,10 @@ name: engine-setup-dependency-discipline
 description: check dependencies for security and license risk
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

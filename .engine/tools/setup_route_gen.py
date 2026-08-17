@@ -51,9 +51,10 @@ def _body(module_id: str, setup_operation: str | None) -> str:
 
 
 def _render(module_id: str, presentation: dict) -> str:
-    """One setup route's SKILL.md text. The description is the manifest's concise `setup_trigger`; the
-    engine-target, when the module declares a `setup_operation`, is that operation, module-conditional on the
-    module itself (absent on a deployment that declined it)."""
+    """One setup route's SKILL.md text. The description is the manifest's concise `setup_trigger`. Every setup
+    route funnels into the permanent `engine-setup` dispatcher, so it always names that skill as an active
+    target; when the module additionally declares a `setup_operation`, that operation is a second target,
+    module-conditional on the module itself (absent on a deployment that declined it)."""
     trigger = presentation.get("setup_trigger") or ""
     if not trigger:
         raise ValueError(f"module '{module_id}' presentation has no setup_trigger")
@@ -66,10 +67,13 @@ def _render(module_id: str, presentation: dict) -> str:
         f"description: {trigger}",
         "invocation: model-only",
         "user-invocable: false",
+        "engine-targets:",
+        "  - kind: skill",
+        "    ref: engine-setup",
+        "    availability: active",
     ]
     if setup_operation:
         lines += [
-            "engine-targets:",
             "  - kind: operation",
             f"    ref: {setup_operation}",
             "    availability: module-conditional",

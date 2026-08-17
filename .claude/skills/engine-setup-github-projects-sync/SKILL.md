@@ -4,6 +4,9 @@ description: set up a project board
 invocation: model-only
 user-invocable: false
 engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
   - kind: operation
     ref: .engine/operations/projects-sync-setup.md
     availability: module-conditional

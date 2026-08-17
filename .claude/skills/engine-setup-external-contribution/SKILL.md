@@ -3,6 +3,10 @@ name: engine-setup-external-contribution
 description: contribute a change to a project I don't own
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

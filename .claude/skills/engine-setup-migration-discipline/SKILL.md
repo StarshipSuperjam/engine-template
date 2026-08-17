@@ -3,6 +3,10 @@ name: engine-setup-migration-discipline
 description: set up database migration safety
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

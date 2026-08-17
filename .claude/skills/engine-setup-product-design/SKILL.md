@@ -3,6 +3,10 @@ name: engine-setup-product-design
 description: describe and settle what to build
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

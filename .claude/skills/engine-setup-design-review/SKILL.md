@@ -3,6 +3,10 @@ name: engine-setup-design-review
 description: turn on plan reviews before building
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps

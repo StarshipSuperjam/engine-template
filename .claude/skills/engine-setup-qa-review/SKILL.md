@@ -3,6 +3,10 @@ name: engine-setup-qa-review
 description: turn on finished-work reviews before submitting
 invocation: model-only
 user-invocable: false
+engine-targets:
+  - kind: skill
+    ref: engine-setup
+    availability: active
 ---
 
 ## Steps
