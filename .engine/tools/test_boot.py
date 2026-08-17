@@ -323,17 +323,18 @@ class TestFirstRunOffer(unittest.TestCase):
 
 class TestReadoutAndGateHonesty(unittest.TestCase):
     """#712: the dashboard's operator-facing assurance language must claim only what is observable.
-    The automated-readout footer states the honest check-proof taxonomy (custom checks per-check,
-    the standard rule-kinds per kind, disclosed carve-outs proven not at all) and names the MERGE
-    (not a code review) as the real gate; the gate-off banner states the concrete mechanical loss,
-    never 'unreviewed', which imports a review framing the gate does not provide."""
+    The automated-readout footer states the honest check-proof taxonomy (the custom checks each
+    against their own example, the standard kinds against one shared example, and a few openly-noted
+    exceptions where that proof doesn't apply) and names the MERGE (not a code review) as the real
+    gate; the gate-off banner states the concrete mechanical loss, never 'unreviewed', which imports
+    a review framing the gate does not provide."""
 
     def test_readout_states_the_honest_check_proof_taxonomy(self):
         dash = boot.render_dashboard(_signals())
         self.assertNotIn(
             "Each check is itself proven against a deliberately broken example it must catch", dash,
             "the universal check-proof overclaim must not return (#712)")
-        self.assertIn("Most checks are proven against a deliberately broken example they must catch", dash)
+        self.assertIn("the standard kinds against one shared example", dash)
         self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", dash)
 
     def test_readout_names_the_merge_not_a_review_as_the_gate(self):

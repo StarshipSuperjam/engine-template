@@ -2664,9 +2664,10 @@ def render_dashboard(s: dict) -> str:
     out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
                "came back clean — not that everything is correct. Your merge is the real gate._")
     out.append("_About those checks: only the one that runs when a change is proposed for merge can stop a "
-               "risky one — anything that ran while I worked is early advice. Most checks are proven against "
-               "a deliberately broken example they must catch, so a passing check can't be one that quietly "
-               "did nothing — a few are openly-noted exceptions where that kind of proof doesn't apply. Either "
+               "risky one — anything that ran while I worked is early advice. The engine's checks are proven "
+               "against deliberately broken examples they must catch — the custom ones each against their own, "
+               "the standard kinds against one shared example — so a passing check can't be one that quietly "
+               "did nothing; a few are openly-noted exceptions where that kind of proof doesn't apply. Either "
                "way that speaks to the check, not to whether the change is right. And a check that could not "
                "run leaves that area unverified._")
 

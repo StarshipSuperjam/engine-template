@@ -1277,19 +1277,19 @@ class TestPRContractNoDrift(unittest.TestCase):
                           f"preamble anchor {phrase!r} required by the check is absent from the template")
 
     def test_committed_preamble_states_the_honest_check_proof_taxonomy(self):
-        # #712: the consent preamble must not overclaim that EVERY check is proven against a
-        # deliberately broken example. The honest account distinguishes custom checks (proven
-        # per-check), the standard rule-kinds (proven once per kind), and disclosed carve-outs
-        # (proven not at all). Pinned so a revert to the universal overclaim reddens CI. The three
-        # required_phrases anchors are asserted above; this guards the corrected sentence that sits
-        # between them, which no anchor covers.
+        # #712: the consent preamble must not overclaim that EVERY check is itself proven against a
+        # deliberately broken example. The honest account distinguishes the custom checks (each
+        # against their own example), the standard kinds (proven by one shared example), and a few
+        # openly-noted exceptions where that kind of proof doesn't apply. Pinned so a revert to the
+        # universal overclaim reddens CI. The three required_phrases anchors are asserted above; this
+        # guards the corrected sentence that sits between them, which no anchor covers.
         tmpl_path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
         with open(tmpl_path, encoding="utf-8") as fh:
             template = fh.read()
         self.assertNotIn(
             "Each check is itself proven against a deliberately broken example it must catch", template,
             "the universal check-proof overclaim must not return (#712)")
-        self.assertIn("Most checks are proven against a deliberately broken example they must catch", template)
+        self.assertIn("the standard kinds against one shared example", template)
         self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", template)
 
     def test_floor_conduct_frames_the_merge_as_consent_not_enforced_review(self):

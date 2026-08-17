@@ -5808,7 +5808,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:38378a244c86ffcbe3f6c860efdd3311adead363054f31d5e28f5a5315d97a6c",
+        "fingerprint": "sha256:f309653e92b64b29bcefdc220b0a4b8b305e4cb3a0cbab5f725b399a4562d3dd",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d64bc7827752c71d607f2469914bcc584c7a673b7cbb928cd98cf18aac9469d0",
+        "fingerprint": "sha256:7604b3f6867bab7d29599a8aae38c7b33d7756e48fef9f6f3cca7ec88c2fd09c",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -14732,7 +14732,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:dc7b1c46be2c296e833468e89915e670c7ec8f1322109b856c6694094dda6749",
+        "fingerprint": "sha256:e6884ee7c6af63c0227da5d252df0bce921d400871982e7e9665dc98fc6065dc",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17891,7 +17891,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:6860cf13bd48cc850523da645ef1b80862f7ece671ed87e61fe71da789f9edd3",
+        "fingerprint": "sha256:1f0c242c445bebbc8867bb8f660d1b68fffbd8ede5eca4eb02f24c17d4626fd2",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
