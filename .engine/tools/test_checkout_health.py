@@ -1958,6 +1958,30 @@ class TestFreshDefaultHead(unittest.TestCase):
             self.assertFalse(r["readable"])
             self.assertNotIn("present_at_head", r)
 
+    def test_a_directory_path_is_readable_false_not_a_tree_listing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, origin = _origin_and_clone(tmp, doc=_DEFECT_DOC)
+            os.makedirs(os.path.join(origin, "sub"))
+            with open(os.path.join(origin, "sub", "f.md"), "w") as fh:
+                fh.write("x\n")
+            _advance_origin(origin, doc=_DEFECT_DOC)             # commits the new subdir onto the fresh head
+
+            def _boom(_content):
+                raise AssertionError("still_present must not run on a directory (tree) path")
+
+            r = checkout_health.claim_at_fresh_head(work, "sub", _boom)
+            self.assertTrue(r["ok"])
+            self.assertFalse(r["readable"])                      # a tree is not a readable single file
+            self.assertNotIn("present_at_head", r)
+
+    def test_an_empty_but_present_file_is_readable_and_evaluated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_clone(tmp, doc="")             # doc.md exists at head but is empty
+            r = checkout_health.claim_at_fresh_head(work, "doc.md", lambda c: c == "")
+            self.assertTrue(r["ok"])
+            self.assertTrue(r["readable"])                       # empty is present, not absent
+            self.assertTrue(r["present_at_head"])                # the predicate DID run on the empty content
+
     def test_fresh_default_head_reports_the_default_and_the_verified_sha(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, origin = _origin_and_clone(tmp, doc=_DEFECT_DOC)

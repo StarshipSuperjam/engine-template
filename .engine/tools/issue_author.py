@@ -83,7 +83,10 @@ _FRAMING = "*The engine opened this item itself — you didn't create it.*"
 # stale worktree. The value is `owner/repo@sha` (the repo, because a bare sha is ambiguous across repositories
 # the engine may file into), rendered as an invisible HTML-comment trailer mirroring telemetry's severity
 # marker: the ONE place this trailer is built, so any future reader recovers the identical form. `_VALUE_RE`
-# is the marker-safety gate — only `owner/repo@hex` passes, so no `<`, `>`, or `-->` can enter the comment.
+# is the marker-safety gate — only `owner/repo@hex` passes, so no `<`, `>`, or `-->` can enter the comment. It
+# mirrors `engine-issue-input.v1.json`'s `verified_head.pattern` (the CLI-boundary gate); keep the two in sync,
+# as the urgency enum and telemetry's severity classes already are — a drift would let a value pass one gate and
+# raise at the other.
 _VERIFIED_HEAD_TEMPLATE = "<!-- verified-head: {value} -->"
 _VERIFIED_HEAD_RE = re.compile(r"<!--\s*verified-head:\s*(.+?)\s*-->")
 _VERIFIED_HEAD_VALUE_RE = re.compile(

@@ -135,17 +135,18 @@ def _succeeds(cmd: list, cwd: str | None = None) -> bool:
         return False
 
 
-def _verified_remote_default(main: str) -> dict:
+def _verified_remote_default(checkout_path: str) -> dict:
     """Read origin's authoritative HEAD symref and fetch that exact branch, returning the freshly-verified
     default branch and its advertised commit — WITHOUT rewriting the local `origin/HEAD` symref cache. Succeeds
     only when the fetched remote-tracking ref matches the advertisement, so a moved remote fails closed. This
     is the read core shared by `_refresh_origin` (which additionally rewrites the origin/HEAD cache for the
-    correction path) and `fresh_default_head` (a freshness read that needs no cache write, so a local-ref-write
-    hiccup must not downgrade a genuine fresh read). Updates only remote-tracking objects/refs — never local
-    HEAD, branches, index, or working tree. Returns `{"ok": True, "default", "oid"}` or `{"ok": False, "reason"}`."""
+    correction path, and passes the operator's main checkout) and `fresh_default_head` (a freshness read that
+    needs no cache write — from ANY session/build checkout, so a local-ref-write hiccup must not downgrade a
+    genuine fresh read). Updates only remote-tracking objects/refs — never local HEAD, branches, index, or
+    working tree. Returns `{"ok": True, "default", "oid"}` or `{"ok": False, "reason"}`."""
     try:
         started = time.monotonic()
-        advertised = subprocess.run(["git", "-C", main, "ls-remote", "--symref", "origin", "HEAD"],
+        advertised = subprocess.run(["git", "-C", checkout_path, "ls-remote", "--symref", "origin", "HEAD"],
                                     capture_output=True, text=True, timeout=_FETCH_TIMEOUT, check=False)
         if advertised.returncode != 0:
             return {"ok": False, "reason": "remote-head-unreadable"}
@@ -160,12 +161,12 @@ def _verified_remote_default(main: str) -> dict:
         remaining = _FETCH_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
             return {"ok": False, "reason": "refresh-timeout"}
-        fetched = subprocess.run(["git", "-C", main, "fetch", "--quiet", "origin",
+        fetched = subprocess.run(["git", "-C", checkout_path, "fetch", "--quiet", "origin",
                                   f"+refs/heads/{default}:refs/remotes/origin/{default}"],
                                  capture_output=True, text=True, timeout=remaining, check=False)
         if fetched.returncode != 0:
             return {"ok": False, "reason": "refresh-failed"}
-        actual = (_run(["git", "-C", main, "rev-parse", "--verify",
+        actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
                         f"refs/remotes/origin/{default}"]) or "").strip()
         if actual != advertised_oid:
             return {"ok": False, "reason": "remote-moved"}
@@ -681,15 +682,22 @@ def claim_at_fresh_head(checkout_path: str, rel_path: str, still_present) -> dic
     possibly-empty content could reach `still_present`; the caller decides what an absent path means for its
     claim.
 
-    BOUNDARY: covers a claim expressible as a predicate over ONE file readable at head — the common
-    'a section/line is missing from an existing file' shape (the #911 incident). An absence-premise claim
-    ('file X was never created') surfaces as `readable: False`; a multi-file claim needs one call per file.
+    BOUNDARY: covers a claim expressible as a predicate over ONE file readable as a blob at head — the common
+    'a section/line is missing from an existing file' shape (the StarshipSuperjam/engine-template#911 incident).
+    An absent path, or one that is not a single file (a directory), surfaces as `readable: False`; a multi-file
+    or absence-premise claim ('file X was never created') the caller handles from `readable: False`.
     `still_present` is the one irreducibly defect-specific judgment; everything around it is fact. Read-only to
     your working tree/index/HEAD/local branches (it fetches remote-tracking refs, like boot)."""
     head = fresh_default_head(checkout_path)
     if not head["ok"]:
         return head
     sha = head["sha"]
+    # Only a blob is a readable single file; `git show <sha>:<dir>` exits 0 with a tree listing, so gate on the
+    # object type first — a directory or absent path is `readable: False`, never a synthetic listing string fed
+    # to `still_present`.
+    kind = _run(["git", "-C", checkout_path, "cat-file", "-t", f"{sha}:{rel_path}"])
+    if kind is None or kind.strip() != "blob":
+        return {"ok": True, "slug": head["slug"], "sha": sha, "readable": False}
     content = _run(["git", "-C", checkout_path, "show", f"{sha}:{rel_path}"])
     if content is None:
         return {"ok": True, "slug": head["slug"], "sha": sha, "readable": False}
