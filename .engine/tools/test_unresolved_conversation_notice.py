@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the passive unresolved-conversation pre-arm (#408)."""
+"""Tests for the on-demand unresolved-conversation guidance (#408, #655)."""
 import contextlib
 import io
 import os
@@ -50,6 +50,17 @@ class TestRender(unittest.TestCase):
         self.assertIn("<summary>", self.block)
         self.assertIn("</details>", self.block)
 
+    def test_plain_form_has_no_html_wrapper_but_keeps_the_safety(self):
+        # For in-chat/terminal surfacing the operator must not see raw <details> tags; the plain form drops
+        # the wrapper while keeping the read-then-accept safety and how-to-reach-it intact (#655).
+        plain = ucn.render(collapsed=False)
+        self.assertNotIn("<details>", plain)
+        self.assertNotIn("<summary>", plain)
+        low = plain.lower()
+        self.assertNotIn("one click", low)
+        self.assertIn("only once you've read it", low)
+        self.assertIn("resolve conversation", low)
+
     def test_no_maintainer_or_engine_jargon_leaks(self):
         low = self.block.lower()
         for banned in ("ruleset", "finding-disposition", "pre-arm", "review thread", "d-134", "spine"):
@@ -70,6 +81,15 @@ class TestDemo(unittest.TestCase):
             rc = ucn.main([])
         self.assertEqual(rc, 0)
         self.assertIn("<details>", buf.getvalue())
+
+    def test_plain_cli_verb_prints_unwrapped_guidance(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = ucn.main(["plain"])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertNotIn("<details>", out)
+        self.assertIn("only once you've read it", out.lower())
 
 
 if __name__ == "__main__":

@@ -168,15 +168,18 @@ and never forces. What differs is *what* each protects and *how* it declines:
   reconciling against the latest default branch, regenerating those two files, and keeping both pieces of work. If
   anything else clashed it changes nothing, restores the branch exactly, and routes the operator to a
   plain-language decision. It never claims the merge is now guaranteed — a later change can still land first.
-- **A merge blocked by an unresolved review conversation — surface the guidance on the operator's report (`unresolved_conversation_notice.py`, StarshipSuperjam/engine-template#655/StarshipSuperjam/engine-template#408).**
-  This is no longer folded into every pull request; an ordinary Review record stays about the change at hand. Surface
-  it only when a merge is actually blocked — when the operator reports the merge button greyed while every check is
-  green, which is almost always a review conversation someone left unresolved. Render the tool and present its output
-  as written — never re-author the copy here: it carries the plain-language explanation of why the button is greyed,
-  the read-and-accept-the-comment-before-you-resolve-it safety, and how to reach a comment hidden as *outdated* after a
-  rebase. The engine never resolves a conversation on the operator's behalf — clearing one unread would gut the concern
-  it was left to raise. The branch ruleset still blocks the merge until the conversation is resolved; that requirement
-  is unchanged, and this path only explains and points — it does not act.
+- **A merge blocked by an unresolved review conversation — surface the guidance on the operator's report (`unresolved_conversation_notice.render`, StarshipSuperjam/engine-template#655/StarshipSuperjam/engine-template#408).**
+  This is no longer folded into every pull request; an ordinary Review record stays about the change at hand. Unlike
+  the offers above, there is no boot-time detector for it — there is no reliable live signal for an unresolved
+  conversation — so it is surfaced on the operator's report, not pushed by boot. Surface it only when a merge is
+  actually blocked — when the operator reports the merge button greyed while every check is green, which is almost
+  always a review conversation someone left unresolved. Render its plain guidance
+  (`unresolved_conversation_notice.py plain`) and present it as written — never re-author the copy here: it carries
+  the plain-language explanation of why the button is greyed, the read-and-accept-the-comment-before-you-resolve-it
+  safety, and how to reach a comment hidden as *outdated* after a rebase. The engine never resolves a conversation on
+  the operator's behalf — clearing one unread would gut the concern it was left to raise. The branch ruleset still
+  blocks the merge until the conversation is resolved; that requirement is unchanged, and this path only explains and
+  points — it does not act.
 - **A half-finished engine update — finish it or undo it (`/engine-upgrade` → `module_manager.rollback`, StarshipSuperjam/engine-template#594).**
   An update was started but not completed, so the tree sits part-way between versions — detected offline by
   `module_manager._staged_upgrade_dirty` (overlay-code differs from the last commit — a non-engineer's ordinary

@@ -26,14 +26,16 @@ whose deterministic output a session presents as written when it surfaces the gu
 `spec_referent.py review-steps` and `close_linkage_preflight.py` already use (a tool whose output the orchestrator
 drops in verbatim).
 
-**A compact, self-checked constant.** The text is identical on every use (no per-PR data), so it is rendered as
-a one-line summary with a `<details>` expansion — a compact block a session can present collapsed and expand
-inline when it surfaces it at the blocked moment. The wording is a tested constant bound by the plain-language
-leak-guard, not prose re-authored each render, so it cannot drift below the bar that makes the operator's
-consent informed.
+**Two surfaces, one copy.** The text is identical on every use (no per-PR data). `render()` wraps it in a
+one-line summary with a `<details>` expansion for a surface that renders HTML (for example a GitHub
+pull-request comment); `render(collapsed=False)` — the `plain` CLI verb — returns the same summary and body as
+plain text, for surfacing in a chat or terminal session where raw `<details>` tags would just be clutter in
+front of the operator. The wording is a tested constant bound by the plain-language leak-guard, not prose
+re-authored each render, so it cannot drift below the bar that makes the operator's consent informed.
 
 Usage:
-  uv run --directory .engine -- python tools/unresolved_conversation_notice.py         # print the guidance block
+  uv run --directory .engine -- python tools/unresolved_conversation_notice.py         # print the collapsed block
+  uv run --directory .engine -- python tools/unresolved_conversation_notice.py plain   # print the plain (unwrapped) guidance
   uv run --directory .engine -- python tools/unresolved_conversation_notice.py demo    # self-check the copy
 """
 from __future__ import annotations
@@ -63,25 +65,39 @@ _BODY = (
 )
 
 
-def render() -> str:
-    """The plain-language Review-section block the orchestrator drops in verbatim: a one-line summary with a
-    `<details>` expansion carrying the full explanation. Deterministic, so it is testable."""
+def render(collapsed: bool = True) -> str:
+    """The plain-language guidance a session presents when a merge is blocked by an unresolved conversation.
+
+    `collapsed=True` (default) wraps it in a one-line summary with a `<details>` expansion, for a surface that
+    renders HTML (a GitHub pull-request comment). `collapsed=False` returns the same summary and body as plain
+    text, for surfacing in a chat or terminal session where raw `<details>` tags would just be clutter.
+    Deterministic either way, so it is testable."""
+    if not collapsed:
+        return f"{_SUMMARY}\n\n{_BODY}"
     return f"<details>\n<summary>{_SUMMARY}</summary>\n\n{_BODY}\n</details>"
 
 
 def _demo() -> int:
-    """Self-check: the rendered block carries all three required things in plain language, keeps the
-    read-then-accept binding even for the post-rebase-hidden case, and never degrades to a bare 'one click'."""
-    block = render()
-    checks = {
-        "why it's blocked (greyed / unresolved)": "unresolved" in block and "grey" in block.lower(),
-        "may clear after reading + accepting": "read" in block.lower() and "accepting" in block.lower(),
-        "how to reach it": "Resolve conversation" in block and "Conversation" in block,
-        "post-rebase / outdated case": "outdated" in block and ("rebase" in block or "force-push" in block),
-        "read-then-accept kept, no bare 'one click'": "one click" not in block.lower()
-        and "only then resolve" in block.lower(),
-        "collapsed (details/summary)": "<details>" in block and "<summary>" in block,
-    }
+    """Self-check: BOTH rendered forms carry all three required things in plain language, keep the
+    read-then-accept binding even for the post-rebase-hidden case, and never degrade to a bare 'one click';
+    the collapsed form carries the `<details>` wrapper and the plain form carries none."""
+    def content_checks(block: str) -> dict:
+        return {
+            "why it's blocked (greyed / unresolved)": "unresolved" in block and "grey" in block.lower(),
+            "may clear after reading + accepting": "read" in block.lower() and "accepting" in block.lower(),
+            "how to reach it": "Resolve conversation" in block and "Conversation" in block,
+            "post-rebase / outdated case": "outdated" in block and ("rebase" in block or "force-push" in block),
+            "read-then-accept kept, no bare 'one click'": "one click" not in block.lower()
+            and "only then resolve" in block.lower(),
+        }
+    collapsed, plain = render(), render(collapsed=False)
+    checks = {}
+    for label, passed in content_checks(collapsed).items():
+        checks[f"collapsed: {label}"] = passed
+    for label, passed in content_checks(plain).items():
+        checks[f"plain: {label}"] = passed
+    checks["collapsed form carries <details>/<summary>"] = "<details>" in collapsed and "<summary>" in collapsed
+    checks["plain form carries no HTML wrapper"] = "<details>" not in plain and "<summary>" not in plain
     ok = all(checks.values())
     for label, passed in checks.items():
         print(f"  [{'ok' if passed else 'XX'}] {label}")
@@ -92,6 +108,9 @@ def _demo() -> int:
 def main(argv: list[str]) -> int:
     if argv and argv[0] == "demo":
         return _demo()
+    if argv and argv[0] == "plain":
+        print(render(collapsed=False))
+        return 0
     print(render())
     return 0
 
