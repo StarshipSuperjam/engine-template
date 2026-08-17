@@ -10,9 +10,9 @@ alongside the project's files in its own namespaced corners, checked for any ove
 — each overlap surfaced in plain language with a choice — and then set up by the same first-run setup the engine
 uses everywhere. Nothing lands on the main branch without review. Enter this runbook to add the engine to an
 existing project. Before starting, make sure: the project is on GitHub and you are signed in from the command
-line (`gh auth status` reports signed in — the engine is fetched with your `gh`); you are on a clean working
-branch of the project, not its main branch and with nothing uncommitted, so the arrival is a reviewable set the
-owner approves rather than an in-place edit; and you know which pinned engine release tag to install (if unsure,
+line (`gh auth status` reports signed in — run it outside any sandbox, where a failing check is inconclusive,
+not proof you're signed out; the engine is fetched with your `gh`); you are on a clean working branch, not its
+main branch and with nothing uncommitted, so the arrival is a reviewable set the owner approves; and you know which pinned engine release tag to install (if unsure,
 use the latest release). You run the engine's own tools from the **fetched release** you extract below — never a
 local copy on the project, which the engine retires after setup.
 

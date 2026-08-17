@@ -1180,8 +1180,7 @@ def cmd_status(args) -> int:
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
     if not repo or not token:
-        print("Can't check branch protection from here — no repository access is available. "
-              "(This is normal on a machine without a logged-in `gh`.)")
+        print(f"Can't check branch protection from here. {boot.gh_unreachable_note()}")
         return 0
     cp = ControlPlane(repo, token)
     try:
@@ -1216,8 +1215,7 @@ def cmd_apply(args) -> int:
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
     if not repo or not token:
-        print("Can't turn on branch protection from here — no repository access is available. "
-              "Run this where you're logged in to GitHub (`gh auth login`).")
+        print(f"Can't turn on branch protection from here. {boot.gh_unreachable_note()}")
         return 1
     cp = ControlPlane(repo, token)
     try:
@@ -1366,8 +1364,7 @@ def cmd_accept_unprotected(args) -> int:
     token = boot.gh_token()
     branch = args.branch
     if not repo or not token:
-        print("Can't record this from here — no repository access is available. Run this where you're "
-              "logged in to GitHub (`gh auth login`).")
+        print(f"Can't record this from here. {boot.gh_unreachable_note()}")
         return 1
     cp = ControlPlane(repo, token)
     # The load-bearing belt: re-read the evaluated branch rules and confirm the platform genuinely forbids
@@ -1428,8 +1425,7 @@ def cmd_finalize(args) -> int:
     repo = _resolve_repo(args.repo)
     token = boot.gh_token()
     if not repo or not token:
-        print("Can't finalize branch protection from here — no repository access is available. "
-              "Run this where you're logged in to GitHub (`gh auth login`).")
+        print(f"Can't finalize branch protection from here. {boot.gh_unreachable_note()}")
         return 1
     cp = ControlPlane(repo, token)
     try:

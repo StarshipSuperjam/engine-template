@@ -6318,7 +6318,7 @@
       },
       "slug": "codex-incident-replay",
       "source": {
-        "fingerprint": "sha256:6468c3331a4c654eb6345d5555df4acc648ca61fe55d1761e01c02d351ac7a5b",
+        "fingerprint": "sha256:1fb6c6df3be7aaef28fa42812f60990f8a694c07b446953d89b798cfa3851d7c",
         "path": ".engine/operations/codex-incident-replay.md"
       },
       "status": "active",
@@ -6418,7 +6418,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:c839c4c029641b727242582b53aa1d01c3469bec5e94b1cd5a1799e45dd74a4b",
+        "fingerprint": "sha256:b24724b6891446a9f852b5834360d21b5d4805a95a3d0aeca4e1b927d6d6d881",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -6738,7 +6738,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:1d8920f5b56f6dffb414656cfa369eeb29e4edc64f7f178c6d95b4c307777e79",
+        "fingerprint": "sha256:ad0e7de938519667a5b61adbe213e9ae63f657f544de4f28f506ac09593dfa35",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e0499d6f565ff921fd5a3efb98d4d0e78bae2a77536247e3ff43f344c1eb3036",
+        "fingerprint": "sha256:c3fb4f0adcad677e9796aeb0af50a9d6ae80a53c714581d4464b40099570cde9",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9517,7 +9517,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:639c7c47c552c963525937809870e966c47ab7044fdc58ebe5cdf5380ba8e39e",
+        "fingerprint": "sha256:59fccf202069a3caf715790c938468dbb8817e65a9bff0ac4474094c008095e4",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -13292,7 +13292,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:f26e2a5d5072842df264c4ea4203b286684ecc77a34ad96964cdca74999f2a42",
+        "fingerprint": "sha256:88b8fbc08eb0d03f70f7104038bc690cd9304208d19edf412064c04f96b1ebbe",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -14297,7 +14297,7 @@
       },
       "slug": "team_switch",
       "source": {
-        "fingerprint": "sha256:a5a1753a8d7f60850cb567719aada5121641a06407de76b75b3dc68a2955e129",
+        "fingerprint": "sha256:051f6e59810c3d8777887e3fc243a3ae7138c4d707e7942f7dd44d22410282fb",
         "path": ".engine/tools/team_switch.py"
       },
       "status": "active",
@@ -14732,7 +14732,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:59b6223739f4b7b0d62619278cb3c9de0d1f4f9e207b4fa41525e29d295c2552",
+        "fingerprint": "sha256:4767a737d0d324fb937b5a449de69c28d345a2ff127fb4cb89507ddffe8271e7",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
