@@ -17,7 +17,7 @@ import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can'
 import validate  # noqa: E402
 
 
-def _doc(status: str, *, sections=True, table=True, discharge="operator") -> str:
+def _doc(status: str, *, sections=True, table=True, routing=True, discharge="operator") -> str:
     body = f"---\nstatus: {status}\n---\n\n# A capability\n"
     if sections:
         body += "\n## Summary\nWhat and who for.\n\n## Behavior\nHow it behaves.\n\n## Acceptance criteria\n"
@@ -25,7 +25,8 @@ def _doc(status: str, *, sections=True, table=True, discharge="operator") -> str
             body += ("\n| Criterion | How verified | Who checks it |\n"
                      "| --- | --- | --- |\n"
                      f"| It works | a behavioral demo | {discharge} |\n")
-        body += "\n## Operator and automatic workflow routing\nReached via a route; internal otherwise.\n"
+        if routing:
+            body += "\n## Operator and automatic workflow routing\nReached via a route; internal otherwise.\n"
     return body
 
 
@@ -117,6 +118,25 @@ class SpecFormTests(unittest.TestCase):
             "docs/spec/index.md": _index("| Checkout | draft | [Checkout](checkout.md) |\n"),
             "docs/spec/checkout.md": _doc("draft", table=False)}))
         self.assertTrue(any(f["severity"] == "hard" and "well-formed table" in f["message"] for f in fs))
+
+    def test_locked_doc_without_routing_section_passes_grandfathered(self):
+        # A settled (locked) document that predates the routing-section requirement is grandfathered: the
+        # section ADR 0336 requires on future module specs is NOT demanded retroactively, so an engine upgrade
+        # that introduces it never turns a whole settled corpus red.
+        fs = spec_form.findings("hard", root=self._root({
+            "docs/spec/index.md": _index("| Checkout | locked | [Checkout](checkout.md) |\n"),
+            "docs/spec/checkout.md": _doc("locked", routing=False)}))
+        self.assertFalse(any(f["severity"] == "hard" for f in fs))
+
+    def test_draft_doc_without_routing_section_is_hard_naming_it(self):
+        # Active authoring (status: draft) still must carry the routing disposition — that is where a new
+        # module spec picks it up from the scaffold, so forward coverage holds even though settled docs are
+        # grandfathered.
+        fs = spec_form.findings("hard", root=self._root({
+            "docs/spec/index.md": _index("| Checkout | draft | [Checkout](checkout.md) |\n"),
+            "docs/spec/checkout.md": _doc("draft", routing=False)}))
+        self.assertTrue(any(f["severity"] == "hard"
+                            and "Operator and automatic workflow routing" in f["message"] for f in fs))
 
     def test_bad_who_can_check_value_is_hard(self):
         fs = spec_form.findings("hard", root=self._root({
