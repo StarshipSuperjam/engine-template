@@ -8025,6 +8025,30 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_959_finalize_ready_transition",
+      "name": ".engine/tools/demo_959_finalize_ready_transition.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_959_finalize_ready_transition",
+      "source": {
+        "fingerprint": "sha256:68f95ad5e2400c28eb3cdad99f31e34e94567dbdb290cd64e873688cb40547bc",
+        "path": ".engine/tools/demo_959_finalize_ready_transition.py"
+      },
+      "status": "active",
+      "summary": "Demo — the owned-build finalize transition cannot report \"ready\" before GitHub confirms it (#959).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_ack_authority",
       "name": ".engine/tools/demo_ack_authority.py",
       "owner": "core",
@@ -9636,7 +9660,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:eaf0f9d6f7bde0e57af0d65e304cdc8b0eb087aea0211bd814cfd743fadbb40b",
+        "fingerprint": "sha256:2ea1f3a517d987eb786a3cf654472ec2de8a41d5023d9365d1f89494d34b1d48",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12185,7 +12209,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:10c89824994285b409661d09d34de07786719dfcb275e3bd941ee282a73e5868",
+        "fingerprint": "sha256:9fcbadb6dc2cbe375b89ccba104b57f8f5d0876648a777fbf67c38fdefcf367e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",

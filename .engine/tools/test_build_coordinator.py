@@ -1026,6 +1026,17 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         with mock.patch.object(bc, "_status", return_value=incomplete), mock.patch.object(bc.github, "pr_state", return_value=pr), mock.patch.object(bc, "_run", return_value=ancestor), self.assertRaisesRegex(bc.CoordinatorError, "incomplete"):
             bc._submit_preview(self.store, str(self.plan_path))
 
+    def test_submit_preview_refuses_a_pr_that_is_not_open(self):
+        # A finalize transition on a merged/closed/missing claim must refuse, never mark ready
+        # (StarshipSuperjam/engine-template#959 names "missing PRs" among the failure cases).
+        self.seed()
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"complete"), "complete": True}}))
+        ready = {"phase": "ready", "head_commit": HEAD_A, "required_evidence": [], "engineering_judgment": []}
+        not_open = {"number": 7, "state": "CLOSED", "isDraft": False, "headRefOid": HEAD_A,
+                    "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "complete"}
+        with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc.github, "pr_state", return_value=not_open), self.assertRaisesRegex(bc.CoordinatorError, "not open"):
+            bc._submit_preview(self.store, str(self.plan_path))
+
     def test_cli_has_no_merge_command(self):
         command_action = next(action for action in bc.parser()._actions if getattr(action, "choices", None))
         self.assertNotIn("merge", command_action.choices)
