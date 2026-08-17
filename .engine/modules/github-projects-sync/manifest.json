@@ -66,5 +66,10 @@
   ],
   "depends": {
     "core": ""
+  },
+  "retired_capabilities": {
+    "0.3.0": {
+      "description": "The `engine-board-setup` command is gone. Set up or manage this project's progress board through `engine-setup` instead — its board-setup section does exactly what that command did. There is no alias; the old name simply stops working, so a stale name fails plainly."
+    }
   }
 }

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
@@ -204,31 +205,42 @@ class TestInputLoadingAndValidation(unittest.TestCase):
 
 class TestTrustedTarget(unittest.TestCase):
     def test_github_repository_env_wins(self):
-        self.assertEqual(
-            issue_author.resolve_trusted_target(env={"GITHUB_REPOSITORY": "o/r"}), "o/r")
+        with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
+            self.assertEqual(
+                issue_author.resolve_trusted_targets(env={"GITHUB_REPOSITORY": "o/r"}), ["o/r"])
 
     def test_unresolved_when_no_env_and_no_origin(self):
-        # a temp dir with no git origin resolves to None (create then refuses — fail closed)
-        with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(issue_author.resolve_trusted_target(env={}, root=d))
+        # a temp dir with no git origin and no product target resolves to [] (create then refuses — fail closed)
+        with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
+            with tempfile.TemporaryDirectory() as d:
+                self.assertEqual(issue_author.resolve_trusted_targets(env={}, root=d), [])
+
+    def test_mechanic_owned_product_is_also_a_trusted_target(self):
+        # S2: an engine-mechanic's owned product (committed product_build_target — trusted config) joins the
+        # trusted set, so an owned-product engine Issue can reach the product it builds. Not injectable: it
+        # comes from the manifest, never from the input.
+        with mock.patch("checkout_health.recorded_product_build_target", return_value="acme/product"):
+            targets = issue_author.resolve_trusted_targets(env={"GITHUB_REPOSITORY": "acme/mechanic"})
+        self.assertEqual(targets, ["acme/mechanic", "acme/product"])
 
 
 class TestPreviewText(unittest.TestCase):
     def test_match_shows_agreement(self):
-        text = issue_author.preview_text(dict(_GOOD), "StarshipSuperjam/engine-template")
+        text = issue_author.preview_text(dict(_GOOD), ["StarshipSuperjam/engine-template"])
         self.assertIn("✓", text)
         self.assertIn("nothing has been filed", text)
         self.assertIn("**What this is.** The engine noticed something.", text)
 
     def test_mismatch_and_unresolved_warn(self):
-        self.assertIn("does NOT match", issue_author.preview_text(dict(_GOOD), "other/repo"))
-        self.assertIn("could not be resolved", issue_author.preview_text(dict(_GOOD), None))
+        self.assertIn("does NOT match", issue_author.preview_text(dict(_GOOD), ["other/repo"]))
+        self.assertIn("no trusted target", issue_author.preview_text(dict(_GOOD), []))
 
 
 class TestCreateIssue(unittest.TestCase):
     def test_files_through_the_trusted_target_and_returns_link(self):
-        link = issue_author.create_issue(dict(_GOOD), env=dict(_TRUSTED_ENV),
-                                         issues_factory=_CapturingIssues)
+        with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
+            link = issue_author.create_issue(dict(_GOOD), env=dict(_TRUSTED_ENV),
+                                             issues_factory=_CapturingIssues)
         self.assertEqual(link, "https://github.com/StarshipSuperjam/engine-template/issues/7")
         self.assertEqual(_CapturingIssues.last.repo, "StarshipSuperjam/engine-template")
         self.assertEqual(_CapturingIssues.last.token, "tok")
@@ -236,16 +248,27 @@ class TestCreateIssue(unittest.TestCase):
         self.assertEqual(title, "A finding")
         self.assertIn(issue_author._FRAMING, body)   # filed body is assembled through the one contract
 
-    def test_refuses_when_input_repository_differs_from_trusted_target(self):
-        env = {"GITHUB_REPOSITORY": "someone/else", "GITHUB_TOKEN": "tok"}
-        with self.assertRaises(issue_author.IssueInputError) as ctx:
-            issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+    def test_files_into_the_matched_owned_product_target(self):
+        # S2: filing an engine Issue whose repository is the owned product files INTO the product, not the
+        # mechanic's own repo — the input matched a trusted target, so the create path honors it.
+        with mock.patch("checkout_health.recorded_product_build_target", return_value="acme/product"):
+            issue_author.create_issue({**_GOOD, "repository": "acme/product"},
+                                      env={"GITHUB_REPOSITORY": "acme/mechanic", "GITHUB_TOKEN": "tok"},
+                                      issues_factory=_CapturingIssues)
+        self.assertEqual(_CapturingIssues.last.repo, "acme/product")
+
+    def test_refuses_when_input_repository_matches_no_trusted_target(self):
+        with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
+            env = {"GITHUB_REPOSITORY": "someone/else", "GITHUB_TOKEN": "tok"}
+            with self.assertRaises(issue_author.IssueInputError) as ctx:
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
         self.assertIn("trusted target", str(ctx.exception))
 
     def test_refuses_without_a_token(self):
         env = {"GITHUB_REPOSITORY": "StarshipSuperjam/engine-template"}   # no GITHUB_TOKEN
-        with self.assertRaises(issue_author.IssueInputError):
-            issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
+        with mock.patch("checkout_health.recorded_product_build_target", return_value=None):
+            with self.assertRaises(issue_author.IssueInputError):
+                issue_author.create_issue(dict(_GOOD), env=env, issues_factory=_CapturingIssues)
 
     def test_refuses_when_target_unresolvable(self):
         with tempfile.TemporaryDirectory() as d:

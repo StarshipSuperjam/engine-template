@@ -69,15 +69,28 @@ def installed_verbs(root: str | None = None) -> list:
     (an omitted invocation defaults to model-auto), but not `model-only`, which is hidden from the operator's
     menu. The discovery runs in the non-strict posture: a malformed skill file is skipped rather than allowed
     to crash the whole listing (degrade, never blank — the always-answers guarantee)."""
+    # The CLAUDE source is the sole authority on operator-invocability. A model-only route renders its Codex
+    # twin WITHOUT an `invocation` field (the twin's policy lives in agents/openai.yaml, not its frontmatter),
+    # so reading the Codex frontmatter would default every route to model-auto and silently re-admit the whole
+    # model-only surface to the operator's menu. So the hidden set is computed once from the Claude tree and
+    # applied to BOTH trees below — a route the Claude source marks non-operator-invocable is hidden on every
+    # runtime, matching the ADR-0336 rule that engine-help never exposes automatic routes.
+    hidden = set()
+    for rec in skill_discovery.records("claude", root=root, include_commands=True):
+        inv = rec["frontmatter"].get("invocation") or "model-auto"
+        if inv not in ("operator-typed", "model-auto"):
+            hidden.add(rec["slug"])
     seen: dict = {}
     for tree in ("claude", "codex"):
         # Claude also carries the legacy flat commands; the Codex tree has none.
         for rec in skill_discovery.records(tree, root=root, include_commands=(tree == "claude")):
+            name = rec["slug"]
+            if name in hidden:
+                continue   # non-operator-invocable on its Claude source — hidden from the menu on every runtime
             fm = rec["frontmatter"]
             inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
             if inv not in ("operator-typed", "model-auto"):
-                continue   # model-only is hidden from the operator's menu; an unknown value too
-            name = rec["slug"]
+                continue   # a Codex-only oddity declaring a non-invocable value; the Claude-side set already caught model-only
             entry = seen.setdefault(name, {"name": name, "description": "", "trees": set()})
             entry["trees"].add(tree)
             if tree == "claude" or not entry["description"]:   # the Claude source's description wins

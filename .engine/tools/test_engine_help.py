@@ -57,6 +57,25 @@ class TestInstalledVerbsDiscovery(unittest.TestCase):
                              "the engine's own operator-invocable verbs (operator-typed + model-auto), alphabetical; "
                              "model-only and un-prefixed excluded")
 
+    def test_model_only_route_hidden_even_when_its_codex_twin_drops_invocation(self):
+        # B1 regression: a model-only route renders its Codex twin WITHOUT an `invocation` field (the twin's
+        # policy lives in agents/openai.yaml). Reading the Codex frontmatter defaults it to model-auto, which
+        # would silently re-admit the whole model-only route surface to the operator's menu. The Claude source
+        # is the authority: the route must stay hidden on BOTH trees.
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)                 # a real command
+            _write(os.path.join(d, ".claude/skills/engine-route/SKILL.md"), _MODEL_ONLY)              # Claude: model-only
+            # the Codex twin as codex_gen actually renders it — name/description only, NO invocation:
+            _write(os.path.join(d, ".agents/skills/engine-route/SKILL.md"),
+                   "---\nname: engine-route\ndescription: A model-driven one.\n---\n\n## Steps\n\n1. Go.\n")
+            # a real command's twin, so BOTH trees are populated (the one-tree-only annotation path is exercised)
+            _write(os.path.join(d, ".agents/skills/engine-start/SKILL.md"),
+                   "---\nname: engine-start\ndescription: Start building.\n---\n\n## Steps\n\n1. Go.\n")
+            names = [v["name"] for v in eh.installed_verbs(root=d)]
+            self.assertIn("engine-start", names)
+            self.assertNotIn("engine-route", names,
+                             "a model-only route must stay hidden even though its Codex twin drops invocation")
+
     def test_typed_name_is_the_directory_not_the_display_label(self):
         with tempfile.TemporaryDirectory() as d:
             # frontmatter `name` differs from the directory → the verb shown is the DIRECTORY (what the

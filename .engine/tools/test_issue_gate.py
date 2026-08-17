@@ -79,6 +79,14 @@ class TestConnectorArm(unittest.TestCase):
     """A connector issue-creation tool (name ends `github_create_issue`) is rerouted when it carries the engine
     label, and only then — the label is read from the structured input, never inferred from prose."""
 
+    def test_the_real_github_mcp_tool_name_is_rerouted(self):
+        # S1 regression: the official GitHub MCP server exposes `mcp__github__create_issue` (harness
+        # double-underscore naming), which a literal `github_create_issue` suffix would MISS. The
+        # ends-in-create_issue + contains-github rule catches it; jira does not (see below).
+        for name in ("mcp__github__create_issue", "mcp__composio__github_create_issue", "github_create_issue"):
+            self.assertIsNotNone(issue_gate.reroute_reason(name, {"title": "x", "labels": ["engine"]}),
+                                 f"{name} carrying the engine label must reroute")
+
     def test_connector_with_engine_label_is_rerouted(self):
         self.assertIsNotNone(issue_gate.reroute_reason(
             "mcp__github__github_create_issue", {"title": "x", "labels": ["engine", "bug"]}))

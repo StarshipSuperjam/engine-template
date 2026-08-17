@@ -185,16 +185,36 @@ def validate_input(data: dict) -> dict:
     return data
 
 
-def resolve_trusted_target(*, env=None, root: "str | None" = None) -> "str | None":
-    """The repository this engine may file its OWN health Issues into, resolved from TRUSTED config only — never
-    from the input. `GITHUB_REPOSITORY` (the CI-provided identity) wins; otherwise the checkout's git `origin`
-    slug (read offline from disk). None when neither resolves (the create path then refuses — fail closed)."""
+def resolve_trusted_targets(*, env=None, root: "str | None" = None) -> list:
+    """The repositories this engine may file its OWN engine Issues into, resolved from TRUSTED config only —
+    never from the input. Always the engine's own checkout: `GITHUB_REPOSITORY` (the CI-provided identity) when
+    set, otherwise the checkout's git `origin` slug (read offline from disk). For an engine-MECHANIC it ALSO
+    includes the owned product it delivers into — the manifest's committed `product_build_target`
+    (checkout_health.recorded_product_build_target), which is None for a normal self-building engine — so an
+    owned-product engine Issue reaches the product it builds. Both sources are trusted config, so neither can be
+    steered by observed content. Deduped case-insensitively; empty when nothing resolves (create then refuses)."""
+    import repo_identity  # lazy: pulls in validate; only needed at CLI runtime
     environ = os.environ if env is None else env
+    targets = []
     declared = environ.get("GITHUB_REPOSITORY")
     if declared and declared.strip():
-        return declared.strip()
-    import repo_identity  # lazy: pulls in validate; only needed at CLI runtime
-    return repo_identity.origin_slug(root)
+        targets.append(declared.strip())
+    else:
+        origin = repo_identity.origin_slug(root)
+        if origin:
+            targets.append(origin)
+    try:
+        import checkout_health  # lazy
+        product = checkout_health.recorded_product_build_target(root)
+        if product:
+            targets.append(product)
+    except Exception:  # noqa: BLE001 — the owned-product target is additive; its absence never blanks the set
+        pass
+    deduped: list = []
+    for target in targets:
+        if not any(repo_identity.slug_eq(target, seen) for seen in deduped):
+            deduped.append(target)
+    return deduped
 
 
 def body_from_input(data: dict) -> str:
@@ -206,32 +226,35 @@ def body_from_input(data: dict) -> str:
         references=references, urgency=data.get("urgency"))
 
 
-def _target_matches(requested: str, trusted: "str | None") -> bool:
-    """The requested repository matches the trusted-resolved target (case/normalization-insensitive). False when
-    the target is unresolved — an unverifiable target is never treated as a match (fail closed)."""
-    if not trusted:
-        return False
+def _matched_target(requested: str, trusted_targets: list) -> "str | None":
+    """The trusted target the requested repository matches (case/normalization-insensitive), or None when it
+    matches none — an input naming an untrusted repository is never treated as a match (fail closed)."""
     import repo_identity  # lazy
-    return repo_identity.slug_eq(requested, trusted)
+    for target in trusted_targets:
+        if repo_identity.slug_eq(requested, target):
+            return target
+    return None
 
 
-def preview_text(data: dict, trusted: "str | None") -> str:
-    """The operator-facing preview string: requested repository, trusted target and whether they agree, the
-    engine label (by construction), the title, and the rendered body. Pure — no network, nothing filed."""
+def preview_text(data: dict, trusted_targets: list) -> str:
+    """The operator-facing preview string: requested repository, the trusted target set and whether the request
+    matches one of them, the engine label (by construction), the title, and the rendered body. Pure — no
+    network, nothing filed."""
     import telemetry  # lazy: for the label constant (issue_author is imported by telemetry at load)
     requested = data["repository"]
-    if trusted is None:
-        agree = ("  ✗ this checkout's own repository could not be resolved from trusted config — `create` will "
-                 "refuse to file until it can (fail closed).")
-    elif _target_matches(requested, trusted):
-        agree = "  ✓ the requested repository matches the trusted target."
+    matched = _matched_target(requested, trusted_targets)
+    if not trusted_targets:
+        agree = ("  ✗ no trusted target could be resolved from engine config — `create` will refuse to file "
+                 "until one can (fail closed).")
+    elif matched:
+        agree = f"  ✓ the requested repository matches the trusted target {matched}."
     else:
-        agree = ("  ✗ the requested repository does NOT match the trusted target — `create` will refuse to file "
+        agree = ("  ✗ the requested repository does NOT match any trusted target — `create` will refuse to file "
                  "(an input cannot steer the filing off the engine's own channel).")
     return (
         "ENGINE ISSUE — PREVIEW (nothing has been filed)\n\n"
         f"Repository (requested in the input): {requested}\n"
-        f"Repository (trusted target, where create WILL file): {trusted or '(unresolved)'}\n"
+        f"Trusted targets (where create MAY file): {', '.join(trusted_targets) or '(none resolved)'}\n"
         f"{agree}\n"
         f"Label applied by construction: {telemetry.ENGINE_DOMAIN_LABEL}\n"
         f"Title: {data['title']}\n\n"
@@ -243,30 +266,33 @@ def preview_text(data: dict, trusted: "str | None") -> str:
 
 
 def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_factory=None) -> str:
-    """File the engine Issue and return its link. Resolves the trusted target and REFUSES (IssueInputError) if
-    the input's repository does not match it, or if no target/token can be resolved. The `engine` label is
+    """File the engine Issue and return its link. Resolves the trusted target SET and REFUSES (IssueInputError)
+    if the input's repository matches none of it, or if no target/token can be resolved. The Issue is filed into
+    the trusted target the input MATCHED (never a repository named only by the input). The `engine` label is
     applied by construction (telemetry.GitHubIssues' default). `issues_factory(repo, token)` is injectable so
     offline tests exercise the whole path without a network; production uses telemetry.GitHubIssues."""
     environ = os.environ if env is None else env
-    trusted = resolve_trusted_target(env=environ, root=root)
-    if trusted is None:
+    trusted = resolve_trusted_targets(env=environ, root=root)
+    if not trusted:
         raise IssueInputError(
-            "refusing to file: this checkout's own repository could not be resolved from trusted config "
-            "(no GITHUB_REPOSITORY and no git origin) — the target cannot be verified.")
-    if not _target_matches(data["repository"], trusted):
+            "refusing to file: no trusted target could be resolved from engine config "
+            "(no GITHUB_REPOSITORY, no git origin, no recorded product build target) — the target cannot be verified.")
+    matched = _matched_target(data["repository"], trusted)
+    if matched is None:
         raise IssueInputError(
-            f"refusing to file: the input names '{data['repository']}' but this engine's trusted target is "
-            f"'{trusted}'. An engine Issue is filed only into the engine's own repository; correct the input's "
-            "`repository` to the trusted target (an input cannot redirect the filing elsewhere).")
+            f"refusing to file: the input names '{data['repository']}' but this engine's trusted targets are "
+            f"{trusted}. An engine Issue is filed only into the engine's own repository (or, for a mechanic, the "
+            "owned product it builds); correct the input's `repository` to one of those (an input cannot redirect "
+            "the filing elsewhere).")
     token = environ.get("GITHUB_TOKEN")
     if not token or not token.strip():
         raise IssueInputError("refusing to file: no GITHUB_TOKEN is set, so the Issue cannot be filed.")
     if issues_factory is None:
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
-    issues = issues_factory(trusted, token.strip())
+    issues = issues_factory(matched, token.strip())
     created = issues.open_issue(data["title"], body_from_input(data))
-    return created.get("html_url") or f"https://github.com/{trusted}/issues/{created.get('number', '')}"
+    return created.get("html_url") or f"https://github.com/{matched}/issues/{created.get('number', '')}"
 
 
 def _cli_preview(source: str) -> int:
@@ -275,7 +301,7 @@ def _cli_preview(source: str) -> int:
     except IssueInputError as exc:
         print(f"Refused — {exc}", file=sys.stderr)
         return 2
-    print(preview_text(data, resolve_trusted_target()))
+    print(preview_text(data, resolve_trusted_targets()))
     return 0
 
 

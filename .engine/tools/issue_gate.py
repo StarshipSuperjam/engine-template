@@ -152,10 +152,14 @@ def _connector_carries_engine(tool_input) -> bool:
 
 
 def _is_connector_issue_creation(tool_name) -> bool:
-    """True for a connector issue-creation tool — one whose name ends `github_create_issue` (e.g. an MCP GitHub
-    connector's `mcp__…__github_create_issue`). Kept a precise suffix so unrelated `create_issue`-named tools
-    are not swept in."""
-    return isinstance(tool_name, str) and tool_name.endswith("github_create_issue")
+    """True for a connector GitHub issue-creation tool. Matches a name that ENDS in `create_issue` and carries
+    `github` somewhere — so the real MCP GitHub server's `mcp__github__create_issue` (double-underscore harness
+    naming defeats a literal `github_create_issue` suffix), a Composio `mcp__composio__github_create_issue`, and
+    a bare `github_create_issue` all match, while an unrelated `jira_create_issue` does not."""
+    if not isinstance(tool_name, str):
+        return False
+    lowered = tool_name.lower()
+    return lowered.endswith("create_issue") and "github" in lowered
 
 
 def reroute_reason(tool_name, tool_input) -> str | None:

@@ -136,6 +136,28 @@ class TestModuleSchema(unittest.TestCase):
         self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "depends": {"core": ">=1.0.0"}}), [])
 
 
+class TestRetiredVerbUpgradeNotices(unittest.TestCase):
+    """ADR-0336 S3: the three retired verbs each carry a version-keyed upgrade notice on their owning module,
+    naming the `engine-setup` replacement — so an operator upgrading across the removal is told where the
+    capability went, rather than a stale name silently failing."""
+
+    def _notices(self, module_id: str) -> str:
+        m = validate.load_json(os.path.join(validate.ROOT, ".engine", "modules", module_id, "manifest.json"))
+        return " ".join((entry or {}).get("description", "")
+                        for entry in (m.get("retired_capabilities") or {}).values())
+
+    def test_core_notice_names_conduct_and_tune_pointing_at_engine_setup(self):
+        text = self._notices("core")
+        self.assertIn("engine-conduct", text)
+        self.assertIn("engine-tune", text)
+        self.assertIn("engine-setup", text)
+
+    def test_github_projects_sync_notice_names_board_setup_pointing_at_engine_setup(self):
+        text = self._notices("github-projects-sync")
+        self.assertIn("engine-board-setup", text)
+        self.assertIn("engine-setup", text)
+
+
 class TestVersionKeyDuplicateFindings(unittest.TestCase):
     """#694: two keys in a migrations/retired_capabilities block that normalise to the SAME version are refused.
     The leg reads RAW json so it also catches a LITERAL duplicate key (which json.load silently collapses)."""
