@@ -2626,13 +2626,11 @@
       },
       "slug": "upstream-clean",
       "source": {
-        "fingerprint": "sha256:e8349cf402f142cdc2610762673d7aa40b2c5bb82c50bde80232665dce5cea97",
+        "fingerprint": "sha256:f4f8790c3d1aeb61b2b8aa2dd2c43a68d6b9996727019013a0cd3254d401df06",
         "path": ".engine/check/upstream-clean.json"
       },
       "status": "active",
-      "suites": [
-        "pre-close"
-      ],
+      "suites": [],
       "tier": "soft",
       "type": "check"
     },
@@ -11643,7 +11641,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:71afc84a6b1056fbf203c5840e46961f5eb546a1758354a00feef5e83583bb69",
+        "fingerprint": "sha256:47ef698e18e2eb120e3db607d590fbe261bcef3d0559a50b9ef9f014aebf5644",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -15537,7 +15535,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:0bafa33fb476c9b48fd79157f4a82c29d007dec0876b0cf8c682bcb976eaa60d",
+        "fingerprint": "sha256:32b903ea171f4e008323af424dad2b22f05922cdb257218548f52c975710deb0",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -15660,7 +15658,7 @@
       },
       "slug": "test_upstream_clean",
       "source": {
-        "fingerprint": "sha256:ccd605e4fa0ad77a9bec87777f42669a8f3b6db6e04840866a30100634aaf4c6",
+        "fingerprint": "sha256:c2dd8ad4568c743ef291c31637bd37d4b099eb9a35cede04439954b55d3ae9d8",
         "path": ".engine/tools/external_contribution/test_upstream_clean.py"
       },
       "status": "active",
@@ -15879,7 +15877,7 @@
       },
       "slug": "upstream_clean_check",
       "source": {
-        "fingerprint": "sha256:10fa7f72b075f7453a9f78226b48f199ab26d797a54d5051be05687fa5c1406a",
+        "fingerprint": "sha256:12cd74d7735a1a3e91754171b9b49ae259b47d483f94cb3f4b27c541c6ba271a",
         "path": ".engine/tools/external_contribution/upstream_clean_check.py"
       },
       "status": "active",

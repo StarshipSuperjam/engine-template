@@ -404,6 +404,11 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         # state, not "the Engine's files riding into a repo that isn't yours"); it says they belong to this copy.
         self.assertIn("belong to just this copy", r["narration"])
         self.assertNotIn("a repository that isn't yours", r["narration"])
+        # #777: the leak FINDING message (not just the in-session narration) is what telemetry PUBLISHES as an
+        # Issue title/body; it too must carry the home framing and never the backwards "someone else's
+        # repository" wording, since the submission flow now passes the home flag into findings().
+        self.assertIn("just this copy of the Engine", r["findings"][0]["message"])
+        self.assertNotIn("someone else's repository", r["findings"][0]["message"])
 
     def test_malformed_home_degrades_to_the_strict_full_check_not_a_crash(self):
         # A corrupt manifest makes the real home_repository() RAISE; submit() must degrade LOCALLY to the strict

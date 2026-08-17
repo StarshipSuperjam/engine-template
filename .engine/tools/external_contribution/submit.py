@@ -144,7 +144,8 @@ def clean_findings(diff_ref: str, *, run=_run_git, owned=None) -> list:
     cross-fork outgoing diff. Empty list = clean. `diff_ref` is the resolved upstream-tip ref (never a plain
     branch name — see `outgoing_diff_status`). `owned` defaults to the real engine-owned set; inject it (with
     `run`) to keep tests and the demo fully offline. A test/introspection helper — the live `submit()` flow
-    inlines this same intersection so it can hold on an uninspected diff."""
+    inlines this same intersection (and, since StarshipSuperjam/engine-template#777, also selects the home-vs-stranger message
+    framing, which this helper leaves at its stranger default) so it can hold on an uninspected diff."""
     changed = outgoing_diff(diff_ref, run=run)
     return upstream_clean_check.findings("soft", changed=changed, owned=_resolve_owned(owned))
 
@@ -775,7 +776,12 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     else:
         effective_owned = set(owned_resolved)
     effective_owned |= {p for p in changed if module_coherence.is_deployment_private(p)}
-    findings = upstream_clean_check.findings("soft", changed=changed, owned=effective_owned)
+    # StarshipSuperjam/engine-template#777: pass the home boolean so the PUBLISHED leak message (its first sentence becomes the
+    # telemetry Issue title) is truthful on both targets — the engine-home case must not say the files ride into
+    # "someone else's repository" when the target IS the Engine's own home. Detection is unchanged: the flag
+    # selects message framing only; `effective_owned` above already narrowed the flagged set by home-ness.
+    findings = upstream_clean_check.findings("soft", changed=changed, owned=effective_owned,
+                                             contributing_to_engine_home=contributing_to_engine_home)
     if findings:
         owned_set = effective_owned
         offending = [p for p in changed if p in owned_set]
