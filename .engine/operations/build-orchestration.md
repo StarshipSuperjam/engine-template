@@ -197,9 +197,9 @@ Read `.github/pull_request_template.md` in full and fill its literal contract, i
 Scope/Behaviors, Validation, operator-readable Review record, Demonstration, and AI involvement. The Review
 record says what depth and plain-language checks ran, whether code was executed in a throwaway copy, how
 findings were dispositioned, and—when final differs from reviewed—the commits, divergence, judgment, and any
-focused result. Keep reviewer-internal names out of operator-facing prose. Include the standing unresolved
-conversation notice, spec-derived acceptance steps or honest no-spec line, change profile, and a genuinely
-operator-runnable demonstration (or the real reason none is observable).
+focused result. Keep reviewer-internal names out of operator-facing prose. Include spec-derived acceptance
+steps or honest no-spec line, change profile, and a genuinely operator-runnable demonstration (or the real
+reason none is observable).
 
 Follow [Build submission evidence](build-submission-evidence.md) for complete logs, index and scope-profile
 disclosure, spec-derived review steps, hard-check declarations, unresolved conversations, recognized

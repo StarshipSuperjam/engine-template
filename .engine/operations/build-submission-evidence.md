@@ -22,7 +22,9 @@ write a flattering story about the change.
 4. The Review record names the approved depth and checks performed in operator language. Disclose whether a
    reviewer executed code and that execution was confined to a discarded copy. Include reviewed and final
    commits, measured divergence, the proportional re-review judgment, and any focused result.
-5. Include the standing unresolved-conversation notice and report each applicable conditional lane exactly:
+5. Report each applicable conditional lane exactly (the unresolved-conversation guidance is no longer folded
+   into every pull request — it is surfaced only when a merge is actually blocked; see the blocked-merge
+   recovery path in [boot-session-start.md](boot-session-start.md)):
    - A recognized automation PR says its body-completeness result was **not applicable**, not verified. Keep
      that distinct from any separately required `guardrail-ack`; automation never supplies the operator's
      acknowledgement.

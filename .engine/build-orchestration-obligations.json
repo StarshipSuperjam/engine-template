@@ -351,9 +351,10 @@
       "id": "BO-43",
       "intent": "Include the unresolved-conversation pre-arm before merge.",
       "classification": "operator-authority",
-      "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
-      "anchor": "unresolved-conversation notice"
+      "disposition": "superseded",
+      "owner": ".engine/operations/boot-session-start.md",
+      "anchor": "A merge blocked by an unresolved review conversation",
+      "replacement": "The standing notice is no longer folded into every pull request. The unresolved-conversation guidance is surfaced only when a merge is actually blocked — when the operator reports a greyed merge button with all checks green — by rendering unresolved_conversation_notice.py from the boot-session-start.md recovery path; the engine never resolves the conversation for the operator, and the protected-branch conversation-resolution rule that blocks merging is unchanged."
     },
     {
       "id": "BO-44",

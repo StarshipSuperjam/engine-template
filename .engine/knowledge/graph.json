@@ -6198,7 +6198,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:2f168cbd9723a8ffb52b2cc5048e726a09864233050cb078672b51a22cf49cc8",
+        "fingerprint": "sha256:9547c6e2824bd1cb9eec01c70b38ba4b507a8933b94035d7fbde3e870b75be7b",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6218,7 +6218,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c68487b2a0c473fd26f045368b28cdadac39450e76c86496798a57cc307a3324",
+        "fingerprint": "sha256:550b69ad671258936816694809a923d3c92afb24a4f7a2c390b91f15e818c391",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6258,7 +6258,7 @@
       },
       "slug": "build-submission-evidence",
       "source": {
-        "fingerprint": "sha256:b011c83aabbc49d3939f220fe9b45ad1d4bf4caad67af22aa2ccc957e4de67a2",
+        "fingerprint": "sha256:f27a89246412a1ca3056d318db6345dfac6ea0db82e05a273ab4b341369e9736",
         "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
@@ -18576,11 +18576,11 @@
       },
       "slug": "unresolved_conversation_notice",
       "source": {
-        "fingerprint": "sha256:d05bc44e6eb985aa6b83e81099dc146b86ea849d2897ed820c805e513b19e5c7",
+        "fingerprint": "sha256:07e897c0bf07071899088d4c483fc8d81c98e4f72d3bfb6a302ee05c861e304d",
         "path": ".engine/tools/unresolved_conversation_notice.py"
       },
       "status": "active",
-      "summary": "Passive pre-arm for a merge blocked by an unresolved review conversation — the branch ruleset's",
+      "summary": "On-demand guidance for a merge blocked by an unresolved review conversation — the branch ruleset's",
       "type": "tool"
     },
     {
