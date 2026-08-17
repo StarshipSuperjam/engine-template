@@ -224,7 +224,11 @@ def http_error_forbids_rulesets(err: urllib.error.HTTPError) -> bool:
 def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> list:
     """Pure evaluation of the protection floor against the EVALUATED per-branch rules (which already omit rules in
     evaluate/disabled mode), for the given identity `tier`. Returns the list of floor pieces not in force — empty
-    means the gate fully bites. In TEAM the floor additionally requires a code-owner approval that survives the last
+    means the gate fully bites. The floor requires FRESHNESS — the required checks must have passed against the
+    then-current base — enforced as `strict_required_status_checks_policy` on the required_status_checks rule
+    (eADR-0021, amended by StarshipSuperjam/engine-template#915); a merge queue is the planned zero-churn second
+    mechanism (StarshipSuperjam/engine-template#989), recognized here only once its workflow plumbing ships with
+    it. In TEAM the floor additionally requires a code-owner approval that survives the last
     push — the distinct-identity review the tier is sold on. The default is SOLO: the ENFORCEMENT paths (the standing
     CI check `main()` and bootstrap's apply/verify) resolve the real tier once via resolve_tier and pass it
     explicitly, so team protection is continuously verified; the default only serves an un-migrated informational
@@ -232,6 +236,7 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
     there rather than mis-enforcing them."""
     types = {r.get("type") for r in rules}
     bound: set[str] = set()
+    strict_checks = False  # freshness: does the required_status_checks rule require the branch to be up to date?
     pr_thread_resolution = False
     pr_params: dict = {}
     for r in rules:
@@ -240,6 +245,12 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
             for c in p.get("required_status_checks", []):
                 if c.get("context"):
                     bound.add(c["context"])
+            # FRESHNESS: strict_required_status_checks_policy makes GitHub require the head to be up to date with
+            # the base before the required checks authorize a merge — so a green proven against an older base
+            # cannot merge stale. The evaluated-rules endpoint surfaces this flag inside the rule's parameters
+            # (confirmed live). A MISSING/unreadable flag reads as False here — fail toward not-fresh (RED),
+            # never toward a false green, matching this module's fail-closed posture.
+            strict_checks = bool(p.get("strict_required_status_checks_policy"))
         elif r.get("type") == "pull_request":
             pr_thread_resolution = bool(p.get("required_review_thread_resolution"))
             pr_params = p
@@ -269,6 +280,13 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
             for name in required_checks:
                 if name not in bound:
                     missing.append(f"the required check '{name}' is not bound")
+            # FRESHNESS is gated HERE, inside `if required_checks:` and only when the required_status_checks rule
+            # is actually present — exactly like the check-binding floor above. A change with no required checks
+            # (the checkless brownfield-arrival window, which strips the whole rule) has nothing to be fresh
+            # about, so asserting freshness there would false-fail the arrival the checkless path exists to allow.
+            if not strict_checks:
+                missing.append("a change can merge without being brought up to date with the base branch first, "
+                               "so a check that passed against an older base can still merge")
     if not pr_thread_resolution:
         missing.append("unresolved review conversations do not block merging")
     if "non_fast_forward" not in types:

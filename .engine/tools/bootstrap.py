@@ -161,10 +161,12 @@ def _pull_request_params(tier: str) -> dict:
 def floor_ruleset(name: str = ENGINE_RULESET_NAME, *, tier: str) -> dict:
     """The ruleset object that satisfies protection_guard.missing_floor EXACTLY for the given tier (verified
     against the live evaluated floor): a pull request before merging (tier-specific review requirement above,
-    plus conversation resolution), the engine's required checks, no force-push, no deletion. Targets the
-    default branch via the ~DEFAULT_BRANCH ref condition so it follows a rename. `tier` is keyword-only and
-    REQUIRED — never defaulted, so no call site can silently build the weaker floor (the tier is resolved once,
-    via resolve_tier, and threaded explicitly)."""
+    plus conversation resolution), the engine's required checks WITH freshness (the head must be up to date with
+    the base so a green proven against an older base cannot merge stale — eADR-0021 as amended by
+    StarshipSuperjam/engine-template#915), no force-push, no deletion. Targets the default branch via the
+    ~DEFAULT_BRANCH ref condition so it follows a rename. `tier` is keyword-only and REQUIRED — never defaulted,
+    so no call site can silently build the weaker floor (the tier is resolved once, via resolve_tier, and threaded
+    explicitly)."""
     return {
         "name": name,
         "target": "branch",
@@ -178,7 +180,10 @@ def floor_ruleset(name: str = ENGINE_RULESET_NAME, *, tier: str) -> dict:
             {
                 "type": "required_status_checks",
                 "parameters": {
-                    "strict_required_status_checks_policy": False,
+                    # Freshness: require the head to be up to date with the base before the required checks
+                    # authorize a merge, so a check green against an older base cannot merge stale
+                    # (StarshipSuperjam/engine-template#915). protection_guard.missing_floor verifies this flag.
+                    "strict_required_status_checks_policy": True,
                     "do_not_enforce_on_create": False,
                     # The required-check names come from the SINGLE frozen home (never copied here).
                     "required_status_checks": [
@@ -305,9 +310,13 @@ def augment_payload(product_full: dict, required_checks: list | None = None, *, 
         rsc = next((r for r in rules if r.get("type") == "required_status_checks"), None)
         created_rsc = rsc is None
         if created_rsc:
+            # The engine-CREATED checks rule carries freshness (StarshipSuperjam/engine-template#915). This
+            # branch runs only when the operator's ruleset has NO checks rule, so setting strict here is purely
+            # additive — an operator's PRE-EXISTING checks rule is never modified (that rule and its strict flag
+            # stay theirs; a residual freshness gap on it is disclosed via residual_gaps, never overwritten).
             rsc = {"type": "required_status_checks",
                    "parameters": {"required_status_checks": [],
-                                  "strict_required_status_checks_policy": False,
+                                  "strict_required_status_checks_policy": True,
                                   "do_not_enforce_on_create": False}}
             rules.append(rsc)
             added_rules.append("required_status_checks")

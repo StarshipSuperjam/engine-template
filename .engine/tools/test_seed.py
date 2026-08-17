@@ -1023,6 +1023,7 @@ class TestProtectionFloor(unittest.TestCase):
             {"type": "pull_request", "parameters": {
                 "required_review_thread_resolution": True, "required_approving_review_count": 0}},
             {"type": "required_status_checks", "parameters": {
+                "strict_required_status_checks_policy": True,
                 "required_status_checks": [{"context": "engine-ci"}, {"context": "engine-guard"}]}},
             {"type": "non_fast_forward", "parameters": {}},
             {"type": "deletion", "parameters": {}},
@@ -1030,6 +1031,32 @@ class TestProtectionFloor(unittest.TestCase):
 
     def test_full_floor_has_nothing_missing(self):
         self.assertEqual(protection_guard.missing_floor(self._full(), self.CHECKS), [])
+
+    def test_non_strict_checks_rule_flags_freshness(self):
+        # Freshness (StarshipSuperjam/engine-template#915): a required_status_checks rule that binds the checks
+        # but does NOT require the branch to be up to date lets a green proven against an older base merge stale.
+        rules = self._full()
+        rules[1]["parameters"]["strict_required_status_checks_policy"] = False
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_absent_strict_flag_fails_closed_to_not_fresh(self):
+        # An unreadable/omitted strict flag must read as NOT fresh (RED), never as a false green.
+        rules = self._full()
+        rules[1]["parameters"].pop("strict_required_status_checks_policy", None)
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_checkless_arrival_does_not_flag_freshness(self):
+        # In the checkless brownfield-arrival window (required_checks == []) the whole checks rule is absent;
+        # freshness must be suppressed exactly like the check-binding floor, or the arrival false-fails.
+        rules = [
+            {"type": "pull_request", "parameters": {"required_review_thread_resolution": True}},
+            {"type": "non_fast_forward", "parameters": {}},
+            {"type": "deletion", "parameters": {}},
+        ]
+        missing = protection_guard.missing_floor(rules, [])
+        self.assertFalse(any("up to date with the base" in m for m in missing), missing)
 
     def test_empty_rules_flags_every_floor_piece(self):
         missing = protection_guard.missing_floor([], self.CHECKS)

@@ -159,10 +159,10 @@ Write genuine deferrals at the code site with the governed [`ENGINE-TODO` marker
 first-hand authority. Iterate with focused tests; `status` reports unordered activities and cannot know which
 engineering activity is best.
 
-Reconcile the target branch before final validation. If it advanced, resolve according to the substance of
-the change. Regenerate `.engine/knowledge/graph.json` and `.engine/self-map.md` last from the reconciled tree;
-their textual conflicts are resolved by regeneration, never by choosing a side. The original base is
-disclosed evidence, not immutable authority.
+Reconcile the target branch before final validation; if it advanced, resolve by the substance of the change
+(the original base is disclosed evidence, not immutable authority). Regenerate `.engine/knowledge/graph.json`
+and `.engine/self-map.md` last from the reconciled tree, conflicts resolved by regeneration, never a side-pick.
+This reconcile is no longer the sole guarantee: the floor now requires freshness (eADR-0021), so GitHub backstops it at the merge boundary.
 
 ### 5. Validate, review the deliverable, and repair proportionately
 
