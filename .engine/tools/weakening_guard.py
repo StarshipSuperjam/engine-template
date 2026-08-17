@@ -1134,7 +1134,7 @@ _ACK_AUTHORITY_NOTE = (
     "Whether it also proves a distinct OPERATOR identity depends on your setup — a team setup (a separate "
     "engine identity) refuses the acknowledgment unless a distinct operator applied it; a solo setup (one "
     "shared credential) cannot verify who applied it, so an automated session holding that same credential "
-    "could have. Your review at the merge remains the gate.")
+    "could have. Your merge remains the gate.")
 _ACK_NOHEAD_NOTE = (
     "GUARDRAIL CHECK: the pull request event carried no head commit for this pull request; failing closed.")
 
