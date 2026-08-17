@@ -2428,6 +2428,62 @@
       "type": "check"
     },
     {
+      "id": "check:route-budget",
+      "kind": "custom/script",
+      "name": ".engine/check/route-budget.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:route_budget_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "route-budget",
+      "source": {
+        "fingerprint": "sha256:6607c4d6beb1416e36b1a67292f1b7b8e0c1c6a8cc0ed0a476fac694d3bdea2f",
+        "path": ".engine/check/route-budget.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:route-target-existence",
+      "kind": "custom/script",
+      "name": ".engine/check/route-target-existence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:route_target_existence_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "route-target-existence",
+      "source": {
+        "fingerprint": "sha256:b4931f31049c8cb26f3274f2556d15ee3e2c0319db5a694c91b19ed699774460",
+        "path": ".engine/check/route-target-existence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:self-map-drift",
       "kind": "custom/script",
       "name": ".engine/check/self-map-drift.json",
@@ -6039,7 +6095,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:8be42a77301d8304ac221a7606d07c2abfb2aca1724d86b224cc1716222289e6",
+        "fingerprint": "sha256:a65122f87f1049dc61d8c44ac102dd91c87b5478e467958760e7a8aeaede45c2",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -8431,11 +8487,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-dependency-discipline",
       "source": {
-        "fingerprint": "sha256:8a9b8e2b77b437774865d8b6ed4f51c534dc6eed7688348fee39fbe4fc096b71",
+        "fingerprint": "sha256:f97fade932fde4b1f8dc15d65156c825a98db975be35372160dff81b842cbc14",
         "path": ".claude/skills/engine-setup-dependency-discipline/SKILL.md"
       },
       "status": "active",
@@ -8453,11 +8512,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-design-review",
       "source": {
-        "fingerprint": "sha256:c081b125ceee4806d628f46f2c1a68ec7054904f52bb70e48e71fa2b6ebeeedd",
+        "fingerprint": "sha256:2901637869c062aa8e0b91f112157d4e349e2d266dca07d532fff2100c939c44",
         "path": ".claude/skills/engine-setup-design-review/SKILL.md"
       },
       "status": "active",
@@ -8475,11 +8537,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-external-contribution",
       "source": {
-        "fingerprint": "sha256:bde8c2a2b68bd2919893574ec559dce6be6f567667cc0a1a564a7cfe0117ae11",
+        "fingerprint": "sha256:7f2017c4b88676f4f42b9715d5e154e1ac5d9104a81eac035c46194049752bfb",
         "path": ".claude/skills/engine-setup-external-contribution/SKILL.md"
       },
       "status": "active",
@@ -8499,12 +8564,13 @@
           "module:core"
         ],
         "routes_to": [
-          "operation:projects-sync-setup"
+          "operation:projects-sync-setup",
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-github-projects-sync",
       "source": {
-        "fingerprint": "sha256:799d792347b44a36d8d874486f593ee2ea2c25f32f67061dbd8f983fa3ec3f28",
+        "fingerprint": "sha256:65a0faf6b6cc00890b0967ccc257ab0b5f080ff393f8b5b61f232b7b32d85a13",
         "path": ".claude/skills/engine-setup-github-projects-sync/SKILL.md"
       },
       "status": "active",
@@ -8522,11 +8588,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-memory-semantic-recall",
       "source": {
-        "fingerprint": "sha256:a034c57dd515ac4220174a29ab37868a086f55ab098b97cfd1affd3fe1640a1a",
+        "fingerprint": "sha256:b53bd0b87b0b844b26692e0ef4e609f4063e3e3953c4742d920650739f67279c",
         "path": ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md"
       },
       "status": "active",
@@ -8544,11 +8613,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-migration-discipline",
       "source": {
-        "fingerprint": "sha256:3fb3a68276cfed8240a3dea73e2acdf094e483b419f00d2c9da0f87b144caff8",
+        "fingerprint": "sha256:75815e819de98ad77e9101b86d2df252fc9408e803cdab8481887c0c373abcd1",
         "path": ".claude/skills/engine-setup-migration-discipline/SKILL.md"
       },
       "status": "active",
@@ -8566,11 +8638,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-product-design",
       "source": {
-        "fingerprint": "sha256:63191c731188541de11d32c38c05b0e9a714c52506c0b91b1d658549acf8e68e",
+        "fingerprint": "sha256:1d3d1adce7a8e2fee60dc1854ce3da99295fdb833c7edd72af9a2b0d4e5fadff",
         "path": ".claude/skills/engine-setup-product-design/SKILL.md"
       },
       "status": "active",
@@ -8588,11 +8663,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "skill:engine-setup"
         ]
       },
       "slug": "engine-setup-qa-review",
       "source": {
-        "fingerprint": "sha256:c4aa1dbee3ca62f537999840bf71fa6b4a352ffce29b34b312a809332a9f25d4",
+        "fingerprint": "sha256:ebc52c3eaab311d035e3cdb2b59535419e5e06b7a46662e7f7ed1df19ca30964",
         "path": ".claude/skills/engine-setup-qa-review/SKILL.md"
       },
       "status": "active",
@@ -11961,6 +12039,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:repo_identity",
           "tool:telemetry"
         ],
         "provided_by": [
@@ -11969,7 +12048,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:838469b4e20c35d1a1d0f88e19464382f6d2542cbeaad72f8267cace28b4d6f4",
+        "fingerprint": "sha256:61947ab6ecd0f2b6544c465356c7f407058a65759efc5e97024d5411c3423d14",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -12035,11 +12114,11 @@
       },
       "slug": "issue_gate",
       "source": {
-        "fingerprint": "sha256:524cbcae3ffe09d2ce76b4c59bd697d03b2a96ba885568736f4e0a07f4121a7f",
+        "fingerprint": "sha256:72faf74b309747bc79a6588b50206d81ac633706a6b4900bdd14c2538657bc20",
         "path": ".engine/tools/issue_gate.py"
       },
       "status": "active",
-      "summary": "The engine-Issue conformance reroute gate — the matcher (modes registers it; this holds the logic).",
+      "summary": "The engine-Issue reroute gate — the matcher (modes registers it; this holds the logic).",
       "type": "tool"
     },
     {
@@ -12626,7 +12705,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:9bd2eac396d037ce378fa6bfdac7dec8b02a233758c31c13160f3fafeb201f9a",
+        "fingerprint": "sha256:da1b0065d444004fd972fc156341d09798db00abc493fd926dd4ea4ac70b7e8c",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13517,6 +13596,56 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:route_budget_check",
+      "name": ".engine/tools/route_budget_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:codex_gen",
+          "tool:skill_discovery",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "route_budget_check",
+      "source": {
+        "fingerprint": "sha256:50b3a8fd29a938097d535c26f250f12b35e48d4d94792b2659628ab164c8ba9d",
+        "path": ".engine/tools/route_budget_check.py"
+      },
+      "status": "active",
+      "summary": "Route budget — the custom/script entry for engine/check/route-budget (ADR 0336).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:route_target_existence_check",
+      "name": ".engine/tools/route_target_existence_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:codex_gen",
+          "tool:skill_discovery",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "route_target_existence_check",
+      "source": {
+        "fingerprint": "sha256:a90b0159400d277e87b8cab689456e89cfe075cf59955d653832f892340a4f40",
+        "path": ".engine/tools/route_target_existence_check.py"
+      },
+      "status": "active",
+      "summary": "Route target existence — the custom/script entry for engine/check/route-target-existence (ADR 0336).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": false,
       "id": "tool:scent",
@@ -13637,8 +13766,10 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:codex_gen",
           "tool:hooks",
           "tool:module_coherence",
+          "tool:skill_discovery",
           "tool:validate"
         ],
         "provided_by": [
@@ -13647,7 +13778,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:04ec162d27db56e37328b742fc7a095f6736f24171239beec8a0b1d0d3b1d181",
+        "fingerprint": "sha256:14b11b24b51d476d6bc57fc2731e5b869ca2426e6a396027e9e99a420b6a862b",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -13735,7 +13866,7 @@
       },
       "slug": "setup_route_gen",
       "source": {
-        "fingerprint": "sha256:cf56a9dbacf9217d3ecdfc050695ac0a9dfa17025e83c8bbc29604bf136cd37b",
+        "fingerprint": "sha256:7f0228c1f8a4c8277cb6c1d87b6bb508d35a78d87812ef62403107493fc2c7fb",
         "path": ".engine/tools/setup_route_gen.py"
       },
       "status": "active",
@@ -13830,7 +13961,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:2df21318d0338780a152743433fec823a490fa826dddd3a7ab2d0e596d7bab6e",
+        "fingerprint": "sha256:441c84515c717b7ad0f6229290bee5c434cb6d60369ac3088fbddd79d0d1ccfc",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
@@ -15083,7 +15214,7 @@
       },
       "slug": "test_coverage",
       "source": {
-        "fingerprint": "sha256:41329db3dc093f33dfa6c5b4a1a5db4d61ef474b0657153990faf35186b73cd6",
+        "fingerprint": "sha256:c1ddf3e510f8076a63e0aad20e14dce506a250b6472cf2c1d89b0ba2da1fffb4",
         "path": ".engine/tools/product_design/test_coverage.py"
       },
       "status": "active",
@@ -15785,7 +15916,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:7817719890fff75cbebcb81123858d387b019b65378c408ad329bda906b5a4a3",
+        "fingerprint": "sha256:9f749322ce20fc8b480e219e079a296aa54e52110b81857ee825d8eaa9010220",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -15862,11 +15993,11 @@
       },
       "slug": "test_issue_gate",
       "source": {
-        "fingerprint": "sha256:05484e8575318ee4ed011d09e3acffcc7d9b46c53c8a77dfecf340c0c3685f39",
+        "fingerprint": "sha256:d268c01aa66974491e053a7b32398d0fb643b2b1e6ea699fc2650a017fdab1d0",
         "path": ".engine/tools/test_issue_gate.py"
       },
       "status": "active",
-      "summary": "Tests for issue_gate — the engine-Issue conformance reroute matcher.",
+      "summary": "Tests for issue_gate — the engine-Issue reroute matcher.",
       "type": "tool"
     },
     {
@@ -16434,7 +16565,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:bcdc62ae191215399bcad45aa2603583c196a0cb05e46080ff44a878c1f0a3c2",
+        "fingerprint": "sha256:f18e2b003adadfc8fb5d22eddc9cfb3ad487b2adef6f5fe62b7110aff010d3a4",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17729,7 +17860,7 @@
       },
       "slug": "test_spec_form",
       "source": {
-        "fingerprint": "sha256:322ab81960e72ee3d27a61e39fd5731ed252c68b0a8b7c8a5f9f64158be48d0b",
+        "fingerprint": "sha256:a0c267e584e350673945fc780af41d849d5d4eb5785fd23375594cf3187a5760",
         "path": ".engine/tools/product_design/test_spec_form.py"
       },
       "status": "active",

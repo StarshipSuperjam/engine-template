@@ -690,6 +690,12 @@
   ".engine/check/release-integrity.json": [
    "validators-core"
   ],
+  ".engine/check/route-budget.json": [
+   "validators-core"
+  ],
+  ".engine/check/route-target-existence.json": [
+   "validators-core"
+  ],
   ".engine/check/self-map-drift.json": [
    "validators-core"
   ],
@@ -1939,6 +1945,12 @@
    "core"
   ],
   ".engine/tools/review_integrity.py": [
+   "core"
+  ],
+  ".engine/tools/route_budget_check.py": [
+   "core"
+  ],
+  ".engine/tools/route_target_existence_check.py": [
    "core"
   ],
   ".engine/tools/scent.py": [

@@ -173,7 +173,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/agent-coherence.json`, `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/block-coherence.json`, `.engine/check/catalog-completeness.json`, `.engine/check/catalog-coverage.json`, `.engine/check/census-completeness.json`, `.engine/check/codex-agent-coherence.json`, `.engine/check/codex-agent-schema.json`, `.engine/check/codex-hooks-schema.json`, `.engine/check/codex-provider-parity.json`, `.engine/check/codex-skill-coherence.json`, `.engine/check/codex-skill-frontmatter.json`, `.engine/check/codex-skill-shape.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/engine-todo-form.json`, `.engine/check/execution-state.json`, `.engine/check/first-run-assets.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/hard-check-bite.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-coherence.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/lens-consumption.json`, `.engine/check/link-integrity.json`, `.engine/check/manifest-write-funnel.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/model-bindings-schema.json`, `.engine/check/module-manifest.json`, `.engine/check/ontology-authority-reservation.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/operator-guarded-paths.json`, `.engine/check/operator-local-references.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-behaviors-declared.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provider-exceptions-schema.json`, `.engine/check/provider-vocabulary-confinement.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/release-integrity.json`, `.engine/check/self-map-drift.json`, `.engine/check/shipped-issue-references.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/template-shape-spec.json`, `.engine/check/untracked-surface.json`, `.engine/check/uv-group-drift.json`
+  - check: `.engine/check/agent-coherence.json`, `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/block-coherence.json`, `.engine/check/catalog-completeness.json`, `.engine/check/catalog-coverage.json`, `.engine/check/census-completeness.json`, `.engine/check/codex-agent-coherence.json`, `.engine/check/codex-agent-schema.json`, `.engine/check/codex-hooks-schema.json`, `.engine/check/codex-provider-parity.json`, `.engine/check/codex-skill-coherence.json`, `.engine/check/codex-skill-frontmatter.json`, `.engine/check/codex-skill-shape.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/engine-todo-form.json`, `.engine/check/execution-state.json`, `.engine/check/first-run-assets.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/hard-check-bite.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-coherence.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/lens-consumption.json`, `.engine/check/link-integrity.json`, `.engine/check/manifest-write-funnel.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/model-bindings-schema.json`, `.engine/check/module-manifest.json`, `.engine/check/ontology-authority-reservation.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/operator-guarded-paths.json`, `.engine/check/operator-local-references.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-behaviors-declared.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provider-exceptions-schema.json`, `.engine/check/provider-vocabulary-confinement.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/release-integrity.json`, `.engine/check/route-budget.json`, `.engine/check/route-target-existence.json`, `.engine/check/self-map-drift.json`, `.engine/check/shipped-issue-references.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/template-shape-spec.json`, `.engine/check/untracked-surface.json`, `.engine/check/uv-group-drift.json`
   - policy: `.engine/policies/provider-exceptions.json`
 - wires: none (this module adds no shared-state edits)
 
@@ -185,3 +185,66 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
   - codex-agent: `.codex/agents/engine-audit.toml`
 - wires: none (this module adds no shared-state edits)
+
+## Commands and routes
+
+How you reach your engine: the commands a person types, and the automatic routes the assistant may follow on your behalf (10 operator commands, 37 automatic routes).
+
+### Operator commands
+
+| command | what it does | module |
+| --- | --- | --- |
+| `engine-design` | Describe what you want to build, in plain words — I'll help you write it down clearly, check it holds together, and settle it as the description to build from. | `product-design` |
+| `engine-help` | List the Engine's commands — what you can type and what each one does. | `core` |
+| `engine-parts` | Show what your engine is made of — its version, the kinds of files it governs, and the modules installed and how they depend on each other. | `core` |
+| `engine-recall` | Look up what this project already decided, tried, or learned in an earlier session, from its saved memory. | `core` |
+| `engine-release` | Cut and publish a new release of this project — your product's version in a deployed repo, the engine's own in its home repo. | `core` |
+| `engine-routine` | Set up unattended work — let me advance a planned build on a schedule while you're away, adding each change to a pull request for your approval. | `routine-mode` |
+| `engine-setup` | Set up the Engine in a new project, and afterwards manage add-ons, conduct, reviewers, protection, backup, and settings. | `core` |
+| `engine-start` | Start building — switch from looking around to making changes, which I'll put up for your approval. | `core` |
+| `engine-status` | Show where your project stands — what's next, what recently shipped, and anything that needs your attention. | `core` |
+| `engine-upgrade` | Check for, apply, or undo an engine update — see exactly what an update would change, apply it as a pull request you review, or safely undo a half-finished or unwanted one. | `core` |
+
+### Automatic routes
+
+Routes the assistant may follow on its own to reach an engine workflow, with what each points at and whether that target is always present, module-conditional, or home-only.
+
+| route | reachable as | points at | module |
+| --- | --- | --- | --- |
+| `engine-change-conduct` | model-only | operation `.engine/operations/conduct-author.md` (active) | `core` |
+| `engine-check-impact` | model-only | operation `.engine/operations/knowledge-impact-check.md` (active) | `core` |
+| `engine-configure-codex` | model-only | operation `.engine/operations/codex-settings.md` (active) | `core` |
+| `engine-configure-memory-backup` | model-only | tool `.engine/tools/memory/backup_vault.py` (active) | `core` |
+| `engine-coordinate-build` | model-only | operation `.engine/operations/build-orchestration.md` (active) | `core` |
+| `engine-design-product` | model-only | operation `.engine/operations/product-intake.md` (module-conditional) | `core` |
+| `engine-develop-engine` | model-only | operation `.engine/operations/engine-development.md` (home-only) | `core` |
+| `engine-drop-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
+| `engine-enable-protection` | model-only | operation `.engine/operations/control-plane-bootstrap.md` (active) | `core` |
+| `engine-file-engine-issue` | model-only | tool `.engine/tools/issue_author.py` (active) | `core` |
+| `engine-file-upstream-issue` | model-only | operation `.engine/operations/external-contribution-issue.md` (module-conditional) | `core` |
+| `engine-install-engine` | model-only | operation `.engine/operations/engine-arrival.md` (active) | `core` |
+| `engine-manage-addons` | model-only | operation `.engine/operations/module-add.md` (active); operation `.engine/operations/module-remove.md` (active) | `core` |
+| `engine-manage-setup` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-onboard-project` | model-only | operation `.engine/operations/onboarding-read.md` (active) | `core` |
+| `engine-prepare-routine` | model-only | skill `engine-routine` (active) | `core` |
+| `engine-recall` | model-auto | operation `.engine/operations/memory-recall.md` (active); tool `.engine/tools/memory/recall.py` (active) | `core` |
+| `engine-release-project` | model-only | operation `.engine/operations/engine-release.md` (active); operation `.engine/operations/projects-release-advance.md` (module-conditional) | `core` |
+| `engine-remove-engine` | model-only | operation `.engine/operations/engine-remove.md` (active) | `core` |
+| `engine-restore-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
+| `engine-save-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
+| `engine-setup-dependency-discipline` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-design-review` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-external-contribution` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-github-projects-sync` | model-only | skill `engine-setup` (active); operation `.engine/operations/projects-sync-setup.md` (module-conditional) | `core` |
+| `engine-setup-memory-semantic-recall` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-migration-discipline` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-product-design` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-setup-qa-review` | model-only | skill `engine-setup` (active) | `core` |
+| `engine-show-help` | model-only | tool `.engine/tools/engine_help.py` (active) | `core` |
+| `engine-show-parts` | model-only | tool `.engine/tools/self_map.py` (active) | `core` |
+| `engine-show-status` | model-only | tool `.engine/tools/engine_status.py` (active) | `core` |
+| `engine-submit-upstream-contribution` | model-only | operation `.engine/operations/external-contribution-submit.md` (module-conditional) | `core` |
+| `engine-switch-reviewers` | model-only | operation `.engine/operations/engine-team-switch.md` (active) | `core` |
+| `engine-tune-settings` | model-only | operation `.engine/operations/tune-policy.md` (active) | `core` |
+| `engine-upgrade-engine` | model-only | operation `.engine/operations/engine-upgrade.md` (active) | `core` |
+| `engine-validate-codex` | model-only | operation `.engine/operations/codex-validation.md` (active) | `core` |
