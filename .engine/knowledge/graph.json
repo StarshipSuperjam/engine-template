@@ -2596,6 +2596,34 @@
       "type": "check"
     },
     {
+      "id": "check:shipped-local-references",
+      "kind": "custom/script",
+      "name": ".engine/check/shipped-local-references.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:shipped_local_references_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "shipped-local-references",
+      "source": {
+        "fingerprint": "sha256:4306a9ef61a5a7e9035e5b630b9d0ae640d9c4ca31c7f9971296051fdd41454c",
+        "path": ".engine/check/shipped-local-references.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:skill-coherence",
       "kind": "custom/script",
       "name": ".engine/check/skill-coherence.json",
@@ -5740,7 +5768,7 @@
       },
       "slug": "eADR-0040-guardrail-ack-two-tier",
       "source": {
-        "fingerprint": "sha256:a381bbabd2b8ef84e37481a770c11c708e9eda071cc2919528b03b827bc3fca9",
+        "fingerprint": "sha256:e09992c6ead5036537926e7ee4567ab153e4f6a2201af5bb9f41cad8c98d033a",
         "path": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md"
       },
       "status": "accepted",
@@ -6149,7 +6177,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:2875666e36eb88fa5e5dbfaf2d61426999ce7dd11ffbc17b92865b01dc4a665a",
+        "fingerprint": "sha256:24e1b4b4029b9485299a152cf5f7e55a1db97d8323ded118790a6c9f46d46e01",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -11836,7 +11864,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:fa0d96c483114304d57cfa5d31f04b0736dfe7369a160ff7a8eeb3603d78ca0a",
+        "fingerprint": "sha256:d5bff2e245ba70f8446bcab418d26e6152d91c3e30d9c85e9ff3361151bf6cd2",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -12082,7 +12110,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:114fa2cb332f2debdc2efebbe6d82b70d6bfc69bf2eff4a0364bdb72409f78f5",
+        "fingerprint": "sha256:a4f0d754c697a5a720dc016fa3f507a0baecf3881cacddf36499ce8401731247",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12863,7 +12891,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:8243c9ec6b6584fcec14617fa36608b5cc6d7c41b9c7b32440296e4a849f4b02",
+        "fingerprint": "sha256:525e89db44e52f4dfd8c8e93b78ef3b1eeed768183b9af786181fc2c4706f78a",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -13457,8 +13485,10 @@
         "imports": [
           "tool:boot",
           "tool:engine_write",
+          "tool:local_references",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:shipped_local_references_check",
           "tool:validate"
         ],
         "provided_by": [
@@ -13467,7 +13497,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:c5783687f4b6bbdb0d576fbd26b2a27b97b75bfc1694dff141cb4c61a2e0d8d3",
+        "fingerprint": "sha256:a73e342b2a027f59bd64ad35cb92d935b091341c56d37475247b329a6f7ef518",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -14044,11 +14074,36 @@
       },
       "slug": "shipped_issue_references_check",
       "source": {
-        "fingerprint": "sha256:debd46c190ec77a6114233c01fa2bf8b3db843326c90d0a4527fbe7d6b091469",
+        "fingerprint": "sha256:0683ee53cb3e2d95450fec4c3fd0c2e1be134dd85fa3a83b98394ef47b242150",
         "path": ".engine/tools/shipped_issue_references_check.py"
       },
       "status": "active",
       "summary": "Shipped bare-issue-reference floor (engine-template StarshipSuperjam/engine-template#640) — the",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:shipped_local_references_check",
+      "name": ".engine/tools/shipped_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:local_references",
+          "tool:shipped_issue_references_check",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "shipped_local_references_check",
+      "source": {
+        "fingerprint": "sha256:3ad2a8adf584d98093e9fc9bbb989e302de05809f532c21d0a1e9a7f4aef10c2",
+        "path": ".engine/tools/shipped_local_references_check.py"
+      },
+      "status": "active",
+      "summary": "Shipped local-reference floor (StarshipSuperjam/engine-template#943) — the custom/script entry for",
       "type": "tool"
     },
     {
@@ -15767,7 +15822,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:05560d04a003c225d49a18ce0bee39ad5d0a05dae126400d4949d25dfe054a0a",
+        "fingerprint": "sha256:b275b8de287aadec9f4152d71dc48ebbb3b42a95be1d728bbb832aa67d2305b5",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",
@@ -16718,7 +16773,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:3dc4617dc8b3dc67490cce2a1ad3c3da7565ee9570e257c6b288af4bc044678f",
+        "fingerprint": "sha256:c0a9db297b5aa6fdcedd173927879d6ed653a07542ac533a4cbd5f8487894f7e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17265,7 +17320,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:39796fbb9c2a243ef629c0759c6c95e7f10b11ffd9fb44b1eec743c6a92ffae8",
+        "fingerprint": "sha256:e4d328a9b39e459ec7e7ed0785fac46f6db40ee62c3b06b521729b25b2f2f582",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -18021,6 +18076,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_shipped_local_references_check",
+      "name": ".engine/tools/test_shipped_local_references_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:shipped_local_references_check",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_shipped_local_references_check",
+      "source": {
+        "fingerprint": "sha256:624622d0739c04039898bbd0d28eef0376fe10a9ae1bb4c06acb7a2db00f92d4",
+        "path": ".engine/tools/test_shipped_local_references_check.py"
+      },
+      "status": "active",
+      "summary": "Tests for the shipped local-reference floor (StarshipSuperjam/engine-template#943).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_skill",
       "name": ".engine/tools/test_skill.py",
       "owner": "core",
@@ -18638,7 +18717,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:f9d455c2325ca62f7bc3d32d71cb105c7a38b447c4de46f08a4a4d3a67c8b5cd",
+        "fingerprint": "sha256:46183b66a008c305d2e1b343511716cb1b3a9e8968d9e7d5b1570b81654a29e5",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

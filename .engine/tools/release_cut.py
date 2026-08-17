@@ -627,7 +627,7 @@ def _default_on_dependency_violations(present: dict) -> list:
     return out
 
 
-def _local_reference_violations(root: str | None = None) -> "tuple[list, str]":
+def _local_reference_violations() -> "tuple[list, str]":
     """(violations, note) for the shipped local-reference floor at an ENGINE cut (StarshipSuperjam/engine-template#943).
 
     A bare declared local reference — a decision-record id, a spec section, a ticket prefix — on a traveling
@@ -644,8 +644,9 @@ def _local_reference_violations(root: str | None = None) -> "tuple[list, str]":
     switch this floor off. So rather than pass wordlessly the cut states plainly that the scan did not run. It
     never REFUSES on an absent declaration (that is not a defect); it only refuses to be silent. The declaration
     is deliberately left unguarded so tuning it stays cheap (StarshipSuperjam/engine-template#639); this note is the visibility that
-    replaces a guard."""
-    root = root or validate.ROOT
+    replaces a guard. Reads validate.ROOT — the candidate tree being cut — for both the declaration and the
+    scan, so the two never disagree about which tree is the release; tests repoint validate.ROOT via _Tree."""
+    root = validate.ROOT
     vocabulary, state = local_references.load_vocabulary(os.path.join(root, local_references.DECLARATION_REL))
     if not vocabulary:
         return [], (
@@ -1563,6 +1564,12 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
         f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."]
     if not product:      # the deployment gate is an ENGINE-cut instrument; it is inert on a product cut
         validation_bullets += _deployment_check_lines(deployment_gate)
+    # The shipped local-reference floor's DISCLOSED-not-silent note (StarshipSuperjam/engine-template#943): present only when no local-reference
+    # vocabulary was declared at the cut, so the scan did not run. Surfaced in the maintainer's evidence bundle
+    # here — not only the propose step's log — so a removed/emptied declaration is visible at merge, never silent.
+    lref_note = proposal.get("local_reference_note")
+    if lref_note:
+        validation_bullets.append(f"- ⚠ {lref_note}")
     out += pr_section(
         "Validation",
         "The engine's own tooling produced this and `engine-ci` checks it — the mechanical floor.",

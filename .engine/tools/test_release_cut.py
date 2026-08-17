@@ -603,8 +603,10 @@ class ShippedLocalReferenceGuard(unittest.TestCase):
     # that the scan did not run rather than passing silently, and never refuses on that (an absent declaration is
     # a legitimate steady state). A synthetic `ZZ-` vocabulary is seeded so the fixture token is not a real
     # engine decision-record reference.
-    def _seed(self, root, *, declare=True, bad=True):
-        _write(os.path.join(root, ".engine", "provisioning", "first-run-assets.json"), {"files": [], "dirs": []})
+    def _seed(self, root, *, declare=True, bad=True, census=True):
+        if census:
+            _write(os.path.join(root, ".engine", "provisioning", "first-run-assets.json"),
+                   {"files": [], "dirs": []})
         if declare:
             _write(os.path.join(root, ".engine", "operator-local-references.json"), {"id_prefixes": ["ZZ-"]})
         if bad:
@@ -613,11 +615,11 @@ class ShippedLocalReferenceGuard(unittest.TestCase):
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write('"""A seeded shipped tool citing ZZ-1 by bare identifier."""\n\n\ndef go():\n    return None\n')
 
-    def _classify(self, *, declare=True, bad=True, first_cut=False):
+    def _classify(self, *, declare=True, bad=True, census=True, first_cut=False):
         base = _baseline_tree({"core": _module("core")})
         try:
             with _Tree({"core": _module("core")}) as t:
-                self._seed(t.root, declare=declare, bad=bad)
+                self._seed(t.root, declare=declare, bad=bad, census=census)
                 baseline = (rc.Baseline("v0.0.0", True, "first") if first_cut
                             else rc.Baseline("v0.0.9", False, "diff"))
                 return rc.classify(baseline, None if first_cut else base)
@@ -633,6 +635,17 @@ class ShippedLocalReferenceGuard(unittest.TestCase):
     def test_a_clean_declared_tree_is_not_flagged(self):
         p = self._classify(declare=True, bad=False)
         self.assertEqual(p["local_reference_violations"], [])
+        self.assertEqual(p["local_reference_note"], "")
+
+    def test_an_unreadable_retire_census_refuses_the_cut(self):
+        # fail CLOSED at the RELEASE gate: a declared vocabulary but no readable first-run census means the
+        # shipped surface cannot be enumerated, so the cut cannot confirm nothing leaks — it must REFUSE, never
+        # silently pass. This is the gate-side translation of hits()==None, separate from the CI check's own
+        # handling, so it needs its own test (a future `if not found` simplification would silently break it).
+        p = self._classify(declare=True, bad=False, census=False)
+        v = p["local_reference_violations"]
+        self.assertEqual(len(v), 1)
+        self.assertIn("could not be enumerated", v[0])
         self.assertEqual(p["local_reference_note"], "")
 
     def test_an_absent_declaration_discloses_a_note_and_does_not_refuse(self):
@@ -930,6 +943,19 @@ class RenderPRBody(unittest.TestCase):
         # maintainer-facing register: no internal machinery vocabulary leaks
         for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
             self.assertNotIn(banned, body)
+
+    def test_the_local_reference_note_renders_into_validation_when_no_vocabulary_is_declared(self):
+        # #943 disclosed-not-silent: with no local-reference vocabulary declared at the cut, the note that the
+        # shipped-reference scan did NOT run must reach the maintainer's evidence bundle — the release PR body's
+        # Validation section — not only the propose step's log. A bare tree declares nothing, so the note is set.
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        self.assertTrue(proposal["local_reference_note"])   # nothing declared -> the disclosed note is populated
+        body = rc.render_pr_body(proposal, applied)
+        validation = body.split("## Validation", 1)[1].split("## Review", 1)[0]
+        self.assertIn("was not scanned", validation)
+        self.assertIn("⚠", validation)
 
     def test_body_carries_all_nine_required_sections_filled(self):
         # The release pull request must clear the same `pr-body-completeness` gate every engine pull request

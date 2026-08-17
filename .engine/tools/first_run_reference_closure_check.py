@@ -21,7 +21,11 @@ with no inherited self-review, then the audit cron writes a genuine one. A survi
 not the dangling reference this gate exists to catch, so the path leg skips exactly the paths named in
 `_REGENERATED_RETIRED_ASSETS`. That is a deliberately NARROW, named set — NOT "anything a module `provides`":
 most provided-and-retired paths (the first-run setup guide) are construction-only and gone for good, and a
-reference to those must still be caught. The import leg is never carved out (a genuine `import` of a removed
+reference to those must still be caught. A SECOND, separately-named carve-out (`_ABSENT_TOLERANT_RETIRED_ASSETS`,
+StarshipSuperjam/engine-template#943) covers a different, non-regenerated case: a retired asset whose surviving references are ABSENT-tolerant
+— read as "not present", never imported (the engine's own local-reference vocabulary, retired so a fresh repo
+starts absent, whose readers all handle the absent state cleanly). Both carve-outs skip the PATH leg only. The
+import leg is never carved out (a genuine `import` of a removed
 module always fails closed). It runs as a hard CI custom/script check: finding.v1 JSON on stdout, return 0 on a successful
 evaluation (empty array = closed; one finding per surviving reference, each carrying the full plain-language
 consequence + disposition the operator reads). A crash returns non-zero, which the kind turns into a hard
@@ -55,6 +59,17 @@ _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 # for GOOD after retirement, and a surviving reference to those must still be caught. Add a path here only when
 # something genuinely re-creates it after the Retire step — never merely because a manifest lists it.
 _REGENERATED_RETIRED_ASSETS = frozenset({".engine/audits/audit-digest.md"})
+
+# A SECOND, distinct carve-out (StarshipSuperjam/engine-template#943): a removed first-run asset whose surviving references are
+# ABSENT-TOLERANT by construction — read gracefully as "not present", never imported or required. The engine's
+# own local-reference vocabulary (`.engine/operator-local-references.json`) is the case: engine-template commits
+# it to declare `D-` for its own shipped-reference floor, and it is retired at first-run so a fresh repo starts
+# absent (the StarshipSuperjam/engine-template#639 ships-ABSENT contract). Its readers (local_references.load_vocabulary and the two checks +
+# submit that call it) all return the ABSENT state cleanly when the file is gone, so a surviving reference to
+# its path does NOT fail a generated repo's first CI run — the exact harm this gate exists to catch does not
+# apply. Kept SEPARATE from the regenerated set because the rationale differs (not rewritten — safely absent);
+# the import leg is still never carved (a json path is only ever read, never imported).
+_ABSENT_TOLERANT_RETIRED_ASSETS = frozenset({".engine/operator-local-references.json"})
 
 
 def _load_removed(root: str):
@@ -173,7 +188,8 @@ def check(root: str | None = None) -> list:
                 tree = ast.parse(fh.read(), filename=survivor)
         except (OSError, SyntaxError):
             continue
-        for lineno, kind, target in _references(tree, removed_modules, removed_files, _REGENERATED_RETIRED_ASSETS):
+        for lineno, kind, target in _references(tree, removed_modules, removed_files,
+                                                _REGENERATED_RETIRED_ASSETS | _ABSENT_TOLERANT_RETIRED_ASSETS):
             findings.append(validate.finding("hard", _message(survivor, kind, target),
                                              {"file": survivor, "line": lineno}))
     return findings
