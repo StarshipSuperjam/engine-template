@@ -5108,7 +5108,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:5af9afb4f4c980ff2165b78f3abd92fbcede92a2c34a6f914c41f1a1a21c7213",
+        "fingerprint": "sha256:7862d99976330c006d7e4bca525b2c4fa8fe335b59be586a7c67a346194a761b",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -10339,7 +10339,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:9bd2eac396d037ce378fa6bfdac7dec8b02a233758c31c13160f3fafeb201f9a",
+        "fingerprint": "sha256:59a62cda3066fa2008368a5b6438795fc8c99b2c4893b301177f2f590db6c929",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -10390,7 +10390,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:40dea0c5936f4e8f6f30b59ee3d6e392144d51075d172718bd40824aafeb758b",
+        "fingerprint": "sha256:6f6359339ea62ead3503de1927f4d43a8a7f115c5f20e565420afe850f11e85f",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -12047,7 +12047,7 @@
       },
       "slug": "test_block_coherence",
       "source": {
-        "fingerprint": "sha256:e374646d8f800dd942955c436a0604353ad2831581e37360a92705705e50483d",
+        "fingerprint": "sha256:b33710dbd100c2d58b7edbfa3e06e9137b090864b70fb9b2ace2773e4143472c",
         "path": ".engine/tools/test_block_coherence.py"
       },
       "status": "active",
@@ -14002,7 +14002,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:11c8bb023a6d4eef58bd4514d97ac57f4358d6a7220583ad6b86327942883183",
+        "fingerprint": "sha256:691c45dc2999765cac4a88bfe994c3a6d77bd4ca328c4e383f7c472846c100d9",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

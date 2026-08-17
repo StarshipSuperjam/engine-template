@@ -83,14 +83,22 @@ STANCES = frozenset({EXPLORE, BUILD, ROUTINE})
 # from each owner's declaration; the block-registry leg (validate.block_budget_findings) reads `event`
 # (only PreToolUse/Stop may block) AND `modes` (the mode dimension declared as data, not code-only).
 # Modes carries the *stances the block is active in*: the write-gate
-# enforces only in EXPLORE (it lets writes through in Build/Routine); the engine-Issue reroute is
-# STANCE-INDEPENDENT — it fires in every stance (a non-conforming engine-labeled `gh issue create` is
-# rerouted whether exploring, building, or in a routine run) — so it declares all three. modes' single
-# handler composes both PreToolUse blocks; each is its own invariant because their mode sets differ.
+# enforces only in EXPLORE (it lets writes through in Build/Routine); the engine-Issue reroute and the
+# protected-merge nudge are both STANCE-INDEPENDENT — they fire in every stance (a non-conforming
+# engine-labeled `gh issue create` is rerouted, and a session `gh pr merge` is refused, whether
+# exploring, building, or in a routine run) — so each declares all three. modes' single handler composes
+# THREE PreToolUse blocks; each is its own registry member. The distinguishing key is the block's NAME
+# (the reroute and the merge nudge share a mode set, so the mode set alone no longer tells them apart),
+# not the mode dimension — which the block-registry leg reads to check every block is on an eligible event.
 BLOCK_INVARIANT = {"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes",
                    "modes": [EXPLORE]}
 REROUTE_BLOCK_INVARIANT = {"event": "PreToolUse", "name": "engine-issue-conformance", "owner": "modes",
                            "modes": [EXPLORE, BUILD, ROUTINE]}
+# The protected-merge nudge: the session never merges the protected branch — that is the operator's own
+# consent act, in every stance (eADR-0005/0021). A best-effort, fail-open nudge (never a wall); its own
+# block-registry member so the governance registry names every deny modes' handler can emit.
+MERGE_BLOCK_INVARIANT = {"event": "PreToolUse", "name": "protected-merge-nudge", "owner": "modes",
+                         "modes": [EXPLORE, BUILD, ROUTINE]}
 
 
 # ---- the stance signal: ephemeral, session-keyed, OS-temp, non-committed --------------------
@@ -253,7 +261,7 @@ def describe_explore_scope() -> str:
         "issue helper (`.engine/tools/issue_author.py` — render_engine_issue_body); a non-conforming "
         "`engine`-labelled `gh issue create` is rerouted back to that helper. Any other Issue needs no "
         "label from you — the engine derives the native `Kind:`-prefix label. (The gate is a strong "
-        "default, not a wall; nothing reaches main without a pull-request review.)"
+        "default, not a wall; nothing reaches main without the operator's own merge.)"
     )
 
 
@@ -308,6 +316,53 @@ def is_building_action(tool_name: str, tool_input) -> bool:
             command = tool_input.get("command") or ""
         return any(p.search(command) for p in _BASH_BUILD_PATTERNS)
     return False
+
+
+# ---- the stance-independent protected-merge nudge -------------------------------------------
+# The session never merges the protected branch — that is the operator's own consent act (eADR-0021), and
+# an AI performing it would corrupt the very gate the trust model rests on, so eADR-0005's "may hard-fail
+# a governance-critical invariant locally" carve-out applies. It is therefore NOT part of the Explore-only
+# building set above (which Build/Routine let through): merging is illegitimate in EVERY stance, so this is
+# a SEPARATE predicate checked before the stance short-circuit in handler(). Best-effort and fail-open like
+# the build patterns — an alias/eval/substitution, or a `gh api graphql` mergePullRequest mutation, evades
+# it (stated honestly; the wall is the protected-branch merge itself, never this nudge).
+# The REST form is METHOD-ANCHORED on purpose: `GET /repos/{o}/{r}/pulls/{n}/merge` is a merge-STATUS read
+# and must NOT be denied; only a write method (PUT, or a body flag) performs the merge — mirroring how
+# issue_gate distinguishes a creating call from a reading one, so a read is never taxed.
+_MERGE_WRITE_METHOD = r"(?:-X\s*PUT|--method(?:=|\s+)PUT|-f\b|-F\b|--field\b|--raw-field\b|--input\b)"
+_MERGE_PATTERNS = (
+    re.compile(_CMD_START + r"gh\s+pr\s+merge\b"),        # the porcelain merge (incl. --auto scheduling)
+    # the REST merge, order-independent: `gh api` at command position AND a pulls/<n>/merge path AND a
+    # write method (a bare GET on the same path — the status read — matches neither lookahead → ALLOW):
+    re.compile(_CMD_START + r"gh\s+api\b(?=.*pulls/\S+/merge\b)(?=.*" + _MERGE_WRITE_METHOD + r")"),
+)
+# The GitHub-MCP pull-request-merge tool name. An UNVERIFIED build-spec leaf (no in-repo corroboration
+# for the exact name): kept narrow so it never catches an unrelated tool, pinned by a test, best-effort,
+# verified against current GitHub MCP.
+_MCP_MERGE_TOOL = re.compile(r"^mcp__.*merge_pull_request\b", re.IGNORECASE)
+
+
+def is_merge_action(tool_name: str, tool_input) -> bool:
+    """True iff this call attempts to MERGE the protected branch — `gh pr merge`, the REST PUT merge form,
+    or the GitHub-MCP merge tool. Stance-INDEPENDENT (the session never merges, in any stance); handler()
+    checks it before the Explore short-circuit. Best-effort and fail-open like is_building_action; a
+    merge-status GET read on the same path is deliberately NOT matched (see _MERGE_WRITE_METHOD)."""
+    if _MCP_MERGE_TOOL.match(tool_name or ""):
+        return True
+    if tool_name in _SHELL_TOOLS:
+        command = ""
+        if isinstance(tool_input, dict):
+            command = tool_input.get("command") or ""
+        return any(p.search(command) for p in _MERGE_PATTERNS)
+    return False
+
+
+# The plain-language merge refusal — "won't" (the session's choice to leave the consent act to the
+# operator), NEVER "cannot" (which would dress this fallible local nudge as the wall eADR-0005 forbids).
+_MERGE_DENIAL = ("I won't merge that — merging the protected branch is your consent act, never the "
+                 "session's, in any stance. I open the pull request and stop; you merge it when the "
+                 "evidence convinces you. (This is a nudge, not a wall — it is best-effort and fails "
+                 "open; the protected-branch merge itself is the only unbypassable guarantee.)")
 
 
 # ---- the plan-mode artifact carve-out -----------------------------------------
@@ -507,10 +562,11 @@ def _is_memory_path(path: str) -> bool:
 # ---- the PreToolUse write-gate handler ------------------------------------------------------
 
 def handler(payload: dict) -> dict:
-    """The PreToolUse gate, run on every tool call (broad matcher). It composes TWO decisions in one
-    reviewable place: the engine-Issue conformance reroute (matcher in issue_gate, called
-    first because it is channel-scoped and STANCE-INDEPENDENT) and the Explore write-gate (stance-dependent —
-    Build/Routine permit the write; Explore denies a building action and allows everything else). Either deny
+    """The PreToolUse gate, run on every tool call (broad matcher). It composes THREE decisions in one
+    reviewable place: two STANCE-INDEPENDENT denies checked first — the engine-Issue conformance reroute
+    (matcher in issue_gate) and the protected-merge nudge (the session never merges, in any stance) — and
+    then the Explore write-gate (stance-dependent — Build/Routine permit the write; Explore denies a
+    building action and allows everything else). Either deny
     rides the structured permissionDecision channel (hooks.decide → exit 0 + hookSpecificOutput), which the
     platform honors AND feeds back to the session as the reason; exit-2 block() would be read as a crash and the
     deny — and its redirect reason — dropped."""
@@ -521,6 +577,10 @@ def handler(payload: dict) -> dict:
     reroute = issue_gate.non_conforming_reason(tool_name, tool_input)
     if reroute is not None:
         return hooks.decide("deny", reroute)
+    # The protected-merge nudge — also STANCE-INDEPENDENT (the session never merges the protected branch in
+    # any stance; that is the operator's consent act), so likewise checked before the stance short-circuit.
+    if is_merge_action(tool_name, tool_input):
+        return hooks.decide("deny", _MERGE_DENIAL)
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     if current_stance(session_id) != EXPLORE:
         return hooks.proceed()                       # Build / Routine permit the write
