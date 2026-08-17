@@ -43,6 +43,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import skill_discovery  # noqa: E402  (the shared skill-discovery helper — one glob + slug-identity path)
 
 AGENT_SRC_GLOB = os.path.join(".claude", "agents", "engine-*.md")
 _AGENT_SRC_ALL = os.path.join(".claude", "agents", "*.md")
@@ -195,13 +196,11 @@ def _agent_sources(root: str) -> list:
 
 
 def _skill_sources(root: str) -> list:
-    out = []
-    for src_dir in sorted(glob.glob(os.path.join(root, SKILL_SRC_ROOT, "engine-*"))):
-        slug = os.path.basename(src_dir)
-        if slug in SKILL_EXCLUDE or not os.path.isfile(os.path.join(src_dir, "SKILL.md")):
-            continue
-        out.append(src_dir)
-    return out
+    # The engine skill directories come from the shared discovery helper (one glob + slug-identity home);
+    # this renderer keeps its own SKILL_EXCLUDE posture. render_skill still reads the source `invocation`
+    # itself and maps it fail-closed — the helper centralizes discovery, never the policy interpretation.
+    return [src_dir for src_dir in skill_discovery.skill_dirs("claude", root)
+            if os.path.basename(src_dir) not in SKILL_EXCLUDE]
 
 
 def expected_renders(root: str | None = None) -> dict:

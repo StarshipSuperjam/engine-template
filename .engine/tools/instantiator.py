@@ -472,7 +472,7 @@ def selectable(catalog_entries: list) -> dict:
     # Drop empty recognized groups, keep any non-empty (including an unexpected category), category order first.
     ordered = [c for c in _CATEGORY_ORDER if grouped.get(c)]
     extra = sorted(c for c in grouped if c not in _CATEGORY_ORDER and grouped.get(c))
-    return {c: sorted(grouped[c], key=lambda e: (e.get("verb", ""), e.get("id", ""))) for c in ordered + extra}
+    return {c: sorted(grouped[c], key=lambda e: e.get("id", "")) for c in ordered + extra}
 
 
 def optional_dependency_closure(manifests) -> dict:
@@ -556,18 +556,15 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
             gloss = _CATEGORY_GLOSS.get(category, "")
             lines.append(f"  {category}" + (f" — {gloss}:" if gloss else ":"))
             for entry in entries:
-                # A command-bearing module leads with its command; a command-less one (no verb — fired by a
-                # gate, never typed) leads with its plain-language description, so the menu never shows a
-                # command-shaped token an operator can't actually type.
+                # Every offerable module leads with its plain-language description: there is no per-module
+                # command to type — modules are reached through natural-language setup routes and the permanent
+                # engine-setup dispatcher, so the menu never shows a command-shaped token an operator can't type.
                 # The status decides the DEFAULT, so it is stated inline rather than left to be inferred from
                 # silence: an operator who says nothing must know what they have just agreed to.
                 # The mark LEADS the line. These descriptions run to several hundred characters, and the one
                 # token that decides what happens if the operator says nothing cannot be at the end of them.
                 mark = _STATUS_MARK.get(entry.get("status") or "optional", "")
-                if entry["verb"]:
-                    lines.append(f"    • {mark}{entry['verb']} — {entry['description']}")
-                else:
-                    lines.append(f"    • {mark}{entry['description']}")
+                lines.append(f"    • {mark}{entry['description']}")
                 # Its dependency closure: any OTHER optional feature this one pulls in (required-spine deps
                 # are never surfaced — they are always present). Vacuous until an optional module depends on
                 # another optional one, but presented at the choice moment so the pull-in is never a surprise.
@@ -2043,7 +2040,7 @@ def _build_fixture(root: str) -> None:
     _write_json(os.path.join(eng, "modules", "extras-demo", "manifest.json"),
                 {"id": "extras-demo", "version": "1.0.0", "status": "optional", "provides": {}, "depends": {}})
     _write_json(os.path.join(eng, "provisioning", "module-catalog.json"),
-                [{"id": "extras-demo", "verb": "engine-extras", "category": "Verification & Validation",
+                [{"id": "extras-demo", "category": "Verification & Validation",
                   "status": "optional",
                   "description": "A practice add-on for this demonstration — checks and tests your work."}])
     _write_json(os.path.join(eng, "schemas", "surface-catalog.json"), {"surfaces": {}})

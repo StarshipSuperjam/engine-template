@@ -2,6 +2,11 @@
   "id": "design-review",
   "version": "0.2.0",
   "status": "optional",
+  "presentation": {
+    "description": "Before a change you've asked for gets built, a fresh set of reviewers checks the plan first — whether it solves the right problem, whether the design is sound, whether it can actually be built and run, and whether it could be unsafe or break a rule it must follow. They only advise; you decide, and you merge.",
+    "category": "Verification & Validation",
+    "setup_trigger": "turn on plan reviews before building"
+  },
   "provides": {
     "agent": [
       ".claude/agents/engine-design-review-product-intent.md",

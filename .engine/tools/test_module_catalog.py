@@ -1,10 +1,13 @@
-"""Tests for the shared optional-module catalog reader.
+"""Tests for the shared optional-module catalog reader/generator.
 
 Verifies the single parse path both readers (the /engine-help index and the first-run walkthrough) share:
-a normalized record per entry sorted by command then id; degrade-to-empty on absent / unreadable / malformed /
-wrong-shaped input (never raises); a command-less entry (no verb) RELAYED with an empty verb, not dropped
-(#254); non-dict items skipped; missing optional fields coerced; and the committed catalog (the default path)
-read as the empty array it ships.
+a normalized record per entry {id, description, category, status} sorted by id; degrade-to-empty on absent /
+unreadable / malformed / wrong-shaped input (never raises); missing optional fields coerced; non-dict items
+skipped; and the committed catalog (the default path) read as the shipped array. There is no per-module
+`verb` — offerable modules are reached through natural-language setup routes and the permanent engine-setup
+dispatcher, not a typed command. Also verifies the DERIVED-committed generation: `derive`/`generate` produce
+the catalog from the present offerable manifests' `presentation`, MERGE-PRESERVING a declined module's entry
+(one with no present manifest) so a later upgrade neither resurrects nor forgets it.
 """
 import json
 import os
@@ -14,6 +17,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_catalog as mc  # noqa: E402
+
+_FIELDS = {"id", "description", "category", "status"}
 
 
 def _write(path: str, text: str) -> None:
@@ -45,60 +50,68 @@ class TestEntries(unittest.TestCase):
             _write(p, "42")
             self.assertEqual(mc.entries(p), [], "a scalar catalog body narrows to nothing")
 
-    def test_valid_entries_normalized_and_sorted_by_verb(self):
+    def test_valid_entries_normalized_and_sorted_by_id(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
             _write(p, json.dumps([
-                {"id": "z-mod", "verb": "engine-zed", "description": "Z.",
-                 "category": "Product Management", "status": "optional"},
-                {"id": "a-mod", "verb": "engine-ay", "description": "A.",
-                 "category": "Verification & Validation"},
+                {"id": "z-mod", "description": "Z.", "category": "Product Management", "status": "optional"},
+                {"id": "a-mod", "description": "A.", "category": "Verification & Validation"},
             ]))
             got = mc.entries(p)
-            self.assertEqual([e["verb"] for e in got], ["engine-ay", "engine-zed"], "sorted by command")
-            self.assertEqual(got[0], {"id": "a-mod", "verb": "engine-ay", "description": "A.",
+            self.assertEqual([e["id"] for e in got], ["a-mod", "z-mod"], "sorted by id")
+            self.assertEqual(got[0], {"id": "a-mod", "description": "A.",
                                       "category": "Verification & Validation", "status": ""},
-                             "missing optional fields coerce to empty string; all fields present")
+                             "missing optional fields coerce to empty string; canonical fields, no verb")
 
-    def test_entry_without_verb_is_kept(self):
-        # A command-less optional module (no verb) is RELAYED with an empty verb — the setup walkthrough
-        # offers it by description; /engine-help filters it out at that reader, not here (#254). It sorts
-        # first because an empty verb precedes any command.
+    def test_entries_carry_no_verb(self):
+        # The catalog no longer carries a per-module command; a normalized entry is exactly the four fields.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
-            _write(p, json.dumps([{"id": "no-verb", "description": "has no command",
-                                   "category": "Verification & Validation"},
-                                  {"id": "has-cmd", "verb": "engine-keep", "description": "kept",
-                                   "category": "Product Management"}]))
-            got = mc.entries(p)
-            self.assertEqual([e["verb"] for e in got], ["", "engine-keep"],
-                             "a command-less entry is kept (empty verb), not dropped, and sorts first")
-            self.assertEqual(got[0], {"id": "no-verb", "verb": "", "description": "has no command",
-                                      "category": "Verification & Validation", "status": ""},
-                             "the command-less entry is fully relayed, verb coerced to empty string")
-
-    def test_command_less_entries_sort_by_id(self):
-        # Multiple command-less entries all share an empty verb; the id secondary key keeps them deterministic.
-        with tempfile.TemporaryDirectory() as d:
-            p = os.path.join(d, "c.json")
-            _write(p, json.dumps([{"id": "zeta", "description": "Z.", "category": "Verification & Validation"},
-                                  {"id": "alpha", "description": "A.", "category": "Verification & Validation"}]))
-            self.assertEqual([e["id"] for e in mc.entries(p)], ["alpha", "zeta"],
-                             "command-less entries order by id when verbs tie on empty")
+            _write(p, json.dumps([{"id": "m", "description": "d", "category": "Product Management"}]))
+            self.assertEqual(set(mc.entries(p)[0]), _FIELDS, "no verb key; only the canonical fields")
 
     def test_non_dict_items_skipped(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
-            _write(p, json.dumps(["a string", 5, {"verb": "engine-ok", "description": "d"}]))
-            self.assertEqual([e["verb"] for e in mc.entries(p)], ["engine-ok"])
+            _write(p, json.dumps(["a string", 5, {"id": "ok", "description": "d",
+                                                  "category": "Product Management"}]))
+            self.assertEqual([e["id"] for e in mc.entries(p)], ["ok"])
 
     def test_committed_catalog_relays_the_shipped_optionals(self):
-        # The committed catalog shipped empty until the first optional module was built; it now relays
-        # github-projects-sync as a normalized entry (the default path reads the real committed catalog).
+        # The committed catalog is the derived one; it relays github-projects-sync as a normalized entry
+        # (the default path reads the real committed catalog), by description, with no verb.
         board = [e for e in mc.entries() if e["id"] == "github-projects-sync"]
         self.assertEqual(len(board), 1, "the committed catalog relays the github-projects-sync entry")
-        self.assertEqual(board[0]["verb"], "engine-board-setup")
         self.assertEqual(board[0]["category"], "Product Management")
+        self.assertNotIn("verb", board[0], "no per-module verb")
+
+
+class TestDeriveAndGenerate(unittest.TestCase):
+    def test_derive_produces_offerable_modules_from_manifests(self):
+        # derive() reads the present offerable manifests' `presentation`; every offerable module with a
+        # presentation appears, keyed and sorted by id, with the canonical fields and no verb.
+        with tempfile.TemporaryDirectory() as d:
+            got = mc.derive(os.path.join(d, "no-prior.json"))   # no prior catalog → pure from-manifests
+            ids = [e["id"] for e in got]
+            self.assertIn("github-projects-sync", ids, "an offerable module with a presentation is derived")
+            self.assertEqual(ids, sorted(ids), "sorted by id")
+            for e in got:
+                self.assertEqual(set(e), _FIELDS, "canonical fields only; no verb")
+                self.assertTrue(e["description"] and e["category"], "presentation fields carried")
+
+    def test_generate_merge_preserves_a_declined_entry(self):
+        # A prior-catalog entry whose module has NO present manifest is a DECLINED module: its entry is
+        # retained on regeneration so an upgrade neither resurrects nor forgets it. The present offerable
+        # modules are (re)derived alongside it, and the result is written to disk.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "module-catalog.json")
+            _write(p, json.dumps([{"id": "ghost-declined", "description": "A declined module.",
+                                   "category": "Product Management", "status": "optional"}]))
+            result = mc.generate(p)
+            ids = [e["id"] for e in result]
+            self.assertIn("ghost-declined", ids, "a declined module with no present manifest is retained")
+            self.assertIn("github-projects-sync", ids, "present offerable modules are (re)derived")
+            self.assertEqual(json.load(open(p)), result, "the derived catalog is written to disk")
 
 
 if __name__ == "__main__":

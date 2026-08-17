@@ -2,6 +2,11 @@
   "id": "dependency-discipline",
   "version": "0.1.0",
   "status": "optional",
+  "presentation": {
+    "description": "This add-on adds an automatic check on the outside code your project depends on — the third-party libraries it pulls in — that can block the merge when a change brings in a risky one. When a dependency is added or updated, the check reviews it and stops the change from going in if the library has a known security hole, or comes with a license that could force you to publish your own source code in return. It also gives gentler, non-blocking nudges to use exact versions of your libraries instead of open-ended ranges. Nothing is ever a dead end: a genuinely unavoidable case can be let through with a deliberate, recorded decision, and you can leave this add-on out altogether — either way, nothing merges without your say-so.",
+    "category": "Software Configuration Management",
+    "setup_trigger": "check dependencies for security and license risk"
+  },
   "provides": {
     "policy": [
       ".engine/policies/dependency-discipline.md"

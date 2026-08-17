@@ -2,6 +2,11 @@
   "id": "memory-semantic-recall",
   "version": "0.1.0",
   "status": "default-on",
+  "presentation": {
+    "description": "Lets the engine find something in your saved history by what it MEANS, not just by the words you use. Without this, looking things up matches words: ask about \"running something on a timer\" and a conversation that said \"cron job\" is not found at all. With it, the engine can also ask \"have we been here before?\" and get answers worded differently from the question — which is the case where it otherwise repeats a decision you already made. It reads only and never changes or removes anything you have saved. Three costs, all plainly: it adds about 33 MB to your project's files; it builds a working copy alongside your saved history the first time you use it, taking a few seconds and roughly two to four times the size of that history; and while the language table it uses is included rather than downloaded, setting the engine up does fetch one ordinary Python package for it over the network, like the engine's other tools. Leave it out and everything else works the same — you keep word-based lookup and reading back past conversations.",
+    "category": "Software Configuration Management",
+    "setup_trigger": "search my saved history by meaning"
+  },
   "provides": {
     "tool": [
       ".engine/tools/memory/semantic/*.py"

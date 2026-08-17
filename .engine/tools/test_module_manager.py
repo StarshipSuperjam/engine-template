@@ -4169,10 +4169,11 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
         self.assertEqual([e["id"] for e in out["offered"]], ["d"])
 
     def test_offer_text_falls_back_when_no_catalog_entry(self):
-        # An experimental module with no catalog entry still surfaces — description/verb fall back to empty, no crash.
+        # An experimental module with no catalog entry still surfaces — description falls back to empty, no crash.
+        # The offered shape carries no verb (modules are added by id, not a per-module command).
         out = module_manager._classify_available_modules(
             self._avail(("x", "experimental", None)), ["core"], set(), catalog_trusted=True, catalog_text=None)
-        self.assertEqual(out["offered"][0], {"id": "x", "status": "experimental", "description": "", "verb": ""})
+        self.assertEqual(out["offered"][0], {"id": "x", "status": "experimental", "description": ""})
 
     # ---- the discriminator capture (`_pre_overlay_known`) — catalog trust ----
     def test_pre_overlay_known_trust_flag(self):
@@ -4205,7 +4206,7 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
     def test_pr_body_discloses_installed_and_offered_modules(self):
         result = {"modules_installed": [{"id": "fx-req", "status": "required", "prior_declined": False},
                                         {"id": "fx-def", "status": "default-on", "prior_declined": False}],
-                  "modules_offered": [{"id": "fx-opt", "status": "optional", "description": "a thing", "verb": ""}]}
+                  "modules_offered": [{"id": "fx-opt", "status": "optional", "description": "a thing"}]}
         body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
         self.assertIn("New required capabilities", body)
         self.assertIn("fx-req", body)
@@ -4234,7 +4235,7 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
              "files": {"replaced": [], "added": []}, "wires": {}, "migrations": [],
              "retired_capabilities": [], "removed_capabilities": [],
              "modules_installed": [{"id": "fx-req", "status": "required", "prior_declined": False}],
-             "modules_offered": [{"id": "fx-opt", "status": "optional", "description": "", "verb": ""}]}
+             "modules_offered": [{"id": "fx-opt", "status": "optional", "description": ""}]}
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             module_manager._render_upgrade_preview(p)
@@ -4301,8 +4302,8 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
         # The literal ask-1 surface: an offered default-on (a default the deployment doesn't have) must read
         # differently from a genuinely-optional add-on, in BOTH the PR body and the terminal preview.
         result = {"modules_installed": [], "modules_offered": [
-            {"id": "fx-def", "status": "default-on", "description": "", "verb": ""},
-            {"id": "fx-opt", "status": "optional", "description": "", "verb": ""}]}
+            {"id": "fx-def", "status": "default-on", "description": ""},
+            {"id": "fx-opt", "status": "optional", "description": ""}]}
         body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
         self.assertIn("fx-def", body)
         self.assertIn("a default add-on you don't have", body)          # the default-on distinction
