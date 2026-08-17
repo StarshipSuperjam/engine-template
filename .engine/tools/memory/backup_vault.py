@@ -840,9 +840,14 @@ def _heads_up_public() -> str:
 
 _MSG_NO_PROJECT = ("I couldn't tell which GitHub project this is, so I can't name a backup for it yet. Your memory "
                    "is safe on this computer, and nothing was created.")
-_MSG_NO_TOKEN = ("I couldn't reach your GitHub account, so I can't set up the backup right now. Your memory is safe "
-                 "on this computer, and nothing was created. Sign in with `gh auth login`, then ask me to set up the "
-                 "backup again.")
+def _msg_no_token() -> str:
+    """The no-token message for backup/restore setup. The GitHub-unavailable half is single-homed in
+    `boot.gh_unreachable_note()` so a sandboxed read is not mis-reported as a signed-out or expired token
+    (StarshipSuperjam/engine-template#808); the backup-specific framing stays here."""
+    import boot  # noqa: E402 — lazy: keep boot's heavy import graph off this module's load path
+    return ("I can't set up the backup right now — your memory is safe on this computer, and nothing was "
+            "created. " + boot.gh_unreachable_note() +
+            " Then ask me to set up the backup again once you can reach GitHub.")
 _MSG_NO_SCOPE = ("I couldn't create the private backup repository because my GitHub access doesn't include "
                  "permission to create repositories. Your memory is safe on this computer, and nothing was created. "
                  "To turn on backups, run this once in your terminal:  gh auth refresh -s repo  — then ask me to set "
@@ -1031,7 +1036,7 @@ def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" =
 
     gh = _gh(transport)
     if gh is None:                                               # check we CAN back up before asking permission to
-        return {"ok": False, "error": "no-token", "message": _MSG_NO_TOKEN}
+        return {"ok": False, "error": "no-token", "message": _msg_no_token()}
 
     chosen_scope = scope if scope is not None else _ask_scope()
     vault_name = _vault_name(project_name, chosen_scope)
@@ -1111,7 +1116,14 @@ def _now_message(result: dict) -> str:
         return "Memory backup isn't set up yet. Ask me to set up the backup first."
     if err == "public":
         return _heads_up_public().split(": ", 1)[-1]
-    if err in ("push-failed", "unreachable", "no-token"):
+    if err == "no-token":
+        # StarshipSuperjam/engine-template#808: a no-token read is NOT a network fault — inside a sandbox the
+        # keyring is unreachable while the login is fine — so route it through the single-homed note, not the
+        # "steady internet connection" message the genuine-network cases get.
+        import boot  # noqa: E402 — lazy: keep boot's heavy import graph off this module's load path
+        return ("I couldn't update the backup just now — your memory on this computer is safe and complete. "
+                + boot.gh_unreachable_note())
+    if err in ("push-failed", "unreachable"):
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. Try "
                 "again when you have a steady internet connection.")
     return "I couldn't update the backup just now. Your memory on this computer is safe and complete."
@@ -1542,7 +1554,7 @@ def _demo_live() -> int:
         return 0
     gh = _gh()
     if gh is None:
-        print(f"\n  {_MSG_NO_TOKEN}")
+        print(f"\n  {_msg_no_token()}")
         return 0
     project_name = project.split("/")[-1]
     demo_name = f"{project_name}{_DEMO_MARKER}{secrets.token_hex(4)}"

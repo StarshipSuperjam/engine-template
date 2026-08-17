@@ -1184,11 +1184,13 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
                  mock.patch.object(inst.boot, "repo_slug", return_value=None), \
                  mock.patch.object(inst.boot, "gh_token", return_value=None):
                 _confirmed_fixture(d)
-                # opt out of the injected coordinates so the no-repo/no-sign-in path is exercised
+                # opt out of the injected coordinates so the degraded path is exercised
                 res = _fake_apply(d, control_repo=None, control_token=None)
             cp = inst._step(res["steps"], "control-plane")
             self.assertEqual(cp["status"], "degraded")
-            self.assertIn("no project", cp["detail"])
+            # #808: with both missing, the no-token branch is checked first (the sandbox case takes priority);
+            # the distinct no-repo detail is covered by ApplyControlPlaneSandboxAwareTests.
+            self.assertIn("no sign-in", cp["detail"])
 
     def test_brownfield_augments_a_product_ruleset_and_records_the_marker(self):
         # A brownfield repo whose OWN ruleset (id 9) already protects main. The control-plane step must
@@ -4020,6 +4022,32 @@ class TestUvSyncFrozen(unittest.TestCase):
             self.assertTrue(inst._uv_sync("/abs/uv", []))
         self.assertIn("--frozen", run.call_args[0][0])              # never a bare `uv sync` that can re-resolve
         self.assertEqual(run.call_args[0][0][:3], ["/abs/uv", "sync", "--frozen"])
+
+
+class ApplyControlPlaneSandboxAwareTests(unittest.TestCase):
+    """StarshipSuperjam/engine-template#808: the arrival control-plane step (the apply twin of bootstrap) splits
+    no-token from no-repo — a sandboxed no-token gets the inconclusive note, a missing repo gets the repo copy."""
+
+    def _run(self, *, token, repo):
+        from unittest import mock
+        msgs = []
+        copy = {"control-plane-unavailable": "REPO-COPY: I couldn't find this project on GitHub"}
+        with mock.patch.object(inst.boot, "gh_token", return_value=token), \
+                mock.patch.object(inst.boot, "repo_slug", return_value=repo):
+            res = inst._apply_control_plane(None, None, None, msgs.append, copy)
+        return res, "\n".join(msgs)
+
+    def test_no_token_is_the_inconclusive_note(self):
+        res, out = self._run(token=None, repo="o/r")
+        self.assertEqual(res["status"], "degraded")
+        self.assertIn("does not by itself mean", out)          # the single-homed note
+        self.assertNotIn("signed in to GitHub from the", out)  # not the old signed-out framing
+
+    def test_missing_repo_is_the_repo_copy_not_the_token_story(self):
+        res, out = self._run(token="tok", repo=None)
+        self.assertEqual(res["status"], "degraded")
+        self.assertIn("REPO-COPY", out)
+        self.assertNotIn("does not by itself mean", out)
 
 
 if __name__ == "__main__":

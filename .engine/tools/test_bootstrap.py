@@ -1299,5 +1299,37 @@ class TestManifestWriteBoundary(unittest.TestCase):
                 self.assertNotIn("protection_posture", fh.read())
 
 
+class TestSandboxAwareNoTokenWiring(unittest.TestCase):
+    """StarshipSuperjam/engine-template#808: each combined-guard command prints the single-homed
+    boot.gh_unreachable_note() when the token is unavailable (never a signed-out/expired verdict), and the
+    DISTINCT boot.repo_unresolved_note() when only the repo slug is missing — pinned at the call site so a
+    future edit cannot silently revert the wording or re-conflate the two failures."""
+
+    def _run(self, fn, *, token, repo="you/proj"):
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        args = argparse.Namespace(repo=repo, branch="main")
+        buf = io.StringIO()
+        with mock.patch.object(bootstrap.boot, "gh_token", return_value=token), \
+                mock.patch.object(bootstrap, "_resolve_repo", return_value=repo), \
+                contextlib.redirect_stdout(buf):
+            fn(args)
+        return buf.getvalue()
+
+    def test_no_token_prints_the_inconclusive_sandbox_note(self):
+        for fn in (bootstrap.cmd_status, bootstrap.cmd_apply,
+                   bootstrap.cmd_accept_unprotected, bootstrap.cmd_finalize):
+            msg = self._run(fn, token=None)
+            self.assertIn("does not by itself mean", msg, fn.__name__)   # the inconclusive #808 note
+            self.assertNotIn("(`gh auth login`)", msg, fn.__name__)      # never the old bare "log in" verdict
+
+    def test_missing_repo_with_a_token_is_not_blamed_on_the_token(self):
+        msg = self._run(bootstrap.cmd_status, token="tok", repo=None)
+        self.assertIn("couldn't tell which GitHub repository", msg)      # the repo-specific message
+        self.assertNotIn("No GitHub token was reachable", msg)           # NOT the token/sandbox story
+
+
 if __name__ == "__main__":
     unittest.main()

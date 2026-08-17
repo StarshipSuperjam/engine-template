@@ -669,5 +669,29 @@ class ImportInvariantTests(unittest.TestCase):
             self.assertEqual(os.listdir(cab), [])               # importing the package created nothing on disk
 
 
+class SandboxAwareNoTokenTests(_Base):
+    """StarshipSuperjam/engine-template#808: when no token resolves, backup setup's no-token message carries the
+    single-homed inconclusive note (via _msg_no_token()), so a sandboxed read is not reported as signed-out."""
+
+    def test_setup_no_token_message_is_the_inconclusive_note(self):
+        from unittest import mock
+        with mock.patch.object(bv, "_setup_done", return_value=False), \
+                mock.patch.object(bv, "_project_slug", return_value="o/r"), \
+                mock.patch.object(bv, "_gh", lambda transport=None: None):
+            res = bv.setup(scope="shared", consent="y")
+        self.assertEqual(res["error"], "no-token")
+        self.assertIn("does not by itself mean", res["message"])   # the single-homed #808 note is wired in
+        self.assertIn("sandbox", res["message"])
+
+    def test_now_message_no_token_is_the_note_not_a_network_error(self):
+        # The `now` (push) verb: a no-token failure must get the sandbox-aware note, NOT the "steady internet
+        # connection" message a genuine network fault gets.
+        note = bv._now_message({"ok": False, "error": "no-token"})
+        self.assertIn("does not by itself mean", note)
+        self.assertNotIn("internet connection", note)
+        net = bv._now_message({"ok": False, "error": "unreachable"})
+        self.assertIn("internet connection", net)                  # genuine network errors keep their message
+
+
 if __name__ == "__main__":
     unittest.main()

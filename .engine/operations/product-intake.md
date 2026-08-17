@@ -17,10 +17,10 @@ Run these with the operator, one at a time, in plain language. The stage words �
 document *in progress*, one *settled* — are how you speak to them; the frontmatter markers never reach the screen.
 
 1. **Check the GitHub connection, and never dead-end.** Run a quick check (for example `gh repo view`). If it
-   fails, say so plainly, name the one next action (usually `gh auth login`), and carry on regardless: capture
-   what the operator has already told you as a committed file under `docs/spec/` so nothing they said is lost.
-   The whole intake works from committed files; the connection is only needed later, to turn the description
-   into tracked work.
+   fails, say so plainly and name the next action. A check that fails from inside a sandbox is inconclusive,
+   though — rerun it outside the sandbox before assuming `gh auth login`. Either way carry on regardless: capture
+   what the operator has already told you as a committed file under `docs/spec/` so nothing they said is lost. The
+   whole intake works from committed files; the connection is only needed later, to turn the description into tracked work.
 2. **Lay out the pieces and confirm the shape — before writing any one document.** From what the operator
    wants, propose the full set of capabilities the product obviously needs, each as a named, not-yet-described
    piece. Ask at the shape level: "does this look like the right pieces, or is something obvious missing?" —

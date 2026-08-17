@@ -6318,7 +6318,7 @@
       },
       "slug": "codex-incident-replay",
       "source": {
-        "fingerprint": "sha256:6468c3331a4c654eb6345d5555df4acc648ca61fe55d1761e01c02d351ac7a5b",
+        "fingerprint": "sha256:c485e7c83285db96d985acdcd240a41157531a8d304b287a38c2577385e21961",
         "path": ".engine/operations/codex-incident-replay.md"
       },
       "status": "active",
@@ -6738,7 +6738,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:1d8920f5b56f6dffb414656cfa369eeb29e4edc64f7f178c6d95b4c307777e79",
+        "fingerprint": "sha256:ac73e7bb7a04a4a60ebc55a42271e5a71c2f4b517172e908bc60207333eda976",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -9361,7 +9361,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:74b4e1aade26e70219afa4a69d9b45e4ad926e024a5f5edeb95937d541772c60",
+        "fingerprint": "sha256:f0d4f20dda545bda0744006c28e230f83fa3f8495a4f597c1643a5cb2de0b583",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e0499d6f565ff921fd5a3efb98d4d0e78bae2a77536247e3ff43f344c1eb3036",
+        "fingerprint": "sha256:a6f62d1c83b569076ee53b60714b1657b18d6863430cf6cf4c05b10f212f1a94",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9517,7 +9517,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:639c7c47c552c963525937809870e966c47ab7044fdc58ebe5cdf5380ba8e39e",
+        "fingerprint": "sha256:2aa4eb7ad308857b1662eea90ec803e8a477c04ee15fb783ae360d8dcb305616",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -12110,7 +12110,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:a4f0d754c697a5a720dc016fa3f507a0baecf3881cacddf36499ce8401731247",
+        "fingerprint": "sha256:6b8ed552ba210644d38ef96d105f0d19e4475862c95611656568d9192eecfce2",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13292,7 +13292,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:f26e2a5d5072842df264c4ea4203b286684ecc77a34ad96964cdca74999f2a42",
+        "fingerprint": "sha256:bb0cb3f3db2f579c0149566e5d8a835dfbc635d202999cd898802a463fda9883",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -13680,7 +13680,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:69ccb1245a52d41d6d52f6ad2f90421b2e38d9fc1a8f23c670c0821464f87e80",
+        "fingerprint": "sha256:f54ecb5c6397ce08fa0185d209622f26f55ac562acb14e63a1b5e9f05b0a1863",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14297,7 +14297,7 @@
       },
       "slug": "team_switch",
       "source": {
-        "fingerprint": "sha256:a5a1753a8d7f60850cb567719aada5121641a06407de76b75b3dc68a2955e129",
+        "fingerprint": "sha256:adf6fe6a7bddeeca9949f61f00e4704e8e17f13211a5e1a72ba989cc1f02f434",
         "path": ".engine/tools/team_switch.py"
       },
       "status": "active",
@@ -14676,7 +14676,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:ca8ed4afed7ea04690cf84b0cc6bb7225437173fc361c7f331387a3b9ed6691d",
+        "fingerprint": "sha256:ff9c69a20d651a237bb150d1bfa82c073afc828046a219eac01bb570f71d15e5",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -14732,7 +14732,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:59b6223739f4b7b0d62619278cb3c9de0d1f4f9e207b4fa41525e29d295c2552",
+        "fingerprint": "sha256:d81cefaa335ab8383a3909ef4181ff02de60fdf33de4c8b1304b818b52777919",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -14813,7 +14813,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:c7f9eb480d5557fe6c90dd55a9ad80a93e4d281fc2b11b0080083a686669589d",
+        "fingerprint": "sha256:46708de5d2d02ed5a8d2763d54812521536e6acc90929dfd666ac4ded938a975",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -16053,7 +16053,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:3db9d35065606de4efe6d89a4bf795d80b44fd5186b2840af9667511f8efa029",
+        "fingerprint": "sha256:e9027113018615c96c09724c3ffc87b0d83b16a500aa5bf15438d8b2b92a5384",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17139,7 +17139,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:fdc5aacf15aeb0ae9c77eff8317bc059c63046efa7793bcf8a34104e273f8c31",
+        "fingerprint": "sha256:0adad9f8d95d043b277a78ed6a74e589072462eee6140b9ed0ecb1e5f1cf99f2",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -17480,7 +17480,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:4655c6f67e37668b0eca41a7ecf49ad375b29ea8bce2cfa4e994fecdb70d0420",
+        "fingerprint": "sha256:8170ff8ab3ef872f0bf848a01649ccc26b4474886e71c5083245669dfe384031",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
@@ -18306,7 +18306,7 @@
       },
       "slug": "test_team_switch",
       "source": {
-        "fingerprint": "sha256:773c8e4839b3a2801d280f46eaedb32866f704366c8b94d1e341524db145a21c",
+        "fingerprint": "sha256:68b67c2a49b2871a02d98951a22d0e49766fcce4861154e416ab6a4767c39c30",
         "path": ".engine/tools/test_team_switch.py"
       },
       "status": "active",

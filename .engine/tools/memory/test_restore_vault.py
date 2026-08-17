@@ -676,5 +676,16 @@ class SavedMemoryProjectionTests(_Base):
         self.assertIsNone(snap["beliefs"])
 
 
+class SandboxAwareNoTokenTests(unittest.TestCase):
+    """StarshipSuperjam/engine-template#808: a no-token restore fetch gets the single-homed inconclusive note,
+    not the 'check your internet connection' message reserved for genuine unreachability."""
+
+    def test_no_token_floor_is_the_note_not_a_network_error(self):
+        note = rv._floor4_fetch("no-token")
+        self.assertIn("does not by itself mean", note)
+        self.assertNotIn("internet connection", note)
+        self.assertEqual(rv._floor4_fetch("unreachable"), rv._MSG_UNREACHABLE)   # genuine unreachable unchanged
+
+
 if __name__ == "__main__":
     unittest.main()
