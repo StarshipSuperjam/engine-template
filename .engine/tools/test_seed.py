@@ -479,6 +479,16 @@ class TestDispatcherGate(unittest.TestCase):
 
 
 class TestWeakeningClassifier(unittest.TestCase):
+    def test_ack_authority_note_names_the_merge_not_a_review(self):
+        # #712: the guardrail-ack authority note — appended to the finding an operator reads when
+        # deciding whether to accept a guardrail-weakening change — must frame the protected-branch
+        # merge as the gate, not call the operator's action a "review". Pinned so a revert to the
+        # overstated form reddens CI; the _HARD_EXACT guardrail-ack gates edits to this file, but not
+        # this specific wording, which is the exact sentence #712 exists to correct.
+        note = weakening_guard._ACK_AUTHORITY_NOTE
+        self.assertIn("Your merge remains the gate", note)
+        self.assertNotIn("Your review at the merge remains the gate", note)
+
     def test_is_guardrail_covers_guards_and_lockfiles(self):
         for p in (".github/workflows/engine-ci.yml", ".engine/check/x.json",
                   ".engine/tools/validate.py", ".github/CODEOWNERS",
