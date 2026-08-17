@@ -25,7 +25,8 @@ only, never the whole pack, and the session never halts.
 2. Detect the governance-critical alarms to pin at the top of the status dashboard: the protected-branch signal
    (relayed from `protection_guard`; off → a nag, unverifiable → an honest "don't assume it's on", on
    → silent). "On" includes freshness — the gate requires the merge candidate to be up to date with the base, so
-   the signal reads off in plain words if a stale green could still merge (StarshipSuperjam/engine-template#915).
+   the signal reads as *off* if a stale green could still merge; an advance of the base then means a routine
+   branch-update and re-check before merge, not a conflict (StarshipSuperjam/engine-template#915).
    Also relay the engine's open self-monitoring findings (read-only, from telemetry's register). Also relay
    a **stranded operator checkout** — the boot-invoked `checkout_health` detector finding the top-level project
    folder stuck off its branch or missing the engine's files — read-only at the open-findings tier, BELOW the

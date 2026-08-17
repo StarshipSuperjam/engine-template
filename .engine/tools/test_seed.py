@@ -1058,6 +1058,35 @@ class TestProtectionFloor(unittest.TestCase):
         missing = protection_guard.missing_floor(rules, [])
         self.assertFalse(any("up to date with the base" in m for m in missing), missing)
 
+    def _lax_checks_rule(self, contexts):
+        return {"type": "required_status_checks", "parameters": {
+            "strict_required_status_checks_policy": False,
+            "required_status_checks": [{"context": c} for c in contexts]}}
+
+    def test_freshness_satisfied_when_any_of_multiple_checks_rules_is_strict(self):
+        # GitHub's evaluated rules aggregate EVERY ruleset targeting the branch, so two required_status_checks
+        # rules can appear (the engine's own strict ruleset alongside an operator's non-strict one — bootstrap's
+        # ambiguous-arrival path). Freshness is satisfied when ANY is strict (most-restrictive wins), regardless
+        # of the array order GitHub returns — the `or`-accumulation, not last-write-wins.
+        base = [r for r in self._full() if r["type"] != "required_status_checks"]
+        strict_rule = self._full()[1]  # the strict rule binding both engine checks
+        lax_rule = self._lax_checks_rule(["product-ci"])
+        for order in ([strict_rule, lax_rule], [lax_rule, strict_rule]):
+            missing = protection_guard.missing_floor(base + order, self.CHECKS)
+            self.assertFalse(any("up to date with the base" in m for m in missing), (order, missing))
+
+    def test_freshness_flagged_when_no_checks_rule_is_strict(self):
+        base = [r for r in self._full() if r["type"] != "required_status_checks"]
+        rules = base + [self._lax_checks_rule(["engine-ci", "engine-guard"]), self._lax_checks_rule(["product-ci"])]
+        missing = protection_guard.missing_floor(rules, self.CHECKS)
+        self.assertTrue(any("up to date with the base" in m for m in missing), missing)
+
+    def test_solo_floor_from_the_builder_self_satisfies_its_verifier(self):
+        # End-to-end: the solo floor bootstrap WRITES, fed straight into the verifier, must be clean — pins the
+        # builder↔verifier freshness agreement so a future edit to floor_ruleset that drops strict is caught.
+        rules = bootstrap.floor_ruleset(tier=protection_guard.SOLO)["rules"]
+        self.assertEqual(protection_guard.missing_floor(rules, self.CHECKS, tier=protection_guard.SOLO), [])
+
     def test_empty_rules_flags_every_floor_piece(self):
         missing = protection_guard.missing_floor([], self.CHECKS)
         self.assertTrue(any("pull request" in m for m in missing))

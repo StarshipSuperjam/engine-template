@@ -226,9 +226,10 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
     evaluate/disabled mode), for the given identity `tier`. Returns the list of floor pieces not in force — empty
     means the gate fully bites. The floor requires FRESHNESS — the required checks must have passed against the
     then-current base — enforced as `strict_required_status_checks_policy` on the required_status_checks rule
-    (eADR-0021, amended by StarshipSuperjam/engine-template#915); a merge queue is the planned zero-churn second
-    mechanism (StarshipSuperjam/engine-template#989), recognized here only once its workflow plumbing ships with
-    it. In TEAM the floor additionally requires a code-owner approval that survives the last
+    (eADR-0021, amended by StarshipSuperjam/engine-template#915). A merge queue is an OPTIONAL second mechanism
+    for the same invariant where GitHub offers one (never the floor); if it is ever recognized here it ships
+    together with its workflow plumbing (StarshipSuperjam/engine-template#989), never detection alone.
+    In TEAM the floor additionally requires a code-owner approval that survives the last
     push — the distinct-identity review the tier is sold on. The default is SOLO: the ENFORCEMENT paths (the standing
     CI check `main()` and bootstrap's apply/verify) resolve the real tier once via resolve_tier and pass it
     explicitly, so team protection is continuously verified; the default only serves an un-migrated informational
@@ -249,8 +250,13 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
             # the base before the required checks authorize a merge — so a green proven against an older base
             # cannot merge stale. The evaluated-rules endpoint surfaces this flag inside the rule's parameters
             # (confirmed live). A MISSING/unreadable flag reads as False here — fail toward not-fresh (RED),
-            # never toward a false green, matching this module's fail-closed posture.
-            strict_checks = bool(p.get("strict_required_status_checks_policy"))
+            # never toward a false green, matching this module's fail-closed posture. ACCUMULATE with `or`, the
+            # same union `bound` uses above: the evaluated response aggregates rules from EVERY ruleset that
+            # targets the branch, so two required_status_checks rules can appear (the engine's own strict
+            # ruleset created alongside an operator's non-strict one — bootstrap's ambiguous-arrival path). If
+            # ANY applicable rule requires up-to-date, GitHub gates the branch on it (most-restrictive wins), so
+            # freshness is satisfied when any of them is strict — never last-write-wins on GitHub's array order.
+            strict_checks = strict_checks or bool(p.get("strict_required_status_checks_policy"))
         elif r.get("type") == "pull_request":
             pr_thread_resolution = bool(p.get("required_review_thread_resolution"))
             pr_params = p
@@ -285,8 +291,9 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
             # (the checkless brownfield-arrival window, which strips the whole rule) has nothing to be fresh
             # about, so asserting freshness there would false-fail the arrival the checkless path exists to allow.
             if not strict_checks:
-                missing.append("a change can merge without being brought up to date with the base branch first, "
-                               "so a check that passed against an older base can still merge")
+                missing.append("a change can merge without first being brought up to date with the base branch, "
+                               "so a check that passed against an older base can still merge — turn on "
+                               "'Require branches to be up to date before merging' in the branch rule to require it")
     if not pr_thread_resolution:
         missing.append("unresolved review conversations do not block merging")
     if "non_fast_forward" not in types:

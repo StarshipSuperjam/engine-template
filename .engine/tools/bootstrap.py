@@ -1029,7 +1029,12 @@ class ControlPlane:
         if not missing:
             return False
         baseline = set(protection_guard.missing_floor([], protection_guard.REQUIRED_CHECKS, tier=tier))
-        return set(missing) < baseline   # proper subset => something was already in force
+        # The freshness gap is a "rule present but not strict" signal — missing_floor emits it ONLY when a
+        # required_status_checks rule EXISTS (StarshipSuperjam/engine-template#915), so it can never appear in
+        # the empty-rules baseline. Its presence therefore itself proves pre-existing protection; drop it before
+        # the subset test so a freshness-only (or freshness-plus) gap isn't wrongly read as "nothing in force".
+        core = {m for m in missing if "up to date with the base" not in m}
+        return core < baseline   # proper subset => something was already in force
 
     # -- de-bootstrap (the inverse of apply — operator-privileged, for clean removal) -------------
 
