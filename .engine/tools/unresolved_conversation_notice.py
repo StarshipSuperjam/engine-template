@@ -1,33 +1,41 @@
 #!/usr/bin/env python3
-"""Passive pre-arm for a merge blocked by an unresolved review conversation — the branch ruleset's
+"""On-demand guidance for a merge blocked by an unresolved review conversation — the branch ruleset's
 conversation-resolution rule (StarshipSuperjam/engine-template#408).
 
 The branch ruleset requires every review conversation to be resolved before merging. When one is still open,
 GitHub simply GREYS the merge button — a native state a non-engineer cannot self-diagnose (all the checks are
-green, yet the button won't press). This renders a short plain-language notice the orchestrator folds into the
-pull request's **Review** record, so the explanation is already in front of the operator BEFORE they hit the
-greyed button: why it's blocked, that they may resolve it themselves once they've read and accepted the comment
-(never a bare "one click fixes it"), and how to reach the comment — including one hidden as "outdated" after a
-rebase.
+green, yet the button won't press). This renders a short plain-language explanation: why it's blocked, that they
+may resolve it themselves once they've read and accepted the comment (never a bare "one click fixes it"), and
+how to reach the comment — including one hidden as "outdated" after a rebase.
 
-**Passive pre-arm only — the engine never acts.** It does NOT fetch the live review threads, does not name the
+**Surfaced only when a merge is actually blocked (StarshipSuperjam/engine-template#655).** It is no longer folded into every pull
+request's Review record. A session surfaces it reactively, when the operator reports a greyed merge button with
+all checks green — the blocked-merge recovery path in `.engine/operations/boot-session-start.md` directs
+rendering this tool and presenting its output as written. There is no reliable live signal to detect the block
+automatically (it only appears at the operator's merge moment, and GitHub's REST `mergeable_state` cannot single
+it out), so the judgment of *when* to surface is prose in that runbook; the copy here stays the single,
+self-checked source of *what* is said.
+
+**Passive only — the engine never acts.** It does NOT fetch the live review threads, does not name the
 specific open comment, and NEVER auto-resolves a thread (auto-resolving a comment that flagged a concern would
 gut the finding-disposition trust spine the rule serves — the engine declines that active duty). A non-engineer who
 still cannot locate the control after reading this is an accepted v1 residual, named honestly rather than closed.
 
-**Not a check, not a gate.** There is no `.engine/check/*.json`, no CI suite entry, no merge gate. Its delivery
-rides the AI-authored Review record, so it inherits Review's posture-truthfulness tier — the same shape
+**Not a check, not a gate.** There is no `.engine/check/*.json`, no CI suite entry, no merge gate. It is a tool
+whose deterministic output a session presents as written when it surfaces the guidance — the same posture
 `spec_referent.py review-steps` and `close_linkage_preflight.py` already use (a tool whose output the orchestrator
-drops into Review verbatim).
+drops in verbatim).
 
-**Standing copy, collapsed by default.** The text is identical on every pull request (no per-PR data), so it is
-rendered as a one-line summary with a `<details>` expansion — present in advance without drowning the per-PR
-Review content on the ~99% of merges where nothing is greyed (the engine's collapse-not-suppress anti-habituation
-posture). The wording is a tested constant bound by the plain-language leak-guard, not
-prose re-authored each render, so it cannot drift below the bar that makes the operator's consent informed.
+**Two surfaces, one copy.** The text is identical on every use (no per-PR data). `render()` wraps it in a
+one-line summary with a `<details>` expansion for a surface that renders HTML (for example a GitHub
+pull-request comment); `render(collapsed=False)` — the `plain` CLI verb — returns the same summary and body as
+plain text, for surfacing in a chat or terminal session where raw `<details>` tags would just be clutter in
+front of the operator. The wording is a tested constant bound by the plain-language leak-guard, not prose
+re-authored each render, so it cannot drift below the bar that makes the operator's consent informed.
 
 Usage:
-  uv run --directory .engine -- python tools/unresolved_conversation_notice.py         # print the Review block
+  uv run --directory .engine -- python tools/unresolved_conversation_notice.py         # print the collapsed block
+  uv run --directory .engine -- python tools/unresolved_conversation_notice.py plain   # print the plain (unwrapped) guidance
   uv run --directory .engine -- python tools/unresolved_conversation_notice.py demo    # self-check the copy
 """
 from __future__ import annotations
@@ -57,25 +65,39 @@ _BODY = (
 )
 
 
-def render() -> str:
-    """The plain-language Review-section block the orchestrator drops in verbatim: a one-line summary with a
-    `<details>` expansion carrying the full explanation. Deterministic, so it is testable."""
+def render(collapsed: bool = True) -> str:
+    """The plain-language guidance a session presents when a merge is blocked by an unresolved conversation.
+
+    `collapsed=True` (default) wraps it in a one-line summary with a `<details>` expansion, for a surface that
+    renders HTML (a GitHub pull-request comment). `collapsed=False` returns the same summary and body as plain
+    text, for surfacing in a chat or terminal session where raw `<details>` tags would just be clutter.
+    Deterministic either way, so it is testable."""
+    if not collapsed:
+        return f"{_SUMMARY}\n\n{_BODY}"
     return f"<details>\n<summary>{_SUMMARY}</summary>\n\n{_BODY}\n</details>"
 
 
 def _demo() -> int:
-    """Self-check: the rendered block carries all three required things in plain language, keeps the
-    read-then-accept binding even for the post-rebase-hidden case, and never degrades to a bare 'one click'."""
-    block = render()
-    checks = {
-        "why it's blocked (greyed / unresolved)": "unresolved" in block and "grey" in block.lower(),
-        "may clear after reading + accepting": "read" in block.lower() and "accepting" in block.lower(),
-        "how to reach it": "Resolve conversation" in block and "Conversation" in block,
-        "post-rebase / outdated case": "outdated" in block and ("rebase" in block or "force-push" in block),
-        "read-then-accept kept, no bare 'one click'": "one click" not in block.lower()
-        and "only then resolve" in block.lower(),
-        "collapsed (details/summary)": "<details>" in block and "<summary>" in block,
-    }
+    """Self-check: BOTH rendered forms carry all three required things in plain language, keep the
+    read-then-accept binding even for the post-rebase-hidden case, and never degrade to a bare 'one click';
+    the collapsed form carries the `<details>` wrapper and the plain form carries none."""
+    def content_checks(block: str) -> dict:
+        return {
+            "why it's blocked (greyed / unresolved)": "unresolved" in block and "grey" in block.lower(),
+            "may clear after reading + accepting": "read" in block.lower() and "accepting" in block.lower(),
+            "how to reach it": "Resolve conversation" in block and "Conversation" in block,
+            "post-rebase / outdated case": "outdated" in block and ("rebase" in block or "force-push" in block),
+            "read-then-accept kept, no bare 'one click'": "one click" not in block.lower()
+            and "only then resolve" in block.lower(),
+        }
+    collapsed, plain = render(), render(collapsed=False)
+    checks = {}
+    for label, passed in content_checks(collapsed).items():
+        checks[f"collapsed: {label}"] = passed
+    for label, passed in content_checks(plain).items():
+        checks[f"plain: {label}"] = passed
+    checks["collapsed form carries <details>/<summary>"] = "<details>" in collapsed and "<summary>" in collapsed
+    checks["plain form carries no HTML wrapper"] = "<details>" not in plain and "<summary>" not in plain
     ok = all(checks.values())
     for label, passed in checks.items():
         print(f"  [{'ok' if passed else 'XX'}] {label}")
@@ -86,6 +108,9 @@ def _demo() -> int:
 def main(argv: list[str]) -> int:
     if argv and argv[0] == "demo":
         return _demo()
+    if argv and argv[0] == "plain":
+        print(render(collapsed=False))
+        return 0
     print(render())
     return 0
 
