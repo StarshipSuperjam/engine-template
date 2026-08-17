@@ -225,6 +225,14 @@ class TestBuildAndRoutinePermit(unittest.TestCase):
         self.assertTrue(modes.is_merge_action(
             "Bash", {"command": "gh api --method PUT repos/o/r/pulls/1/merge -f merge_method=squash"}))
         self.assertTrue(modes.is_merge_action("mcp__ghserver__merge_pull_request", {}))
+        # `gh` normalises the method's case before sending, so a lowercase / mixed-case / quoted PUT still
+        # performs a real merge — the nudge must fire on all of them, not only exact uppercase `-X PUT`:
+        for cmd in ("gh api -X put repos/o/r/pulls/1/merge",
+                    "gh api --method put repos/o/r/pulls/1/merge",
+                    "gh api --method=Put repos/o/r/pulls/1/merge",
+                    "gh api -X 'PUT' repos/o/r/pulls/1/merge"):
+            self.assertTrue(modes.is_merge_action("Bash", {"command": cmd}),
+                            f"a case/quote variant of the REST merge must be denied: {cmd!r}")
         # a GET merge-status read (no write method) is NOT a merge:
         self.assertFalse(modes.is_merge_action("Bash", {"command": "gh api repos/o/r/pulls/1/merge"}))
         # command-position discipline: an echoed/quoted string is not a merge:

@@ -218,7 +218,8 @@ def clear_stance(session_id: str | None) -> bool:
 _STANCE_LINES = {
     EXPLORE: "Exploring — I won't change files or open a pull request until you tell me to build.",
     BUILD: "Building — I'll make changes and submit them as a pull request for your approval.",
-    ROUTINE: "Running unattended (routine) — scope-locked build work; nothing merges without review.",
+    ROUTINE: "Running unattended (routine) — scope-locked build work; it never merges the protected "
+             "branch, which stays your own consent.",
 }
 
 
@@ -261,7 +262,8 @@ def describe_explore_scope() -> str:
         "issue helper (`.engine/tools/issue_author.py` — render_engine_issue_body); a non-conforming "
         "`engine`-labelled `gh issue create` is rerouted back to that helper. Any other Issue needs no "
         "label from you — the engine derives the native `Kind:`-prefix label. (The gate is a strong "
-        "default, not a wall; nothing reaches main without the operator's own merge.)"
+        "default, not a wall; nothing reaches main without the operator's own merge — which you never "
+        "perform yourself, in any stance.)"
     )
 
 
@@ -328,13 +330,19 @@ def is_building_action(tool_name: str, tool_input) -> bool:
 # it (stated honestly; the wall is the protected-branch merge itself, never this nudge).
 # The REST form is METHOD-ANCHORED on purpose: `GET /repos/{o}/{r}/pulls/{n}/merge` is a merge-STATUS read
 # and must NOT be denied; only a write method (PUT, or a body flag) performs the merge — mirroring how
-# issue_gate distinguishes a creating call from a reading one, so a read is never taxed.
-_MERGE_WRITE_METHOD = r"(?:-X\s*PUT|--method(?:=|\s+)PUT|-f\b|-F\b|--field\b|--raw-field\b|--input\b)"
+# issue_gate distinguishes a creating call from a reading one, so a read is never taxed. The `gh api`
+# pattern is compiled IGNORECASE because `gh` normalises the method's case before sending, so a lowercase
+# `-X put` / `--method put` performs a REAL merge and must still fire; an optional surrounding quote on the
+# method value is tolerated too. (A quoted-in-a-variable or eval'd form is still the disclosed best-effort
+# residual — the wall is the merge itself.)
+_MERGE_WRITE_METHOD = (r"(?:-X\s*['\"]?PUT|--method(?:=|\s+)['\"]?PUT"
+                       r"|-f\b|-F\b|--field\b|--raw-field\b|--input\b)")
 _MERGE_PATTERNS = (
     re.compile(_CMD_START + r"gh\s+pr\s+merge\b"),        # the porcelain merge (incl. --auto scheduling)
     # the REST merge, order-independent: `gh api` at command position AND a pulls/<n>/merge path AND a
     # write method (a bare GET on the same path — the status read — matches neither lookahead → ALLOW):
-    re.compile(_CMD_START + r"gh\s+api\b(?=.*pulls/\S+/merge\b)(?=.*" + _MERGE_WRITE_METHOD + r")"),
+    re.compile(_CMD_START + r"gh\s+api\b(?=.*pulls/\S+/merge\b)(?=.*" + _MERGE_WRITE_METHOD + r")",
+               re.IGNORECASE),
 )
 # The GitHub-MCP pull-request-merge tool name. An UNVERIFIED build-spec leaf (no in-repo corroboration
 # for the exact name): kept narrow so it never catches an unrelated tool, pinned by a test, best-effort,
@@ -359,10 +367,10 @@ def is_merge_action(tool_name: str, tool_input) -> bool:
 
 # The plain-language merge refusal — "won't" (the session's choice to leave the consent act to the
 # operator), NEVER "cannot" (which would dress this fallible local nudge as the wall eADR-0005 forbids).
-_MERGE_DENIAL = ("I won't merge that — merging the protected branch is your consent act, never the "
-                 "session's, in any stance. I open the pull request and stop; you merge it when the "
-                 "evidence convinces you. (This is a nudge, not a wall — it is best-effort and fails "
-                 "open; the protected-branch merge itself is the only unbypassable guarantee.)")
+_MERGE_DENIAL = ("I won't merge that — or schedule a merge of it. Merging the protected branch is your "
+                 "consent act, never the session's, in any stance; I open the pull request and stop, and "
+                 "you merge it when the evidence convinces you. (This is a nudge, not a wall — it's "
+                 "best-effort, so the real guarantee is your own merge, not this refusal.)")
 
 
 # ---- the plan-mode artifact carve-out -----------------------------------------

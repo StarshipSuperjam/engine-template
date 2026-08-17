@@ -8,7 +8,8 @@ Keep a session honest about what it may do. Every session runs in one of three s
 (the default), **build**, or **routine** — and this runbook is the operating guide to that stance: how
 exploring gates the building actions, how a session deliberately enters build, and why the gate is a
 deliberate-effort nudge rather than a wall. Enter it whenever you need to understand or explain why a
-building action was refused while exploring, or what changes when a session starts building.
+building action was refused while exploring, why a session's attempt to merge the protected branch is
+refused in any stance, or what changes when a session starts building.
 
 ## Steps
 
