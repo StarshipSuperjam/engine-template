@@ -599,19 +599,20 @@ def block_eligible_registrations() -> list:
     """The block declarations the block-registry leg governs, ASSEMBLED from each owning system's own
     declaration — hooks names no invariant itself (the block-budget law), so the registry
     is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
-    (modes.BLOCK_INVARIANT) and its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT) —
-    both PreToolUse blocks modes' single handler composes, named a member by the
+    (modes.BLOCK_INVARIANT), its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT), and its
+    protected-merge nudge (modes.MERGE_BLOCK_INVARIANT) — three PreToolUse blocks modes' single handler
+    composes, each named a member by the
     block-budget law — and close's findings-disposition gate on Stop (close.BLOCK_INVARIANT). Each entry
     is {event, name, owner, modes}; the leg reads `event` and `modes`. These — NOT bare
     .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
     command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
-    declares none). So the leg validates three REAL members on block-eligible events (PreToolUse, Stop) →
+    declares none). So the leg validates four REAL members on block-eligible events (PreToolUse, Stop) →
     green; it would fire the moment any owner declared a block on a non-eligible event or without its
     modes. (owes → the module manager: if the block-owner set grows past 2–3 it may refactor this
     consumer-side assembly to a registry-discovery pattern.)"""
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
             + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
-               dict(close.BLOCK_INVARIANT)])
+               dict(modes.MERGE_BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:

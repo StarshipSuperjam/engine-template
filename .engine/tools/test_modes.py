@@ -192,6 +192,52 @@ class TestBuildAndRoutinePermit(unittest.TestCase):
             "s", "Bash", 'gh issue create --label engine -b "just free text"'))))
         self.assertTrue(_allow(modes.handler(self._payload("s", "Bash", "gh issue create -b free"))))
 
+    def test_protected_merge_is_denied_in_every_stance(self):
+        # The session never merges the protected branch — that is the operator's consent act — so the merge
+        # nudge is STANCE-INDEPENDENT: checked before the stance short-circuit, it fires in Explore, Build
+        # AND Routine, across all three merge surfaces, even though every other write is permitted here.
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            modes.set_stance("s", stance)
+            self.assertTrue(_deny(modes.handler(self._payload("s", "Bash", "gh pr merge 12 --squash"))),
+                            f"gh pr merge must be denied in {stance}")
+            self.assertTrue(_deny(modes.handler(self._payload(
+                "s", "Bash", "gh api -X PUT repos/o/r/pulls/12/merge"))),
+                f"the REST PUT merge form must be denied in {stance}")
+            self.assertTrue(_deny(modes.handler(self._payload(
+                "s", "mcp__github__merge_pull_request", ""))),
+                f"the GitHub-MCP merge tool must be denied in {stance}")
+
+    def test_merge_status_read_and_echoed_merge_are_allowed_in_every_stance(self):
+        # A GET merge-STATUS read on the same path carries no write method → it is not a merge and must NOT
+        # be denied; an echoed 'gh pr merge' string is command-position-safe. Both allow in every stance.
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            modes.set_stance("s", stance)
+            self.assertTrue(_allow(modes.handler(self._payload(
+                "s", "Bash", "gh api repos/o/r/pulls/12/merge"))),
+                f"the GET merge-status read must be allowed in {stance}")
+            self.assertTrue(_allow(modes.handler(self._payload("s", "Bash", "echo 'gh pr merge'"))),
+                            f"an echoed merge string must be allowed in {stance}")
+
+    def test_is_merge_action_pins_surfaces_and_spares_the_status_read(self):
+        # Pins the three merge surfaces — including the best-effort, in-repo-uncorroborated GitHub-MCP tool
+        # name — and the deliberate GET merge-status-read carve-out, independent of the handler wiring.
+        self.assertTrue(modes.is_merge_action("Bash", {"command": "gh pr merge 1 --admin"}))
+        self.assertTrue(modes.is_merge_action(
+            "Bash", {"command": "gh api --method PUT repos/o/r/pulls/1/merge -f merge_method=squash"}))
+        self.assertTrue(modes.is_merge_action("mcp__ghserver__merge_pull_request", {}))
+        # `gh` normalises the method's case before sending, so a lowercase / mixed-case / quoted PUT still
+        # performs a real merge — the nudge must fire on all of them, not only exact uppercase `-X PUT`:
+        for cmd in ("gh api -X put repos/o/r/pulls/1/merge",
+                    "gh api --method put repos/o/r/pulls/1/merge",
+                    "gh api --method=Put repos/o/r/pulls/1/merge",
+                    "gh api -X 'PUT' repos/o/r/pulls/1/merge"):
+            self.assertTrue(modes.is_merge_action("Bash", {"command": cmd}),
+                            f"a case/quote variant of the REST merge must be denied: {cmd!r}")
+        # a GET merge-status read (no write method) is NOT a merge:
+        self.assertFalse(modes.is_merge_action("Bash", {"command": "gh api repos/o/r/pulls/1/merge"}))
+        # command-position discipline: an echoed/quoted string is not a merge:
+        self.assertFalse(modes.is_merge_action("Bash", {"command": "echo 'gh pr merge'"}))
+
 
 class TestFailOpenAndChannel(unittest.TestCase):
     """The gate is fail-open, and a deny rides the structured channel (exit 0), never exit-2 block()."""
@@ -257,6 +303,18 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         self.assertEqual(sorted(modes.REROUTE_BLOCK_INVARIANT["modes"]), sorted(modes.STANCES))
         self.assertEqual(
             validate.block_budget_findings([modes.REROUTE_BLOCK_INVARIANT], "hard", "x",
+                                           stances=modes.STANCES), [])
+
+    def test_merge_invariant_is_stance_independent_and_block_eligible(self):
+        # The protected-merge nudge is a PreToolUse deny modes' handler composes; it fires in every stance
+        # (the session never merges), so it declares all three modes — owner modes, a real member of the
+        # block-eligible registry, distinguished by its NAME (it shares the reroute's mode set).
+        self.assertEqual(modes.MERGE_BLOCK_INVARIANT["event"], "PreToolUse")
+        self.assertEqual(modes.MERGE_BLOCK_INVARIANT["name"], "protected-merge-nudge")
+        self.assertEqual(modes.MERGE_BLOCK_INVARIANT["owner"], "modes")
+        self.assertEqual(sorted(modes.MERGE_BLOCK_INVARIANT["modes"]), sorted(modes.STANCES))
+        self.assertEqual(
+            validate.block_budget_findings([modes.MERGE_BLOCK_INVARIANT], "hard", "x",
                                            stances=modes.STANCES), [])
 
     def test_describe_stance_is_plain_and_falls_back_to_explore(self):

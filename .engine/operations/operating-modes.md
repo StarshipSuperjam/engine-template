@@ -8,7 +8,8 @@ Keep a session honest about what it may do. Every session runs in one of three s
 (the default), **build**, or **routine** — and this runbook is the operating guide to that stance: how
 exploring gates the building actions, how a session deliberately enters build, and why the gate is a
 deliberate-effort nudge rather than a wall. Enter it whenever you need to understand or explain why a
-building action was refused while exploring, or what changes when a session starts building.
+building action was refused while exploring, why a session's attempt to merge the protected branch is
+refused in any stance, or what changes when a session starts building.
 
 ## Steps
 
@@ -85,7 +86,10 @@ proceeds, by design — a gate must never strand the operator), and detecting a 
 string is best-effort (an alias, `eval`, substitution, or chaining evades it). The only unbypassable
 guarantee is the **protected-branch merge** — any write that ever slips the gate (a crash, an evaded
 verb, or a `permissions.allow` entry that outranks the hook, which is why the engine never allow-lists a
-gated tool) still cannot reach the protected branch unreviewed. Never dress the local gate as the wall.
+gated tool) still cannot reach the protected branch without the operator's own merge. That merge is the
+operator's **informed consent**, not a review of the code — in solo it clears with zero required approvals
+(team adds a code-owner review) — and the session never performs it in any stance (a best-effort nudge
+refuses a session `gh pr merge`; the wall is the merge itself). Never dress the local gate as the wall.
 
 Entering build is fail-safe too: if the plan-acceptance hook never fires — including accepting a plan with
 the context cleared, which does not fire it (claude-code#20397) — the signal stays absent → explore, and
