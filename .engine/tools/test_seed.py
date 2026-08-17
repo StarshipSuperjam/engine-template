@@ -1289,8 +1289,25 @@ class TestPRContractNoDrift(unittest.TestCase):
         self.assertNotIn(
             "Each check is itself proven against a deliberately broken example it must catch", template,
             "the universal check-proof overclaim must not return (#712)")
-        self.assertIn("the standard rule-kinds once per kind", template)
-        self.assertIn("declared exceptions with no such example, proven not at all", template)
+        self.assertIn("Most checks are proven against a deliberately broken example they must catch", template)
+        self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", template)
+
+    def test_floor_conduct_frames_the_merge_as_consent_not_enforced_review(self):
+        # #712 (SC-2): the always-loaded floor conduct in CLAUDE.md/AGENTS.md must frame the
+        # protected-branch merge as the operator's consent, not a code review the engine enforces.
+        # These are the most operator-visible lines of the whole change (they sit in the floor fence)
+        # yet nothing else reads them, so this pin is what catches an accidental revert.
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            with open(os.path.join(self._repo_root(), name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertNotIn("a pull request you review and merge", text,
+                             f"{name}: the 'you review and merge' flow-claim must not return (#712)")
+            self.assertIn("a pull request you approve and merge", text)
+        with open(os.path.join(self._repo_root(), "CLAUDE.md"), encoding="utf-8") as fh:
+            claude = fh.read()
+        self.assertNotIn("your review at merge is the real backstop", claude)
+        self.assertIn("your merge is the real backstop", claude)
+        self.assertIn("the reading you give each change before you merge it", claude)
 
 
 class TestDemonstrationSectionRequired(unittest.TestCase):

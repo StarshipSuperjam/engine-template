@@ -13,7 +13,7 @@ the wording here; the section HEADINGS are stable keys the tool matches, so don'
 ## Before you approve
 
 I'm about to turn on your safety gate — the branch protection that keeps work from reaching your main
-branch without passing checks and your review. To do that I need permission to manage this repository's
+branch without a pull request and passing checks. To do that I need permission to manage this repository's
 settings. GitHub will show an authorization screen for `repo` access, and it describes that access in sweeping
 terms — it reads as full control of your repositories. That sounds far broader than what happens here: it's the
 standard GitHub permission for turning on the review gate, and it reaches only repositories you already

@@ -333,8 +333,8 @@ class TestReadoutAndGateHonesty(unittest.TestCase):
         self.assertNotIn(
             "Each check is itself proven against a deliberately broken example it must catch", dash,
             "the universal check-proof overclaim must not return (#712)")
-        self.assertIn("the standard rule-kinds once per kind", dash)
-        self.assertIn("declared exceptions with no such example, proven not at all", dash)
+        self.assertIn("Most checks are proven against a deliberately broken example they must catch", dash)
+        self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", dash)
 
     def test_readout_names_the_merge_not_a_review_as_the_gate(self):
         dash = boot.render_dashboard(_signals())
@@ -345,6 +345,13 @@ class TestReadoutAndGateHonesty(unittest.TestCase):
         dash = boot.render_dashboard(_signals(gate="off", reason="branch protection not found"))
         self.assertIn("without the required checks or a pull request", dash)
         self.assertNotIn("unreviewed", dash)
+
+    def test_gate_off_relay_states_the_mechanical_loss_not_unreviewed(self):
+        # #712 (SC-3): the cross-session relay variant of the gate-off alarm carries the same
+        # mechanical-loss wording as the primary banner, not 'unreviewed'.
+        pushed = "\n".join(boot.must_push(_signals(gate="off", reason="branch protection not found")))
+        self.assertIn("without the required checks or a pull request", pushed)
+        self.assertNotIn("unreviewed", pushed)
 
 
 class TestSetupLandedConfirmation(unittest.TestCase):

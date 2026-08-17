@@ -95,7 +95,7 @@ about where your project stands; tell me to re-ground, or quit and reopen Claude
 
 **How I work with you — my codes of conduct.** Below are my standing codes of conduct: plain-language notes
 on how I engage with you, loaded every session and present even before anything else starts up. They're
-guidance I follow, not a safety gate — your real protection is the reading you give a change before you merge it. They're yours
+guidance I follow, not a safety gate — your real protection is the reading you give each change before you merge it. They're yours
 to shape any time with `/engine-setup`.
 
 @.engine/conduct/defaults.md

@@ -22,7 +22,7 @@
 
 > *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** you can run yourself and the change's honest self-report — not a reading of the diff for defects; a green check is never a substitute for that. **Your merge is the binding gate.***
 >
-> *About those checks: only the one that runs when the change is proposed for merge can stop a risky merge — a check that ran while the change was still being written is early advice. Most checks are proven against a deliberately broken example they must catch — each custom check by its own example, the standard rule-kinds once per kind — so a passing check of those can't be one that quietly did nothing; a few checks are declared exceptions with no such example, proven not at all. Either way that speaks to the check, not to whether this change is right. And a check that could not run leaves its area unverified.*
+> *About those checks: only the one that runs when the change is proposed for merge can stop a risky merge — a check that ran while the change was still being written is early advice. Most checks are proven against a deliberately broken example they must catch, so a passing check can't be one that quietly did nothing — a few are openly-noted exceptions where that kind of proof doesn't apply. Either way that speaks to the check, not to whether this change is right. And a check that could not run leaves its area unverified.*
 
 ## Purpose
 

@@ -2003,7 +2003,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         ["- A structural consistency check on the rebuilt engine passed before this update was opened — the "
          "checks that catch a missing, orphaned, or mismatched engine file.",
          "- That is a structural check, not the engine's full check suite: the full suite runs here on this "
-         "pull request, and your review at the merge is the real gate."],
+         "pull request, and your merge is the real gate."],
         "a structural consistency check passed; the full suite runs on this pull request and the merge is "
         "still yours.")
     out += release_cut.pr_section(
