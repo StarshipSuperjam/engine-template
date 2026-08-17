@@ -25,6 +25,7 @@ def _doc(status: str, *, sections=True, table=True, discharge="operator") -> str
             body += ("\n| Criterion | How verified | Who checks it |\n"
                      "| --- | --- | --- |\n"
                      f"| It works | a behavioral demo | {discharge} |\n")
+        body += "\n## Operator and automatic workflow routing\nReached via a route; internal otherwise.\n"
     return body
 
 

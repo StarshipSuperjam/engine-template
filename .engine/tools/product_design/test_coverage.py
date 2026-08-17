@@ -28,7 +28,8 @@ def _cap(status: str) -> str:
     if status in ("draft", "locked"):
         body += ("\n## Summary\nWhat and who for.\n\n## Behavior\nHow it behaves.\n\n## Acceptance criteria\n"
                  "\n| Criterion | How verified | Who checks it |\n| --- | --- | --- |\n"
-                 "| It works | a behavioral demo | operator |\n")
+                 "| It works | a behavioral demo | operator |\n"
+                 "\n## Operator and automatic workflow routing\nReached via a route; internal otherwise.\n")
     return body
 
 

@@ -76,7 +76,8 @@ _PLAIN_STAGES = "not yet described, in progress, or settled"
 _DRAFTED = ("draft", "locked")
 
 # Sections a drafted (in-progress / settled) capability document must carry, as level-2 headings.
-_REQUIRED_SECTIONS = ("Summary", "Behavior", "Acceptance criteria")
+_REQUIRED_SECTIONS = ("Summary", "Behavior", "Acceptance criteria",
+                      "Operator and automatic workflow routing")
 _CRITERIA_SECTION = "Acceptance criteria"
 # The acceptance-criteria table columns, and the recognized values for the who-checks-it column.
 _CRITERIA_COLUMNS = ("criterion", "how verified", "who checks it")
@@ -478,6 +479,7 @@ def demo() -> int:
                 body += ("\n| Criterion | How verified | Who checks it |\n"
                          "| --- | --- | --- |\n"
                          f"| It works | a behavioral demo | {discharge} |\n")
+            body += "\n## Operator and automatic workflow routing\nReached via a route; internal otherwise.\n"
         return body
 
     _LEDGER = ("\n| Capability | Status | Doc |\n| --- | --- | --- |\n")
