@@ -42,6 +42,11 @@
     "urgency": {
       "description": "Optional governed urgency, restricted to telemetry's two severity classes. An out-of-set value is rejected by the renderer. Rendered as an invisible severity marker appended last. Omit for an unrated Issue (the default).",
       "enum": ["trust-critical", "persistent-but-benign"]
+    },
+    "verified_head": {
+      "description": "Optional provenance for an Issue whose premise is committed repository state: the 'owner/repo@sha' the claim was verified against at a fresh default-branch head (StarshipSuperjam/engine-template#957). Rendered as an invisible verified-head marker before any severity marker; a malformed value is rejected by the renderer. Omit when the Issue makes no repository-state claim.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*@[0-9a-fA-F]{7,40}$"
     }
   }
 }

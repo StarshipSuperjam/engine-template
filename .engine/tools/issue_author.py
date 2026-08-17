@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 # The input schema governing the preview/create structured input (engine-issue-input.v1). Loaded from disk at
@@ -75,6 +76,21 @@ _INPUT_SCHEMA_REL = os.path.join(os.path.dirname(__file__), "..", "schemas", "en
 # only what is universally true of an engine-authored Issue — the engine opened it, the operator did
 # not — and carries no backstage vocabulary.
 _FRAMING = "*The engine opened this item itself — you didn't create it.*"
+
+# The verified-head provenance marker (StarshipSuperjam/engine-template#957). A session that files an engine
+# Issue whose premise is committed repository state records the exact commit it verified the claim against, so
+# the body carries machine-recoverable proof the claim was checked at a fresh default-branch head — not on a
+# stale worktree. The value is `owner/repo@sha` (the repo, because a bare sha is ambiguous across repositories
+# the engine may file into), rendered as an invisible HTML-comment trailer mirroring telemetry's severity
+# marker: the ONE place this trailer is built, so any future reader recovers the identical form. `_VALUE_RE`
+# is the marker-safety gate — only `owner/repo@hex` passes, so no `<`, `>`, or `-->` can enter the comment. It
+# mirrors `engine-issue-input.v1.json`'s `verified_head.pattern` (the CLI-boundary gate); keep the two in sync,
+# as the urgency enum and telemetry's severity classes already are — a drift would let a value pass one gate and
+# raise at the other.
+_VERIFIED_HEAD_TEMPLATE = "<!-- verified-head: {value} -->"
+_VERIFIED_HEAD_RE = re.compile(r"<!--\s*verified-head:\s*(.+?)\s*-->")
+_VERIFIED_HEAD_VALUE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*@[0-9a-fA-F]{7,40}$")
 
 
 def _require(name: str, value: str) -> str:
@@ -105,14 +121,44 @@ def _render_references(references) -> str:
     return "\n\n**More detail.**\n" + "\n".join(lines)
 
 
+def verified_head_trailer(value: str) -> str:
+    """Compose the invisible verified-head marker for an issue body — the ONE place the
+    `<!-- verified-head: … -->` trailer is built (StarshipSuperjam/engine-template#957), so every producer that
+    records the checked commit writes the identical marker `parse_verified_head` recovers. `value` is
+    `owner/repo@sha` (the repo the sha belongs to plus the 7–40 char hex commit the repository-state claim was
+    verified against). Anything else raises ValueError — the value is marker-safe by construction (no `<`, `>`,
+    or comment-closer can enter), never interpolated free text, mirroring telemetry.severity_trailer's
+    fail-closed discipline. Callers append it BEFORE any severity marker, so severity stays the last trailer."""
+    if not isinstance(value, str) or not _VERIFIED_HEAD_VALUE_RE.match(value):
+        raise ValueError(
+            f"verified_head must be 'owner/repo@<7-40 hex sha>', not {value!r}")
+    return _VERIFIED_HEAD_TEMPLATE.format(value=value)
+
+
+def parse_verified_head(body: str) -> str | None:
+    """Recover the `owner/repo@sha` a tracked Issue's premise was verified against, from its invisible
+    verified-head marker — the read a future freshness/provenance check uses. Takes the LAST marker (the
+    genuine trailer is appended after the body prose, so forged prose earlier in the body cannot hijack it),
+    mirroring telemetry.parse_severity's anti-hijack rule. None when the marker is absent."""
+    matches = _VERIFIED_HEAD_RE.findall(body or "")
+    return matches[-1] if matches else None
+
+
 def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=None,
-                             urgency: str | None = None) -> str:
+                             urgency: str | None = None, verified_head: str | None = None) -> str:
     """Assemble an engine-authored Issue body to the control-plane body contract.
 
     Keyword-only and required: omitting `what_this_is` or `whats_next` raises TypeError at the call
     boundary (the by-construction enforcement — a producer cannot omit a part); a present-but-blank
     value raises ValueError. `references` is an optional list of (label, url) pairs rendered as plain
     markdown links.
+
+    `verified_head` (optional) lets a session that files an engine Issue about committed repository state
+    record the exact commit it verified the claim against (StarshipSuperjam/engine-template#957): an
+    `owner/repo@sha` string, rendered as the invisible `<!-- verified-head: … -->` trailer via
+    `verified_head_trailer` (the single source; a malformed value raises there). None (the default) leaves
+    every existing producer's body byte-for-byte unchanged. It is appended BEFORE any severity marker, so
+    severity stays the last trailer.
 
     `urgency` (optional) lets a session that files an engine Issue grade it at creation: one of telemetry's
     two severity classes (`trust-critical`, `persistent-but-benign`), or None (unrated — the default, which
@@ -130,6 +176,10 @@ def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=N
         f"**What happens next.** {whats_next}"
         f"{_render_references(references)}\n"
     )
+    if verified_head is not None:
+        # Appended BEFORE the severity marker so severity remains the last trailer parse_severity's last-match
+        # rule expects; verified_head_trailer validates the value (fail-closed) and owns the marker's shape.
+        body += f"\n{verified_head_trailer(verified_head)}\n"
     if urgency is not None:
         # telemetry owns the severity marker; import it lazily HERE (not at module scope) because telemetry
         # imports issue_author at load time — a top-level `import telemetry` would close that cycle and crash
@@ -223,7 +273,7 @@ def body_from_input(data: dict) -> str:
     references = [(ref["label"], ref["link"]) for ref in data.get("references", [])] or None
     return render_engine_issue_body(
         what_this_is=data["what_this_is"], whats_next=data["whats_next"],
-        references=references, urgency=data.get("urgency"))
+        references=references, urgency=data.get("urgency"), verified_head=data.get("verified_head"))
 
 
 def _matched_target(requested: str, trusted_targets: list) -> "str | None":

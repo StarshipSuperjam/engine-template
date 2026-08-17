@@ -6218,7 +6218,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:550b69ad671258936816694809a923d3c92afb24a4f7a2c390b91f15e818c391",
+        "fingerprint": "sha256:c843af664e5fa47a8b92eca2ed351394a0e5acd641c9946fb71f3be7eef74c4e",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7484,7 +7484,7 @@
       },
       "slug": "engine-issue-input.v1",
       "source": {
-        "fingerprint": "sha256:769ebb45eacbcf9270df3a294f46970c76bea3aae31b0f088d4c2f9369bf2283",
+        "fingerprint": "sha256:ca327e6773ba7d8a4c1c048401e4c9cfbc344225044c4a2745862be32719f2c1",
         "path": ".engine/schemas/engine-issue-input.v1.json"
       },
       "status": "active",
@@ -9856,7 +9856,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:7601e526cdc8036257c33da3005387b4b045e4fa77561ca5d15ef991e645e12b",
+        "fingerprint": "sha256:583dbbeeb66d6466efbeb8861422fb34c4dfa2edc93e93a8c06bb13af5c63066",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -12158,7 +12158,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:ab4fdcab884029a3beb7a6a956ffb0bc8a9595aec5b37f442a6ac73c45b37f48",
+        "fingerprint": "sha256:aa230efa3f0adff2e890c81726887feb03b051b29ecc4fdb120af58640e28ded",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -15112,7 +15112,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:88e24f362deef2fdc76c99b19ac666192a83a1e8e0ac25ec65f1884f3ac6fc58",
+        "fingerprint": "sha256:77053fe6c8a9ebe14d69ee476a6bd98ff8a4f91ae1e104439b8d632ecdb57502",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -16124,7 +16124,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:e3ccebca58a171cf73dece5ba209cddd250f2cee3b227390a1e6416d3a1765ee",
+        "fingerprint": "sha256:bd3c89810f837eb27d25fb305033a37432c3e44aced523709e37dba79e4dc3c9",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",

@@ -135,14 +135,18 @@ def _succeeds(cmd: list, cwd: str | None = None) -> bool:
         return False
 
 
-def _refresh_origin(main: str) -> dict:
-    """Read origin's authoritative HEAD symref, then fetch that exact branch. Returns a structured success or
-    failure reason, and succeeds only when the fetched remote-tracking ref matches the advertisement. A normal fetch does NOT refresh the
-    cached `origin/HEAD` symref, so trusting it here would quietly follow an old default after a remote rename.
-    This updates only remote-tracking metadata and objects — never local HEAD, branches, index, or working tree."""
+def _verified_remote_default(checkout_path: str) -> dict:
+    """Read origin's authoritative HEAD symref and fetch that exact branch, returning the freshly-verified
+    default branch and its advertised commit — WITHOUT rewriting the local `origin/HEAD` symref cache. Succeeds
+    only when the fetched remote-tracking ref matches the advertisement, so a moved remote fails closed. This
+    is the read core shared by `_refresh_origin` (which additionally rewrites the origin/HEAD cache for the
+    correction path, and passes the operator's main checkout) and `fresh_default_head` (a freshness read that
+    needs no cache write — from ANY session/build checkout, so a local-ref-write hiccup must not downgrade a
+    genuine fresh read). Updates only remote-tracking objects/refs — never local HEAD, branches, index, or
+    working tree. Returns `{"ok": True, "default", "oid"}` or `{"ok": False, "reason"}`."""
     try:
         started = time.monotonic()
-        advertised = subprocess.run(["git", "-C", main, "ls-remote", "--symref", "origin", "HEAD"],
+        advertised = subprocess.run(["git", "-C", checkout_path, "ls-remote", "--symref", "origin", "HEAD"],
                                     capture_output=True, text=True, timeout=_FETCH_TIMEOUT, check=False)
         if advertised.returncode != 0:
             return {"ok": False, "reason": "remote-head-unreadable"}
@@ -157,21 +161,34 @@ def _refresh_origin(main: str) -> dict:
         remaining = _FETCH_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
             return {"ok": False, "reason": "refresh-timeout"}
-        fetched = subprocess.run(["git", "-C", main, "fetch", "--quiet", "origin",
+        fetched = subprocess.run(["git", "-C", checkout_path, "fetch", "--quiet", "origin",
                                   f"+refs/heads/{default}:refs/remotes/origin/{default}"],
                                  capture_output=True, text=True, timeout=remaining, check=False)
         if fetched.returncode != 0:
             return {"ok": False, "reason": "refresh-failed"}
-        actual = (_run(["git", "-C", main, "rev-parse", "--verify",
+        actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
                         f"refs/remotes/origin/{default}"]) or "").strip()
         if actual != advertised_oid:
             return {"ok": False, "reason": "remote-moved"}
-        if not _ok(["git", "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD",
-                    f"refs/remotes/origin/{default}"]):
-            return {"ok": False, "reason": "default-cache-write-failed"}
-        return {"ok": True, "default": default, "target_oid": advertised_oid}
+        return {"ok": True, "default": default, "oid": advertised_oid}
     except Exception:  # noqa: BLE001 — timeout/offline/missing git -> an honest unavailable snapshot
         return {"ok": False, "reason": "refresh-failed"}
+
+
+def _refresh_origin(main: str) -> dict:
+    """Verify origin's authoritative default via `_verified_remote_default`, then rewrite the cached
+    `refs/remotes/origin/HEAD` symref — a normal fetch does NOT refresh it, so trusting it would quietly follow
+    an old default after a remote rename, and the correction path (`catch_up`) relies on it. Returns the
+    verified default and its commit as `target_oid`, or a structured failure reason. Updates only
+    remote-tracking metadata and objects — never local HEAD, branches, index, or working tree."""
+    verified = _verified_remote_default(main)
+    if not verified["ok"]:
+        return verified
+    default = verified["default"]
+    if not _ok(["git", "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD",
+                f"refs/remotes/origin/{default}"]):
+        return {"ok": False, "reason": "default-cache-write-failed"}
+    return {"ok": True, "default": default, "target_oid": verified["oid"]}
 
 
 def _main_checkout(cwd: str | None = None) -> tuple[str, bool] | None:
@@ -626,6 +643,66 @@ def confident_default_branch(checkout_path: str) -> str | None:
     confidently determined, so a caller that cuts from `origin/<default>` fails closed rather than build off a
     guessed base. A thin public seam over `_confident_default_branch` for the mechanic build entry."""
     return _confident_default_branch(checkout_path)
+
+
+def fresh_default_head(checkout_path: str) -> dict:
+    """FACT SEAM (StarshipSuperjam/engine-template#957): resolve the checkout's remote default branch FRESHLY —
+    read origin's authoritative HEAD symref, fetch that exact branch, and verify the fetched commit matches the
+    advertisement. Returns `{"ok": True, "default": <name>, "sha": <freshly-verified commit>, "slug":
+    <owner/repo of origin, or None>}`, or `{"ok": False, "reason": <why>}` when the remote cannot be read
+    freshly (offline, timeout, ambiguous symref, moved remote). `sha` is the advertised OID validated against
+    the fetch, so a moved remote fails closed. Unlike the correction path it does NOT depend on rewriting the
+    local `origin/HEAD` cache, so a transient local-ref-write hiccup never downgrades a genuine fresh read.
+    `slug` lets a caller confirm this checkout IS the repository a claim is about before trusting a read taken
+    here — a mismatch must be treated as unverified, never as resolved.
+
+    Read-only to your working tree, index, HEAD, and local branches; it DOES fetch, updating only
+    remote-tracking objects/refs — the same mutation profile boot's behind-origin snapshot already performs."""
+    verified = _verified_remote_default(checkout_path)
+    if not verified["ok"]:
+        return verified
+    return {"ok": True, "default": verified["default"], "sha": verified["oid"],
+            "slug": repo_identity.origin_slug(checkout_path)}
+
+
+def claim_at_fresh_head(checkout_path: str, rel_path: str, still_present) -> dict:
+    """FACT REPORTER for the issue-filing freshness preflight (StarshipSuperjam/engine-template#957): report
+    whether a repository-state defect claim still holds at the checkout's FRESH remote default-branch commit,
+    so a session never files an engine Issue for work already merged — nor suppresses a real one. This REPORTS
+    facts and names no filing decision; the caller (the build-orchestration freshness rule) maps these facts to
+    file / already-resolved / unverified.
+
+    Returns, on a readable claim, `{"ok": True, "slug", "sha", "readable": True, "present_at_head": <bool>}`,
+    where `present_at_head` is `still_present(content_at_head)` — the caller's claim expressed as a predicate
+    over the file's content AT the pinned fresh commit (`git show <sha>:<path>`, never the moving branch ref,
+    so a concurrent fetch cannot shift it). If the fresh default cannot be read, returns fresh_default_head's
+    `{"ok": False, "reason"}` (no content inspected — the caller must treat this as unverified, not resolved).
+    If the fresh default is read but `rel_path` is absent at that commit, returns `{"ok": True, "slug", "sha",
+    "readable": False}` — the predicate is NOT consulted, so a git-show failure short-circuits before any
+    possibly-empty content could reach `still_present`; the caller decides what an absent path means for its
+    claim.
+
+    BOUNDARY: covers a claim expressible as a predicate over ONE file readable as a blob at head — the common
+    'a section/line is missing from an existing file' shape (the StarshipSuperjam/engine-template#911 incident).
+    An absent path, or one that is not a single file (a directory), surfaces as `readable: False`; a multi-file
+    or absence-premise claim ('file X was never created') the caller handles from `readable: False`.
+    `still_present` is the one irreducibly defect-specific judgment; everything around it is fact. Read-only to
+    your working tree/index/HEAD/local branches (it fetches remote-tracking refs, like boot)."""
+    head = fresh_default_head(checkout_path)
+    if not head["ok"]:
+        return head
+    sha = head["sha"]
+    # Only a blob is a readable single file; `git show <sha>:<dir>` exits 0 with a tree listing, so gate on the
+    # object type first — a directory or absent path is `readable: False`, never a synthetic listing string fed
+    # to `still_present`.
+    kind = _run(["git", "-C", checkout_path, "cat-file", "-t", f"{sha}:{rel_path}"])
+    if kind is None or kind.strip() != "blob":
+        return {"ok": True, "slug": head["slug"], "sha": sha, "readable": False}
+    content = _run(["git", "-C", checkout_path, "show", f"{sha}:{rel_path}"])
+    if content is None:
+        return {"ok": True, "slug": head["slug"], "sha": sha, "readable": False}
+    return {"ok": True, "slug": head["slug"], "sha": sha, "readable": True,
+            "present_at_head": bool(still_present(content))}
 
 
 # A stray build workspace with no git activity in this many days is "stale" and worth a cleanup nudge; one
