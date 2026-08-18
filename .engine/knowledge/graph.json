@@ -951,7 +951,8 @@
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior"
+          "contract:eADR-0041-build-coordinator-behavior",
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-frontmatter",
@@ -1018,7 +1019,8 @@
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior"
+          "contract:eADR-0041-build-coordinator-behavior",
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-shape",
@@ -1086,7 +1088,8 @@
           "contract:eADR-0038-memory-transcript-first-recall",
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior"
+          "contract:eADR-0041-build-coordinator-behavior",
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-threshold",
@@ -5408,7 +5411,7 @@
       },
       "slug": "eADR-0021-control-plane-enforcement-layer",
       "source": {
-        "fingerprint": "sha256:c8e982e3a8829e6f7b569d140f9b5c40070cdccfc79aae38334ba7c32057bb5c",
+        "fingerprint": "sha256:0758c9943be003d2ea46216b98c43870b312cda569d1fce9a029121d2ee86d39",
         "path": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md"
       },
       "status": "accepted",
@@ -5488,7 +5491,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:4d563a3db93eef69c4766fb5a13cf7cd92ace6d3cb44155420ce1fdf33982633",
+        "fingerprint": "sha256:4c5d9afd420cf8733cd5565b4dd33b0acfd4255db53cc4d567336f52fb11bb9a",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -5790,6 +5793,26 @@
       "source": {
         "fingerprint": "sha256:534a83e1d2e6c595db41dc2048bcc5c8c210a602e24d46d61eb884b4db709ab0",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0042-multi-writer-integration",
+      "name": ".engine/contracts/eADR-0042-multi-writer-integration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0042-multi-writer-integration",
+      "source": {
+        "fingerprint": "sha256:ab722f04f94bfff612e6680421930d99458f3ef7e865c77a313bd385af5a5dc3",
+        "path": ".engine/contracts/eADR-0042-multi-writer-integration.md"
       },
       "status": "accepted",
       "type": "contract"
@@ -9504,6 +9527,7 @@
           "tool:boot",
           "tool:engine_write",
           "tool:github_client",
+          "tool:integration_queue_backend",
           "tool:moment",
           "tool:protection_guard",
           "tool:repo_identity",
@@ -9517,7 +9541,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:639c7c47c552c963525937809870e966c47ab7044fdc58ebe5cdf5380ba8e39e",
+        "fingerprint": "sha256:030340b10f0c0e257078d3f27d4fdac08021aa1345419a972db2d9b5d9d17d3e",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -10987,6 +11011,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_integration_queue",
+      "name": ".engine/tools/demo_integration_queue.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:integration_queue",
+          "tool:integration_queue_backend",
+          "tool:protection_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_integration_queue",
+      "source": {
+        "fingerprint": "sha256:afc24b4890c6bbdcc7131b786d8ae910576c50b05758feefa5133dbe76112047",
+        "path": ".engine/tools/demo_integration_queue.py"
+      },
+      "status": "active",
+      "summary": "A runnable walkthrough of serialized cross-PR integration on a fake GitHub (StarshipSuperjam/engine-template#925).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_map_reachability",
       "name": ".engine/tools/demo_map_reachability.py",
       "owner": "core",
@@ -11506,6 +11555,33 @@
       },
       "status": "active",
       "summary": "The dependency-discipline module's read-only inspector tools.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:derived_state",
+      "name": ".engine/tools/derived_state.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:engine_write",
+          "tool:knowledge_gen",
+          "tool:obligation_matrix",
+          "tool:self_map",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "derived_state",
+      "source": {
+        "fingerprint": "sha256:5206e9bf613e72dc838be0191ffbf60dc397768f927d6e2211a1429cc38b7e50",
+        "path": ".engine/tools/derived_state.py"
+      },
+      "status": "active",
+      "summary": "The derived-state substrate — the single registry of every derived-committed artifact the engine",
       "type": "tool"
     },
     {
@@ -12115,6 +12191,59 @@
       },
       "status": "active",
       "summary": "First-run setup orchestrator.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:integration_queue",
+      "name": ".engine/tools/integration_queue.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot",
+          "tool:demo_integration_queue",
+          "tool:github_client",
+          "tool:integration_queue_backend",
+          "tool:pr_reconcile",
+          "tool:protection_guard",
+          "tool:repo_identity",
+          "tool:telemetry"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "integration_queue",
+      "source": {
+        "fingerprint": "sha256:05d6fdf0eee5c56a253d1afa573fbae2b1b413210f242842466ac7d871edd401",
+        "path": ".engine/tools/integration_queue.py"
+      },
+      "status": "active",
+      "summary": "Provider-independent serialized cross-PR integration (StarshipSuperjam/engine-template#925).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:integration_queue_backend",
+      "name": ".engine/tools/integration_queue_backend.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:issue_label_client"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "integration_queue_backend",
+      "source": {
+        "fingerprint": "sha256:bff860cc3a1c94ef2e045543b54a9b7f285502542a4419e2f5fc761ea4419345",
+        "path": ".engine/tools/integration_queue_backend.py"
+      },
+      "status": "active",
+      "summary": "Backend seam for provider-independent serialized cross-PR integration (StarshipSuperjam/engine-template#925).",
       "type": "tool"
     },
     {
@@ -12911,18 +13040,16 @@
           "tool:capture",
           "tool:checkout_health",
           "tool:close",
+          "tool:derived_state",
           "tool:engine_write",
           "tool:github_client",
-          "tool:knowledge_gen",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_catalog",
           "tool:module_coherence",
-          "tool:obligation_matrix",
           "tool:release_cut",
           "tool:repo_identity",
           "tool:restore_vault",
-          "tool:self_map",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -12933,7 +13060,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:8e8c272b5e32cd5ea426d314b6a80ef6b64300ab764012e569f8c778be33b9e6",
+        "fingerprint": "sha256:d5d9558fc196aab5e37d9f1ba9111d4a959293afc3042ef503f87034b0ebafe4",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13234,6 +13361,7 @@
         "imports": [
           "tool:boot",
           "tool:demo_pr_reconcile",
+          "tool:derived_state",
           "tool:github_client",
           "tool:repo_identity",
           "tool:telemetry",
@@ -13245,7 +13373,7 @@
       },
       "slug": "pr_reconcile",
       "source": {
-        "fingerprint": "sha256:6576841483788b8f2fe60d6b094bfe798889cf40dbca4b305a3b5d4d2b16f62d",
+        "fingerprint": "sha256:69d254993b4d2fee12c92a7a296c84b3a08903506992bbc68352c7960a3b2dc3",
         "path": ".engine/tools/pr_reconcile.py"
       },
       "status": "active",
@@ -14805,6 +14933,7 @@
         "tests": [
           "tool:bootstrap",
           "tool:erasure_observer",
+          "tool:integration_queue_backend",
           "tool:issue_conformance_ci",
           "tool:protection_guard",
           "tool:telemetry",
@@ -14813,7 +14942,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:c7f9eb480d5557fe6c90dd55a9ad80a93e4d281fc2b11b0080083a686669589d",
+        "fingerprint": "sha256:f3775a142fda87902628cf997c12c571b64470b7d3f9a34b29afec7750f6c965",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -15427,6 +15556,31 @@
       },
       "status": "active",
       "summary": "Tests for the product-spec coverage inspector (.engine/tools/product_design/coverage.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_derived_state",
+      "name": ".engine/tools/test_derived_state.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:derived_state",
+          "tool:module_manager",
+          "tool:pr_reconcile"
+        ]
+      },
+      "slug": "test_derived_state",
+      "source": {
+        "fingerprint": "sha256:3de2765c5a19b9af1c7c32dfbe42a2d37ab51a00fb9538f069d51ba45eac1681",
+        "path": ".engine/tools/test_derived_state.py"
+      },
+      "status": "active",
+      "summary": "Tests for the derived-state substrate — the single registry of derived-committed artifacts.",
       "type": "tool"
     },
     {
@@ -16058,6 +16212,54 @@
       },
       "status": "active",
       "summary": "Tests for the first-run setup orchestrator's GATHER + CONFIRM half.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_integration_queue",
+      "name": ".engine/tools/test_integration_queue.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:integration_queue",
+          "tool:integration_queue_backend",
+          "tool:protection_guard"
+        ]
+      },
+      "slug": "test_integration_queue",
+      "source": {
+        "fingerprint": "sha256:134989094c0ee25bf4dfcd976267c6be7683b0bcd2232f6f40cb8967bcde872e",
+        "path": ".engine/tools/test_integration_queue.py"
+      },
+      "status": "active",
+      "summary": "Tests for the serialized cross-PR integration coordinator.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_integration_queue_backend",
+      "name": ".engine/tools/test_integration_queue_backend.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:integration_queue_backend"
+        ]
+      },
+      "slug": "test_integration_queue_backend",
+      "source": {
+        "fingerprint": "sha256:bacdfd0305037a2f86ad563853d313ed9547a3737fd85b8aa670e69ecdc443ad",
+        "path": ".engine/tools/test_integration_queue_backend.py"
+      },
+      "status": "active",
+      "summary": "Tests for the integration backend seam — the serialized fallback's advisory label-CAS and the native stub.",
       "type": "tool"
     },
     {
@@ -17114,7 +17316,7 @@
       },
       "slug": "test_pr_reconcile",
       "source": {
-        "fingerprint": "sha256:bd692afcb1100c0a370c22268b955f02e90bdfaaebcb1f55852e809059f5a647",
+        "fingerprint": "sha256:6ded9e2b85ddc7fc47557b186dec49f8a35ad9cc35b322eb95a7e10454711a92",
         "path": ".engine/tools/test_pr_reconcile.py"
       },
       "status": "active",
