@@ -257,7 +257,7 @@ and rough edges worth knowing below.
 ## Running unattended
 
 The Engine can advance a *planned* build on a schedule while you're away — each run does one planned chunk,
-adds its commits to an open pull request, and **never merges**. Your review at the merge stays the only gate.
+adds its commits to an open pull request, and **never merges**. Your merge stays the only gate.
 
 The short version: first plan the build in a normal, interactive session (a routine *advances* a plan, it
 doesn't make one), then schedule `/engine-routine` as a Claude Desktop routine, pointed at that

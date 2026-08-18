@@ -479,6 +479,16 @@ class TestDispatcherGate(unittest.TestCase):
 
 
 class TestWeakeningClassifier(unittest.TestCase):
+    def test_ack_authority_note_names_the_merge_not_a_review(self):
+        # #712: the guardrail-ack authority note — appended to the finding an operator reads when
+        # deciding whether to accept a guardrail-weakening change — must frame the protected-branch
+        # merge as the gate, not call the operator's action a "review". Pinned so a revert to the
+        # overstated form reddens CI; the _HARD_EXACT guardrail-ack gates edits to this file, but not
+        # this specific wording, which is the exact sentence #712 exists to correct.
+        note = weakening_guard._ACK_AUTHORITY_NOTE
+        self.assertIn("Your merge remains the gate", note)
+        self.assertNotIn("Your review at the merge remains the gate", note)
+
     def test_is_guardrail_covers_guards_and_lockfiles(self):
         for p in (".github/workflows/engine-ci.yml", ".engine/check/x.json",
                   ".engine/tools/validate.py", ".github/CODEOWNERS",
@@ -1275,6 +1285,39 @@ class TestPRContractNoDrift(unittest.TestCase):
         for phrase in phrases:
             self.assertIn(phrase, template,
                           f"preamble anchor {phrase!r} required by the check is absent from the template")
+
+    def test_committed_preamble_states_the_honest_check_proof_taxonomy(self):
+        # #712: the consent preamble must not overclaim that EVERY check is itself proven against a
+        # deliberately broken example. The honest account distinguishes the custom checks (each
+        # against their own example), the standard kinds (proven by one shared example), and a few
+        # openly-noted exceptions where that kind of proof doesn't apply. Pinned so a revert to the
+        # universal overclaim reddens CI. The three required_phrases anchors are asserted above; this
+        # guards the corrected sentence that sits between them, which no anchor covers.
+        tmpl_path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
+        with open(tmpl_path, encoding="utf-8") as fh:
+            template = fh.read()
+        self.assertNotIn(
+            "Each check is itself proven against a deliberately broken example it must catch", template,
+            "the universal check-proof overclaim must not return (#712)")
+        self.assertIn("the standard kinds against one shared example", template)
+        self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", template)
+
+    def test_floor_conduct_frames_the_merge_as_consent_not_enforced_review(self):
+        # #712 (SC-2): the always-loaded floor conduct in CLAUDE.md/AGENTS.md must frame the
+        # protected-branch merge as the operator's consent, not a code review the engine enforces.
+        # These are the most operator-visible lines of the whole change (they sit in the floor fence)
+        # yet nothing else reads them, so this pin is what catches an accidental revert.
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            with open(os.path.join(self._repo_root(), name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertNotIn("a pull request you review and merge", text,
+                             f"{name}: the 'you review and merge' flow-claim must not return (#712)")
+            self.assertIn("a pull request you approve and merge", text)
+        with open(os.path.join(self._repo_root(), "CLAUDE.md"), encoding="utf-8") as fh:
+            claude = fh.read()
+        self.assertNotIn("your review at merge is the real backstop", claude)
+        self.assertIn("your merge is the real backstop", claude)
+        self.assertIn("the reading you give each change before you merge it", claude)
 
 
 class TestDemonstrationSectionRequired(unittest.TestCase):

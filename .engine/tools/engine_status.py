@@ -54,7 +54,7 @@ _EXAMPLE_SIGNALS = {
     "register": "https://github.com/your-org/your-project/issues?q=is:open+label:engine",
     "debt_count": 0,
     "debt_as_of": None,
-    "att_lines": ["Turn branch protection back on so unreviewed changes can't reach your main branch."],
+    "att_lines": ["Turn branch protection back on so changes can't reach your main branch without the required checks or a pull request."],
     "att_degraded": [],
     "shipped": ["#42 Add the sign-in page", "#41 Set up the database"],
     "stance": "Looking around — reading and planning, not changing anything yet.",

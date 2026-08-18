@@ -5808,7 +5808,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:38378a244c86ffcbe3f6c860efdd3311adead363054f31d5e28f5a5315d97a6c",
+        "fingerprint": "sha256:f309653e92b64b29bcefdc220b0a4b8b305e4cb3a0cbab5f725b399a4562d3dd",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -6398,7 +6398,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:f3339c5759f012b9b10ceae792d45baf213adc68896946a06182effac93fbce2",
+        "fingerprint": "sha256:90361b211e8f3fa620886c6bb9d6eaea5de9caf319242686cf17a02d2f47a721",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -6418,7 +6418,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:c839c4c029641b727242582b53aa1d01c3469bec5e94b1cd5a1799e45dd74a4b",
+        "fingerprint": "sha256:8acf1c0dc97b2bc680e1653123ef97abd78a4fd489deafea79f145526c36bcb5",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -9438,7 +9438,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:a6f62d1c83b569076ee53b60714b1657b18d6863430cf6cf4c05b10f212f1a94",
+        "fingerprint": "sha256:7604b3f6867bab7d29599a8aae38c7b33d7756e48fef9f6f3cca7ec88c2fd09c",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9517,7 +9517,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:2aa4eb7ad308857b1662eea90ec803e8a477c04ee15fb783ae360d8dcb305616",
+        "fingerprint": "sha256:c91ceb7394f86a3ca3896070a611b13d70fde50139a6e6f95cfc93f2131cf9ca",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -11618,7 +11618,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:96027a380a26db3054cff6c28b5917da7bf65bd8a4eccfa35c07a15d086e227c",
+        "fingerprint": "sha256:e944d36124992372da932b81b48b138808471a745a8c67f28cbbc687e06f1ac7",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -12933,7 +12933,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:8e8c272b5e32cd5ea426d314b6a80ef6b64300ab764012e569f8c778be33b9e6",
+        "fingerprint": "sha256:e5cfb32fd39e3642d917db4cfd80b5f93d54e1d84a84045ecb34b16770c7a587",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13336,7 +13336,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:199094b49469a96a6fbe964f2543064e94a9326bcd8ce949d6a5a88560d79615",
+        "fingerprint": "sha256:e956a048a179c08e713835bd3871dea4777b14c30ee4ed38eacf5958f00a3b5e",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -14732,7 +14732,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d81cefaa335ab8383a3909ef4181ff02de60fdf33de4c8b1304b818b52777919",
+        "fingerprint": "sha256:e6884ee7c6af63c0227da5d252df0bce921d400871982e7e9665dc98fc6065dc",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17163,7 +17163,7 @@
       },
       "slug": "test_protection_guard",
       "source": {
-        "fingerprint": "sha256:400f8aeac594f8934589ec935ad9a19b80bd4e5fe849534cd8ca826f6287ef92",
+        "fingerprint": "sha256:d690201407fdc94f3182cfb7eba07e0d4c2f29cd68b98cdb51555ccc70fe1579",
         "path": ".engine/tools/test_protection_guard.py"
       },
       "status": "active",
@@ -17891,7 +17891,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:ffda63b31003e178b35d3d86d4aa438d26cff9c97314845c2c4efe876d72d97b",
+        "fingerprint": "sha256:3346d65b90f550cb26101c51b68d1f36b7ea95c968509e69747799abba37860a",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -18717,7 +18717,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:46183b66a008c305d2e1b343511716cb1b3a9e8968d9e7d5b1570b81654a29e5",
+        "fingerprint": "sha256:f47ccea8db0dbede62b10526ad8baf2b348b9918139d4706eb7c5980ae34f99c",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

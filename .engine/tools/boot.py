@@ -2045,8 +2045,8 @@ def render_dashboard(s: dict) -> str:
         # fix itself: read-only of canonical state.
         branch = s.get("protected_branch") or PROTECTED_BRANCH
         pinned.append(
-            f"⛔ **Your safety gate is off** — `{branch}` isn't protected, so unreviewed work "
-            f"could reach it ({s['reason']}). Say **turn my safety gate back on** and I'll "
+            f"⛔ **Your safety gate is off** — `{branch}` isn't protected, so work can reach it "
+            f"without the required checks or a pull request ({s['reason']}). Say **turn my safety gate back on** and I'll "
             f"re-enable branch protection for you — you'll approve a one-time GitHub permission, and I never "
             f"ask you to type commands yourself.")
     elif s["gate"] == "unknown":
@@ -2662,12 +2662,14 @@ def render_dashboard(s: dict) -> str:
     # real gate (the merge review) is named elsewhere in this briefing.
     out.append("")
     out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
-               "came back clean — not that everything is correct. Your review at merge is the real gate._")
+               "came back clean — not that everything is correct. Your merge is the real gate._")
     out.append("_About those checks: only the one that runs when a change is proposed for merge can stop a "
-               "risky one — anything that ran while I worked is early advice. Each check is itself proven "
-               "against a deliberately broken example it must catch, so a passing check can't be one that "
-               "quietly did nothing — but that proves the check works, not that the change is right. And a "
-               "check that could not run leaves that area unverified._")
+               "risky one — anything that ran while I worked is early advice. The engine's checks are proven "
+               "against deliberately broken examples they must catch — the custom ones each against their own, "
+               "the standard kinds against one shared example — so a passing check can't be one that quietly "
+               "did nothing; a few are openly-noted exceptions where that kind of proof doesn't apply. Either "
+               "way that speaks to the check, not to whether the change is right. And a check that could not "
+               "run leaves that area unverified._")
 
     return "\n".join(out)
 
@@ -2776,12 +2778,12 @@ def _pushed_alarms(s: dict) -> list:
         # repo); it names the one-time GitHub permission, never an over-promised silent flip. terse keeps a
         # COMPACT handle so the collapse still buys brevity.
         branch = s.get("protected_branch") or PROTECTED_BRANCH
-        full = (f"{RELAY_MARKER} their safety gate is off — `{branch}` isn't protected, so "
-                f"unreviewed work could reach it ({s['reason']}); tell them they can say "
+        full = (f"{RELAY_MARKER} their safety gate is off — `{branch}` isn't protected, so work can reach it "
+                f"without the required checks or a pull request ({s['reason']}); tell them they can say "
                 f"'turn my safety gate back on' and the engine will re-enable branch protection for them "
                 f"(they approve a one-time GitHub permission — never a typed command).")
         terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
-                 f"unreviewed work could still reach `{branch}`; the fix still stands: they can "
+                 f"work could still reach `{branch}` without the required checks or a pull request; the fix still stands: they can "
                  f"say 'turn my safety gate back on' and the engine re-enables it.")
         alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
                        "full": full, "terse": terse, "worse": full})

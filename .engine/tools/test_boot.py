@@ -321,6 +321,40 @@ class TestFirstRunOffer(unittest.TestCase):
         self.assertIn("turn my safety gate back on", dash)
 
 
+class TestReadoutAndGateHonesty(unittest.TestCase):
+    """#712: the dashboard's operator-facing assurance language must claim only what is observable.
+    The automated-readout footer states the honest check-proof taxonomy (the custom checks each
+    against their own example, the standard kinds against one shared example, and a few openly-noted
+    exceptions where that proof doesn't apply) and names the MERGE (not a code review) as the real
+    gate; the gate-off banner states the concrete mechanical loss, never 'unreviewed', which imports
+    a review framing the gate does not provide."""
+
+    def test_readout_states_the_honest_check_proof_taxonomy(self):
+        dash = boot.render_dashboard(_signals())
+        self.assertNotIn(
+            "Each check is itself proven against a deliberately broken example it must catch", dash,
+            "the universal check-proof overclaim must not return (#712)")
+        self.assertIn("the standard kinds against one shared example", dash)
+        self.assertIn("a few are openly-noted exceptions where that kind of proof doesn't apply", dash)
+
+    def test_readout_names_the_merge_not_a_review_as_the_gate(self):
+        dash = boot.render_dashboard(_signals())
+        self.assertIn("Your merge is the real gate", dash)
+        self.assertNotIn("Your review at merge is the real gate", dash)
+
+    def test_gate_off_banner_states_the_mechanical_loss_not_unreviewed(self):
+        dash = boot.render_dashboard(_signals(gate="off", reason="branch protection not found"))
+        self.assertIn("without the required checks or a pull request", dash)
+        self.assertNotIn("unreviewed", dash)
+
+    def test_gate_off_relay_states_the_mechanical_loss_not_unreviewed(self):
+        # #712 (SC-3): the cross-session relay variant of the gate-off alarm carries the same
+        # mechanical-loss wording as the primary banner, not 'unreviewed'.
+        pushed = "\n".join(boot.must_push(_signals(gate="off", reason="branch protection not found")))
+        self.assertIn("without the required checks or a pull request", pushed)
+        self.assertNotIn("unreviewed", pushed)
+
+
 class TestSetupLandedConfirmation(unittest.TestCase):
     """#810: the one-time post-landing 'Setup is now complete' confirmation renders when the signal is present,
     renders nothing otherwise, is not a governance must-relay, and _relay_lines clears the marker (show-once)."""
