@@ -3,18 +3,18 @@
 Two backends sit behind ONE narrow interface. The interface is deliberately narrow — only what BOTH a
 GitHub-native merge queue and the Engine-controlled serialized fallback can honestly satisfy: disclose
 availability, admit one candidate into the ordered path, read who is admitted, release. It does NOT bake in
-serialized-only assumptions, so #989 can fill the native backend without reshaping the seam.
+serialized-only assumptions, so StarshipSuperjam/engine-template#989 can fill the native backend without reshaping the seam.
 
   - `SerializedFallbackBackend` — BUILT here. Admission is a singleton `engine-integrating` label on the one
     admitted PR, acquired by a compare-and-swap that is HONESTLY advisory: GitHub's label API is not atomic
     and its list reads are eventually consistent, so the CAS reduces concurrent-admission collisions but is
     not a mutex. That is acceptable because integration safety does NOT rest on it — the coordinator never
     merges, `pr_reconcile.prepare` is serialized per branch by git's non-fast-forward push rejection, and the
-    #915 freshness ruleset refuses a stale-green merge at the operator's click. Works on any repo/plan.
+    StarshipSuperjam/engine-template#915 freshness ruleset refuses a stale-green merge at the operator's click. Works on any repo/plan.
   - `NativeMergeQueueBackend` — a DISCLOSED STUB. `available()` returns False naming the real constraint (a
     `merge_group` trigger forces engine-guard onto the head-tainted merge commit, breaking its base-only
     trusted-base isolation — StarshipSuperjam/engine-template#989). Its methods document how each maps to GitHub's merge-queue API so
-    #989 fills them against a validated target:
+    StarshipSuperjam/engine-template#989 fills them against a validated target:
         admit    → add the PR to the branch's merge queue (the queue owns ordering + freshness re-check)
         admitted → read the queue entry currently being validated/merged
         release  → the queue dequeues on merge or failure; no engine action
@@ -61,7 +61,7 @@ class Admission:
 
 class NativeMergeQueueBackend:
     """The GitHub-native merge-queue backend — a DISCLOSED STUB until StarshipSuperjam/engine-template#989 resolves the engine-guard
-    trusted-base isolation conflict. The method bodies document the native mapping so #989 fills them without
+    trusted-base isolation conflict. The method bodies document the native mapping so StarshipSuperjam/engine-template#989 fills them without
     reshaping the seam (see the module docstring)."""
 
     name = "native"

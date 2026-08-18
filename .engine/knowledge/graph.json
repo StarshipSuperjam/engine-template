@@ -12216,7 +12216,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:05d6fdf0eee5c56a253d1afa573fbae2b1b413210f242842466ac7d871edd401",
+        "fingerprint": "sha256:f62983b561766ce4c42abe5c8121276c3a0560f01fcefbb4f0eec2ddb48917e0",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -12239,7 +12239,7 @@
       },
       "slug": "integration_queue_backend",
       "source": {
-        "fingerprint": "sha256:bff860cc3a1c94ef2e045543b54a9b7f285502542a4419e2f5fc761ea4419345",
+        "fingerprint": "sha256:b67cd59db37d670f454f312609c07e1a3141c9f8f7d7d62a8008a74d125c8852",
         "path": ".engine/tools/integration_queue_backend.py"
       },
       "status": "active",

@@ -1,6 +1,6 @@
 """Provider-independent serialized cross-PR integration (StarshipSuperjam/engine-template#925).
 
-PR #969 made the concurrency law true INSIDE one Build (the execution DAG). This lifts it to BETWEEN pull
+PR StarshipSuperjam/engine-template#969 made the concurrency law true INSIDE one Build (the execution DAG). This lifts it to BETWEEN pull
 requests and sessions: reviewed candidates enter an ordered path, ONE integration candidate is admitted at a
 time, it is brought up to date and proven fresh against the current protected head, and it is surfaced ready
 for the operator's merge. It orders and proves; it NEVER merges — there is no `gh pr merge`, no merge API,
@@ -19,7 +19,7 @@ Durable facts, all read live from GitHub:
                        that an independent review gate passed (eADR-0021, eADR-0042).
   - admission        = a singleton `engine-integrating` label (the backend's advisory CAS).
 
-`prove_ready` is an ADVISORY pre-flight: the binding stale-green blocker is the #915 strict ruleset enforced
+`prove_ready` is an ADVISORY pre-flight: the binding stale-green blocker is the StarshipSuperjam/engine-template#915 strict ruleset enforced
 by GitHub at the merge click, not this check.
 
 CLI:  python tools/integration_queue.py status     # ordered reviewed candidates + who is admitted
