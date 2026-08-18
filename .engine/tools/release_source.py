@@ -208,7 +208,9 @@ def _home_repository() -> str | None:
     Delegates to `module_coherence.home_repository()`, the single accessor (also read by the
     external-contribution submit flow), so the field name and the absent/blank/unreadable -> None contract
     live in one place rather than two that could drift."""
-    import module_coherence   # lazy: avoids an import cycle (module_manager -> release_source -> module_coherence -> module_manager)
+    import module_coherence   # lazy: _home_repository is the only path that needs it, so release_source keeps a
+                              # lean top-level surface (just validate) and defers the heavier coherence dependency
+                              # to the one call that uses it — matching the boot/urllib/tarfile lazy imports above.
     return module_coherence.home_repository()
 
 
