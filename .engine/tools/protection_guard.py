@@ -381,8 +381,8 @@ def main() -> int:
                      "protection on with the command above clears it.)")
         return emit([{"severity": tier, "location": None,
                       "message": f"The protected-branch safety gate on '{branch}' is not fully "
-                      "in force: " + "; ".join(missing) + ". Until this is on, an unreviewed "
-                      "change could reach the protected branch. If the engine was just added to "
+                      "in force: " + "; ".join(missing) + ". Until this is on, a change can reach "
+                      "the protected branch without the required checks or a pull request. If the engine was just added to "
                       "this project, run `python .engine/tools/bootstrap.py finalize` to turn its "
                       "required checks on now that their workflows are on the branch; otherwise "
                       "complete the branch-protection setup you were handed, then re-run." + stale}])

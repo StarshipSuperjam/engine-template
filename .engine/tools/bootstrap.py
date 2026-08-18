@@ -423,7 +423,7 @@ FINALIZE_ACTIONS_NOTE = (
 FALLBACK_COPY = {
     "before-you-approve": (
         "I'm about to turn on your safety gate — the branch protection that keeps work from reaching "
-        "your main branch without passing checks and your review. To do that I need permission to manage "
+        "your main branch without a pull request and passing checks. To do that I need permission to manage "
         "this repository's settings. GitHub will show an authorization screen for `repo` access, and it "
         "describes that access in sweeping terms — it reads as full control of your repositories. That "
         "sounds far broader than what happens here: it's the standard GitHub permission for turning on the "
@@ -433,25 +433,25 @@ FALLBACK_COPY = {
     ),
     "degraded-not-admin": (
         "I couldn't turn on branch protection — this account doesn't administer the repository. Protection "
-        "is not active, so work can merge unreviewed. Next step: ask whoever owns the repository to run "
+        "is not active, so work can reach the branch without the required checks or a pull request. Next step: ask whoever owns the repository to run "
         "this setup and approve the screen. I'll keep reminding you until it's on."
     ),
     "degraded-org-policy": (
         "I couldn't turn on branch protection — your organization's settings blocked the permission it "
-        "needs. Protection is not active, so work can merge unreviewed. The way forward is to ask your "
+        "needs. Protection is not active, so work can reach the branch without the required checks or a pull request. The way forward is to ask your "
         "organization's admin to allow it — creating branch protection here needs an admin's permission, "
         "which I can't grant myself. I'll keep reminding you until it's on."
     ),
     "degraded-didnt-save": (
         "The authorization screen completed but the permission didn't save (some sign-in methods do "
-        "this). Protection is still off, so work can merge unreviewed. Let's try once more, or sign in "
+        "this). Protection is still off, so work can reach the branch without the required checks or a pull request. Let's try once more, or sign in "
         "again first. I'll keep reminding you until it's on."
     ),
     "degraded-unsupported-platform": (
         "I couldn't turn on branch protection — this repository's GitHub plan doesn't offer the "
         "branch-protection rules the safety gate needs (private repositories need GitHub Pro, Team, or "
         "Enterprise; public repositories have them for free). This isn't a permission problem — your "
-        "account administers the repository fine. Protection is not active, so work can merge unreviewed. "
+        "account administers the repository fine. Protection is not active, so work can reach the branch without the required checks or a pull request. "
         "Two ways forward: upgrade this repository's plan (or make it public), then say **turn my safety gate "
         "back on** — or, if you're deliberately running without the gate, say **accept that my plan can't "
         "protect this branch** and I'll record that, so the engine stops failing every pull request over a "
@@ -1155,7 +1155,7 @@ def render(result: Result, copy: dict | None = None) -> str:
         # The write reported success but the gate still isn't fully in force — honest, not "not-admin".
         detail = (": " + "; ".join(result.missing)) if result.missing else ""
         msg = ("I tried to turn on branch protection, but it still isn't fully in force" + detail +
-               ". Work can merge unreviewed until it's on — please check your repository's branch "
+               ". Work can reach the branch without the required checks or a pull request until it's on — please check your repository's branch "
                "settings, or run this again.")
     else:  # degraded — pick the cause-matched banner
         key = {
@@ -1417,7 +1417,7 @@ def cmd_accept_unprotected(args) -> int:
     print("Recorded: branch protection isn't available on this repository's GitHub plan, and you've accepted "
           f"running without it (recorded {posture['recorded_on']}, by {login}). What this means: the "
           "protected-branch safety gate is OFF — work can reach '" + branch + "' without a pull request, "
-          "passing checks, or your review, and nothing here technically prevents that. The standing check will "
+          "passing checks, or your consent, and nothing here technically prevents that. The standing check will "
           "now report this as an accepted limitation (an honest warning) rather than failing every pull "
           "request. If your plan later supports branch rulesets (upgrade it, or make the repository public), "
           "run `python .engine/tools/bootstrap.py apply` to turn the gate on — that clears this record.")

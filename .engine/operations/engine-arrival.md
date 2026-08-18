@@ -121,8 +121,8 @@ the uncommon case; a project with no Codex config, or an empty one, is set up cl
 know: a Codex block written this way on a 3.9-only machine also can't be *removed* by the engine on that same
 machine (the same validation gap) until a 3.11 runtime is available — remove the marked block by hand if needed.
 
-**Reviewed, reversible, and re-enterable.** The arrival lands as a pull request behind the project's review gate,
-so it is approved and can be undone by reverting it. If the arrival stops at an overlap, running it again picks
+**Consented, reversible, and re-enterable.** The arrival lands as a pull request you merge, so it lands only
+with your consent and can be undone by reverting it. If the arrival stops at an overlap, running it again picks
 up from the overlap step — nothing shared was changed.
 
 **Run the fetched release, not a local copy.** The engine's first-run setup tool retires itself once setup is

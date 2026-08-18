@@ -172,6 +172,17 @@ class TestMainPostureSoftening(unittest.TestCase):
         self.assertIn("isn't available on this repository's GitHub plan", findings[0]["message"])
         self.assertIn("2026-08-08", findings[0]["message"])
 
+    def test_missing_floor_message_states_the_mechanical_loss_not_unreviewed(self):
+        # #712: the floor-off finding must name the concrete loss (no required checks / no pull
+        # request), never "unreviewed" — which imports a code-review framing the gate does not
+        # provide (in solo the gate is consent, not a review). A successful read plus a non-empty
+        # missing set drives the "not fully in force" message.
+        findings = self._run(posture=None, get_json_side_effect=lambda *a, **k: [],
+                             missing=["required status checks"])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("without the required checks or a pull request", findings[0]["message"])
+        self.assertNotIn("unreviewed", findings[0]["message"])
+
     def test_plan_limitation_403_without_posture_stays_hard(self):
         findings = self._run(
             posture=None,

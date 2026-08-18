@@ -13,7 +13,7 @@ the wording here; the section HEADINGS are stable keys the tool matches, so don'
 ## Before you approve
 
 I'm about to turn on your safety gate — the branch protection that keeps work from reaching your main
-branch without passing checks and your review. To do that I need permission to manage this repository's
+branch without a pull request and passing checks. To do that I need permission to manage this repository's
 settings. GitHub will show an authorization screen for `repo` access, and it describes that access in sweeping
 terms — it reads as full control of your repositories. That sounds far broader than what happens here: it's the
 standard GitHub permission for turning on the review gate, and it reaches only repositories you already
@@ -38,20 +38,20 @@ now). Don't assume it's on — check your repository's branch settings, or run t
 ## If it couldn't turn on — you don't administer this repository
 
 I couldn't turn on branch protection — this account doesn't administer the repository. Protection is not
-active, so work can merge unreviewed. Next step: ask whoever owns the repository to run this setup and
+active, so work can reach the branch without the required checks or a pull request. Next step: ask whoever owns the repository to run this setup and
 approve the screen. I'll keep reminding you until it's on.
 
 ## If it couldn't turn on — your organization blocks the permission
 
 I couldn't turn on branch protection — your organization's settings blocked the permission it needs.
-Protection is not active, so work can merge unreviewed. The way forward is to ask your organization's admin to
+Protection is not active, so work can reach the branch without the required checks or a pull request. The way forward is to ask your organization's admin to
 allow it — creating branch protection here needs an admin's permission, which I can't grant myself. I'll keep
 reminding you until it's on.
 
 ## If it couldn't turn on — the approval didn't save
 
 The authorization screen completed but the permission didn't save (some sign-in methods do this).
-Protection is still off, so work can merge unreviewed. Let's try once more, or sign in again first. I'll
+Protection is still off, so work can reach the branch without the required checks or a pull request. Let's try once more, or sign in again first. I'll
 keep reminding you until it's on.
 
 ## If it couldn't turn on — this plan can't host branch protection
@@ -59,7 +59,7 @@ keep reminding you until it's on.
 I couldn't turn on branch protection — this repository's GitHub plan doesn't offer the branch-protection
 rules the safety gate needs (private repositories need GitHub Pro, Team, or Enterprise; public repositories
 have them for free). This isn't a permission problem — your account administers the repository fine.
-Protection is not active, so work can merge unreviewed. Two ways forward: upgrade this repository's plan (or
+Protection is not active, so work can reach the branch without the required checks or a pull request. Two ways forward: upgrade this repository's plan (or
 make it public), then say **turn my safety gate back on** — or, if you're deliberately running without the
 gate, say **accept that my plan can't protect this branch** and I'll record that, so the engine stops failing
 every pull request over a limitation it can't fix and instead reports the gate as off by your informed choice.
