@@ -99,11 +99,86 @@ def emit_integration_next(transport, repo: str, pr: int) -> "str | None":
         transport, repo, pr, kind="integration-notice", event="next-in-queue", verify_action="recheck-queue",
         subject={"pr": pr}, work_ref={"pr": pr}))
 
-# NOTE (StarshipSuperjam/engine-template#939): the notice vocabulary schema carries six kinds, but v1 wires ONLY the
-# integration-notice emitters above — the ones whose lifecycle point (the integration queue) already holds a
-# write-capable transport. The bounded-status, overlap-warning, revalidation fan-out, and handoff emitters
-# need an emit point inside build_coordinator's submit/claim path, which today reaches GitHub through the `gh`
-# subprocess and has no reusable transport; plumbing one there (without networking in that file's unit tests)
-# is its own change. Those emitters are deferred to a tracked follow-up rather than shipped unwired as dead
-# code. The receiver side (parser, board, boot relay, skills) already understands every kind, so the
-# follow-up only adds emit points, never a vocabulary change.
+
+def emit_handoff(transport, repo: str, pr: int, event: str) -> "str | None":
+    """A prerequisite/handoff notice on `pr` (ready-for-review, slot-released, node-abandoned,
+    work-abandoned) — a peer waiting on this work re-checks the pull request's state."""
+    return _safe(lambda: _emit(
+        transport, repo, pr, kind="handoff", event=event, verify_action="recheck-pr-state",
+        subject={"pr": pr}, work_ref={"pr": pr}))
+
+
+def emit_bounded_status(transport, repo: str, pr: int, event: str, *, paths: "list | None" = None) -> "str | None":
+    """A declarative status notice (work-declared / work-completed) on `pr`. `paths` (optional) names the
+    change domain the session declared, so a peer can see the surface without a request round-trip."""
+    subject = {"pr": pr}
+    if paths:
+        subject["paths"] = list(paths)[:20]
+    return _safe(lambda: _emit(
+        transport, repo, pr, kind="bounded-status", event=event, verify_action="none",
+        subject=subject, work_ref={"pr": pr}))
+
+
+def emit_revalidation_base_advanced(transport, repo: str, pr: int, *, base_sha: str) -> "str | None":
+    """Emitted only when an OBSERVED base-SHA change is known (never merely because a slot was released — an
+    abandon leaves the base unchanged). `base_sha` is the new protected head the emitter saw."""
+    return _safe(lambda: _emit(
+        transport, repo, pr, kind="revalidation-notice", event="base-advanced", verify_action="recheck-base",
+        subject={"pr": pr}, work_ref={"pr": pr}, observed={"base_sha": base_sha}))
+
+
+def emit_overlap(transport, repo: str, pr: int, other_pr: int, *, paths: "list | None" = None) -> "str | None":
+    """An overlap-warning on `pr` naming that a peer pull request (`other_pr`) touches an overlapping surface.
+    Advisory only — the receiver re-computes the overlap; it is never a lock."""
+    subject = {"pr": other_pr}
+    if paths:
+        subject["paths"] = list(paths)[:20]
+    return _safe(lambda: _emit(
+        transport, repo, pr, kind="overlap-warning", event="domains-intersect",
+        verify_action="recheck-overlap", subject=subject, work_ref={"pr": pr}))
+
+
+# ---- roster-driven scans (read peers, compute overlap, fan out) — each fully best-effort -----------------
+
+def _open_prs(transport, repo: str) -> list:
+    status, data = transport("GET", f"/repos/{repo}/pulls?state=open&per_page=100&page=1", None)
+    if status >= 400 or not isinstance(data, list):
+        return []
+    return data
+
+
+def emit_overlap_scan(transport, repo: str, pr: int, declared_paths: "list | None" = None) -> int:
+    """When a session declares its work on `pr`, warn about each OTHER open pull request whose change domain
+    overlaps. Reads peers and their changed files, composes each domain, and posts one overlap-warning per
+    overlapping peer. Returns the count posted (0 on any failure). Never raises. Advisory — never a lock."""
+    def _run():
+        import coordination_domains as cdz
+        reader = lambda m, p: transport(m, p, None)  # noqa: E731 — domains wants (method, path)
+        mine = cdz.domain(reader, repo, pr, declared=declared_paths or [])
+        posted = 0
+        for other in _open_prs(transport, repo):
+            opr = other.get("number")
+            if not isinstance(opr, int) or opr == pr:
+                continue
+            theirs = cdz.domain(reader, repo, opr)
+            if cdz.overlaps(mine, theirs):
+                if emit_overlap(transport, repo, pr, opr, paths=mine.get("actual") or declared_paths):
+                    posted += 1
+        return posted
+    return _safe(_run) or 0
+
+
+def emit_revalidation_scan(transport, repo: str, *, base_sha: str, exclude_pr: "int | None" = None) -> int:
+    """After the protected base advanced (a merge), tell every other open candidate its green may be stale.
+    Emits revalidation-notice/base-advanced on each open pull request except `exclude_pr`. Returns the count
+    posted (0 on failure). Never raises."""
+    def _run():
+        posted = 0
+        for other in _open_prs(transport, repo):
+            opr = other.get("number")
+            if not isinstance(opr, int) or opr == exclude_pr:
+                continue
+            if emit_revalidation_base_advanced(transport, repo, opr, base_sha=base_sha):
+                posted += 1
+        return posted
+    return _safe(_run) or 0

@@ -15,8 +15,9 @@ import coordination_emitters as ce  # noqa: E402
 class FakeGitHub:
     """In-memory GitHub: models the open-PR count (for the peer gate) and the comments (for the board)."""
 
-    def __init__(self, open_prs=2):
+    def __init__(self, open_prs=2, files=None):
         self.open_prs = open_prs
+        self.files = files or {}   # pr -> [filenames]
         self.comments = {}
         self._next = 1
         self.paths = []
@@ -24,7 +25,10 @@ class FakeGitHub:
     def transport(self, method, path, body=None):
         self.paths.append((method, path))
         if method == "GET" and "/pulls?" in path:
-            return 200, [{"number": i} for i in range(self.open_prs)]
+            return 200, [{"number": i} for i in range(1, self.open_prs + 1)]
+        if method == "GET" and "/pulls/" in path and "/files" in path:
+            n = int(path.split("/pulls/")[1].split("/")[0])
+            return 200, [{"filename": f} for f in self.files.get(n, [])]
         if method == "GET" and "/comments" in path:
             number = int(path.split("/issues/")[1].split("/")[0])
             return 200, [c for c in self.comments.values() if c["number"] == number]
@@ -47,6 +51,10 @@ def _all(transport):
         lambda: ce.emit_integration_admitted(transport, "o/r", 5),
         lambda: ce.emit_integration_blocked(transport, "o/r", 5),
         lambda: ce.emit_integration_next(transport, "o/r", 5),
+        lambda: ce.emit_handoff(transport, "o/r", 5, "ready-for-review"),
+        lambda: ce.emit_bounded_status(transport, "o/r", 5, "work-declared", paths=["a.py"]),
+        lambda: ce.emit_revalidation_base_advanced(transport, "o/r", 5, base_sha="a" * 40),
+        lambda: ce.emit_overlap(transport, "o/r", 5, 6, paths=["a.py"]),
     ]
 
 
@@ -100,6 +108,34 @@ class TestHappyPath(unittest.TestCase):
             self.assertNotIn("/merge", path)
             self.assertNotIn("/labels", path)
             self.assertNotIn("/statuses", path)
+
+
+class TestScans(unittest.TestCase):
+    def setUp(self):
+        self.cache = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {"ENGINE_COORDINATION_CACHE_DIR": self.cache})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_overlap_scan_posts_only_for_overlapping_peer(self):
+        gh = FakeGitHub(open_prs=3, files={1: ["a.py"], 2: ["a.py"], 3: ["b.py"]})
+        posted = ce.emit_overlap_scan(gh.transport, "o/r", 1, declared_paths=["a.py"])
+        self.assertEqual(posted, 1)  # peer 2 overlaps, peer 3 does not
+        board1 = [c for c in gh.comments.values() if c["number"] == 1]
+        self.assertEqual(len(board1), 1)
+
+    def test_revalidation_scan_excludes_self_and_fans_out(self):
+        gh = FakeGitHub(open_prs=3)
+        posted = ce.emit_revalidation_scan(gh.transport, "o/r", base_sha="a" * 40, exclude_pr=1)
+        self.assertEqual(posted, 2)  # PRs 2 and 3, not 1
+        self.assertEqual({c["number"] for c in gh.comments.values()}, {2, 3})
+
+    def test_scans_never_raise(self):
+        # a transport that errors on everything -> scans return 0, never raise
+        def _boom(method, path, body=None):
+            raise RuntimeError("network down")
+        self.assertEqual(ce.emit_overlap_scan(_boom, "o/r", 1, declared_paths=["a.py"]), 0)
+        self.assertEqual(ce.emit_revalidation_scan(_boom, "o/r", base_sha="a" * 40, exclude_pr=1), 0)
 
 
 if __name__ == "__main__":

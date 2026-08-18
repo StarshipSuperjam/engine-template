@@ -260,6 +260,13 @@ def main(argv: list) -> int:
         _next = reviewed_candidates(transport, repo, base, tier=tier)
         if _next:
             _coordinate(lambda ce, pr=_next[0].pr: ce.emit_integration_next(transport, repo, pr))
+        # advance follows the operator's merge, so the base likely advanced — tell other candidates their
+        # green may be stale (best-effort; a spurious one is harmless, the receiver re-checks the base).
+        def _revalidate(ce):
+            st, data = transport("GET", f"/repos/{repo}/commits/{base}", None)
+            if st < 400 and isinstance(data, dict) and data.get("sha"):
+                ce.emit_revalidation_scan(transport, repo, base_sha=data["sha"], exclude_pr=this)
+        _coordinate(_revalidate)
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
         else:
