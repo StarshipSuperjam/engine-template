@@ -4,15 +4,19 @@
   "description": "The structured input the engine Issue helper (issue_author.py preview/create) validates and renders into a conformant engine-labelled Issue. It carries the repository, title, and the two body sections the engine's Issue contract requires (what_this_is, whats_next), plus optional labelled references and an optional governed urgency. IMPORTANT (authority boundary): the `repository` field names the intended target, but the create path resolves the ACTUAL target from trusted engine config (the engine's own home/owned-product identity) and refuses to file if the provided value does not match the trusted-resolved target — so an input whose repository was influenced by observed content cannot redirect the filing off the engine channel. The `engine` domain label is applied by construction by the helper, never taken from this input. This schema governs the input's shape only; body rendering is issue_author.render_engine_issue_body and urgency membership mirrors telemetry's severity classes.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["repository", "title", "what_this_is", "whats_next"],
+  "required": ["repository", "kind", "title", "what_this_is", "whats_next"],
   "properties": {
     "repository": {
       "description": "The intended target repository as owner/name (for example StarshipSuperjam/engine-template). Validated by the create path against the trusted-config-resolved target; a mismatch is refused rather than filed, so this value can never steer the filing to a repository chosen by observed content.",
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
+    "kind": {
+      "description": "The canonical issue kind — the change genre this engine Issue requests. Required: the engine renders the final title as '<Kind>: <title>' from this structured value and records it as an invisible '<!-- engine-kind: … -->' body marker, so the prefix is a projection of data (never hand-authored) and the on:issues reconciler keeps it correct. This enum mirrors issue_kind.KINDS (the single source of truth); a test holds the two equal.",
+      "enum": ["Feature", "Fix", "Improvement", "Maintenance", "Security", "Removal"]
+    },
     "title": {
-      "description": "The Issue title. The engine derives the native Kind:-prefix label from the title/body at the GitHub boundary; the engine domain label is applied by construction and is not part of this input.",
+      "description": "The Issue title's DESCRIPTIVE part only — no kind prefix. The engine renders the final title as '<Kind>: <title>' from the required 'kind' (any prefix mistyped here is stripped) and stamps the authoritative kind as an invisible body marker; the engine domain label is applied by construction and is not part of this input.",
       "type": "string",
       "minLength": 1
     },

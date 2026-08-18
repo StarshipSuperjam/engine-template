@@ -7529,7 +7529,7 @@
       },
       "slug": "engine-issue-input.v1",
       "source": {
-        "fingerprint": "sha256:ca327e6773ba7d8a4c1c048401e4c9cfbc344225044c4a2745862be32719f2c1",
+        "fingerprint": "sha256:6affe98ba94c45e57b7cdf4bef82db0aec946721bbf00421563c3c95c1cc83aa",
         "path": ".engine/schemas/engine-issue-input.v1.json"
       },
       "status": "active",
@@ -12300,6 +12300,7 @@
       "predicates": {
         "imports": [
           "tool:checkout_health",
+          "tool:issue_kind",
           "tool:repo_identity",
           "tool:telemetry"
         ],
@@ -12309,7 +12310,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:aa230efa3f0adff2e890c81726887feb03b051b29ecc4fdb120af58640e28ded",
+        "fingerprint": "sha256:e23d65bab7e06ea8e242ac4aed68af18d6f21ffe13e47680c6bd6919536d6830",
         "path": ".engine/tools/issue_author.py"
       },
       "status": "active",
@@ -12385,12 +12386,60 @@
     {
       "entrypoint": "cli",
       "guarded": false,
+      "id": "tool:issue_kind",
+      "name": ".engine/tools/issue_kind.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_kind",
+      "source": {
+        "fingerprint": "sha256:0137c1983bbf399ab58c1ac8fe0488d2861f56fc039d2af364d4876e2b695fc6",
+        "path": ".engine/tools/issue_kind.py"
+      },
+      "status": "active",
+      "summary": "The canonical issue-kind vocabulary — the ONE source of truth for an engine change-request Issue's kind.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:issue_kind_backfill",
+      "name": ".engine/tools/issue_kind_backfill.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:issue_kind",
+          "tool:issue_label_client",
+          "tool:repo_identity",
+          "tool:telemetry"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_kind_backfill",
+      "source": {
+        "fingerprint": "sha256:3c706f127a8139b85237f14f27ff31b5fd7ecf2e15e62af02f4da872374be7fa",
+        "path": ".engine/tools/issue_kind_backfill.py"
+      },
+      "status": "active",
+      "summary": "One-time backfill — normalise a legacy engine Issue's title kind prefix to the canonical vocabulary.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
       "id": "tool:issue_kind_label",
       "name": ".engine/tools/issue_kind_label.py",
       "owner": "core",
       "predicates": {
         "imports": [
           "tool:issue_event",
+          "tool:issue_gate",
+          "tool:issue_kind",
           "tool:issue_label_client"
         ],
         "provided_by": [
@@ -12399,11 +12448,11 @@
       },
       "slug": "issue_kind_label",
       "source": {
-        "fingerprint": "sha256:9e94938e3b68b3e043c1130762e65009a0cd79eec04d61d657cc140beda9d9bc",
+        "fingerprint": "sha256:d7cb4260082a4f2d348aa5535bfea54d36e1c9444e91062abe898902feec5392",
         "path": ".engine/tools/issue_kind_label.py"
       },
       "status": "active",
-      "summary": "The kind-label applicator — the on:issues CI net that keeps the GitHub-native kind labels consistent.",
+      "summary": "The kind reconciler — the on:issues CI net that keeps an engine Issue's kind consistent, in both the",
       "type": "tool"
     },
     {
@@ -12422,11 +12471,11 @@
       },
       "slug": "issue_label_client",
       "source": {
-        "fingerprint": "sha256:165c7fb26554f84da6719d5eb362153505616327de9b1acc5931b3d1d22b8c01",
+        "fingerprint": "sha256:99bafe4b1aebc0ee3c6d51aa1e4708ad92c69ea35361b9d9be29dad8218d5e41",
         "path": ".engine/tools/issue_label_client.py"
       },
       "status": "active",
-      "summary": "The shared per-Issue label client — the ONE injectable-transport client for GitHub label reads/writes.",
+      "summary": "The shared per-Issue label + minimal-mutation client — the ONE injectable-transport client the on:issues",
       "type": "tool"
     },
     {
@@ -13649,7 +13698,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:ea88ae756d1a43ea9afb4e4f208c5f250dc61cbc32e7e829562ec9c86be3aeaa",
+        "fingerprint": "sha256:3b95ffb77149307e0e741308c4dc6d55ee3e00deb23b4c1df36c95d4b766a615",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -16371,12 +16420,13 @@
         ],
         "tests": [
           "tool:issue_author",
+          "tool:issue_kind",
           "tool:telemetry"
         ]
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:bd3c89810f837eb27d25fb305033a37432c3e44aced523709e37dba79e4dc3c9",
+        "fingerprint": "sha256:f206df4b4b6238e2cb9432ea95a895e92aee4e89ff57b57f0dea13352a060bc4",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -16463,6 +16513,55 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_issue_kind",
+      "name": ".engine/tools/test_issue_kind.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_kind"
+        ]
+      },
+      "slug": "test_issue_kind",
+      "source": {
+        "fingerprint": "sha256:19c5b6701fbb53497c8bb1c7ff7585c96111786ec771a6de09609ed0ed284e45",
+        "path": ".engine/tools/test_issue_kind.py"
+      },
+      "status": "active",
+      "summary": "Unit coverage for issue_kind — the canonical issue-kind vocabulary, marker, and normalised/idempotent",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_issue_kind_backfill",
+      "name": ".engine/tools/test_issue_kind_backfill.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:issue_kind_backfill",
+          "tool:issue_label_client",
+          "tool:quiet_call",
+          "tool:telemetry"
+        ]
+      },
+      "slug": "test_issue_kind_backfill",
+      "source": {
+        "fingerprint": "sha256:84577315846a65beb9fa7e1b1faf6a9f9bf41e7bf24461a83669dfed72e31922",
+        "path": ".engine/tools/test_issue_kind_backfill.py"
+      },
+      "status": "active",
+      "summary": "Tests for issue_kind_backfill — the bounded one-time normalisation of legacy alias title prefixes",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_issue_kind_label",
       "name": ".engine/tools/test_issue_kind_label.py",
       "owner": "core",
@@ -16472,6 +16571,8 @@
         ],
         "tests": [
           "tool:github_client",
+          "tool:issue_gate",
+          "tool:issue_kind",
           "tool:issue_kind_label",
           "tool:issue_label_client",
           "tool:module_coherence",
@@ -16482,7 +16583,7 @@
       },
       "slug": "test_issue_kind_label",
       "source": {
-        "fingerprint": "sha256:63696489bdb752528b66ce258fd1ee59f0b85106a383a02bc1b48e50a08ce0e6",
+        "fingerprint": "sha256:4b5b4c1f334f62f8acb53411cbe95a581e207e73d262cb9f000061cda78c7931",
         "path": ".engine/tools/test_issue_kind_label.py"
       },
       "status": "active",
@@ -17563,6 +17664,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:issue_kind",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:release_cut",
@@ -17571,7 +17673,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:e4d328a9b39e459ec7e7ed0785fac46f6db40ee62c3b06b521729b25b2f2f582",
+        "fingerprint": "sha256:0309eabee4d075f2200c48cba1318e0012be807760a9c5fdb77cc40f38de9091",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

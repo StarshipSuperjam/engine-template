@@ -15,6 +15,7 @@ from unittest import mock
 import validate
 import module_coherence
 import release_cut as rc
+import issue_kind
 
 
 def _write(path, obj):
@@ -1392,6 +1393,12 @@ class KindGrouping(unittest.TestCase):
         # by name, so a silent edit here must fail rather than have the test agree with whatever the list says.
         self.assertEqual(rc._RELEASE_NOTE_KINDS,
                          ["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"])
+
+    def test_release_kinds_set_matches_the_single_source(self):
+        # The vocabulary is single-sourced in issue_kind.KINDS (StarshipSuperjam/engine-template#937); this
+        # release-notes list is DISPLAY ORDER over it. Bind their SETS at TEST time (never a load-time assert,
+        # which would crash the release path on a vocabulary edit) so the two can't silently desync.
+        self.assertEqual(set(rc._RELEASE_NOTE_KINDS), set(issue_kind.KINDS))
 
     def test_each_named_kind_actually_buckets(self):
         lines = [f"{k}: item {i} (#{i})" for i, k in
