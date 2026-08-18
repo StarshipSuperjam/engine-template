@@ -1644,6 +1644,12 @@
   ".engine/tools/issue_gate.py": [
    "core"
   ],
+  ".engine/tools/issue_kind.py": [
+   "core"
+  ],
+  ".engine/tools/issue_kind_backfill.py": [
+   "core"
+  ],
   ".engine/tools/issue_kind_label.py": [
    "core"
   ],
@@ -2224,6 +2230,12 @@
    "core"
   ],
   ".engine/tools/test_issue_gate.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_kind.py": [
+   "core"
+  ],
+  ".engine/tools/test_issue_kind_backfill.py": [
    "core"
   ],
   ".engine/tools/test_issue_kind_label.py": [

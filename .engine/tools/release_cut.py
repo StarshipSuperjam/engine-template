@@ -299,13 +299,16 @@ def _parse_pr_lines(body: str) -> list:
     return out
 
 
-# The release-notes change kinds. A title that leads with one as a `Kind:` prefix (`Fix: quote the hook path`)
-# groups the merged-PR list so the notes read as sorted work, not one flat pile. This list is BOTH the
-# recognised set AND the display order; a title with no recognised prefix falls to "Other changes", rendered
-# last. It is the one place a deployed repo edits to change its kind vocabulary — so each kind is regex-escaped
-# before matching, since `render_*` are not best-effort wrapped and an edited kind carrying a metacharacter
-# must not break the render. Grouping is a DISPLAY view: it never touches `_parse_pr_lines`' flat list, which
-# both render sites share.
+# The release-notes change kinds, in DISPLAY ORDER. A title that leads with one as a `Kind:` prefix
+# (`Fix: quote the hook path`) groups the merged-PR list so the notes read as sorted work, not one flat pile; a
+# title with no recognised prefix falls to "Other changes", rendered last. The KIND VOCABULARY itself is
+# single-sourced in `issue_kind.KINDS` (StarshipSuperjam/engine-template#937) — the one place a deployed repo
+# edits to change its kinds; a test holds this list's SET equal to KINDS so the two can never silently desync.
+# This list keeps its OWN order because the release notes read in a deliberate sequence, not the vocabulary's
+# declaration order (a load-time coupling is deliberately avoided — it would crash the release path on a
+# vocabulary edit). Each kind is regex-escaped before matching, since `render_*` are not best-effort wrapped and
+# an edited kind carrying a metacharacter must not break the render. Grouping is a DISPLAY view: it never
+# touches `_parse_pr_lines`' flat list, which both render sites share.
 _RELEASE_NOTE_KINDS = ["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"]
 _OTHER_KIND = "Other changes"
 # The security marker a dependency bot writes into a title AFTER any configured prefix (dependabot-core's

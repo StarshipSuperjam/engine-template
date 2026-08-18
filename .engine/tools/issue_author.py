@@ -66,6 +66,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import issue_kind  # noqa: E402  (stdlib-only leaf: the canonical kind vocabulary + marker + normalised title)
+
 # The input schema governing the preview/create structured input (engine-issue-input.v1). Loaded from disk at
 # call time (never fetched); issue_author stays import-light (telemetry imports it at load), so jsonschema and
 # the schema file are only touched inside the CLI functions, not at module scope.
@@ -145,13 +148,22 @@ def parse_verified_head(body: str) -> str | None:
 
 
 def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=None,
-                             urgency: str | None = None, verified_head: str | None = None) -> str:
+                             urgency: str | None = None, verified_head: str | None = None,
+                             kind: str | None = None) -> str:
     """Assemble an engine-authored Issue body to the control-plane body contract.
 
     Keyword-only and required: omitting `what_this_is` or `whats_next` raises TypeError at the call
     boundary (the by-construction enforcement — a producer cannot omit a part); a present-but-blank
     value raises ValueError. `references` is an optional list of (label, url) pairs rendered as plain
     markdown links.
+
+    `kind` (optional here; REQUIRED on the preview/create input path — see body_from_input) records the
+    authoritative canonical issue kind (StarshipSuperjam/engine-template#937) as the invisible
+    `<!-- engine-kind: … -->` marker via `issue_kind.kind_trailer` (the single source; a non-canonical value
+    raises there). The on:issues reconciler reads this marker to keep the title's `Kind:` prefix correct, so a
+    body that carries it is self-healing. None (the default) leaves a producer's body byte-for-byte unchanged —
+    telemetry's self-observation genre and other direct callers pass no kind and are intentionally out of the
+    self-healing set (a health finding is a report, not a change-kind). Appended before any severity marker.
 
     `verified_head` (optional) lets a session that files an engine Issue about committed repository state
     record the exact commit it verified the claim against (StarshipSuperjam/engine-template#957): an
@@ -180,6 +192,11 @@ def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=N
         # Appended BEFORE the severity marker so severity remains the last trailer parse_severity's last-match
         # rule expects; verified_head_trailer validates the value (fail-closed) and owns the marker's shape.
         body += f"\n{verified_head_trailer(verified_head)}\n"
+    if kind is not None:
+        # The authoritative kind marker (the reconciler's source of truth). Appended before the severity marker
+        # so severity stays last; issue_kind.kind_trailer validates against the six-kind enum (fail-closed) and
+        # owns the marker's shape, so a non-canonical kind is refused here, never minted.
+        body += f"\n{issue_kind.kind_trailer(kind)}\n"
     if urgency is not None:
         # telemetry owns the severity marker; import it lazily HERE (not at module scope) because telemetry
         # imports issue_author at load time — a top-level `import telemetry` would close that cycle and crash
@@ -267,13 +284,23 @@ def resolve_trusted_targets(*, env=None, root: "str | None" = None) -> list:
     return deduped
 
 
+def title_from_input(data: dict) -> str:
+    """The canonical Issue title from the validated input: `<Kind>: <title>`, rendered from the REQUIRED `kind`
+    (structured data) and the descriptive `title`. issue_kind.render_title normalises and strips any prefix the
+    author mistyped, so the filed title always carries exactly one canonical kind prefix — the prefix is a
+    projection of the kind, never independently authored (StarshipSuperjam/engine-template#937)."""
+    return issue_kind.render_title(data["kind"], data["title"])
+
+
 def body_from_input(data: dict) -> str:
-    """Render the Issue body from the validated input through the one body contract (render_engine_issue_body).
-    References carry (label, link) fields (engine-issue-input.v1) — mapped to the renderer's (label, url) pairs."""
+    """Render the Issue body from the validated input through the one body contract (render_engine_issue_body),
+    stamping the authoritative `<!-- engine-kind: … -->` marker from the REQUIRED `kind` so the filed Issue is
+    self-healing. References carry (label, link) fields (engine-issue-input.v1) — mapped to the renderer's
+    (label, url) pairs."""
     references = [(ref["label"], ref["link"]) for ref in data.get("references", [])] or None
     return render_engine_issue_body(
-        what_this_is=data["what_this_is"], whats_next=data["whats_next"],
-        references=references, urgency=data.get("urgency"), verified_head=data.get("verified_head"))
+        what_this_is=data["what_this_is"], whats_next=data["whats_next"], references=references,
+        urgency=data.get("urgency"), verified_head=data.get("verified_head"), kind=data["kind"])
 
 
 def _matched_target(requested: str, trusted_targets: list) -> "str | None":
@@ -307,7 +334,8 @@ def preview_text(data: dict, trusted_targets: list) -> str:
         f"Trusted targets (where create MAY file): {', '.join(trusted_targets) or '(none resolved)'}\n"
         f"{agree}\n"
         f"Label applied by construction: {telemetry.ENGINE_DOMAIN_LABEL}\n"
-        f"Title: {data['title']}\n\n"
+        f"Kind (structured): {data['kind']}\n"
+        f"Title (rendered from the kind): {title_from_input(data)}\n\n"
         "--- rendered body ---\n"
         f"{body_from_input(data)}\n"
         "---------------------\n"
@@ -341,7 +369,7 @@ def create_issue(data: dict, *, env=None, root: "str | None" = None, issues_fact
         import telemetry  # lazy
         issues_factory = telemetry.GitHubIssues
     issues = issues_factory(matched, token.strip())
-    created = issues.open_issue(data["title"], body_from_input(data))
+    created = issues.open_issue(title_from_input(data), body_from_input(data))
     return created.get("html_url") or f"https://github.com/{matched}/issues/{created.get('number', '')}"
 
 
@@ -440,12 +468,22 @@ def _demo() -> int:
     except ValueError as exc:
         refused += 1
         print(f"Refused — urgency must be one of telemetry's two classes: {exc}")
-    # Self-check: a complete call renders a body, each of the four contract violations is refused, and a
-    # graded body carries the severity marker.
-    ok = bool(body) and refused == 4 and graded_ok
+    print("\n--- an optional kind stamps the authoritative kind marker (the reconciler's self-healing source) ---")
+    kinded = render_engine_issue_body(what_this_is="x", whats_next="y", kind="Fix")
+    kind_ok = "<!-- engine-kind: Fix -->" in kinded
+    print(f"Kind marker present: {kind_ok}")
+    print("\n--- a kind outside the six canonical kinds is refused (never minted) ---")
+    try:
+        render_engine_issue_body(what_this_is="x", whats_next="y", kind="Bug")
+    except ValueError as exc:
+        refused += 1
+        print(f"Refused — kind must be one of the six canonical kinds: {exc}")
+    # Self-check: a complete call renders a body, each of the five contract violations is refused, and the
+    # graded / kinded bodies carry their markers.
+    ok = bool(body) and refused == 5 and graded_ok and kind_ok
     if not ok:
         print(f"\nDEMO UNEXPECTED: body/marker did not render or a refusal did not fire "
-              f"({refused}/4 refused, marker={graded_ok}).", file=sys.stderr)
+              f"({refused}/5 refused, severity={graded_ok}, kind={kind_ok}).", file=sys.stderr)
         return 1
     return 0
 

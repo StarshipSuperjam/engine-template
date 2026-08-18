@@ -10,6 +10,7 @@ contract). The label value is a fixed enum, never raw title text.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,11 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate                 # noqa: E402
 import module_coherence         # noqa: E402
 import module_manager           # noqa: E402
+import issue_gate               # noqa: E402  (the single source for the `engine` label string)
+import issue_kind               # noqa: E402  (the canonical vocabulary + marker the reconciler acts on)
 import issue_label_client       # noqa: E402
 import issue_kind_label as k    # noqa: E402
 import quiet_call               # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 
 WORKFLOW_REL = ".github/workflows/engine-issue-kind-label.yml"
+_ENGINE = [{"name": issue_gate.ENGINE_LABEL}]
 
 
 class TestWorkflowIsEngineOwnedTraveler(unittest.TestCase):
@@ -199,6 +203,156 @@ class TestImportLayering(unittest.TestCase):
         for heavy in ("release_cut", "module_manager", "module_coherence"):
             self.assertNotIn(heavy, getattr(k, "__dict__", {}),
                              f"issue_kind_label must not import {heavy} (per-issue CI hot path)")
+
+
+class TestEngineKindGate(unittest.TestCase):
+    """engine_kind_or_none is the double gate on the title-write path: engine label AND a valid marker."""
+
+    def test_engine_label_and_valid_marker_yields_the_kind(self):
+        self.assertEqual(k.engine_kind_or_none({"labels": _ENGINE, "body": issue_kind.kind_trailer("Fix")}), "Fix")
+
+    def test_missing_engine_label_is_none_even_with_a_marker(self):
+        forged = {"labels": [{"name": "bug"}], "body": issue_kind.kind_trailer("Security")}
+        self.assertIsNone(k.engine_kind_or_none(forged))   # an external user cannot self-apply `engine`
+
+    def test_missing_or_garbled_marker_is_none(self):
+        self.assertIsNone(k.engine_kind_or_none({"labels": _ENGINE, "body": "no marker"}))
+        self.assertIsNone(k.engine_kind_or_none({"labels": _ENGINE, "body": "<!-- engine-kind: bogus -->"}))
+        self.assertIsNone(k.engine_kind_or_none("not a dict"))
+
+
+class TestNativeLabelForIssue(unittest.TestCase):
+    """The two-projection native label: canonical projection for an engine+marker issue, legacy title-parse
+    fallback for a human/pre-marker issue (so a pre-marker engine issue's label does not regress)."""
+
+    def test_engine_marker_projects_from_the_kind_ignoring_a_drifted_title(self):
+        issue = {"title": "Architecture: drift", "labels": _ENGINE, "body": issue_kind.kind_trailer("Fix")}
+        self.assertEqual(k.native_label_for_issue(issue), "bug")
+
+    def test_pre_marker_engine_issue_falls_back_to_title_parse(self):
+        issue = {"title": "Feature: add a thing", "labels": _ENGINE, "body": "no marker yet"}
+        self.assertEqual(k.native_label_for_issue(issue), "enhancement")   # no regression from the old behaviour
+
+    def test_non_engine_issue_uses_legacy_title_parse(self):
+        self.assertEqual(k.native_label_for_issue({"title": "Bug: x", "labels": []}), "bug")
+
+    def test_maintenance_marker_projects_to_no_native_label(self):
+        issue = {"title": "x", "labels": _ENGINE, "body": issue_kind.kind_trailer("Maintenance")}
+        self.assertIsNone(k.native_label_for_issue(issue))
+
+
+class TestReconcileTitle(unittest.TestCase):
+    """The title reconcile (StarshipSuperjam/engine-template#937): repair a missing/invented/stale prefix from
+    the authoritative marker, idempotently and lost-update-safe, only for engine+marker issues."""
+
+    def _client(self, gh):
+        return issue_label_client.IssueLabelClient("o/r", "t", user_agent=k.USER_AGENT, transport=gh)
+
+    def _issue(self, title, kind_marker, labels=None, body=None):
+        return {"number": 9, "title": title,
+                "labels": _ENGINE if labels is None else labels,
+                "body": issue_kind.kind_trailer(kind_marker) if body is None else body}
+
+    def test_invented_prefix_is_repaired(self):
+        issue = self._issue("Architecture: example", "Improvement")
+        gh = k._FakeGitHub(live_issue=issue)
+        self.assertEqual(k.reconcile_title(dict(issue), self._client(gh)), "retitled")
+        self.assertEqual(gh.title_edits()[0][2], {"title": "Improvement: example"})
+
+    def test_missing_prefix_is_restored(self):
+        issue = self._issue("example", "Fix")
+        gh = k._FakeGitHub(live_issue=issue)
+        k.reconcile_title(dict(issue), self._client(gh))
+        self.assertEqual(gh.title_edits()[0][2], {"title": "Fix: example"})
+
+    def test_stale_prefix_is_repaired(self):
+        issue = self._issue("Feature: x", "Security")   # marker says Security; title says Feature
+        gh = k._FakeGitHub(live_issue=issue)
+        k.reconcile_title(dict(issue), self._client(gh))
+        self.assertEqual(gh.title_edits()[0][2], {"title": "Security: x"})
+
+    def test_all_six_kinds_repair_from_a_drifted_prefix(self):
+        for kind in issue_kind.KINDS:
+            issue = self._issue("Bug: drift", kind)     # `Bug:` is a recognised slot → stripped and replaced
+            gh = k._FakeGitHub(live_issue=issue)
+            k.reconcile_title(dict(issue), self._client(gh))
+            self.assertEqual(gh.title_edits()[0][2], {"title": f"{kind}: drift"}, kind)
+
+    def test_ordinary_descriptive_edit_preserves_the_prefix_with_no_write(self):
+        # editing the descriptive part keeps the canonical prefix — the snapshot is already the fixed point.
+        issue = self._issue("Improvement: a much better example", "Improvement")
+        gh = k._FakeGitHub()
+        self.assertEqual(k.reconcile_title(dict(issue), self._client(gh)), "title-canonical")
+        self.assertEqual(gh.calls, [])                  # no live read, no write
+
+    def test_no_marker_is_a_noop(self):
+        gh = k._FakeGitHub()
+        issue = self._issue("Bug: x", "Fix", body="no marker here")
+        self.assertEqual(k.reconcile_title(issue, self._client(gh)), "no-marker")
+        self.assertEqual(gh.title_edits(), [])
+
+    def test_non_engine_forged_marker_never_retitles(self):
+        gh = k._FakeGitHub()
+        issue = self._issue("arbitrary human title", "Security", labels=[{"name": "bug"}])
+        self.assertEqual(k.reconcile_title(issue, self._client(gh)), "no-marker")
+        self.assertEqual(gh.title_edits(), [])
+
+    def test_second_pass_over_a_repaired_title_is_zero_writes(self):
+        repaired = self._issue("Improvement: example", "Improvement")
+        gh = k._FakeGitHub(live_issue=repaired)
+        self.assertEqual(k.reconcile_title(dict(repaired), self._client(gh)), "title-canonical")
+        self.assertEqual(gh.calls, [])                  # the idempotent fixed point issues NO writes
+
+    def test_lost_update_a_concurrent_edit_is_not_reverted(self):
+        # the snapshot says repair, but a human already made it canonical LIVE → skip the write
+        snapshot = self._issue("Architecture: example", "Improvement")
+        live = self._issue("Improvement: a concurrently edited example", "Improvement")
+        gh = k._FakeGitHub(live_issue=live)
+        self.assertEqual(k.reconcile_title(snapshot, self._client(gh)), "already-repaired")
+        self.assertEqual(gh.title_edits(), [])
+
+    def test_marker_removed_live_before_the_write_is_a_noop(self):
+        snapshot = self._issue("Architecture: example", "Improvement")
+        live = self._issue("Architecture: example", "Improvement", body="the marker was removed")
+        gh = k._FakeGitHub(live_issue=live)
+        self.assertEqual(k.reconcile_title(snapshot, self._client(gh)), "marker-gone")
+        self.assertEqual(gh.title_edits(), [])
+
+    def test_api_failure_on_the_title_write_surfaces_as_degraded_write(self):
+        issue = self._issue("Architecture: example", "Improvement")
+
+        def boom(method, path, body=None):
+            if method == "PATCH":
+                return 500, None
+            if re.search(r"/issues/\d+$", path):
+                return 200, issue
+            return 200, None
+        with self.assertRaises(issue_label_client.DegradedWriteError):
+            k.reconcile_title(dict(issue), self._client(boom))
+
+
+class TestClientMinimalMutations(unittest.TestCase):
+    """get_issue / edit_title — the minimal whole-Issue operations the reconciler adds to the shared client."""
+
+    def _client(self, transport):
+        return issue_label_client.IssueLabelClient("o/r", "t", user_agent="ua", transport=transport)
+
+    def test_get_issue_returns_live_state(self):
+        gh = k._FakeGitHub(live_issue={"number": 1, "title": "Live T", "body": "Live B"})
+        self.assertEqual(self._client(gh).get_issue(1)["title"], "Live T")
+
+    def test_get_issue_raises_on_failure(self):
+        with self.assertRaises(issue_label_client.DegradedWriteError):
+            self._client(lambda m, p, b=None: (503, None)).get_issue(1)
+
+    def test_edit_title_patches_the_title(self):
+        gh = k._FakeGitHub()
+        self._client(gh).edit_title(5, "Fix: x")
+        self.assertEqual(gh.calls[-1], ("PATCH", "/repos/o/r/issues/5", {"title": "Fix: x"}))
+
+    def test_edit_title_raises_on_failure(self):
+        with self.assertRaises(issue_label_client.DegradedWriteError):
+            self._client(lambda m, p, b=None: (500, None)).edit_title(5, "Fix: x")
 
 
 class TestDemoSelfChecks(unittest.TestCase):

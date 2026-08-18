@@ -1,15 +1,20 @@
-# engine-issue-kind-label — the on:issues applicator that keeps the GitHub-native kind labels consistent.
-# On every Issue opened or edited it derives the fitting native label (bug/enhancement/documentation/question)
-# from the title's `Kind:` prefix and applies it — apply-only, skipping a native label the repo owner deleted
-# (it mints nothing). It NEVER gates Issue creation (GitHub cannot) — an honest backstop, not a wall.
+# engine-issue-kind-label — the on:issues reconciler that keeps an engine Issue's kind consistent, in both the
+# GitHub-native label and the title's `Kind:` prefix. On every Issue opened or edited it (1) applies the fitting
+# native label (bug/enhancement/documentation/question) — apply-only, skipping a native label the repo owner
+# deleted (it mints nothing) — and (2) for an engine-authored Issue carrying the authoritative engine-kind
+# marker, repairs a missing/invented/stale title prefix to match that marker. It NEVER gates Issue creation
+# (GitHub cannot) — an honest backstop, not a wall.
 # ADVISORY: not a required check, so a finding can never block a merge.
 #
 # DEMO-VERIFIED, NOT END-TO-END HERE. GitHub runs `on: issues` only on a live deployed repo, so in this
 # construction repo the behaviour is proven by `issue_kind_label.py demo` (real logic, fake GitHub), not
 # end-to-end. The first live firing on a deployed repo is its end-to-end confirmation.
 #
-# NO SELF-RETRIGGER. Applying a label fires a `labeled` event, which this `[opened, edited]` trigger does not
-# watch; the tool only adds a label (never edits a title/body, which would fire `edited`), so it cannot loop.
+# LOOP SAFETY. This net now edits titles (a watched `edited` event), so it no longer rests on "only ever adds a
+# label". Production loop-prevention rests on GitHub's rule that an event caused by the workflow's own automation
+# token does not start another workflow run — so the reconciler's own title edit does not re-fire this net. As
+# defense-in-depth the title repair is an idempotent fixed point: a second pass over an already-canonical title
+# writes nothing. The per-Issue concurrency group below only serialises runs; it is not the loop container.
 name: engine-issue-kind-label
 
 on:
