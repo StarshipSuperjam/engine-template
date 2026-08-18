@@ -285,6 +285,98 @@ class ContractSurfaceReframe(unittest.TestCase):
         self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
 
 
+class DeclaredImpactFold(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: effective = max(declared PR impact, proven mechanical floor); refuse-until-corrected on a
+    # too-low declaration; legacy/undeclared refusal; exempt bots default to patch; none never becomes patch.
+    CUR = "0.5.0"
+
+    def _pr(self, n, impact=None, author="human"):
+        return {"number": n, "title": f"PR {n}", "impact": impact, "author": author}
+
+    def test_patch_patch_none_derives_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR,
+                                        [self._pr(1, "patch"), self._pr(2, "patch"), self._pr(3, "none")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["declared"], "patch")
+        self.assertEqual(res["effective"], "patch")
+        self.assertEqual(res["engine_floor_version"], "0.5.1")
+
+    def test_any_minor_derives_minor(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "patch"), self._pr(2, "minor")])
+        self.assertEqual(res["effective"], "minor")
+        self.assertEqual(res["engine_floor_version"], "0.6.0")
+
+    def test_any_major_derives_major(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "major")])
+        self.assertEqual(res["effective"], "major")
+        self.assertEqual(res["engine_floor_version"], "1.0.0")
+
+    def test_all_none_does_not_become_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "none"), self._pr(2, "none")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "none")
+        self.assertIsNone(res["engine_floor_version"])           # none has no floor -> workflow requires explicit
+
+    def test_declared_minor_with_no_mechanical_floor_still_sets_floor(self):
+        # F7: apply's raise-only must enforce a declared minor even when the diff proved nothing.
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "minor")])
+        self.assertEqual(res["engine_floor_version"], "0.6.0")
+
+    def test_mismatch_refuses_and_names_under_declared(self):
+        # the diff PROVES major (a recorded removal), but the PR declared only patch -> refuse-until-corrected.
+        res = rc.resolve_release_impact("major", self.CUR, [self._pr(7, "patch")])
+        self.assertIsNotNone(res["refusal"])
+        self.assertTrue(any("#7" in v for v in res["refusal"]["violations"]))
+
+    def test_mechanical_floor_raises_a_low_declaration_when_not_a_refusal(self):
+        # declared minor, mechanical minor -> no mismatch, effective minor (equal, not exceeded).
+        res = rc.resolve_release_impact("minor", self.CUR, [self._pr(1, "minor")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "minor")
+
+    def test_legacy_undeclared_refuses_without_aggregate(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(9, impact=None, author="human")])
+        self.assertIsNotNone(res["refusal"])
+        self.assertTrue(any("#9" in v for v in res["refusal"]["violations"]))
+
+    def test_legacy_aggregate_folds_in(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(9, impact=None, author="human")],
+                                        legacy_impact="minor")
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "minor")
+
+    def test_exempt_bot_markerless_defaults_to_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR,
+                                        [self._pr(5, impact=None, author="dependabot[bot]")])
+        self.assertIsNone(res["refusal"])                        # not legacy — an exempt author defaults
+        self.assertEqual(res["declared"], "patch")
+        self.assertTrue(any("#5" in d for d in res["defaulted"]))
+
+    def test_merged_pr_impacts_parses_bodies(self):
+        lines = ["Feature: add a thing (#11)", "Fix: correct it (#12)"]
+        bodies = {11: {"body": "x\n" + rc.release_impact.impact_trailer("minor"), "author": "human"},
+                  12: {"body": "y\n" + rc.release_impact.impact_trailer("patch"), "author": "human"}}
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+                                   _fetch_lines=lambda *a, **k: lines,
+                                   _fetch_meta=lambda slug, n, tok: bodies[n])
+        self.assertIsNone(out["error"])
+        self.assertEqual({p["number"]: p["impact"] for p in out["per_pr"]}, {11: "minor", 12: "patch"})
+
+    def test_merged_pr_impacts_fails_closed_on_unreadable_body(self):
+        def boom(slug, n, tok):
+            raise RuntimeError("500")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"], _fetch_meta=boom)
+        self.assertIsNotNone(out["error"])                       # fail closed, not a silent skip
+        self.assertIn("#3", out["error"])
+
+    def test_merged_pr_impacts_fails_closed_on_enumeration_error(self):
+        def boom(*a, **k):
+            raise RuntimeError("no notes")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", _fetch_lines=boom)
+        self.assertIsNotNone(out["error"])
+
+
 class MigrationAccumulation(unittest.TestCase):
     # #599 Slice 3: migrations replay by RANGE, so a version-key present in the previous release but dropped in
     # the candidate would be SILENTLY SKIPPED on a multi-version upgrade. classify() flags it; the cut is refused.
