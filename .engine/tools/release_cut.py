@@ -89,9 +89,10 @@ MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
 # The change-inventory line classify() adds when NOTHING structural fired — a caveat, not a per-item signal,
 # so the renderers exclude it when listing the structural signals beside the merged-PR list (one home for the
 # string, referenced in both places).
-_NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no new migration since the last release — "
-                              "so at most a patch. A behaviour change with no structural signal would not "
-                              "show here; cross-check against what you actually shipped.")
+_NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no contract surface added or removed since the "
+                              "last release — so the diff proves NO mechanical compatibility floor. This does "
+                              "NOT mean 'at most a patch': the version is whatever the merged pull requests "
+                              "declared (a behaviour change carries its impact there, not in the structure).")
 
 
 # --------------------------------------------------------------------------- version ordering
@@ -1198,8 +1199,9 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         # backstop. None when nothing structural fired (a patch is discretionary; raise-only bounds it).
         engine_floor = proposal.get("engine_floor_version")
         if engine_floor and _strictly_greater(engine_floor, engine_ver):
-            floor_notes.append(f"engine version {engine_ver} is below the mechanical floor {engine_floor} "
-                               f"that what changed since the last release requires")
+            floor_notes.append(f"engine version {engine_ver} is below the required floor {engine_floor} "
+                               f"(the higher of what the merged pull requests declared and what the release "
+                               f"diff proved)")
         pf = proposal.get("package_floor", {})
         for mid, floor in pf.items():
             if mid in targets and _strictly_greater(floor, targets[mid]):
@@ -1385,13 +1387,30 @@ def _render_proposal(p: dict) -> str:
         lines.append("  release_cut.py apply --engine <ver> --all <ver>")
     else:
         floor = p["engine_floor_level"]
-        if floor == "none":
-            lines.append(f"No structural change forces a bump — a patch at most (current "
-                         f"{p['current_engine']}). You may still raise it if you shipped a behaviour "
-                         f"change with no structural signal; you can never lower it.")
+        declared = p.get("declared_impact")
+        if declared is not None:                         # the declared-impact fold ran (StarshipSuperjam/engine-template#942)
+            lines.append(f"Version decision (current {p['current_engine']}):")
+            lines.append(f"  - highest declared pull-request impact: {declared}")
+            lines.append(f"  - mechanical compatibility floor the diff could prove: "
+                         f"{floor if floor != 'none' else 'none detected'}")
+            lines.append(f"  - effective (the higher of the two): {p.get('effective_impact')}")
+            if p.get("engine_floor_version"):
+                lines.append(f"  - so the least this release can be is {p['engine_floor_version']} "
+                             f"(you may raise it, never lower it).")
+            else:
+                lines.append("  - no impact declared and none proven — no automatic version; name one to publish.")
+            for d in p.get("impact_defaulted") or []:
+                lines.append(f"  - defaulted: {d}")
+        elif floor == "none":
+            lines.append(f"No mechanical compatibility floor was proven (current {p['current_engine']}). The "
+                         f"version follows what the merged pull requests declared — a behaviour change with no "
+                         f"structural signal carries its impact there. You can never lower it.")
         else:
-            lines.append(f"Mechanical engine floor: at least a {floor} bump "
+            lines.append(f"Mechanical compatibility floor: at least a {floor} bump "
                          f"(current {p['current_engine']}). You may raise it, never lower it.")
+        if p.get("compatibility_unknown"):
+            lines.append(f"  ! {len(p['compatibility_unknown'])} contract/interface change(s) have UNKNOWN "
+                         f"compatibility — review required (the declared impact governs; see the Risk section).")
         if p["package_floor"]:
             lines.append("Per-package floors:")
             for mid, ver in p["package_floor"].items():
@@ -1436,6 +1455,30 @@ def _structural_signals(proposal: dict) -> list:
             if c != _NO_STRUCTURAL_SIGNAL_NOTE and not c.startswith("First release:")]
 
 
+def _version_decision_lines(proposal: dict) -> list:
+    """The durable 'why this version' record (StarshipSuperjam/engine-template#942 §12/F4): the effective impact, the highest declared
+    pull-request impact, the mechanical floor the diff proved, and — as a SNAPSHOT that survives later edits to
+    the source pull-request bodies — the impact each merged pull request declared. Empty when the fold did not
+    run (a first cut, or the offline path), so the notes degrade to the version + readiness line alone."""
+    declared = proposal.get("declared_impact")
+    if declared is None:
+        return []
+    floor = proposal.get("mechanical_floor_level") or proposal.get("engine_floor_level") or "none"
+    out = ["", "## Version decision", "",
+           f"- Effective release impact: **{proposal.get('effective_impact')}**",
+           f"- Highest declared pull-request impact: {declared}",
+           f"- Mechanical compatibility floor the diff proved: {floor if floor != 'none' else 'none detected'}"]
+    unknown = proposal.get("compatibility_unknown") or []
+    if unknown:
+        out.append(f"- {len(unknown)} contract/interface change(s) had unknown compatibility (review-required); "
+                   f"the declared impact governed.")
+    per_pr = proposal.get("declared_per_pr") or []
+    if per_pr:
+        out += ["", "Declared impact per merged pull request (recorded here so it survives later body edits):"]
+        out += [f"  - #{pr['number']} {pr['title']}: {pr['impact'] or 'none/undeclared'}" for pr in per_pr]
+    return out
+
+
 def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str = "sub-bar") -> str:
     """The published GitHub Release body — a human-readable, self-contained account of the release: the
     version, the readiness line, a breaking-change callout when the release is breaking, a "What changed"
@@ -1454,6 +1497,9 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
         out += ["", "⚠️ **This release makes a breaking change.** Something an earlier version provided was "
                     "removed, or changed in a way that is not backward-compatible — so anything that relied on "
                     "it will need attention. See the changes below."]
+    # The durable version-decision record (why this version was chosen), snapshotting the per-PR declared impact
+    # so it survives later edits to the source pull-request bodies (StarshipSuperjam/engine-template#942).
+    out += _version_decision_lines(proposal)
     # "What changed" leads with the pull requests merged since the last release — the actual body of work —
     # when the list is available; otherwise it falls back to the structural signals (a first release, or a
     # best-effort failure to reach the pull-request list). Either way, the capability + data signals are
@@ -1676,8 +1722,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
     scope = ["The versions this release sets:", *_version_lines(applied)]
     floor_v = proposal.get("engine_floor_version")
     if floor_v:
-        scope.append(f"- The least this release could be is **{floor_v}** — that is what the changes below "
-                     f"require; a higher version is fine, a lower one is not.")
+        scope.append(f"- The least this release could be is **{floor_v}** — the higher of what the merged pull "
+                     f"requests declared and what the release diff could prove; a higher version is fine, a "
+                     f"lower one is not.")
     # "What changed" leads with the pull requests merged since the last release (the actual work) when the
     # list is available; otherwise the structural floor-signal summary. The capability + data signals are
     # surfaced beside the list (the migration signal has no other home); the interface detail is under Risk.
@@ -1739,6 +1786,11 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
             risk.append("")  # being absorbed into that bullet as a lazy markdown continuation (the two would
                              # otherwise fuse, hiding the interface-changes signpost on the highest-stakes release).
         risk.append("Interface changes to read before you merge:")
+        if proposal.get("compatibility_unknown"):
+            risk.append(f"- **{len(proposal['compatibility_unknown'])} of these have UNKNOWN compatibility** "
+                        f"(a rename/relocation or an in-place change) — the diff set no version floor for them, "
+                        f"so the declared release impact governs and your review is the backstop. Read each "
+                        f"against its consumers before merging.")
         # Same polished rendering as the published Release notes — a bold heading, then the description as its
         # own sentence — so the consent surface the maintainer reads FIRST is no rougher than the Release body.
         risk += [f"- **{_cap(im.get('what')) or 'A contract surface changed'}.**"
@@ -1887,6 +1939,11 @@ def _cmd_propose(args) -> int:
             proposal["mechanical_floor_level"] = proposal["engine_floor_level"]
             proposal["effective_impact"] = res["effective"]
             proposal["impact_defaulted"] = res["defaulted"]
+            # DURABLE snapshot (StarshipSuperjam/engine-template#942 F4): the per-PR declared impact this cut READ, carried into the proposal
+            # so the published release notes record why the version was chosen even though the source pull-request
+            # bodies remain editable afterwards. Impact-only (number/title/impact) — never the author or body.
+            proposal["declared_per_pr"] = [{"number": pr["number"], "title": pr["title"], "impact": pr["impact"]}
+                                           for pr in imp["per_pr"]]
             if res["refusal"]:
                 impact_refusal = res["refusal"]
             else:

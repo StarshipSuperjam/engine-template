@@ -179,7 +179,10 @@ class Classify(unittest.TestCase):
             with _Tree(mods):
                 p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
             self.assertEqual(p["engine_floor_level"], "none")
-            self.assertIn("no structural signal", " ".join(p["change_inventory"]))
+            # StarshipSuperjam/engine-template#942: the honest no-floor caveat — NOT "at most a patch" (the version follows the declared
+            # PR impact); it says the diff proved no mechanical compatibility floor.
+            self.assertIn("no mechanical compatibility floor", " ".join(p["change_inventory"]).lower())
+            self.assertIn("does not mean 'at most a patch'", " ".join(p["change_inventory"]).lower())
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
@@ -375,6 +378,21 @@ class DeclaredImpactFold(unittest.TestCase):
             raise RuntimeError("no notes")
         out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", _fetch_lines=boom)
         self.assertIsNotNone(out["error"])
+
+    def test_version_decision_snapshot_is_durable_and_honest(self):
+        proposal = {"declared_impact": "minor", "effective_impact": "minor", "mechanical_floor_level": "none",
+                    "compatibility_unknown": [{"what": "the contract surface 'x' changed in place"}],
+                    "declared_per_pr": [{"number": 11, "title": "add a thing", "impact": "minor"},
+                                        {"number": 12, "title": "a bump", "impact": None}]}
+        text = "\n".join(rc._version_decision_lines(proposal))
+        self.assertIn("Effective release impact: **minor**", text)
+        self.assertIn("#11 add a thing: minor", text)                # durable per-PR snapshot
+        self.assertIn("#12 a bump: none/undeclared", text)
+        self.assertIn("unknown compatibility", text)
+        self.assertIn("## Version decision", rc.render_release_notes("v0.6.0", proposal))
+
+    def test_version_decision_empty_when_fold_did_not_run(self):
+        self.assertEqual(rc._version_decision_lines({"engine_floor_level": "minor"}), [])
 
 
 class MigrationAccumulation(unittest.TestCase):
@@ -1019,7 +1037,7 @@ class Apply(unittest.TestCase):
             r = rc.apply("1.0.1", "1.0.1", {}, proposal, dry_run=True)
         self.assertFalse(r["applied"])
         self.assertEqual(r["reason"], "below-confirmed-floor")
-        self.assertTrue(any("mechanical floor 2.0.0" in v for v in r["violations"]))
+        self.assertTrue(any("required floor 2.0.0" in v for v in r["violations"]))
 
     def test_engine_at_mechanical_floor_passes(self):
         with _Tree({"core": _module("core", ver="1.0.0")}, engine_release="1.0.0"):
