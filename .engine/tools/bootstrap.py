@@ -67,6 +67,7 @@ import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the 
 import engine_write  # noqa: E402  (the engine-owned write boundary — the manifest markers below, StarshipSuperjam/engine-template#923)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the minimal ensure this inherits)
 import weakening_guard  # noqa: E402  (ACK_LABEL — reuse the frozen guardrail-ack name, never re-decide it)
+import integration_queue_backend  # noqa: E402  (INTEGRATION_LABELS — provisioned here, owned by the queue, StarshipSuperjam/engine-template#925)
 
 USER_AGENT = "engine-control-plane-bootstrap"
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "control-plane-bootstrap.md")
@@ -110,6 +111,7 @@ REQUIRED_LABELS = [
     (weakening_guard.ACK_LABEL, ACK_LABEL_COLOR, ACK_LABEL_DESCRIPTION),
     (NEEDS_REAUTHORING_LABEL, NEEDS_REAUTHORING_LABEL_COLOR, NEEDS_REAUTHORING_LABEL_DESCRIPTION),
     (ERASURE_LABEL, ERASURE_LABEL_COLOR, ERASURE_LABEL_DESCRIPTION),
+    *integration_queue_backend.INTEGRATION_LABELS,   # the serialized-integration labels (StarshipSuperjam/engine-template#925), owned by the queue
 ]
 
 

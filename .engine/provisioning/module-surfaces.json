@@ -858,6 +858,9 @@
   ".engine/contracts/eADR-0041-build-coordinator-behavior.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0042-multi-writer-integration.md": [
+   "core"
+  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],
@@ -1007,6 +1010,9 @@
   ],
   ".engine/operations/routine-entry.md": [
    "routine-mode"
+  ],
+  ".engine/operations/serialized-integration.md": [
+   "core"
   ],
   ".engine/operations/tune-policy.md": [
    "core"
@@ -1461,6 +1467,9 @@
   ".engine/tools/demo_inbox_drain.py": [
    "core"
   ],
+  ".engine/tools/demo_integration_queue.py": [
+   "core"
+  ],
   ".engine/tools/demo_map_reachability.py": [
    "core"
   ],
@@ -1539,6 +1548,9 @@
   ".engine/tools/dependency_discipline/test_review.py": [
    "dependency-discipline"
   ],
+  ".engine/tools/derived_state.py": [
+   "core"
+  ],
   ".engine/tools/engine_fixture.py": [
    "core"
   ],
@@ -1609,6 +1621,12 @@
    "core"
   ],
   ".engine/tools/instantiator.py": [
+   "core"
+  ],
+  ".engine/tools/integration_queue.py": [
+   "core"
+  ],
+  ".engine/tools/integration_queue_backend.py": [
    "core"
   ],
   ".engine/tools/interface_coherence_check.py": [
@@ -2127,6 +2145,9 @@
   ".engine/tools/test_contract_canon.py": [
    "core"
   ],
+  ".engine/tools/test_derived_state.py": [
+   "core"
+  ],
   ".engine/tools/test_design_review.py": [
    "core"
   ],
@@ -2179,6 +2200,12 @@
    "core"
   ],
   ".engine/tools/test_instantiator.py": [
+   "core"
+  ],
+  ".engine/tools/test_integration_queue.py": [
+   "core"
+  ],
+  ".engine/tools/test_integration_queue_backend.py": [
    "core"
   ],
   ".engine/tools/test_interface.py": [

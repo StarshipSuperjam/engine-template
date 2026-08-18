@@ -9,6 +9,8 @@ date: 2026-06-29
 
 _Amended 2026-08-16: Issues are intake; a Build's plan is session-held, durable only through promotion (eADR-0041)._
 
+_Amended 2026-08-17: the draft-PR-is-the-claim lifecycle is the single-Build view of the multi-writer integration lifecycle fixed by eADR-0042. "Green" authorizes merge only as an integration candidate re-proven against the current canonical tree, not as a candidate green against its starting base; the operator's merge remains the sole unbypassable wall across both views._
+
 Build work is carried by native git/GitHub records and never by an invented artifact of its own. The draft pull request is the claim and the change surface: it holds what has been built — the opening claim, the integrated commits, the human merge gate, and the contract narrative — and it is the one record every Build has. A GitHub Issue is work intake: a problem or need ready to be taken up for planning — never the plan itself, and never created merely because a Build exists. When an originating Issue exists it remains the intent record the pull request closes at merge — nothing more.
 
 The Build's plan is a build artifact, not a GitHub record by default: it is authored in the session, lives with that session, and is non-durable until a Build must genuinely continue cold — another session, or unattended work — when the exact approved plan is promoted to a suitable writable Issue as one bounded machine block: transport for recovery, changing nothing about what an Issue is. A "build Issue" in this canon means exactly that — an intake Issue carrying a promoted copy of a Build's plan for cold continuation. How the plan is approved, bound to the Build, and promoted proportionately is owned by the coordinator's behavioral contract (eADR-0041).

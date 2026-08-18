@@ -18,6 +18,7 @@ import bootstrap  # noqa: E402
 import protection_guard  # noqa: E402
 import weakening_guard  # noqa: E402  (ACK_LABEL — the frozen name bootstrap reuses when provisioning the label)
 import telemetry  # noqa: E402  (ENGINE_DOMAIN_LABEL — the engine label's canonical name/color/description)
+import integration_queue_backend  # noqa: E402  (the serialized-integration labels bootstrap provisions)
 
 REPO = "you/proj"
 
@@ -173,6 +174,9 @@ class TestApplyCreatesAndIsIdempotent(unittest.TestCase):
             weakening_guard.ACK_LABEL,
             bootstrap.NEEDS_REAUTHORING_LABEL,
             bootstrap.ERASURE_LABEL,
+            integration_queue_backend.READY_LABEL,
+            integration_queue_backend.PRIORITY_LABEL,
+            integration_queue_backend.INTEGRATING_LABEL,
         })
         # ensure_labels emits EXACTLY the REQUIRED_LABELS table (the one auditable home), so a row dropped or
         # mis-sourced there fails here; every description fits GitHub's 100-char label cap.
