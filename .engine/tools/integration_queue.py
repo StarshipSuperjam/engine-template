@@ -234,6 +234,25 @@ def _coordinate(fn) -> None:
         pass
 
 
+def _coordination_sync(transport, repo: str, pr: int) -> None:
+    """A bounded coordination read point (StarshipSuperjam/engine-template#939): read the pull request's advisory board from
+    GitHub, refresh the local ledger snapshot (so boot can relay the unread count with no network), print any
+    unread notices, and mark them seen. Best-effort — never raises, never affects the queue command."""
+    try:
+        import coordination_board
+        import coordination_ledger
+        client = coordination_board._Comments(repo, "", transport=transport)
+        notices = coordination_board.read_board(client, pr)
+        unseen = coordination_ledger.sync_board(pr, notices)
+        if unseen:
+            kinds = ", ".join(sorted({n["kind"] for n in unseen}))
+            print(f"Coordination: {len(unseen)} unread advisory notice(s) on PR #{pr} ({kinds}) — "
+                  "re-verify the canonical state each names before acting.")
+            coordination_ledger.mark_seen(pr, [n["notice_id"] for n in unseen])
+    except Exception:  # noqa: BLE001 — advisory read, never breaks the queue
+        pass
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
@@ -286,12 +305,17 @@ def main(argv: list) -> int:
         elif result.get("admitted"):
             _coordinate(lambda ce: ce.emit_integration_admitted(transport, repo, result["admitted"]))
         print(result["detail"])
+        if this is not None:
+            _coordination_sync(transport, repo, this)
         return 0 if result["status"] in ("ready", "empty", "busy") else 1
     # default: status
     st = status(transport, repo, base, tier=tier, be=be)
     print(f"backend: {st['backend']}; admitted: {st['admitted']}")
     for c in st["candidates"]:
         print(f"  candidate PR #{c['pr']}: {c['title']}")
+    _this = _current_pr(transport, repo, base)
+    if _this is not None:
+        _coordination_sync(transport, repo, _this)
     return 0
 
 

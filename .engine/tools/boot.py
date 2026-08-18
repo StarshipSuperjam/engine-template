@@ -3060,7 +3060,30 @@ def _relay_lines(s: dict) -> list:
 _PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
 
 
-def _pack_blocks(gov: str, sprawl: str, neighborhood: str, wwlo: str, pins: str, dashboard: str) -> list:
+def render_coordination() -> str:
+    """A sheddable block naming any UNREAD advisory coordination notices on this machine's pull requests
+    (StarshipSuperjam/engine-template#939). Read PURELY from the local ledger — boot makes no network call (the remote board is read
+    at the mid-session queue points, which write the local cursor). Carries only enum kinds and integer counts,
+    never a branch or path. Empty (no block) when there is nothing unread or the ledger is absent/broken —
+    fail toward silence here, since a coordination notice is advisory and never a governance alarm."""
+    try:
+        import coordination_ledger
+        pending = coordination_ledger.pending()
+    except Exception:  # noqa: BLE001 — absent/broken ledger -> no block
+        return ""
+    if not pending:
+        return ""
+    lines = ["▸ Coordination notices (advisory — re-verify canonical state before acting):"]
+    for pr in sorted(pending):
+        kinds = sorted({e.get("kind", "?") for e in pending[pr]})
+        n = len(pending[pr])
+        lines.append(f"  - PR #{pr}: {n} unread ({', '.join(kinds)}) — read them with "
+                     "`integration_queue.py status` and re-check the canonical state each names.")
+    return "\n".join(lines)
+
+
+def _pack_blocks(gov: str, sprawl: str, neighborhood: str, wwlo: str, pins: str, dashboard: str,
+                 coordination: str = "") -> list:
     """The ordered (priority, name, text) blocks handed to cap_shed. The governance briefing never sheds (0);
     the status dashboard sheds last (2); the pins index (3), where-we-left-off (4), the work-neighbourhood
     map (5) and the build-sprawl nudge (6) shed in that reverse order — the briefing-budget set-aside ladder.
@@ -3073,6 +3096,7 @@ def _pack_blocks(gov: str, sprawl: str, neighborhood: str, wwlo: str, pins: str,
         (6, "the build-sprawl note", sprawl),
         (5, "the work-neighbourhood map", neighborhood),
         (4, "where we left off", wwlo),
+        (4, "coordination notices", coordination),
         (3, _PINS_BLOCK_NAME, pins),
         (2, "the status dashboard", dashboard),
     ]
@@ -3237,7 +3261,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         return ("(Part of this briefing was trimmed to fit the platform's size limit. Tell the operator in "
                 "one plain sentence; the full status is always available with `/engine-status`.)")
 
-    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, wwlo, pins, status)
+    coordination = render_coordination()
+    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, wwlo, pins, status, coordination)
     text, shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     # LOUD pin set-aside (operator directive): pins shed BEFORE the dashboard, but a pin dropping silently is
     # exactly what must not happen — an operator who over-pins must learn to prune rather than lose them
@@ -3250,7 +3275,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         loud = ("ALSO relay to the operator: their " + str(n) + " pinned note" + ("" if n == 1 else "s")
                 + " did not fit in this session's briefing and were set aside (they are safe) — ask them to "
                 "review and prune any no longer needed, or offer to read any back with the memory tools.")
-        blocks = _pack_blocks("\n".join(out + ["", loud]), sprawl_note, neighborhood, wwlo, "", status)
+        blocks = _pack_blocks("\n".join(out + ["", loud]), sprawl_note, neighborhood, wwlo, "", status,
+                              coordination)
         text, _shed2 = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
