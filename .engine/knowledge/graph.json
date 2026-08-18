@@ -14319,7 +14319,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:441c84515c717b7ad0f6229290bee5c434cb6d60369ac3088fbddd79d0d1ccfc",
+        "fingerprint": "sha256:73b40abe4b78ad11a860feabdb898c59d20a24cbe81a96e84d38ae280bb2f39f",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
@@ -18409,7 +18409,7 @@
       },
       "slug": "test_spec_form",
       "source": {
-        "fingerprint": "sha256:a0c267e584e350673945fc780af41d849d5d4eb5785fd23375594cf3187a5760",
+        "fingerprint": "sha256:a533dbf43a2de410cb57aa8e83b26f7bfe666303c6d8d78e3a430b0fc544b941",
         "path": ".engine/tools/product_design/test_spec_form.py"
       },
       "status": "active",
