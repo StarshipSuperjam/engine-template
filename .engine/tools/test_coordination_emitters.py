@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for coordination_emitters — the no-harm guarantee (an emit never raises and never affects the
-caller), the solo-repo inertness gate, and one happy path through mocked internals
+caller), the solo-repo inertness gate, and one happy path through a fake GitHub transport
 (StarshipSuperjam/engine-template#939)."""
 import os
 import sys
@@ -11,76 +11,99 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import coordination_emitters as ce  # noqa: E402
 
-_ALL_EMITTERS = [
-    lambda: ce.emit_integration_admitted(5),
-    lambda: ce.emit_integration_blocked(5),
-    lambda: ce.emit_integration_next(5),
-    lambda: ce.emit_handoff_slot_released(5),
-    lambda: ce.emit_revalidation_base_advanced(5, base_sha="a" * 40),
-    lambda: ce.emit_bounded_status(5, "work-declared", paths=["a.py"]),
-    lambda: ce.emit_overlap(5, 6, paths=["a.py"]),
-]
+
+class FakeGitHub:
+    """In-memory GitHub: models the open-PR count (for the peer gate) and the comments (for the board)."""
+
+    def __init__(self, open_prs=2):
+        self.open_prs = open_prs
+        self.comments = {}
+        self._next = 1
+        self.paths = []
+
+    def transport(self, method, path, body=None):
+        self.paths.append((method, path))
+        if method == "GET" and "/pulls?" in path:
+            return 200, [{"number": i} for i in range(self.open_prs)]
+        if method == "GET" and "/comments" in path:
+            number = int(path.split("/issues/")[1].split("/")[0])
+            return 200, [c for c in self.comments.values() if c["number"] == number]
+        if method == "POST" and path.endswith("/comments"):
+            number = int(path.split("/issues/")[1].split("/")[0])
+            cid = self._next
+            self._next += 1
+            self.comments[cid] = {"id": cid, "number": number, "body": body["body"],
+                                  "user": {"type": "Bot"}}
+            return 201, self.comments[cid]
+        if method == "PATCH" and "/issues/comments/" in path:
+            cid = int(path.rstrip("/").split("/")[-1])
+            self.comments[cid]["body"] = body["body"]
+            return 200, self.comments[cid]
+        raise AssertionError(f"unexpected call {method} {path}")
+
+
+def _all(transport):
+    return [
+        lambda: ce.emit_integration_admitted(transport, "o/r", 5),
+        lambda: ce.emit_integration_blocked(transport, "o/r", 5),
+        lambda: ce.emit_integration_next(transport, "o/r", 5),
+        lambda: ce.emit_handoff_slot_released(transport, "o/r", 5),
+        lambda: ce.emit_revalidation_base_advanced(transport, "o/r", 5, base_sha="a" * 40),
+        lambda: ce.emit_bounded_status(transport, "o/r", 5, "work-declared", paths=["a.py"]),
+        lambda: ce.emit_overlap(transport, "o/r", 5, 6, paths=["a.py"]),
+    ]
 
 
 class TestNoHarm(unittest.TestCase):
     def test_forced_raise_is_swallowed_for_every_emitter(self):
+        gh = FakeGitHub()
         with mock.patch.object(ce, "_FORCE_RAISE", True):
-            for emit in _ALL_EMITTERS:
-                self.assertIsNone(emit())  # never raises, always None
+            for emit in _all(gh.transport):
+                self.assertIsNone(emit())
 
-    def test_no_token_is_a_silent_noop(self):
-        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "", "GITHUB_TOKEN": ""}, clear=False):
-            with mock.patch.object(ce, "_repo_token", return_value=(None, None)):
-                for emit in _ALL_EMITTERS:
-                    self.assertIsNone(emit())
+    def test_none_transport_is_a_silent_noop(self):
+        for emit in _all(None):
+            self.assertIsNone(emit())
 
 
 class TestSoloInert(unittest.TestCase):
     def test_no_peer_writes_nothing(self):
-        with mock.patch.object(ce, "_repo_token", return_value=("o/r", "tok")), \
-             mock.patch.object(ce, "_peer_present", return_value=False), \
-             mock.patch("coordination_board.post_notice") as post:
-            self.assertIsNone(ce.emit_integration_admitted(5))
-            post.assert_not_called()
+        gh = FakeGitHub(open_prs=1)  # only this session's PR -> no peer
+        self.assertIsNone(ce.emit_integration_admitted(gh.transport, "o/r", 5))
+        self.assertEqual(gh.comments, {})  # the board write short-circuited, not just the doorbell
 
 
 class TestHappyPath(unittest.TestCase):
     def setUp(self):
         self.cache = tempfile.mkdtemp()
-        self._env = mock.patch.dict(os.environ, {"ENGINE_COORDINATION_CACHE_DIR": self.cache})
-        self._env.start()
-        self.addCleanup(self._env.stop)
+        env = mock.patch.dict(os.environ, {"ENGINE_COORDINATION_CACHE_DIR": self.cache})
+        env.start()
+        self.addCleanup(env.stop)
+        self.ledger = os.path.join(self.cache, "coordination.json")
 
-    def test_posts_a_valid_notice_and_records_event(self):
-        posted = {}
-
-        def _fake_post(client, number, notice):
-            posted["notice"] = notice
-            posted["number"] = number
-            return "posted"
-
-        with mock.patch.object(ce, "_repo_token", return_value=("o/r", "tok")), \
-             mock.patch.object(ce, "_peer_present", return_value=True), \
-             mock.patch("coordination_board.post_notice", _fake_post):
-            outcome = ce.emit_integration_admitted(7)
-
+    def test_posts_and_records(self):
+        gh = FakeGitHub(open_prs=2)
+        outcome = ce.emit_integration_admitted(gh.transport, "o/r", 7)
         self.assertEqual(outcome, "posted")
-        self.assertEqual(posted["number"], 7)
-        self.assertEqual(posted["notice"]["kind"], "integration-notice")
-        self.assertEqual(posted["notice"]["event"], "admitted")
-        # a measurement event landed in the tmp ledger
+        board = [c for c in gh.comments.values() if c["number"] == 7]
+        self.assertEqual(len(board), 1)
         import coordination_ledger as cl
-        evs = cl.events(path=os.path.join(self.cache, "coordination.json"))
-        self.assertTrue(any(e["t"] == "posted" and e.get("pr") == 7 for e in evs))
+        self.assertTrue(any(e["t"] == "posted" and e.get("pr") == 7 for e in cl.events(path=self.ledger)))
 
     def test_blocked_records_late_conflict(self):
-        with mock.patch.object(ce, "_repo_token", return_value=("o/r", "tok")), \
-             mock.patch.object(ce, "_peer_present", return_value=True), \
-             mock.patch("coordination_board.post_notice", return_value="posted"):
-            ce.emit_integration_blocked(7)
+        gh = FakeGitHub(open_prs=2)
+        ce.emit_integration_blocked(gh.transport, "o/r", 7)
         import coordination_ledger as cl
-        evs = cl.events(path=os.path.join(self.cache, "coordination.json"))
-        self.assertTrue(any(e["t"] == "late-conflict" for e in evs))
+        self.assertTrue(any(e["t"] == "late-conflict" for e in cl.events(path=self.ledger)))
+
+    def test_only_comment_and_pulls_endpoints_touched(self):
+        gh = FakeGitHub(open_prs=2)
+        ce.emit_integration_admitted(gh.transport, "o/r", 7)
+        for method, path in gh.paths:
+            self.assertTrue("/comments" in path or "/pulls" in path, f"unexpected {method} {path}")
+            self.assertNotIn("/merge", path)
+            self.assertNotIn("/labels", path)
+            self.assertNotIn("/statuses", path)
 
 
 if __name__ == "__main__":

@@ -222,6 +222,18 @@ def _live_context():
     return transport, repo, base, tier, be, why
 
 
+def _coordinate(fn) -> None:
+    """Run a best-effort advisory coordination emit (StarshipSuperjam/engine-template#939), swallowing everything. Coordination is
+    advisory (eADR-0043) and must NEVER affect the queue action it rides — the emitters are themselves
+    no-harm, and this lazy-import-plus-swallow is belt and braces. `fn` receives the coordination_emitters
+    module; it is imported lazily so the queue never loads coordination at module time."""
+    try:
+        import coordination_emitters
+        fn(coordination_emitters)
+    except Exception:  # noqa: BLE001 — an advisory emit never propagates into the queue
+        pass
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
@@ -244,6 +256,10 @@ def main(argv: list) -> int:
             return 0
         held = be.admitted()
         be.release(this)
+        # Advisory: the slot just freed, so tell the new next candidate it is up (best-effort, never gates).
+        _next = reviewed_candidates(transport, repo, base, tier=tier)
+        if _next:
+            _coordinate(lambda ce, pr=_next[0].pr: ce.emit_integration_next(transport, repo, pr))
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
         else:
@@ -257,6 +273,11 @@ def main(argv: list) -> int:
         this = _current_pr(transport, repo, base)
         result = surface_next(transport, repo, base, tier=tier, be=be, this_pr=this,
                               prepare_fn=lambda **kw: pr_reconcile.prepare(**kw))
+        # Advisory: surface the admission / block to the candidate's owner (best-effort, never gates).
+        if result.get("status") == "blocked" and result.get("next"):
+            _coordinate(lambda ce: ce.emit_integration_blocked(transport, repo, result["next"]))
+        elif result.get("admitted"):
+            _coordinate(lambda ce: ce.emit_integration_admitted(transport, repo, result["admitted"]))
         print(result["detail"])
         return 0 if result["status"] in ("ready", "empty", "busy") else 1
     # default: status
