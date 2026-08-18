@@ -16140,12 +16140,13 @@
           "module:core"
         ],
         "tests": [
-          "tool:demo_coordination_two_sessions"
+          "tool:demo_coordination_two_sessions",
+          "tool:quiet_call"
         ]
       },
       "slug": "test_coordination_demo",
       "source": {
-        "fingerprint": "sha256:951c7a173ad2a115bb8a33a1cffbacffdeae39ee3804d59b2f566b173179b4b9",
+        "fingerprint": "sha256:54e51608ca17b660de75cbe121ea6d3ebafe440d4c9c61ff1332aeaaafbcc1eb",
         "path": ".engine/tools/test_coordination_demo.py"
       },
       "status": "active",
@@ -17739,7 +17740,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:c0a9db297b5aa6fdcedd173927879d6ed653a07542ac533a4cbd5f8487894f7e",
+        "fingerprint": "sha256:965466bfd57ed338223c580318aae4e8fa39567290e247c9609e97eca4ecd7e0",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
