@@ -80,6 +80,7 @@ import release_source  # release fetch + ref/tag resolution (StarshipSuperjam/en
 import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (StarshipSuperjam/engine-template#923)
 import local_references  # the declared local-reference vocabulary (StarshipSuperjam/engine-template#639)
 import shipped_local_references_check  # the shipped-surface scan this cut reuses as its backstop (StarshipSuperjam/engine-template#943)
+import release_impact  # the declared-impact vocabulary + ordering + marker (StarshipSuperjam/engine-template#942)
 
 SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
@@ -458,8 +459,11 @@ def _bump_at_least(current: str, level: str) -> str:
 
 
 def _max_level(a: str, b: str) -> str:
-    order = {"none": 0, "patch": 1, "minor": 2, "major": 3}
-    return a if order[a] >= order[b] else b
+    """The higher of two impact/floor levels on the none<patch<minor<major ladder. Delegates to release_impact
+    so the ordering lives in ONE home (that ladder IS the version math; a second copy could drift into a
+    different answer). A level of 'unknown' is not on the ladder — it never reaches here (the classifier folds
+    only minor/major floors; see _impact_statements)."""
+    return release_impact.max_impact((a, b))
 
 
 def _norm_ver(v):
@@ -703,6 +707,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             "package_floor": {},
             "change_inventory": inventory,
             "impacts": impacts,
+            "compatibility_unknown": [],
             # A default-on module depending on a not-guaranteed-present capability — baseline-independent, so it is
             # refused on the FIRST cut too (the diff siblings above need a baseline and so are absent here).
             "default_on_dependency_violations": _default_on_dependency_violations(present),
@@ -737,7 +742,12 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         if new_migs - old_migs:
             keys = ", ".join(sorted(new_migs - old_migs))
             inventory.append(f"'{mid}' gained a data/config migration ({keys}).")
-            package_floor[mid] = _bump_at_least(man.get("version", "0.0.0"), "minor")
+            # A migration MOVES the package version (a patch) so the updater's version-ranged migration machinery
+            # sees it in a new release — but its mere existence is NOT a SemVer signal: a migration can accompany a
+            # patch bug-fix, a minor feature, or a major break. The semantic level comes from the declared PR
+            # impact or a proven floor, never from the migration's presence (StarshipSuperjam/engine-template#942). The dropped-migration
+            # refusal (migration_violations) is a SEPARATE, untouched axis.
+            package_floor[mid] = _bump_at_least(man.get("version", "0.0.0"), "patch")
         # A newly-announced retired capability floors its module minor too — it is an operator-visible removal.
         # This RAISES the floor; it never certifies severity: a breaking removal must still carry its own
         # major/impact signal (a whole-module removal already floors major above). Combine with any migration
@@ -755,11 +765,15 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             package_floor[mid] = (floor if not prior
                                   or validate._ver_tuple(floor) >= validate._ver_tuple(prior) else prior)
 
-    # contract / seam / interface / wiring changes carry an AI-authored impact statement
+    # contract / seam / interface / wiring changes carry an AI-authored impact statement. Only a PROVABLE floor
+    # raises the engine level — `minor` for a genuinely added surface, `major` for a genuine removal. A renamed/
+    # relocated or in-place-changed surface is `unknown`: it sets NO floor (a byte diff cannot prove
+    # compatibility), and is surfaced for review, where the declared PR impact governs (StarshipSuperjam/engine-template#942).
     impacts = _impact_statements(baseline_tree)
-    if impacts:
-        for im in impacts:
+    for im in impacts:
+        if im["floor_level"] in ("minor", "major"):
             engine_level = _max_level(engine_level, im["floor_level"])
+    compatibility_unknown = [im for im in impacts if im["floor_level"] == "unknown"]
 
     if not inventory and not impacts:
         inventory.append(_NO_STRUCTURAL_SIGNAL_NOTE)
@@ -781,6 +795,10 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         "package_floor": package_floor,
         "change_inventory": inventory,
         "impacts": impacts,
+        # Contract/interface surfaces whose compatibility the STRUCTURE could not prove (renamed or changed in
+        # place) — they set no floor; the renderers surface them in the Risk section as "review required", since
+        # the human is the backstop for that category (StarshipSuperjam/engine-template#942 design-review).
+        "compatibility_unknown": compatibility_unknown,
         # A dropped migration key on a retained module — the cut is refused on this, before apply writes (see
         # _cmd_propose). Empty on a clean diff; a stable field of the diff proposal so the refusal is legible.
         "migration_violations": _migration_accumulation_violations(was, present),
@@ -834,6 +852,7 @@ def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list
         "package_floor": {},
         "change_inventory": inventory,
         "impacts": [],
+        "compatibility_unknown": [],
         "merged_prs": merged_prs,
     }
 
@@ -845,40 +864,85 @@ _CONTRACT_GLOBS = (
 )
 
 
+_RENAME_SIMILARITY = 0.5   # a removed↔added surface pair this similar (git's own default) reads as a RENAME
+
+
+def _pair_renames(removed: dict, added: dict) -> dict:
+    """Pair each removed surface with the most similar added surface above _RENAME_SIMILARITY — the in-process
+    equivalent of git's rename detection (difflib similarity over the raw bytes), so a renamed or relocated
+    contract file is recognised as a rename rather than a remove+add. Returns {removed_name: added_name} for the
+    detected renames (each added surface used at most once, best match first). Kept dependency-free and working
+    on the fetched-tree byte maps _dir_bytes already produced (git --no-index would need both trees on disk in a
+    repo; this does not)."""
+    import difflib
+    pairs: dict[str, str] = {}
+    used_added: set[str] = set()
+    # Deterministic, best-ratio-first: sort candidate (removed, added) pairs by descending similarity.
+    scored = []
+    for r_name, r_bytes in removed.items():
+        for a_name, a_bytes in added.items():
+            ratio = difflib.SequenceMatcher(None, r_bytes, a_bytes).ratio()
+            if ratio >= _RENAME_SIMILARITY:
+                scored.append((ratio, r_name, a_name))
+    for _ratio, r_name, a_name in sorted(scored, key=lambda t: (-t[0], t[1], t[2])):
+        if r_name in pairs or a_name in used_added:
+            continue
+        pairs[r_name] = a_name
+        used_added.add(a_name)
+    return pairs
+
+
 def _impact_statements(baseline_tree: str) -> list[dict]:
-    """For each changed/added/removed contract or interface surface between the baseline tree and the
-    live tree, an AI-authored plain-language impact statement (what changed · a note that consumers
-    depend on it · why that reads breaking-or-additive), plus the behavioral-correlate marking. The
-    break/no-break demonstration runs "where a behavioral correlate exists"; with
-    no acceptance-benchmark instrument available, the marking is honest, not faked."""
+    """For each contract/interface surface that differs between the baseline tree and the live tree, an
+    AI-authored plain-language impact statement, tagged with the compatibility floor the STRUCTURE can PROVE —
+    and only where it genuinely can (StarshipSuperjam/engine-template#942):
+
+      * a surface ADDED (with no rename partner) -> `minor` floor (additive — nothing depended on it yet);
+      * a surface REMOVED (with no rename partner) -> `major` floor (a genuine breaking removal);
+      * a surface RENAMED/relocated (a removed↔added pair above the similarity bar) -> `unknown` (the surface
+        persists; a rename is tech-debt evolution, NOT a removal — the declared PR impact governs);
+      * a surface CHANGED in place -> `unknown` (a byte diff cannot prove compatibility either way).
+
+    An `unknown` floor sets NO version number by itself — it is surfaced as "compatibility unknown — review
+    required" (the renderers put these in the Risk section, where the human is the backstop) and the declared PR
+    impact governs. This replaces the old blunt added->minor / removed->major / changed->minor, whose
+    remove+add reading of a rename produced a FALSE major. The break/no-break demonstration marking stays honest
+    (no acceptance-benchmark instrument exists, so it is named, not faked)."""
+    demo = ("none — no behavioral correlate is available for this signal, so this rests on the impact statement "
+            "and your confirmation; the release is consciously sub-bar on this signal, named here.")
     out: list[dict] = []
     for sub in _CONTRACT_GLOBS:
-        live_dir = os.path.join(validate.ROOT, sub)
-        base_dir = os.path.join(baseline_tree, sub)
-        live = _dir_bytes(live_dir)
-        base = _dir_bytes(base_dir)
-        for name in sorted(set(live) | set(base)):
-            lb, bb = live.get(name), base.get(name)
-            if lb == bb:
+        live = _dir_bytes(os.path.join(validate.ROOT, sub))
+        base = _dir_bytes(os.path.join(baseline_tree, sub))
+        changed = {n for n in set(live) | set(base) if live.get(n) != base.get(n)}
+        added = {n: live[n] for n in changed if n not in base}
+        removed = {n: base[n] for n in changed if n not in live}
+        renames = _pair_renames(removed, added)          # {removed_name: added_name}
+        renamed_added = set(renames.values())
+        for name in sorted(changed):
+            if name in renames:                          # the removed half of a rename pair
+                what, level = (f"the contract surface '{name}' was renamed/relocated to "
+                               f"'{renames[name]}'"), "unknown"
+                why = ("a rename/relocation is not a removal — the surface persists, so this is tech-debt "
+                       "evolution; the declared release impact governs. Review the move against consumers.")
+            elif name in renamed_added:                  # the added half of a rename pair — reported by its old name
                 continue
-            if bb is None:
+            elif name in added:
                 what, level = f"a new contract surface '{name}' was added", "minor"
                 why = "new surfaces are additive — nothing existing depended on it yet."
-            elif lb is None:
+            elif name in removed:
                 what, level = f"the contract surface '{name}' was removed", "major"
                 why = "removing a surface other parts may depend on is a breaking change."
             else:
-                what, level = f"the contract surface '{name}' changed", "minor"
-                why = ("a changed contract can be additive or breaking depending on which consumers "
-                       "depend on it — read the change against them before confirming.")
+                what, level = f"the contract surface '{name}' changed in place", "unknown"
+                why = ("a changed contract can be additive or breaking depending on its consumers — a byte diff "
+                       "cannot prove which, so the declared release impact governs; read the change against them.")
             out.append({
                 "surface": os.path.join(sub, name),
                 "what": what,
                 "why": why,
-                "floor_level": level,
-                "behavioral_demo": "none — no behavioral correlate is available for this signal, so this rests "
-                                   "on the impact statement and your "
-                                   "confirmation; the release is consciously sub-bar on this signal, named here.",
+                "floor_level": level,          # 'minor' | 'major' | 'unknown' — 'unknown' sets no floor
+                "behavioral_demo": demo,
             })
     return out
 

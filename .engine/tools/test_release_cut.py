@@ -210,9 +210,10 @@ class Classify(unittest.TestCase):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
-    def test_diff_migration_and_retirement_combine_without_clobber(self):
-        # a migration AND a retirement added at the same module version: the second writer must not overwrite the
-        # first's floor — take the higher, so identical inputs keep the same floor rather than lowering it.
+    def test_diff_migration_patches_and_retirement_raises_no_clobber(self):
+        # StarshipSuperjam/engine-template#942: a migration MOVES the package a PATCH (so the updater's version-ranged machinery sees
+        # it) but is NOT a SemVer signal (its existence implies no minor); a retirement is a MINOR floor. When both
+        # land at the same module version, the combine takes the HIGHER (minor), never clobbering downward.
         mig = {"0.4.0": {"description": "d", "run": "r", "kind": "config"}}
         ret = {"0.4.0": {"description": "gone"}}
         base = _baseline_tree({"core": _module("core", ver="0.3.0")})
@@ -221,9 +222,67 @@ class Classify(unittest.TestCase):
                 floor_mig = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
             with _Tree({"core": _module("core", ver="0.4.0", migrations=mig, retired_capabilities=ret)}):
                 floor_both = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
-            self.assertEqual(floor_mig, floor_both)                       # combine kept the floor, never clobbered
+            self.assertEqual(floor_mig, "0.4.1")                          # a migration alone: a patch mover, not minor
+            self.assertEqual(floor_both, "0.5.0")                         # a retirement raises it to a minor
+            self.assertGreaterEqual(rc.validate._ver_tuple(floor_both),
+                                    rc.validate._ver_tuple(floor_mig))    # combine never clobbers downward
         finally:
             shutil.rmtree(base, ignore_errors=True)
+
+
+def _write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+class ContractSurfaceReframe(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: the classifier proves a floor only where it genuinely can. An ADDED contract surface -> minor;
+    # a genuine REMOVED surface -> major; a RENAMED/relocated surface -> 'unknown' (NOT a false major); a surface
+    # CHANGED in place -> 'unknown'. 'unknown' sets no floor and is surfaced for review.
+    _BODY = "# eADR-0001\n\n" + ("A settled decision with enough body to make similarity real.\n" * 20)
+
+    def _classify_with_contracts(self, base_files, live_files):
+        base = _baseline_tree({"core": _module("core")})
+        for name, text in base_files.items():
+            _write_text(os.path.join(base, ".engine", "contracts", name), text)
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                for name, text in live_files.items():
+                    _write_text(os.path.join(t.root, ".engine", "contracts", name), text)
+                return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_added_surface_floors_minor(self):
+        p = self._classify_with_contracts({}, {"eADR-0009-new.md": self._BODY})
+        self.assertEqual(p["engine_floor_level"], "minor")
+        self.assertEqual(p["compatibility_unknown"], [])
+
+    def test_removed_surface_floors_major(self):
+        p = self._classify_with_contracts({"eADR-0009-gone.md": self._BODY}, {})
+        self.assertEqual(p["engine_floor_level"], "major")
+
+    def test_renamed_surface_is_unknown_not_major(self):
+        # the SAME body under a NEW name: a rename, not a removal. It must NOT floor major; it is 'unknown'.
+        p = self._classify_with_contracts({"eADR-0009-old.md": self._BODY},
+                                          {"eADR-0009-relocated.md": self._BODY})
+        self.assertEqual(p["engine_floor_level"], "none")            # a rename never forces major
+        self.assertTrue(any("renamed/relocated" in im["what"] for im in p["compatibility_unknown"]))
+
+    def test_changed_in_place_is_unknown_not_minor(self):
+        p = self._classify_with_contracts({"eADR-0009-x.md": self._BODY},
+                                          {"eADR-0009-x.md": self._BODY + "\nappended clause changing it.\n"})
+        self.assertEqual(p["engine_floor_level"], "none")            # a byte change proves nothing -> no floor
+        self.assertEqual(len(p["compatibility_unknown"]), 1)
+        self.assertIn("changed in place", p["compatibility_unknown"][0]["what"])
+
+    def test_pair_renames_matches_similar_and_skips_dissimilar(self):
+        removed = {"old.md": b"the quick brown fox jumps over the lazy dog" * 5}
+        added = {"new.md": b"the quick brown fox jumps over the lazy dog" * 5,
+                 "unrelated.md": b"completely different content about turtles" * 5}
+        pairs = rc._pair_renames(removed, added)
+        self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
 
 
 class MigrationAccumulation(unittest.TestCase):
