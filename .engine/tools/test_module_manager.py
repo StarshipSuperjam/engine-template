@@ -2133,6 +2133,14 @@ class TestArrivalPrBodyIsTemplateConforming(unittest.TestCase):
         self.assertIn("could NOT be turned on", off)
         self.assertNotIn("has already been turned on", off)
 
+    def test_arrival_body_names_the_engine_version_and_file_count(self):
+        # #755 (deliverable review): engine_release and overlaid_count are threaded to the renderer, so they must
+        # actually appear — a reviewer of the project's first engine PR must be able to tell which version was
+        # installed and how much it placed, not have those facts computed and silently dropped.
+        body = self._rich(engine_release="v0.5.0", overlaid_count=712)
+        self.assertIn("engine v0.5.0", body)
+        self.assertIn("712 engine files", body)
+
     def test_arrival_body_literalizes_externally_derived_values(self):
         # The branch name and update-home slug are external strings; a stray Markdown metacharacter must not
         # reshape the sole consent surface.

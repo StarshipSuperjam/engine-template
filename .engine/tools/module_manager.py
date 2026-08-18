@@ -2100,9 +2100,10 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
             return (f"- Your {which} guide ({file_name}) already carried the engine's instruction block, so it "
                     f"was left as it was.")
         if status == "degraded":
-            return (f"- Could NOT add the engine's instruction block to your {which} guide ({file_name}) — its "
-                    f"existing engine block looks damaged, so the file was left untouched. Check its marker "
-                    f"lines before you merge.")
+            return (f"- Could NOT add the engine's instruction block to your {which} guide ({file_name}) — an "
+                    f"engine block already there looks damaged, so the file was left untouched. Before you "
+                    f"merge, ask your AI assistant to repair the engine block in {file_name} (its begin/end "
+                    f"marker comments).")
         if status == "skipped":
             return (f"- Did not add an engine instruction block to the {which} guide — this release ships none "
                     f"for it.")
@@ -2110,10 +2111,16 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
 
     # Scope — what the arrival actually did to the project, at an honest aggregate (per-collision choices are not
     # retained at the opener site, so overlaps are reported by count and outcome, never as claimed dispositions).
-    scope = ["- Placed the engine's own files in their own namespaced corners (the `.engine/` area and the "
-             "provider guides), leaving your project's files where they are."]
+    lead = f"- Installed engine {_lit(engine_release)}" if engine_release else "- Installed the engine"
+    lead += (f" — {overlaid_count} engine files placed in their own namespaced corners (the `.engine/` area and "
+             "the provider guides), leaving your project's files where they are."
+             if overlaid_count else
+             " — its files placed in their own namespaced corners (the `.engine/` area and the provider guides), "
+             "leaving your project's files where they are.")
+    scope = [lead]
     if module_ids:
-        scope.append(f"- Installed the engine's {len(module_ids)} modules in {_lit(tier)} mode.")
+        scope.append(f"- Enabled {len(module_ids)} engine modules in {_lit(tier)} mode "
+                     f"(governance sized for {'a single maintainer' if tier == 'solo' else 'a team'}).")
     if overlap_count:
         settled = (f"- Found {overlap_count} place(s) where the engine's files overlapped your own; each was "
                    f"surfaced and settled before anything was written")
@@ -2141,10 +2148,9 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
         "",
         "**With the engine installed, this project can orient, validate, and protect its work.**",
         "",
-        f"- The engine recognizes your default branch ({_lit(default_branch)}) and reports its safety gate — "
-        "check with `python .engine/tools/bootstrap.py status`.",
-        "- The installed configuration passes the engine's own local check suite — "
-        "`python .engine/tools/validate.py --suite CI`.",
+        f"- The engine knows your default branch ({_lit(default_branch)}) and whether its safety gate is on — "
+        "the orientation every session starts from.",
+        "- The installed configuration is internally consistent and passes the engine's own local checks.",
         "- From here, changes are developed in isolated worktrees and reviewed through protected pull requests.",
     ]
 
@@ -2156,9 +2162,16 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
          "- It sets up a reviewable, reversible, protected-branch way of working — every later change arrives "
          "as its own reviewed pull request."],
         "merging is your consent to run the engine in this project; nothing changes until you merge.")
-    scope_summary = ("What the arrival did — installed the engine's files"
-                     + (f" ({len(module_ids)} modules, {_lit(tier)} mode)" if module_ids else "")
-                     + ", settled any overlap with your own files, and set up branch protection.")
+    scope_paren = "; ".join(
+        ([f"{len(module_ids)} modules, {_lit(tier)} mode"] if module_ids else [])
+        + ([f"{overlaid_count} files"] if overlaid_count else []))
+    scope_summary = (
+        f"What the arrival did — installed engine {_lit(engine_release)}" if engine_release
+        else "What the arrival did — installed the engine")
+    scope_summary += f" ({scope_paren})" if scope_paren else ""
+    scope_summary += (", settled any overlap with your own files, and "
+                      + ("turned on branch protection."
+                         if protected else "could not turn on branch protection (see Scope and Review)."))
     out += release_cut.pr_section(
         "Scope", scope_summary, scope,
         "the project gains the engine's governance layer while your own files and history stay untouched.")
@@ -2166,7 +2179,8 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
         "Out of scope",
         "What this does not do.",
         ["- It does not change your project's own files, code, or content.",
-         "- It does not change any settings you configured yourself.",
+         "- It does not change settings you configured yourself — turning on branch protection (see Scope) is "
+         "the one repository setting the arrival sets.",
          "- It touches only the engine's own files and the engine's marked blocks in your shared guides.",
          "- It does not delete any existing branch."],
         "the arrival stays independently reviewable; changes to your project begin only after this merges.")
@@ -2189,8 +2203,8 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
         "What the engine checked before opening this — and what it honestly did not.",
         ["- The engine's first-run consistency checks passed before this pull request was opened — the checks "
          "that catch a missing, orphaned, or mismatched engine file.",
-         "- The engine's own generated knowledge index was regenerated and checked for drift against the "
-         "installed sources before opening.",
+         "- The engine's own generated index of its parts was rebuilt and checked against the installed files "
+         "before opening — so what the engine records about itself matches what is actually there.",
          "- These are structural checks run locally during the arrival. The engine's full check suite does NOT "
          "run on this pull request yet — its workflows arrive in this very pull request and only start running "
          "once they are on the default branch (see Review). Nothing here is represented as a passing check that "
@@ -2201,7 +2215,8 @@ def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None,
         "- Merge to adopt the engine; close this to decline — nothing changes and your project stays as it is.",
         "- **After you merge, run `python .engine/tools/bootstrap.py finalize` from the project.** It turns on "
         "the engine's required checks (engine-ci, engine-guard)"
-        + ("" if protected else ", and turns on branch protection itself, since this arrival could not")
+        + ("" if protected else ", and turns on branch protection itself, since this arrival could not turn it "
+           "on directly")
         + ". The engine's guardrails are not fully armed until you do.",
         "- No separate independent review ran; the installation was checked mechanically (see Validation) and "
         "refuses to open on a hard finding.",

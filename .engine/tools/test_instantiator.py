@@ -622,10 +622,14 @@ for _argv in (["show"], ["demo"], ["apply-demo"], ["finish-demo"], ["collision-d
 # #755: arrive() composes its PR body via module_manager.render_arrival_pr_body, which `import release_cut` —
 # release_cut is import-safe on this bare (jsonschema-blocked) floor ONLY because its jsonschema binding is lazy.
 # Render the arrival body here so a regression that drags jsonschema back onto the arrival floor fails loudly.
-import module_manager as _mm
+import os as _os, module_manager as _mm, validate as _v
 _ab = _mm.render_arrival_pr_body(module_ids=["m1"], claude_floor="inserted", agents_floor="inserted",
                                  default_branch="main", protected=True)
-assert "## Purpose" in _ab and "## AI involvement" in _ab, ("ARRIVAL-BODY-BROKEN", _ab[:200])
+# Prove the arrival body is GATE-CONFORMING on the bare floor, not merely non-crashing: run the SAME real
+# pr-body-completeness check (presence-only, no jsonschema) the merge gate runs.
+_rule = _v.load_json(_os.path.join(_v.CHECK_DIR, "pr-body-completeness.json"))
+_ok, _f = _v.kind_presence(_rule, {"pr_body": _ab})
+assert _ok, ("ARRIVAL-BODY-NOT-GATE-CONFORMING-ON-3.9-FLOOR", _f)
 print("STARTABLE-OK")
 """
 
@@ -3626,6 +3630,30 @@ class TestArrive(unittest.TestCase):
             self.assertIn("bootstrap.py finalize", body)                      # the post-merge action, in Review
             self.assertNotIn("suite runs on this pull request", body.lower())  # checkless-arrival honesty
             self.assertIn("not yet running on this pull request", body.lower())
+
+    def test_arrival_pr_body_surfaces_a_degraded_floor_on_the_proceed_path(self):
+        # #755 (deliverable review): a floor the engine could NOT insert (a malformed local fence) must appear as
+        # a must-see line on the REAL proceed path — arrive() → _insert_floor returns 'degraded' → the composed
+        # body carries the line. The renderer-level unit test is not enough; this drives the whole arrival.
+        import wiring
+        prs = []
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            # A malformed engine floor fence (a BEGIN with no END) so the floor insert degrades while the arrival
+            # still proceeds to open the PR (the idiom from test_malformed_local_fence_degrades).
+            with open(os.path.join(target, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write(wiring.MD_FENCE_BEGIN.format(id=inst._FLOOR_FENCE) + "\nunterminated\n")
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v0.5.0", tier="solo",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None,
+                              opener=lambda **k: prs.append(k) or {"number": 1}, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(res["floor"], "degraded")           # the real arrival produced the degraded status
+            self.assertEqual(len(prs), 1)
+            body = prs[0]["body"]
+            self.assertIn("Could NOT add the engine's instruction block to your Claude guide", body)
+            self.assertIn("ask your AI assistant to repair the engine block in CLAUDE.md", body)
 
     def test_accept_proceeds_inserts_one_floor_and_opens_one_pr_for_the_target(self):
         import wiring

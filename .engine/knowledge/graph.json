@@ -12208,7 +12208,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:6b8ed552ba210644d38ef96d105f0d19e4475862c95611656568d9192eecfce2",
+        "fingerprint": "sha256:d74dd7fe581ff89dc77e6f75cb4a2646664ad0d51aff1375af95bc417d4038d6",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13082,7 +13082,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:734c55f6374172b2ff702b4340d3b61e36bd3374196a3467be42bde11830ad81",
+        "fingerprint": "sha256:93a14db44f0a8fea7c30d4c4e057aa0f01760710b1fbdbc89fb101d94bcd3e88",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13647,7 +13647,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:a73e342b2a027f59bd64ad35cb92d935b091341c56d37475247b329a6f7ef518",
+        "fingerprint": "sha256:0e38c1beacb435a4e34277c2fc2aa4b15e8dfce7bff6602f3fe74d453409d4b0",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -16229,7 +16229,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:e9027113018615c96c09724c3ffc87b0d83b16a500aa5bf15438d8b2b92a5384",
+        "fingerprint": "sha256:a37968595ca5ccf40f2c9446c23328e4203f9d15a52a83815a97d3319b1f5f17",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -16943,7 +16943,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:8a9142cd8d4225a4b0b5a475490512185ac2223b44385d6742269b92c1ae3bfe",
+        "fingerprint": "sha256:8c815c16fff4f2bd91f740e13e1328777ad133789cd29f0b95b8f23d0947dd06",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
