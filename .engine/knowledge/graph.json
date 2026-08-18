@@ -9598,7 +9598,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c7d9c8c7bc87488a39e55e361bf966cb8b5ff7c8fa5d88d5b0b72976a4944d96",
+        "fingerprint": "sha256:988c3db9db2561b5dd49caf11e1efc001bf58b445547525e413bdc0ce12bc3fe",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -14499,7 +14499,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:47ef698e18e2eb120e3db607d590fbe261bcef3d0559a50b9ef9f014aebf5644",
+        "fingerprint": "sha256:cb75dc0986a60baacb2866e1c2b5fa1a8b0c2c546a1b358d15487327c93769f0",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -15094,7 +15094,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:177afe7b796fdac99e1b469f705a1fda4598c3bb634f02bf91dcb47260d33d61",
+        "fingerprint": "sha256:573c12b09c17ea678d21435d263f71fd992ae0e9af838310c7876bff8b04bceb",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -18662,7 +18662,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:32b903ea171f4e008323af424dad2b22f05922cdb257218548f52c975710deb0",
+        "fingerprint": "sha256:5275be208a573185c12fe6b24dd8d701957cdab209e55ffc9afd3c513c6696ff",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

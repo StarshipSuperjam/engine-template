@@ -259,22 +259,31 @@ def _has_unfilled_placeholders(body: str) -> bool:
 
 
 def build_pr_body(*, summary: str, template_text: str | None = None, authored_body: str | None = None,
-                  reviewed: bool = False) -> str:
+                  reviewed: bool = False, contributing_to_engine_home: bool = False) -> str:
     """The cross-fork pull-request body. Precedence: an AUTHORED body (a session wrote the full body to the
     host's form — the mergeable path for a host with a completeness gate, StarshipSuperjam/engine-template#557) is used as given; else the
     host's TEMPLATE is carried after a one-line summary for completion; else the Engine's own fallback shape
-    (`_FALLBACK_SECTIONS`). EVERY path LEADS with the review-disclosure note stating the TRUTH about this
-    contribution — that the engine's second review ran (`reviewed=True`) or did not (StarshipSuperjam/engine-template#562). The note is a
-    leading blockquote that rides any body without corrupting it, so an authored body keeps the StarshipSuperjam/engine-template#562 disclosure
-    too (dropping it there would reopen the gap StarshipSuperjam/engine-template#562 closed). Never invokes the owner-repo completeness check
+    (`_FALLBACK_SECTIONS`).
+
+    The review-disclosure note (StarshipSuperjam/engine-template#562) leads the body ONLY when contributing back to the engine's own
+    HOME (`contributing_to_engine_home=True`) — where it states the TRUTH about this contribution (that the
+    engine's second review ran (`reviewed=True`) or did not) in terms the home's own maintainers share. For a
+    NON-home third-party host the note is OMITTED: it names the engine's internal review process in
+    engine-internal terms that read as noise to a stranger's maintainers, and imposing it there contradicts
+    this path's follow-the-host's-conventions principle — so a third-party contribution opens with a clean,
+    host-shaped body. When the note is carried, it is a leading blockquote that rides any body without
+    corrupting it, so an authored body to the home keeps the StarshipSuperjam/engine-template#562 disclosure too (dropping it there would
+    reopen the gap StarshipSuperjam/engine-template#562 closed for the home target). Never invokes the owner-repo completeness check
     (the engine/product wall)."""
     note = _COLD_REVIEW_RAN if reviewed else _COLD_REVIEW_BACKSTOP
+    lead = f"{note}\n\n" if contributing_to_engine_home else ""
     if authored_body is not None and authored_body.strip():
-        return f"{note}\n\n{authored_body.strip()}"
+        return f"{lead}{authored_body.strip()}"
     summary = summary.strip()
     if template_text is not None:
-        return f"{note}\n\n{summary}\n\n{template_text}"
-    parts = [f"{note}\n", f"## {_FALLBACK_SECTIONS[0]}\n\n{summary}\n"]
+        return f"{lead}{summary}\n\n{template_text}"
+    parts = [f"{note}\n"] if contributing_to_engine_home else []
+    parts.append(f"## {_FALLBACK_SECTIONS[0]}\n\n{summary}\n")
     for section in _FALLBACK_SECTIONS[1:]:
         parts.append(f"## {section}\n\n")
     return "\n".join(parts)
@@ -808,7 +817,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     template_text = detect_upstream_pr_template(root)
     contributing = detect_contributing(root)
     body = build_pr_body(summary=summary, template_text=template_text, authored_body=authored_body,
-                         reviewed=reviewed)
+                         reviewed=reviewed, contributing_to_engine_home=contributing_to_engine_home)
     body_unfilled = _has_unfilled_placeholders(body)
     pr = {"repo": upstream_repo, "base": base, "head": head, "title": title, "body": body,
           "followed_template": template_text is not None, "body_unfilled": body_unfilled,
@@ -1163,23 +1172,33 @@ def demo() -> int:
         if "haven't listed any references" not in r7d["narration"]:
             failures.append("no-declaration case: the narration did not say the check could not run")
 
-        # Case 8 — StarshipSuperjam/engine-template#557: an AUTHORED body is carried VERBATIM (the mergeable path against a gated host), no raw
-        #          <placeholder> survives, and the StarshipSuperjam/engine-template#562 review note still leads it.
+        # Case 8 — StarshipSuperjam/engine-template#557 + StarshipSuperjam/engine-template#562 (scoped): an AUTHORED body is carried VERBATIM (the mergeable path
+        #          against a gated host) and no raw <placeholder> survives. For a NON-home third-party host NO
+        #          engine review note leads it — that disclosure is scoped to the engine's own home (r8h below).
         authored = ("## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n\n"
                     "## Validation\n\n**Tests pass.**\n\n*Impact: green.*\n")
         r8 = submit(local_references_path=_ABSENT_DECL, upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
                     root=root_gated, owned=owned, gh_run=gh_ok, github=None, authored_body=authored,
                     home=None, confirm=False, now=now)
-        print("--- an authored body is carried verbatim; no unfilled placeholder survives ---")
+        print("--- an authored body to a THIRD-PARTY host: carried verbatim, no engine review note leads it ---")
         print(r8["narration"], "\n")
         if r8["status"] != "prepared" or r8["pr"]["body_unfilled"]:
             failures.append(f"authored case: expected prepared with a filled body, got {r8['status']} / "
                             f"unfilled={r8['pr'].get('body_unfilled')}")
-        if authored.strip() not in r8["pr"]["body"] or "second, independent" not in r8["pr"]["body"]:
-            failures.append("authored case: the authored body (with the review note) was not carried verbatim")
+        if authored.strip() not in r8["pr"]["body"] or "second, independent" in r8["pr"]["body"]:
+            failures.append("authored case: the authored body must be carried verbatim with NO engine review "
+                            "note on a non-home host")
         if _PLACEHOLDER_RE.search(r8["pr"]["body"]):
             failures.append("authored case: a raw <placeholder> survived into the body")
+        # ...and the SAME authored body contributed back to the engine's OWN home DOES lead with the note
+        # (StarshipSuperjam/engine-template#562 kept for the home target, whose maintainers share the review context).
+        r8h = submit(local_references_path=_ABSENT_DECL, upstream_repo=home, base="main", remote="origin", head="me:feature",
+                     title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
+                     root=root_gated, owned=owned, gh_run=gh_ok, github=None, authored_body=authored,
+                     home=home, confirm=False, now=now)
+        if r8h["status"] != "prepared" or "second, independent" not in r8h["pr"]["body"]:
+            failures.append("authored-to-home case: the review note must lead an authored body to the engine's home")
 
         # Case 9 — StarshipSuperjam/engine-template#557: NO authored body against the engine's OWN home (whose completeness gate we KNOW rejects
         #          an unfilled body): HELD before the open even with confirm=True, remedy named. The SAME
