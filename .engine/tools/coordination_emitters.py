@@ -99,36 +99,11 @@ def emit_integration_next(transport, repo: str, pr: int) -> "str | None":
         transport, repo, pr, kind="integration-notice", event="next-in-queue", verify_action="recheck-queue",
         subject={"pr": pr}, work_ref={"pr": pr}))
 
-
-def emit_handoff_slot_released(transport, repo: str, pr: int) -> "str | None":
-    return _safe(lambda: _emit(
-        transport, repo, pr, kind="handoff", event="slot-released", verify_action="recheck-queue",
-        subject={"pr": pr}, work_ref={"pr": pr}))
-
-
-def emit_revalidation_base_advanced(transport, repo: str, pr: int, *, base_sha: str) -> "str | None":
-    """Emitted only when an OBSERVED base-SHA change is known (never merely because a slot was released — an
-    abandon leaves the base unchanged). `base_sha` is the new protected head the emitter saw."""
-    return _safe(lambda: _emit(
-        transport, repo, pr, kind="revalidation-notice", event="base-advanced", verify_action="recheck-base",
-        subject={"pr": pr}, work_ref={"pr": pr}, observed={"base_sha": base_sha}))
-
-
-def emit_bounded_status(transport, repo: str, pr: int, event: str, *, paths: "list | None" = None) -> "str | None":
-    subject = {"pr": pr}
-    if paths:
-        subject["paths"] = paths
-    return _safe(lambda: _emit(
-        transport, repo, pr, kind="bounded-status", event=event, verify_action="none",
-        subject=subject, work_ref={"pr": pr}))
-
-
-def emit_overlap(transport, repo: str, pr: int, other_pr: int, *, paths: "list | None" = None) -> "str | None":
-    """An overlap-warning posted on `pr` naming that a peer pull request (`other_pr`) touches an overlapping
-    surface. Advisory only — the receiver re-computes the overlap; it is never a lock."""
-    subject = {"pr": other_pr}
-    if paths:
-        subject["paths"] = paths
-    return _safe(lambda: _emit(
-        transport, repo, pr, kind="overlap-warning", event="domains-intersect", verify_action="recheck-overlap",
-        subject=subject, work_ref={"pr": pr}))
+# NOTE (StarshipSuperjam/engine-template#939): the notice vocabulary schema carries six kinds, but v1 wires ONLY the
+# integration-notice emitters above — the ones whose lifecycle point (the integration queue) already holds a
+# write-capable transport. The bounded-status, overlap-warning, revalidation fan-out, and handoff emitters
+# need an emit point inside build_coordinator's submit/claim path, which today reaches GitHub through the `gh`
+# subprocess and has no reusable transport; plumbing one there (without networking in that file's unit tests)
+# is its own change. Those emitters are deferred to a tracked follow-up rather than shipped unwired as dead
+# code. The receiver side (parser, board, boot relay, skills) already understands every kind, so the
+# follow-up only adds emit points, never a vocabulary change.

@@ -47,10 +47,6 @@ def _all(transport):
         lambda: ce.emit_integration_admitted(transport, "o/r", 5),
         lambda: ce.emit_integration_blocked(transport, "o/r", 5),
         lambda: ce.emit_integration_next(transport, "o/r", 5),
-        lambda: ce.emit_handoff_slot_released(transport, "o/r", 5),
-        lambda: ce.emit_revalidation_base_advanced(transport, "o/r", 5, base_sha="a" * 40),
-        lambda: ce.emit_bounded_status(transport, "o/r", 5, "work-declared", paths=["a.py"]),
-        lambda: ce.emit_overlap(transport, "o/r", 5, 6, paths=["a.py"]),
     ]
 
 
