@@ -265,14 +265,22 @@ def emit_findings() -> int:
     # No credentials / no event => local or non-PR context: FAIL OPEN soft (never a false local block); the CI
     # run, which always has both, performs the real check. Mirrors protection_guard's local-soft posture.
     if not (repo and token and event_path and os.path.exists(event_path)):
-        return _emit([validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)])
+        # Witness-deferred (StarshipSuperjam/engine-template#761): enforces in CI, but had no credential /
+        # pull-request event here — surfaced on report()'s elevated line, never folded into "nothing to do".
+        return _emit([validate.witness_deferred(_NO_CONTEXT_MESSAGE, None,
+                                                missing=["GITHUB_TOKEN", "pull-request event"])])
     try:
         with open(event_path, encoding="utf-8") as fh:
             event = json.load(fh)
         pr = event.get("pull_request")
         if not pr:
-            # Not a pull-request event: nothing to evaluate => soft (non-blocking), never a false block.
-            return _emit([validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)])
+            # Not a pull-request event (e.g. a push): this check ENFORCES in CI on a real pull request,
+            # it just has no pull-request context in this run — witness-deferred (StarshipSuperjam/engine-template#761),
+            # surfaced on report()'s elevated line, never folded into "nothing to do". Same semantic
+            # condition (and same message) as the no-credential branch above, so it is routed the same
+            # way — matching dependency-review, which unifies both cases into one witness_deferred branch.
+            return _emit([validate.witness_deferred(_NO_CONTEXT_MESSAGE, None,
+                                                    missing=["pull-request context"])])
         base_sha = ((pr.get("base") or {}).get("sha")) or ""
         if not base_sha:
             # A pull request with no readable base => fail closed (only reachable in CI).

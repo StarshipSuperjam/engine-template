@@ -568,7 +568,13 @@ def findings(block_tier: str = "hard", *, event_path: "str | None" = None,
     repo = repo or os.environ.get("GITHUB_REPOSITORY")
     token = token or os.environ.get("GITHUB_TOKEN")
     if not base or not head or not repo or not token:
-        return [validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)]
+        # Witness-deferred (StarshipSuperjam/engine-template#761): this review enforces in CI on a real pull
+        # request, but had no credential / PR context in this run — surfaced on report()'s elevated
+        # "not verified in this run" line, never folded into "nothing to do". Distinct from the
+        # _Unavailable / DegradedReadError branches below, which stay full soft findings (the review
+        # WAS applicable but its data was unavailable / went unscreened — those must stay visible).
+        return [validate.witness_deferred(_NO_CONTEXT_MESSAGE, None,
+                                          missing=["GITHUB_TOKEN", "pull-request context"])]
 
     client = client or DependencyReview(repo, token)
     try:

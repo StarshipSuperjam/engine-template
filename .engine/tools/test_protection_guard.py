@@ -1,9 +1,11 @@
-"""Protection-detection guard: the local (no-token) note is a disclosed no-op.
+"""Protection-detection guard: the local (no-token) note is a WITNESS-DEFERRED no-op.
 
-The guard runs as a `custom/script` check. With no token it fails open with a soft "not checked here —
-the real check runs in CI" note. That note is a disclosed not-applicable (#322): marked so the validator
-collapses it away from actionable notes, never left to masquerade as the one note needing action. Run in a
-subprocess with a scrubbed env so the no-token branch is deterministic and never touches the network."""
+The guard runs as a `custom/script` check. With no token it fails open with a soft "not checked in this run
+— the real check runs in CI" note. That note is witness-deferred (StarshipSuperjam/engine-template#761): it enforces in
+CI but had no repository-token witness here, so the validator LIFTS it onto its elevated "not verified in
+this run — enforces in CI" line rather than collapsing it into "nothing to do" — never left to masquerade
+as the one note needing action, and never falsely read as checked-and-passed. Run in a subprocess with a
+scrubbed env so the no-token branch is deterministic and never touches the network."""
 import json
 import os
 import subprocess
@@ -18,7 +20,12 @@ import protection_guard  # noqa: E402
 import repo_identity     # noqa: E402
 
 
-class TestLocalNoteIsDisclosedNoop(unittest.TestCase):
+class TestLocalNoteIsWitnessDeferred(unittest.TestCase):
+    """The local no-token branch emits a WITNESS-DEFERRED no-op (StarshipSuperjam/engine-template#761) — a hard check
+    that enforces in CI but had no repository token here. Since protection_guard.py inlines the marker
+    shape (it does not import validate), this pins the FULL inline key-set so a later drift from
+    validate.witness_deferred()'s shape is caught, not silently under-carried across the ingestion boundary."""
+
     def _run_without_token(self) -> list:
         env = {k: v for k, v in os.environ.items()
                if k not in ("GITHUB_TOKEN", "GITHUB_REPOSITORY")}
@@ -27,12 +34,19 @@ class TestLocalNoteIsDisclosedNoop(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
-    def test_local_no_token_note_is_marked_not_applicable(self):
+    def test_local_no_token_note_is_witness_deferred(self):
         findings = self._run_without_token()
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0]["severity"], "soft")
-        self.assertIn("Branch protection was not checked here", findings[0]["message"])
-        self.assertIs(findings[0].get("not_applicable"), True)
+        f = findings[0]
+        self.assertEqual(f["severity"], "soft")
+        self.assertIn("Branch protection was not checked in this run", f["message"])
+        # not_applicable stays set (every pre-#761 fail-safe path still holds) AND the distinct
+        # witness_deferred marker + its named missing witnesses are present, so report() lifts it
+        # onto the elevated "enforces in CI, not verified here" line rather than the collapse line.
+        self.assertIs(f.get("not_applicable"), True)
+        self.assertIs(f.get("witness_deferred"), True)
+        self.assertIsInstance(f.get("missing_witness"), list)
+        self.assertTrue(all(isinstance(x, str) for x in f["missing_witness"]))
 
 
 class TestMainProbesTheResolvedBranch(unittest.TestCase):

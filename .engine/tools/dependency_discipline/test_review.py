@@ -237,8 +237,12 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(len(fs), 1)
         self.assertEqual(fs[0]["severity"], "soft")
         self.assertIn("nothing for it to review", fs[0]["message"])
-        # Genuinely not-applicable (no PR to compare) — marked so the validator collapses it (#322).
+        # Witness-deferred (StarshipSuperjam/engine-template#761): this review ENFORCES in CI on a real PR; here it
+        # had no PR context. Marked witness_deferred (+not_applicable, so the pre-#761 collapse fail-safe
+        # still holds) so the validator lifts it onto the elevated "not verified here" line, not "nothing to do".
         self.assertIs(fs[0].get("not_applicable"), True)
+        self.assertIs(fs[0].get("witness_deferred"), True)
+        self.assertIsInstance(fs[0].get("missing_witness"), list)
         self.assertFalse(client.called, "the client must not be constructed/used when there's no PR to compare")
 
     def test_corrupt_event_degrades_to_soft_no_op_not_fail_closed(self):

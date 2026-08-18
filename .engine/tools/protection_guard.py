@@ -11,8 +11,10 @@ by configuration.
 Runs as a `custom/script` check rule in the CI suite,
 so an unprotected branch turns engine-ci red. It emits finding.v1 JSON on stdout
 (the custom/script machine channel): a hard finding when the gate is not in force,
-and a soft "not checked here" note when no token is available (locally — fail open;
-the CI run, which has a token, performs the real check). The default GITHUB_TOKEN
+and a soft witness-deferred note when no token is available (locally — fail open; the
+CI run, which has a token, performs the real check). That note is surfaced on the
+validator's elevated "not verified in this run — enforces in CI" line (StarshipSuperjam/engine-template#761),
+never folded into "nothing to do". The default GITHUB_TOKEN
 (Metadata: read) can read this endpoint; it never reads the admin-gated
 ruleset-configuration endpoints.
 
@@ -328,11 +330,15 @@ def main() -> int:
         # Local / no credentials: FAIL OPEN with a soft note — a soft finding never blocks,
         # and the CI run (which has a token) performs the real check. Mirrors the presence
         # kind's fail-open-locally posture; never a false local block.
-        # A disclosed not-applicable: on a local run there is no token, so the real check runs in CI
-        # and there is nothing to do here. Marked so the validator collapses it away from actionable
-        # notes (StarshipSuperjam/engine-template#322); the marker rides through the custom/script boundary's allow-list.
+        # WITNESS-DEFERRED, not merely not-applicable: this check DOES enforce in CI, it just had no
+        # witness (a repository token) in this run — so the validator lifts it onto its elevated
+        # "not verified in this run — enforces in CI" line, never folding it into "nothing to do"
+        # (StarshipSuperjam/engine-template#761). The markers ride through the custom/script boundary's allow-list
+        # (validate.witness_deferred is the canonical shape; mirrored here since this tool does not
+        # import validate). not_applicable stays set so every prior fail-safe path still holds.
         return emit([{"severity": "soft", "location": None, "not_applicable": True,
-                      "message": "Branch protection was not checked here — no repository "
+                      "witness_deferred": True, "missing_witness": ["GITHUB_REPOSITORY", "GITHUB_TOKEN"],
+                      "message": "Branch protection was not checked in this run — no repository "
                       "access token is available, which is normal on your own machine. The "
                       "check that can actually block a bad merge runs in CI."}])
     posture = recorded_posture()  # an operator-consented 'this plan can't host protection' acceptance, or None

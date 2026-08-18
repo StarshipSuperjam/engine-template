@@ -84,6 +84,10 @@ _CS_PROPERTY = "no reachable failure path outside the construction repository"
 # must carry it alongside the named variables, so this class of declaration can no more be minted casually
 # than the other two.
 _REQ_PROPERTY = "the aimed bite is witnessable only with a live repository connection"
+# NOTE — distinct from validate.witness_deferred (StarshipSuperjam/engine-template#761): this carve-out is about whether a
+# check's negative FIXTURE bite can be witnessed here (a meta-check concern, frozen on disk). That is
+# a different mechanism from the RUNTIME disclosure a live-API check emits when it no-ops on a local
+# run — the two deliberately do not share machinery; do not consolidate them.
 # The home recognizer is the shared origin==home seam (repo_identity.is_home_repo) — the SAME signal the two
 # home-scoped checks' own `_in_home_repo()` gates on, so the harness and the checks can never disagree about
 # what "the home repo" is (a disagreement would let a check no-op in a copy while the harness still demanded
