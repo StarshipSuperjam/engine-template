@@ -1854,6 +1854,7 @@
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
+          "operation:serialized-integration",
           "operation:tune-policy"
         ]
       },
@@ -1913,6 +1914,7 @@
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
+          "operation:serialized-integration",
           "operation:tune-policy"
         ]
       },
@@ -5990,7 +5992,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:dac6b2c275d71fd6fb322b861e20135e8c686d4fb1fbbcfb8e0fd518bb7153ee",
+        "fingerprint": "sha256:6f59a5c9daa5a6bbdca4ff566d9734b5dc2109507aab191de8d0fad7e3c06a2c",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6823,6 +6825,26 @@
       "source": {
         "fingerprint": "sha256:33f0c7dcd0ace817b0e6dbf85f696d796682949caf3621aeb0ca3183510d85e9",
         "path": ".engine/operations/routine-entry.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:serialized-integration",
+      "name": ".engine/operations/serialized-integration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "serialized-integration",
+      "source": {
+        "fingerprint": "sha256:1e426beac26f5a38ef1592eb99d8ffb2ecf3393cf065ada2587fead12224c5e6",
+        "path": ".engine/operations/serialized-integration.md"
       },
       "status": "active",
       "type": "operation"

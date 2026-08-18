@@ -43,6 +43,7 @@
       ".engine/operations/onboarding-read.md",
       ".engine/operations/owned-product-build.md",
       ".engine/operations/operating-modes.md",
+      ".engine/operations/serialized-integration.md",
       ".engine/operations/tune-policy.md"
     ],
     "skill": [

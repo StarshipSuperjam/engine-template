@@ -1011,6 +1011,9 @@
   ".engine/operations/routine-entry.md": [
    "routine-mode"
   ],
+  ".engine/operations/serialized-integration.md": [
+   "core"
+  ],
   ".engine/operations/tune-policy.md": [
    "core"
   ],
