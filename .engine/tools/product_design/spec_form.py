@@ -11,7 +11,12 @@ The checks are lifecycle-scaled by each document's stage:
   marker and a place in the index — nothing more;
 - an in-progress or settled document additionally needs its `## Summary`, `## Behavior`, and
   `## Acceptance criteria` sections, and a well-formed acceptance-criteria table (each row: what must be
-  true | how it is verified | who can check it — you or the engine).
+  true | how it is verified | who can check it — you or the engine);
+- an in-progress (draft) document also needs its `## Operator and automatic workflow routing` disposition —
+  the section ADR 0336 requires on every future module specification. A settled (locked) document is
+  grandfathered for this one section: a corpus that settled before the requirement existed is not
+  retroactively invalidated by the engine upgrade that introduced it, and new authoring picks the section up
+  from the scaffold while still in draft, so forward coverage holds.
 
 Across the tree it checks coherence: every document is listed in the index, every index entry points to a
 document that exists, and the stage the index shows matches the stage the document declares.
@@ -75,9 +80,14 @@ _PLAIN_STAGES = "not yet described, in progress, or settled"
 # Documents past the placeholder stage carry the full structure; a not-yet-described slot does not.
 _DRAFTED = ("draft", "locked")
 
-# Sections a drafted (in-progress / settled) capability document must carry, as level-2 headings.
-_REQUIRED_SECTIONS = ("Summary", "Behavior", "Acceptance criteria",
-                      "Operator and automatic workflow routing")
+# Sections every drafted (in-progress / settled) capability document must carry, as level-2 headings.
+_REQUIRED_SECTIONS = ("Summary", "Behavior", "Acceptance criteria")
+# Additionally required only while a capability is actively authored (status: draft): the routing disposition
+# ADR 0336 requires on every FUTURE module specification. GRANDFATHERED on already-settled (locked) documents
+# — a corpus that settled before this requirement existed is not retroactively invalidated when an engine
+# upgrade adds it. New authoring passes through draft, where the scaffold supplies the section, so forward
+# coverage holds without turning an existing settled corpus red on upgrade.
+_DRAFT_ONLY_SECTIONS = ("Operator and automatic workflow routing",)
 _CRITERIA_SECTION = "Acceptance criteria"
 # The acceptance-criteria table columns, and the recognized values for the who-checks-it column.
 _CRITERIA_COLUMNS = ("criterion", "how verified", "who checks it")
@@ -372,7 +382,10 @@ def findings(tier: str, root: "str | None" = None) -> list:
             continue
         if status not in _DRAFTED:
             continue  # a not-yet-described slot needs only a recognized stage marker
-        missing = [s for s in _REQUIRED_SECTIONS if s.lower() not in headings]
+        # The routing disposition is demanded only of a doc still in draft (active authoring); a settled
+        # (locked) doc is grandfathered, so adding the requirement never invalidates an existing settled corpus.
+        required = _REQUIRED_SECTIONS + (_DRAFT_ONLY_SECTIONS if status == "draft" else ())
+        missing = [s for s in required if s.lower() not in headings]
         if missing:
             out.append(validate.finding(tier, _missing_sections_message(rel, status, missing),
                                         {"file": rel, "line": None}))
