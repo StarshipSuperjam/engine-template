@@ -360,6 +360,32 @@ class TestPreviewEvidence(unittest.TestCase):
             self._assemble(bc, self._state_with_receipts([{"lens": "usability"}]))  # predates the field
         self.assertIn("re-recorded", str(ctx.exception))
 
+    def test_review_coverage_reflects_whether_cold_reviewers_actually_ran(self):
+        # A false-claim guard (surfaced by dogfooding the coordinator at quick depth): the Review "Coverage"
+        # line must not say the deliverable lenses "ran after" when no cold-review receipt was recorded. It
+        # keys on the recorded receipts, not on the installed lens set.
+        import build_coordinator as bc
+        from unittest import mock
+        quick = self._state()
+        quick["approval"] = {"depth": "quick"}                        # quick depth, and no "reviews" receipts
+        with mock.patch.object(bc, "_run", return_value=mock.Mock(stdout="p", returncode=0)), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "x"}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed",
+                               return_value=[{"lens": "usability"}, {"lens": "spec-conformance"}]):
+            ev_quick = bc._assemble_evidence(quick, {"intent_source": {"kind": "direct"}, "spec": {}},
+                                             _good_claim(), "c" * 40, {"body": "", "baseRefOid": "b" * 40})
+            ev_ran = bc._assemble_evidence(
+                self._state_with_receipts([{"lens": "usability", "code_execution": "none"}]),
+                {"intent_source": {"kind": "direct"}, "spec": {}},
+                _good_claim(), "c" * 40, {"body": "", "baseRefOid": "b" * 40})
+        # No receipt recorded -> the line says no cold reviewers ran, and never claims lenses "ran after".
+        self.assertIn("no cold reviewers ran", ev_quick["review_coverage"])
+        self.assertNotIn("ran after", ev_quick["review_coverage"])
+        # A recorded cold-review receipt -> the deliverable lenses that ran are named.
+        self.assertIn("ran after", ev_ran["review_coverage"])
+
     def test_index_regen_is_computed_from_the_diff(self):
         # Drive the real index_regen computation (not the fixture): the git-diff leg names a generated index
         # file, so the disclosure must be computed non-empty.

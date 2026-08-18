@@ -1864,8 +1864,19 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         spec_steps = spec_referent.render_review_steps_multi(cs["review_steps"])
 
     depth = state["approval"]["depth"] if state.get("approval") else "unapproved"
-    lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
-    review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
+    # Coverage must state what ACTUALLY ran, not what is installed. At quick depth (and any depth that
+    # recorded no cold-review receipts) no lens ran, so naming the installed lenses as having "ran after"
+    # would be a false claim in the PR body — the honesty defect this line must not commit. Key the sentence
+    # on the recorded receipts, not on the installed set.
+    cold_review_ran = any(
+        state.get("reviews", {}).get(stage, {}).get("receipts", [])
+        for stage in ("plan", "deliverable"))
+    if cold_review_ran:
+        lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+        review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
+    else:
+        review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
+                           "plus the automatic checks (the full CI suite and self-tests).")
 
     # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
     # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a

@@ -145,37 +145,41 @@ class TestBuildPrBody(unittest.TestCase):
         body = submit.build_pr_body(summary="Fixes the bug.", template_text="## Their Heading\n<!-- fill -->")
         self.assertIn("## Their Heading", body)
         self.assertIn("Fixes the bug.", body)
-        # #562 backstop rides every cross-fork body, additively (never corrupts the host's template).
-        self.assertIn("second, independent check", body)
-        self.assertTrue(body.lstrip().startswith(">"))       # a leading note, before the summary/template
+        # A third-party host gets a clean body — no engine review-disclosure note leads it (#562 is scoped to
+        # the engine's own home; see test_non_home_contribution_omits_the_review_disclosure).
+        self.assertNotIn("second, independent check", body)
+        self.assertFalse(body.lstrip().startswith(">"))      # no leading engine note on a foreign template
 
     def test_falls_back_to_engine_shape_when_absent(self):
         body = submit.build_pr_body(summary="Fixes the bug.", template_text=None)
         self.assertIn("## Summary", body)
         self.assertIn("## How it was checked", body)
         self.assertIn("Fixes the bug.", body)
-        self.assertIn("second, independent check", body)    # #562 backstop present in the fallback shape too
+        self.assertNotIn("second, independent check", body)  # no engine note on a third-party fallback body
 
     def test_reviewed_note_states_the_review_ran_not_the_backstop(self):
-        # #562: reviewed=True must state the review RAN (not the "has NOT been run" backstop), so the note is
-        # informative about THIS contribution rather than an always-on warning.
-        body = submit.build_pr_body(summary="Fixes the bug.", template_text=None, reviewed=True)
+        # #562, for the engine's own HOME target: reviewed=True must state the review RAN (not the "has NOT
+        # been run" backstop), so the note is informative about THIS contribution rather than an always-on
+        # warning. (For a non-home host the note is omitted entirely — see the two tests below.)
+        body = submit.build_pr_body(summary="Fixes the bug.", template_text=None, reviewed=True,
+                                    contributing_to_engine_home=True)
         self.assertIn("ran its second, independent check", body)
         self.assertNotIn("NOT been run", body)
-        # default (not reviewed) carries the backstop
-        self.assertIn("NOT been run", submit.build_pr_body(summary="x", template_text=None, reviewed=False))
+        # default (not reviewed) carries the backstop, still only for the home target
+        self.assertIn("NOT been run", submit.build_pr_body(summary="x", template_text=None, reviewed=False,
+                                                           contributing_to_engine_home=True))
 
     def test_authored_body_is_carried_verbatim_and_wins_over_a_template(self):
         # #557: a session-authored body (written to the host's form) is used AS THE BODY — the host's raw
-        # template is NOT stuffed in. The #562 review note still LEADS it (dropping the note here would reopen
-        # the gap #562 closed), and no raw <placeholder> survives.
+        # template is NOT stuffed in. On a third-party host no engine note leads it, and no raw <placeholder>
+        # survives.
         authored = "## Purpose\n\n**Real content.**\n\n*Impact: works.*\n"
         body = submit.build_pr_body(summary="one-liner", template_text="## Host\n\n<fill this in please>",
                                     authored_body=authored)
         self.assertIn(authored.strip(), body)
         self.assertNotIn("<fill this in please>", body)     # the raw template was not used
         self.assertNotIn("one-liner", body)                 # the summary is not stuffed when a body is authored
-        self.assertIn("second, independent check", body)    # #562 note still rides the authored body
+        self.assertNotIn("second, independent check", body)  # no engine note on a third-party authored body
         self.assertFalse(submit._has_unfilled_placeholders(body))
 
     def test_empty_or_whitespace_authored_body_falls_back_to_the_template(self):
@@ -195,6 +199,35 @@ class TestBuildPrBody(unittest.TestCase):
             self.assertFalse(submit._has_unfilled_placeholders(body), html)
         # ...but a genuine leftover template prompt is still caught (the #557 signal is intact).
         self.assertTrue(submit._has_unfilled_placeholders("## Purpose\n\n<one-line summary of the change>\n"))
+
+    def test_home_contribution_leads_with_the_review_disclosure(self):
+        # #562 (scoped): contributing back to the engine's OWN home KEEPS the review-disclosure note leading
+        # every body path — host template, fallback shape, and authored body — where the home's own maintainers
+        # share the context and its completeness gate applies.
+        tmpl = submit.build_pr_body(summary="s", template_text="## H\n<!-- x -->",
+                                    contributing_to_engine_home=True)
+        fb = submit.build_pr_body(summary="s", template_text=None, contributing_to_engine_home=True)
+        auth = submit.build_pr_body(summary="s", authored_body="## Purpose\n\n**Real.**\n",
+                                    contributing_to_engine_home=True)
+        for body in (tmpl, fb, auth):
+            self.assertIn("second, independent check", body)
+            self.assertTrue(body.lstrip().startswith(">"))   # the note leads it
+
+    def test_non_home_contribution_omits_the_review_disclosure(self):
+        # The fix: a NON-home third-party host (the default) gets a clean, host-shaped body with NO engine
+        # review-disclosure note — it named the engine's internal review process in terms a stranger's
+        # maintainers don't share, against this path's follow-the-host's-conventions principle. The body
+        # content itself is unchanged.
+        tmpl = submit.build_pr_body(summary="Fixes it.", template_text="## H\n<!-- x -->")
+        fb = submit.build_pr_body(summary="Fixes it.", template_text=None)
+        auth = submit.build_pr_body(summary="s", authored_body="## Purpose\n\n**Real.**\n")
+        for body in (tmpl, fb, auth):
+            self.assertNotIn("second, independent check", body)
+            self.assertNotIn("A note on review", body)
+            self.assertFalse(body.lstrip().startswith(">"))  # no leading engine blockquote note
+        self.assertIn("## H", tmpl)                          # the host's template is still carried
+        self.assertIn("## Summary", fb)                      # the fallback shape is intact
+        self.assertIn("**Real.**", auth)                     # the authored body is carried verbatim
 
 
 class TestSubmitFlow(unittest.TestCase):
