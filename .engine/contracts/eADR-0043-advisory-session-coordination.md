@@ -1,7 +1,7 @@
 ---
 id: eADR-0043
 title: Cross-session worker coordination is advisory; the payload is durable and the doorbell is live
-status: proposed
+status: accepted
 date: 2026-08-18
 ---
 
@@ -122,4 +122,4 @@ higher-priority live entry.
 
 ## Status
 
-proposed
+accepted

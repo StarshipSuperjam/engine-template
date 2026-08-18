@@ -240,3 +240,30 @@ def record_event(event_type: str, *, at: str, cwd=None, path=None, **fields) -> 
 def events(*, cwd=None, path=None) -> list:
     """The measurement ring (oldest-first), for the metrics report. Pure read."""
     return list(_read(ledger_path(cwd, path)).get("events", []))
+
+
+def metrics(*, cwd=None, path=None) -> dict:
+    """Aggregate the measurement ring into the numbers that answer "did coordination reduce late conflicts and
+    polling?" — counts per event type, plus late-conflicts and queue-polls. Pure read; the evidence the
+    StarshipSuperjam/engine-template#989 dogfood decision reads. Content-free (only enum/id/timestamp events ever entered the ring)."""
+    evs = events(cwd=cwd, path=path)
+    by_type: dict = {}
+    for e in evs:
+        by_type[e.get("t", "?")] = by_type.get(e.get("t", "?"), 0) + 1
+    return {"total": len(evs), "by_type": by_type,
+            "late_conflicts": by_type.get("late-conflict", 0),
+            "notices_posted": by_type.get("posted", 0),
+            "queue_polls": by_type.get("queue-poll", 0)}
+
+
+def main(argv: list) -> int:
+    if argv and argv[0] == "metrics":
+        import json as _json
+        print(_json.dumps(metrics(), indent=2))
+        return 0
+    print("usage: coordination_ledger.py metrics", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
