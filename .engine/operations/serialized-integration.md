@@ -45,3 +45,23 @@ current protected branch with its derived files regenerated, surfaced to you as 
 merged by you, and the slot released so the next candidate can be admitted — with no candidate ever merged by
 the engine and no authored conflict guessed away.
 
+## Notes
+
+**Advisory coordination rides this lifecycle, it never gates it.** When session coordination is active
+(`session-coordination.md`, eADR-0043), admitting, blocking, and releasing a slot each emit an advisory
+notice on the pull request concerned — "a slot opened; prepare and re-check the queue", "the base advanced;
+re-prove against the current main". These make the lifecycle cheaper and less surprising for concurrent
+sessions, but they carry no authority: a session still acts only by re-running `prepare`/`prove_ready`
+against live state, freshness is still the ruleset's at your merge, and a missed or forged notice changes
+nothing (the reconcile/merge path recovers it). The overlap warning prompts sequencing; it is never a lock.
+
+**Toward the merge-queue outcome without a native merge queue.** The O(n²) re-prove churn the strict
+freshness lane (StarshipSuperjam/engine-template#915) can incur across concurrent candidates is what a native GitHub merge queue
+(StarshipSuperjam/engine-template#989) would remove. Session coordination offers a second route to the same *outcome*: if sessions order
+their own preparation around the singleton admission — each preparing only when it is the admitted candidate,
+rather than every candidate re-proving on every advance of main — the queue is walked in O(n) prepares
+without any `merge_group` machinery. Whether that makes the strict up-to-date requirement's churn a
+worthwhile trade to relax is a decision for when the measurement (`coordination_notice.py`'s ring, read via
+the coordination metrics view) shows how often re-prove churn actually survives coordination; until then the
+strict lane stays the enforcement floor and StarshipSuperjam/engine-template#989 stays parked.
+
