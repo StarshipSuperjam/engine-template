@@ -41,8 +41,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import protection_guard          # noqa: E402  (missing_floor freshness, resolve_tier, REQUIRED_CHECKS)
 import integration_queue_backend as backend  # noqa: E402
 
-READY_LABEL = "engine-integrate-ready"
-PRIORITY_LABEL = "engine-integrate-priority"
+READY_LABEL = backend.READY_LABEL          # single home: integration_queue_backend (provisioned there)
+PRIORITY_LABEL = backend.PRIORITY_LABEL
 
 
 @dataclass(frozen=True)

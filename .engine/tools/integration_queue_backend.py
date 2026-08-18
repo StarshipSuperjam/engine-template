@@ -34,6 +34,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_label_client  # noqa: E402
 
 INTEGRATING_LABEL = "engine-integrating"
+READY_LABEL = "engine-integrate-ready"
+PRIORITY_LABEL = "engine-integrate-priority"
+
+# The labels this subsystem owns — the control plane provisions them (eADR-0021's provisioning law: producers
+# apply, consumers read, provisioning creates), so no first-run gate blocks waiting on a hand-created label.
+INTEGRATION_LABELS = [
+    (READY_LABEL, "1d76db",
+     "A reviewed pull request ready to enter the serialized integration path."),
+    (PRIORITY_LABEL, "5319e7",
+     "Promote this candidate ahead of FIFO order in the serialized integration path."),
+    (INTEGRATING_LABEL, "0e8a16",
+     "This pull request holds the single integration slot — one candidate integrates at a time."),
+]
 
 
 @dataclass(frozen=True)
