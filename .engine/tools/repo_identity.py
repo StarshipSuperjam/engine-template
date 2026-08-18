@@ -138,7 +138,7 @@ def home_repository(root: "str | None" = None) -> "str | None":
     for where the engine fetches its own updates from AND where a fork-native deployment escalates a
     contribution to (schema: engine.v1.json `home_repository`). `None` when the manifest is absent or records
     no/blank home. A present-but-MALFORMED manifest RAISES (loud): `is_downstream_copy_strict` calls this
-    directly, and `release_cut` reaches it through `module_manager._home_repository` (which delegates here via
+    directly, and `release_cut` reaches it through `release_source._home_repository` (which delegates here via
     `module_coherence`) — both rely on a corrupt manifest never being silently read as "no home"."""
     engine = _manifest(root) or {}
     home = engine.get("home_repository")

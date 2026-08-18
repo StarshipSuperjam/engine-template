@@ -1971,6 +1971,9 @@
   ".engine/tools/release_integrity_check.py": [
    "core"
   ],
+  ".engine/tools/release_source.py": [
+   "core"
+  ],
   ".engine/tools/release_terminal.py": [
    "core"
   ],
@@ -2326,6 +2329,9 @@
    "core"
   ],
   ".engine/tools/test_release_gate.py": [
+   "core"
+  ],
+  ".engine/tools/test_release_source.py": [
    "core"
   ],
   ".engine/tools/test_release_terminal.py": [

@@ -34,7 +34,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import module_manager as mm  # noqa: E402
+import release_source as mm  # noqa: E402  (the #760 demo exercises the release-source primitives)
 
 
 @contextlib.contextmanager

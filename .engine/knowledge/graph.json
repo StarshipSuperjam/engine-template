@@ -10502,7 +10502,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:module_manager"
+          "tool:release_source"
         ],
         "provided_by": [
           "module:core"
@@ -10510,7 +10510,7 @@
       },
       "slug": "demo_760_add_release_tag",
       "source": {
-        "fingerprint": "sha256:ec72f5f888271d4d417b2a0d82bb6bdc4151676bc996ef161319aaf81f283f02",
+        "fingerprint": "sha256:a695b2609d73ec34562ec999c2634bc54db5bb2f8ddea11cc553639d067e2064",
         "path": ".engine/tools/demo_760_add_release_tag.py"
       },
       "status": "active",
@@ -13070,6 +13070,7 @@
           "tool:module_catalog",
           "tool:module_coherence",
           "tool:release_cut",
+          "tool:release_source",
           "tool:repo_identity",
           "tool:restore_vault",
           "tool:telemetry",
@@ -13082,7 +13083,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:93a14db44f0a8fea7c30d4c4e057aa0f01760710b1fbdbc89fb101d94bcd3e88",
+        "fingerprint": "sha256:e378436b7da391699abef5c8e67729a65f12d9022c984764688f4f6ff62cea5d",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13638,6 +13639,7 @@
           "tool:local_references",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:release_source",
           "tool:shipped_local_references_check",
           "tool:validate"
         ],
@@ -13647,7 +13649,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:0e38c1beacb435a4e34277c2fc2aa4b15e8dfce7bff6602f3fe74d453409d4b0",
+        "fingerprint": "sha256:ea88ae756d1a43ea9afb4e4f208c5f250dc61cbc32e7e829562ec9c86be3aeaa",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -13664,6 +13666,7 @@
         "imports": [
           "tool:census_completeness_check",
           "tool:module_manager",
+          "tool:release_source",
           "tool:validate"
         ],
         "provided_by": [
@@ -13672,7 +13675,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:689323bd68917c88020de0d381ddea239bf89c0fa59082fa8e6dd5477874e69d",
+        "fingerprint": "sha256:15f4f39728cf41b35b96bc97634d39df4b3f5be1e1342df1faaf1b7343ab7674",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -13701,6 +13704,31 @@
       },
       "status": "active",
       "summary": "Release integrity — the engine manifest's per-package versions must agree with each module's own",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:release_source",
+      "name": ".engine/tools/release_source.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot",
+          "tool:module_coherence",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_source",
+      "source": {
+        "fingerprint": "sha256:c87c34b0094580d053eef1fb571ea299cab9f7e17d9c15dc5ca94d3716a82c79",
+        "path": ".engine/tools/release_source.py"
+      },
+      "status": "active",
+      "summary": "Release source — the engine's release fetch + ref/tag resolution boundary.",
       "type": "tool"
     },
     {
@@ -13768,7 +13796,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:98f023afcfddb7b4c0f0d4589c78e56da02ed7b6de074a7d803145c3e8ef8a76",
+        "fingerprint": "sha256:f028d4fa54189bdbfb226bef24f398d762186d3b8e8f28987700940884c8d1ca",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -16920,7 +16948,6 @@
           "module:core"
         ],
         "tests": [
-          "tool:boot",
           "tool:bootstrap",
           "tool:capture",
           "tool:demo_594_rollback_discard",
@@ -16928,13 +16955,13 @@
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_759_upgrade_installs_new_modules",
-          "tool:demo_760_add_release_tag",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:protection_guard",
           "tool:quiet_call",
+          "tool:release_source",
           "tool:restore_vault",
           "tool:telemetry",
           "tool:validate",
@@ -16943,7 +16970,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:8c815c16fff4f2bd91f740e13e1328777ad133789cd29f0b95b8f23d0947dd06",
+        "fingerprint": "sha256:abe971ce174b49c4a1032a2346c8aa2a381b6842d3c80e8eb6c95dd6d2fde4a8",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -17574,6 +17601,33 @@
       },
       "status": "active",
       "summary": "Tests for `release_gate.py` — the cut-time deployment gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_release_source",
+      "name": ".engine/tools/test_release_source.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:boot",
+          "tool:demo_760_add_release_tag",
+          "tool:module_manager",
+          "tool:quiet_call",
+          "tool:release_source"
+        ]
+      },
+      "slug": "test_release_source",
+      "source": {
+        "fingerprint": "sha256:2c63e496793748604001cb5773e3457b0721a639d220df59a9614c438090ec61",
+        "path": ".engine/tools/test_release_source.py"
+      },
+      "status": "active",
+      "summary": "Tests for release_source — the release fetch + ref/tag resolution boundary",
       "type": "tool"
     },
     {
