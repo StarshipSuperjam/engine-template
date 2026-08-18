@@ -23,6 +23,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_manager  # noqa: E402
+import release_source  # noqa: E402  (StarshipSuperjam/engine-template#925 Part 5: release primitives' home)
 import module_coherence  # noqa: E402
 import validate  # noqa: E402
 import wiring  # noqa: E402
@@ -392,16 +393,16 @@ class TestAddSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_add_fixture(live)                  # engine_release "0.0.0"
-                saved = module_manager._fetch_release_tree
-                saved_pub = module_manager._release_tag_published         # bare "0.0.0" resolves to a tag first (#760)
-                module_manager._release_tag_published = lambda *a, **k: True
-                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                saved = release_source._fetch_release_tree
+                saved_pub = release_source._release_tag_published         # bare "0.0.0" resolves to a tag first (#760)
+                release_source._release_tag_published = lambda *a, **k: True
+                release_source._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
                     RuntimeError("HTTP Error 404: Not Found"))
                 try:
                     res = module_manager.add("feat")                    # real-fetch path -> raises
                 finally:
-                    module_manager._fetch_release_tree = saved
-                    module_manager._release_tag_published = saved_pub
+                    release_source._fetch_release_tree = saved
+                    release_source._release_tag_published = saved_pub
                 engine = module_manager.module_coherence.load_engine_manifest()
             self.assertTrue(res["refused"])
             self.assertIn("Couldn't reach", res["reason"])              # plain, not a raw urllib error
@@ -416,19 +417,19 @@ class TestAddSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_add_fixture(live)                 # records home "acme/engine-home"
-                saved = module_manager._fetch_release_tree
-                saved_pub = module_manager._release_tag_published        # bare "0.0.0" resolves to a tag first (#760)
-                module_manager._release_tag_published = lambda *a, **k: True
+                saved = release_source._fetch_release_tree
+                saved_pub = release_source._release_tag_published        # bare "0.0.0" resolves to a tag first (#760)
+                release_source._release_tag_published = lambda *a, **k: True
 
                 def _spy(ref, dest, repo=None, token=None):
                     seen["repo"] = repo
                     raise RuntimeError("stop after capturing the source")
-                module_manager._fetch_release_tree = _spy
+                release_source._fetch_release_tree = _spy
                 try:
                     module_manager.add("feat")
                 finally:
-                    module_manager._fetch_release_tree = saved
-                    module_manager._release_tag_published = saved_pub
+                    release_source._fetch_release_tree = saved
+                    release_source._release_tag_published = saved_pub
         self.assertEqual(seen.get("repo"), "acme/engine-home")          # the HOME, not boot.repo_slug()/origin
 
     def test_add_with_no_recorded_home_refuses_with_a_remedy_never_origin(self):
@@ -442,12 +443,12 @@ class TestAddSafety(unittest.TestCase):
                 m = module_manager.validate.load_json(p)
                 m.pop("home_repository", None)
                 module_manager._write_json(p, m)
-                saved = module_manager._fetch_release_tree
-                module_manager._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+                saved = release_source._fetch_release_tree
+                release_source._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
                 try:
                     res = module_manager.add("feat")
                 finally:
-                    module_manager._fetch_release_tree = saved
+                    release_source._fetch_release_tree = saved
         self.assertTrue(res["refused"])
         self.assertIn("no update home recorded", res["reason"])
         self.assertEqual(called["n"], 0)                                # never reached a fetch -> never origin
@@ -459,192 +460,19 @@ class TestAddSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_add_fixture(live)
-                saved = module_manager._fetch_release_tree
-                saved_pub = module_manager._release_tag_published        # bare "0.0.0" resolves to a tag first (#760)
-                module_manager._release_tag_published = lambda *a, **k: True
-                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                saved = release_source._fetch_release_tree
+                saved_pub = release_source._release_tag_published        # bare "0.0.0" resolves to a tag first (#760)
+                release_source._release_tag_published = lambda *a, **k: True
+                release_source._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
                     urllib.error.HTTPError("u", 404, "Not Found", {}, None))   # a REAL 404 at the home
                 try:
                     res = module_manager.add("feat")
                 finally:
-                    module_manager._fetch_release_tree = saved
-                    module_manager._release_tag_published = saved_pub
+                    release_source._fetch_release_tree = saved
+                    release_source._release_tag_published = saved_pub
         self.assertTrue(res["refused"])
         self.assertIn("acme/engine-home", res["reason"])               # NAMES the home so the operator can check
         self.assertIn("Nothing was changed", res["reason"])
-
-
-class TestReleaseApiRequest(unittest.TestCase):
-    """#867: the three release/tag network boundaries (`_fetch_release_tree`, `_resolve_release_ref`,
-    `_release_tag_published`) now build their GitHub Request through ONE shared helper, so the header block
-    and the token resolution live in one place. These offline tests are the FIRST coverage of that block —
-    the three call sites are a named inductive gap the suite never runs against the network. The load-bearing
-    property is the CONDITIONAL auth: a tokenless call must send NO `Authorization` (an empty `Bearer ` would
-    401 even an anonymous public-release fetch), which the pre-#867 copies preserved by hand and this helper
-    must keep — hence the deliberate `if tok:` rather than github_client.request's unconditional Bearer."""
-
-    @staticmethod
-    def _headers(req):
-        # urllib capitalizes header keys on store; normalize for a case-insensitive assertion.
-        return {k.lower(): v for k, v in req.header_items()}
-
-    def test_an_explicit_token_sets_a_bearer_authorization_and_the_full_header_block(self):
-        req = module_manager._release_api_request("/repos/acme/home/releases/latest", token="ghp_secret")
-        self.assertEqual(req.full_url, "https://api.github.com/repos/acme/home/releases/latest")
-        h = self._headers(req)
-        self.assertEqual(h["authorization"], "Bearer ghp_secret")
-        self.assertEqual(h["accept"], "application/vnd.github+json")
-        self.assertEqual(h["x-github-api-version"], "2022-11-28")
-        self.assertEqual(h["user-agent"], "engine-module-manager")
-
-    def test_no_token_and_no_ambient_token_sends_no_authorization(self):
-        # The anonymous public-release fetch: boot.gh_token() -> None, so NO Authorization header at all.
-        import boot
-        saved = boot.gh_token
-        boot.gh_token = lambda: None
-        try:
-            req = module_manager._release_api_request("/repos/acme/home/tarball/v1.0.0", token=None)
-        finally:
-            boot.gh_token = saved
-        h = self._headers(req)
-        self.assertNotIn("authorization", h)                          # the property this de-dup must preserve
-        self.assertEqual(h["accept"], "application/vnd.github+json")   # the rest of the block still present
-        self.assertEqual(h["x-github-api-version"], "2022-11-28")
-        self.assertEqual(h["user-agent"], "engine-module-manager")
-
-    def test_no_explicit_token_falls_back_to_the_ambient_gh_token(self):
-        import boot
-        saved = boot.gh_token
-        boot.gh_token = lambda: "ambient_tok"
-        try:
-            req = module_manager._release_api_request("/repos/acme/home/releases/tags/v1.0.0", token=None)
-        finally:
-            boot.gh_token = saved
-        self.assertEqual(self._headers(req)["authorization"], "Bearer ambient_tok")
-
-    def test_an_empty_token_string_sends_no_authorization_and_never_consults_boot(self):
-        # `token=""` is "not None", so the fallback is skipped, and the empty string is falsy, so no auth
-        # header — matching the pre-#867 `if tok:` truthiness exactly, never drawing an empty `Bearer `.
-        import boot
-        saved = boot.gh_token
-        boot.gh_token = lambda: (_ for _ in ()).throw(AssertionError("consulted boot for an explicit token"))
-        try:
-            req = module_manager._release_api_request("/repos/acme/home/tarball/main", token="")
-        finally:
-            boot.gh_token = saved
-        self.assertNotIn("authorization", self._headers(req))
-
-    def test_the_user_agent_is_overridable_and_defaults_to_the_module_manager_agent(self):
-        default = module_manager._release_api_request("/x", token="t")
-        custom = module_manager._release_api_request("/x", token="t", user_agent="engine-something-else")
-        self.assertEqual(self._headers(default)["user-agent"], "engine-module-manager")
-        self.assertEqual(self._headers(custom)["user-agent"], "engine-something-else")
-
-    def test_a_path_without_a_leading_slash_is_refused(self):
-        # The path is joined onto the host verbatim, so a slash-less path would silently build a malformed
-        # URL (https://api.github.comrepos/...); the helper must refuse it loudly, not emit a bad request.
-        with self.assertRaises(ValueError):
-            module_manager._release_api_request("repos/acme/home/releases/latest", token="t")
-
-
-class TestBareVersionTagResolution(unittest.TestCase):
-    """#760: the manifest records the engine release BARE (`_bump_engine_manifest` strips a leading `v`), so
-    `add`/`upgrade` must resolve that bare version to the home's REAL published tag before fetching — a
-    `v`-tagging home was fetched as `tarball/0.4.1` and 404'd. `_release_tag_published` is the single network
-    boundary; every test below injects it so the REAL resolution logic runs offline."""
-
-    def test_is_bare_version_matches_only_a_plain_semver(self):
-        self.assertTrue(module_manager._is_bare_version("0.4.1"))
-        self.assertTrue(module_manager._is_bare_version("12.0.30"))
-        self.assertFalse(module_manager._is_bare_version("v0.4.1"))    # a real tag, not bare
-        self.assertFalse(module_manager._is_bare_version("main"))      # a branch
-        self.assertFalse(module_manager._is_bare_version("abc1234"))   # a sha
-        self.assertFalse(module_manager._is_bare_version("latest"))
-        self.assertFalse(module_manager._is_bare_version(None))
-
-    def test_release_ref_candidates_probe_v_first(self):
-        # v-first so the dominant convention (and the `v` that _bump_engine_manifest strips) resolves in one hit.
-        self.assertEqual(module_manager._release_ref_candidates("0.4.1"), ["v0.4.1", "0.4.1"])
-
-    def test_bare_version_resolves_to_the_v_tag_on_a_v_home(self):
-        saved = module_manager._release_tag_published
-        module_manager._release_tag_published = lambda tag, repo=None, token=None: tag in {"v0.4.1", "v0.4.0"}
-        try:
-            self.assertEqual(module_manager._resolve_release_ref("0.4.1", repo="acme/home"), "v0.4.1")
-        finally:
-            module_manager._release_tag_published = saved
-
-    def test_bare_version_falls_back_to_the_bare_tag_on_a_bare_home(self):
-        saved = module_manager._release_tag_published
-        module_manager._release_tag_published = lambda tag, repo=None, token=None: tag == "0.4.1"
-        try:
-            self.assertEqual(module_manager._resolve_release_ref("0.4.1", repo="acme/home"), "0.4.1")
-        finally:
-            module_manager._release_tag_published = saved
-
-    def test_a_pinned_tag_or_sha_passes_through_without_a_probe(self):
-        # A non-bare ref must never touch the network — the tag-pin supply-chain control is unchanged.
-        saved = module_manager._release_tag_published
-        module_manager._release_tag_published = lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("probed a pinned ref"))
-        try:
-            self.assertEqual(module_manager._resolve_release_ref("v0.4.1", repo="acme/home"), "v0.4.1")
-            self.assertEqual(module_manager._resolve_release_ref("abc1234def", repo="acme/home"), "abc1234def")
-        finally:
-            module_manager._release_tag_published = saved
-
-    def test_no_matching_release_is_classified_missing_not_transport(self):
-        saved = module_manager._release_tag_published
-        module_manager._release_tag_published = lambda *a, **k: False   # the home publishes no such release
-        try:
-            with self.assertRaises(module_manager._NoPublishedRelease) as ctx:
-                module_manager._resolve_release_ref("0.4.1", repo="acme/home")
-        finally:
-            module_manager._release_tag_published = saved
-        self.assertTrue(module_manager._release_is_missing(ctx.exception))   # refuse loudly, never degrade
-
-    def test_a_transport_fault_on_the_probe_propagates_and_degrades(self):
-        import urllib.error
-        saved = module_manager._release_tag_published
-        module_manager._release_tag_published = lambda *a, **k: (_ for _ in ()).throw(
-            urllib.error.URLError("network down"))
-        try:
-            with self.assertRaises(urllib.error.URLError) as ctx:
-                module_manager._resolve_release_ref("0.4.1", repo="acme/home")
-        finally:
-            module_manager._release_tag_published = saved
-        self.assertFalse(module_manager._release_is_missing(ctx.exception))  # transport -> degrade, not refuse
-
-    def test_add_resolves_the_bare_recorded_version_to_the_tag_before_fetching(self):
-        # End to end on the real add path: the bare recorded "0.0.0" is resolved to "v0.0.0" and THAT is what
-        # the fetch is asked for — the exact wiring that fixes #760.
-        seen = {}
-        with tempfile.TemporaryDirectory() as d:
-            live = os.path.join(d, "live")
-            os.makedirs(live)
-            with module_manager._redirect_root(live):
-                module_manager._build_add_fixture(live)                  # engine_release "0.0.0", v-less
-                saved_pub = module_manager._release_tag_published
-                saved_fetch = module_manager._fetch_release_tree
-                module_manager._release_tag_published = lambda tag, repo=None, token=None: tag == "v0.0.0"
-
-                def _spy(ref, dest, repo=None, token=None):
-                    seen["ref"] = ref
-                    raise RuntimeError("stop after capturing the resolved ref")
-                module_manager._fetch_release_tree = _spy
-                try:
-                    module_manager.add("feat")
-                finally:
-                    module_manager._fetch_release_tree = saved_fetch
-                    module_manager._release_tag_published = saved_pub
-        self.assertEqual(seen.get("ref"), "v0.0.0")   # fetched the resolved tag, not the bare "0.0.0"
-
-    def test_the_760_falsification_demo_passes(self):
-        # Runs the shipped #760 demo (its negative control reproduces the original 404). This surviving
-        # reference is also what lets the demo travel (census-completeness) rather than retire.
-        import demo_760_add_release_tag as demo
-        import quiet_call
-        self.assertEqual(quiet_call.run(demo.main), 0)
 
 
 class TestFrozenLockSync(unittest.TestCase):
@@ -1429,13 +1257,13 @@ class TestUpgradeSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
-                saved = module_manager._fetch_release_tree
-                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                saved = release_source._fetch_release_tree
+                release_source._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
                     RuntimeError("HTTP Error 404: Not Found"))
                 try:
                     res = module_manager.upgrade(ref="v9.9.9")
                 finally:
-                    module_manager._fetch_release_tree = saved
+                    release_source._fetch_release_tree = saved
                 engine = module_manager.module_coherence.load_engine_manifest()
             self.assertTrue(res["refused"])
             self.assertIn("Couldn't reach", res["reason"])
@@ -1449,18 +1277,18 @@ class TestUpgradeSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)             # records home "acme/engine-home"
-                sr, sf = module_manager._resolve_release_ref, module_manager._fetch_release_tree
-                module_manager._resolve_release_ref = lambda ref, repo=None, token=None: (
+                sr, sf = release_source._resolve_release_ref, release_source._fetch_release_tree
+                release_source._resolve_release_ref = lambda ref, repo=None, token=None: (
                     seen.__setitem__("resolve_repo", repo) or "v0.2.0")
 
                 def _spy(ref, dest, repo=None, token=None):
                     seen["fetch_repo"] = repo
                     raise RuntimeError("stop after capturing the source")
-                module_manager._fetch_release_tree = _spy
+                release_source._fetch_release_tree = _spy
                 try:
                     module_manager.upgrade()                            # ref=None -> resolve latest FROM THE HOME
                 finally:
-                    module_manager._resolve_release_ref, module_manager._fetch_release_tree = sr, sf
+                    release_source._resolve_release_ref, release_source._fetch_release_tree = sr, sf
         self.assertEqual(seen.get("resolve_repo"), "acme/engine-home")
         self.assertEqual(seen.get("fetch_repo"), "acme/engine-home")
 
@@ -1475,12 +1303,12 @@ class TestUpgradeSafety(unittest.TestCase):
                 m = module_manager.validate.load_json(p)
                 m.pop("home_repository", None)
                 module_manager._write_json(p, m)
-                sf = module_manager._fetch_release_tree
-                module_manager._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+                sf = release_source._fetch_release_tree
+                release_source._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
                 try:
                     res = module_manager.upgrade()
                 finally:
-                    module_manager._fetch_release_tree = sf
+                    release_source._fetch_release_tree = sf
                 engine = module_manager.module_coherence.load_engine_manifest()
         self.assertTrue(res["refused"])
         self.assertIn("no update home recorded", res["reason"])
@@ -1494,13 +1322,13 @@ class TestUpgradeSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
-                sf = module_manager._fetch_release_tree
-                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                sf = release_source._fetch_release_tree
+                release_source._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
                     urllib.error.HTTPError("u", 404, "Not Found", {}, None))   # a REAL 404 at the home
                 try:
                     missing = module_manager.upgrade(ref="v9.9.9")
                 finally:
-                    module_manager._fetch_release_tree = sf
+                    release_source._fetch_release_tree = sf
         self.assertTrue(missing["refused"])
         self.assertIn("acme/engine-home", missing["reason"])            # names the home (not just "the release")
         self.assertNotIn("network", missing["reason"].lower())          # distinct from the transport-degrade wording
@@ -1513,13 +1341,13 @@ class TestUpgradeSafety(unittest.TestCase):
             os.makedirs(live)
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
-                sr = module_manager._resolve_release_ref
-                module_manager._resolve_release_ref = lambda *a, **k: (_ for _ in ()).throw(
-                    module_manager._NoPublishedRelease("no published release"))
+                sr = release_source._resolve_release_ref
+                release_source._resolve_release_ref = lambda *a, **k: (_ for _ in ()).throw(
+                    release_source._NoPublishedRelease("no published release"))
                 try:
                     res = module_manager.upgrade()   # ref=None -> resolve latest -> no published release
                 finally:
-                    module_manager._resolve_release_ref = sr
+                    release_source._resolve_release_ref = sr
         self.assertTrue(res["refused"])
         self.assertIn("acme/engine-home", res["reason"])               # names the home
         self.assertNotIn("network", res["reason"].lower())             # not the transport-degrade wording
@@ -2529,18 +2357,18 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
             release = module_manager._build_upgrade_release(os.path.join(d, "release"))
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)   # coherent, engine_release 0.0.0
-                orig_r, orig_f = module_manager._resolve_release_ref, module_manager._fetch_release_tree
+                orig_r, orig_f = release_source._resolve_release_ref, release_source._fetch_release_tree
                 fetched = []
                 try:
-                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "v0.2.0"
-                    module_manager._fetch_release_tree = (
+                    release_source._resolve_release_ref = lambda ref, repo=None, token=None: "v0.2.0"
+                    release_source._fetch_release_tree = (
                         lambda ref, dest, repo=None, token=None: fetched.append(ref) or release)
                     available = module_manager.upgrade_preview()
-                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "0.0.0"
+                    release_source._resolve_release_ref = lambda ref, repo=None, token=None: "0.0.0"
                     current = module_manager.upgrade_preview()
                 finally:
-                    module_manager._resolve_release_ref = orig_r
-                    module_manager._fetch_release_tree = orig_f
+                    release_source._resolve_release_ref = orig_r
+                    release_source._fetch_release_tree = orig_f
         self.assertEqual(available["status"], "update-available")
         self.assertEqual(available["available"], "v0.2.0")
         self.assertEqual(available["target_versions"]["base"], "0.2.0")   # it read the release's real manifest
@@ -2580,14 +2408,14 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
             release = module_manager._build_upgrade_release(os.path.join(d, "release"))
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
-                orig_f = module_manager._fetch_release_tree
+                orig_f = release_source._fetch_release_tree
                 fetched = []
                 try:
-                    module_manager._fetch_release_tree = (
+                    release_source._fetch_release_tree = (
                         lambda ref, dest, repo=None, token=None: fetched.append(ref) or release)
                     preview = module_manager.upgrade_preview("v0.2.0")
                 finally:
-                    module_manager._fetch_release_tree = orig_f
+                    release_source._fetch_release_tree = orig_f
         self.assertEqual(preview["status"], "update-available")
         self.assertEqual(preview["named_ref"], "v0.2.0")
         self.assertEqual(preview["target_ref"], "v0.2.0")
@@ -3081,7 +2909,7 @@ class TestUpgradeReconcile(unittest.TestCase):
         # returns `dest` itself (arch-N2). Uses HEAD, so it runs in a shallow CI checkout too.
         with tempfile.TemporaryDirectory() as d:
             dest = os.path.join(d, "tree")
-            out = module_manager._archive_tree("HEAD", dest)
+            out = release_source._archive_tree("HEAD", dest)
             self.assertEqual(out, dest)
             self.assertTrue(os.path.isdir(os.path.join(dest, ".engine")),
                             "the archived tree root should contain .engine/ directly (no wrapper dir)")

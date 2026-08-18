@@ -47,8 +47,8 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
                  line stays byte-identical and the tightened weakening_guard is not
                  tripped by a version-only cut.
 
-Read-only discovery + the release-ref/fetch/manifest-write helpers are reused from module_coherence
-and module_manager (one present-set reader, one release-ref resolver — no drift).
+Read-only discovery + the release-ref/fetch/manifest-write helpers are reused from module_coherence,
+module_manager (one present-set reader), and release_source (the release-ref resolver + fetch — no drift).
 
 A third subcommand renders the maintainer's evidence:
 
@@ -76,6 +76,7 @@ import tempfile
 import validate
 import module_coherence
 import module_manager
+import release_source  # release fetch + ref/tag resolution (StarshipSuperjam/engine-template#925 Part 5)
 import engine_write  # the engine-owned write boundary — the cut's stage/swap pre-flight (StarshipSuperjam/engine-template#923)
 import local_references  # the declared local-reference vocabulary (StarshipSuperjam/engine-template#639)
 import shipped_local_references_check  # the shipped-surface scan this cut reuses as its backstop (StarshipSuperjam/engine-template#943)
@@ -221,15 +222,15 @@ def resolve_baseline(slug: str | None = None) -> Baseline:
     PRODUCT-mode (StarshipSuperjam/engine-template#516) the caller passes the DEPLOYED repo's own slug, so a product cut resolves the product's
     own last release, never the engine's home. A TRANSPORT failure (offline/DNS) is not a first cut — it is
     unknowable, and we say so rather than guess an empty baseline."""
-    home = slug if slug is not None else module_manager._home_repository()
+    home = slug if slug is not None else release_source._home_repository()
     if not home:
         return Baseline(None, True, "no home repository is recorded, so there is no prior release to "
                                     "diff against — treating this as the first cut.")
     try:
-        ref = module_manager._resolve_release_ref(None, repo=home)
+        ref = release_source._resolve_release_ref(None, repo=home)
         return Baseline(ref, False, f"diffing since the last release {ref} of {home}.")
     except Exception as exc:  # _resolve_release_ref raises RuntimeError subclasses (Exception), never BaseException
-        if module_manager._release_is_missing(exc):
+        if release_source._release_is_missing(exc):
             return Baseline(None, True, f"{home} has no published release yet — this is the first cut.")
         raise
 
@@ -244,10 +245,10 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
         return injected, None
     if baseline.first_cut:
         return None, None
-    home = module_manager._home_repository()
+    home = release_source._home_repository()
     tmp = tempfile.mkdtemp(prefix="release-baseline-")
     try:
-        tree = module_manager._fetch_release_tree(baseline.ref, tmp, repo=home)
+        tree = release_source._fetch_release_tree(baseline.ref, tmp, repo=home)
     except BaseException:
         # the fetch can raise (transport failure, non-200, a malformed tarball) BEFORE the temp dir is
         # returned to the caller's finally — clean it up here so a failed fetch never strands a temp dir
@@ -407,7 +408,7 @@ def merged_pr_titles(previous_tag: str | None, target: str, repo: str | None = N
     at cut time, the merge commit at publish). `repo` defaults to the engine's home (where the release tags
     and the pull requests live). `_fetch` is injectable so tests run offline."""
     try:
-        slug = repo if repo is not None else module_manager._home_repository()
+        slug = repo if repo is not None else release_source._home_repository()
         if not slug or not previous_tag or not target:
             return []
         return _parse_pr_lines((_fetch or _generate_notes_body)(slug, previous_tag, target, token))
@@ -715,7 +716,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     if not baseline_tree:
         raise RuntimeError(
             "a prior release exists but no baseline tree was provided to diff against; the release "
-            "workflow fetches it (module_manager._fetch_release_tree), and tests inject a local tree.")
+            "workflow fetches it (release_source._fetch_release_tree), and tests inject a local tree.")
     was = _modules_in_tree(baseline_tree)
     added = sorted(set(present) - set(was))
     removed = sorted(set(was) - set(present))

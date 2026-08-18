@@ -49,7 +49,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate                              # noqa: E402
-import module_manager                        # noqa: E402  (retire_set safe reader, _archive_tree, upgrade)
+import module_manager                        # noqa: E402  (retire_set safe reader, upgrade)
+import release_source                        # noqa: E402  (_archive_tree — offline release-tree projection)
 import census_completeness_check as _ccc     # noqa: E402  (shared home-repo predicate; monkeypatched in tests)
 
 # Set on every nested run this gate spawns (the in-projection suite and the upgrade driver) so a projected
@@ -120,7 +121,7 @@ def _archive_candidate(dest: str) -> str:
             raise GateError(f"could not capture the candidate tree ({_tail(tree.stderr)})")
         tree_sha = tree.stdout.strip()
     try:
-        return module_manager._archive_tree(tree_sha, dest)
+        return release_source._archive_tree(tree_sha, dest)
     except Exception as exc:                              # noqa: BLE001 — surface as a clean block
         raise GateError(f"could not archive the candidate tree ({exc})")
 
@@ -147,7 +148,7 @@ def _archive_baseline(tag: str, dest: str) -> str:
     """Materialize a released tag's committed tree offline (`git archive`). Raises GateError if the tag's tree
     object is absent — a shallow checkout with no tags fails the cut rather than silently skipping a baseline."""
     try:
-        return module_manager._archive_tree(tag, dest)
+        return release_source._archive_tree(tag, dest)
     except Exception as exc:                              # noqa: BLE001
         raise GateError(f"could not archive baseline {tag} offline ({exc}) — is the checkout shallow / tag-less?")
 
