@@ -151,7 +151,10 @@ def _reaccept_message(rel: str, removed: bool) -> str:
         f"This pull request {verb} `{rel}` — a part of your product description you had settled, the ground "
         f"the build works from. A settled description shouldn't change quietly. If you mean to make this "
         f"change, confirm it by applying the `guardrail-ack` label to this pull request — one deliberate "
-        f"action, distinct from clicking merge — and this check clears on its own.{reopen_note} "
+        f"action, distinct from clicking merge. That clears this check on its own, with no new commit "
+        f"needed.{reopen_note} The blocking check is `engine-ci`; the `engine-guard` check stays green because "
+        f"it only flags changes that weaken the engine's guardrails, and editing a settled description isn't "
+        f"one of those — so a green `engine-guard` doesn't mean you're done here. "
         f"Your confirmation is tied to this exact version: if you push a further change after applying the "
         f"label, apply it again for the new version — a confirmation does not carry across a push. " + _BOUND_TAIL
     )

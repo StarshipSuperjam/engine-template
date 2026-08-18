@@ -104,6 +104,29 @@ class ClassifyTests(unittest.TestCase):
         self.assertNotIn("safety gate", f["message"])
         self.assertNotIn("safety check", f["message"])
 
+    def test_finding_names_engine_ci_and_explains_the_green_engine_guard(self):
+        # StarshipSuperjam/engine-template#927: this block surfaces through the engine-ci check, while the
+        # guardrail-weakening classifier (engine-guard) correctly stays green — the two checks share the one
+        # `guardrail-ack` label. The finding must name that relationship so a green engine-guard is not
+        # misread as "no acknowledgment needed". Pin the fuller obligation, not just the two check names:
+        # the rebuttal ("doesn't mean you're done here") and the no-re-push reassurance must survive.
+        for head in ({"docs/spec/checkout.md": _EDITED}, {"docs/spec/checkout.md": _REOPENED},
+                     {"docs/spec/checkout.md": None}):
+            msg = lock_integrity.classify(self.base, head, False, "hard")[0]["message"]
+            for needle in ("engine-ci", "engine-guard", "no new commit", "doesn't mean you're done"):
+                self.assertIn(needle, msg)
+
+    def test_static_check_message_mirrors_the_engine_ci_relationship(self):
+        # #927: the check rule's static message (product-lock-integrity.json) must carry the same
+        # engine-ci/engine-guard framing as the finding — including the rebuttal and the no-re-push
+        # reassurance — so the rule description and the finding cannot silently drift apart.
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "..", "..", "check", "product-lock-integrity.json"),
+                  encoding="utf-8") as fh:
+            message = json.load(fh)["message"]
+        for needle in ("engine-ci", "engine-guard", "no new commit", "doesn't mean you're done"):
+            self.assertIn(needle, message)
+
 
 # --------------------------------------------------------------------------------------------------
 # The I/O wrapper — emit_findings(), faking ONLY the boundary (api_get + event file + ROOT)
