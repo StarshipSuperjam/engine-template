@@ -25,6 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
+import issue_kind     # noqa: E402
 import telemetry      # noqa: E402
 
 
@@ -150,6 +151,7 @@ class TestSingleAuthoringPath(unittest.TestCase):
 
 _GOOD = {
     "repository": "StarshipSuperjam/engine-template",
+    "kind": "Fix",
     "title": "A finding",
     "what_this_is": "The engine noticed something.",
     "whats_next": "Nothing right now.",
@@ -245,7 +247,8 @@ class TestCreateIssue(unittest.TestCase):
         self.assertEqual(_CapturingIssues.last.repo, "StarshipSuperjam/engine-template")
         self.assertEqual(_CapturingIssues.last.token, "tok")
         title, body = _CapturingIssues.last.opened[0]
-        self.assertEqual(title, "A finding")
+        self.assertEqual(title, "Fix: A finding")     # title is rendered from the structured kind, not verbatim
+        self.assertIn("<!-- engine-kind: Fix -->", body)   # and the authoritative kind marker is stamped
         self.assertIn(issue_author._FRAMING, body)   # filed body is assembled through the one contract
 
     def test_files_into_the_matched_owned_product_target(self):
@@ -337,16 +340,73 @@ class TestVerifiedHeadAtFiling(unittest.TestCase):
         self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)   # last-match: the genuine trailer wins
 
     def test_schema_accepts_a_valid_value_and_threads_it_through_the_cli_path(self):
-        data = {"repository": "StarshipSuperjam/engine-template", "title": "x",
+        data = {"repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
                 "what_this_is": "a", "whats_next": "b", "verified_head": self._GOOD}
         issue_author.validate_input(data)                       # does not raise
         self.assertIn(f"<!-- verified-head: {self._GOOD} -->", issue_author.body_from_input(data))
 
     def test_schema_rejects_a_malformed_value(self):
-        data = {"repository": "StarshipSuperjam/engine-template", "title": "x",
+        data = {"repository": "StarshipSuperjam/engine-template", "kind": "Fix", "title": "x",
                 "what_this_is": "a", "whats_next": "b", "verified_head": "deadbeef"}
         with self.assertRaises(issue_author.IssueInputError):
             issue_author.validate_input(data)
+
+
+class TestKindAtFiling(unittest.TestCase):
+    """The structured kind (StarshipSuperjam/engine-template#937): optional on the internal body renderer (so
+    telemetry and other direct producers stay byte-for-byte unchanged), REQUIRED on the create/preview input
+    path (so a filed engine Issue can never independently author a non-canonical prefix), rendering the title
+    from the kind and stamping the authoritative marker."""
+
+    def test_default_none_leaves_body_unchanged(self):
+        without = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b")
+        explicit_none = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", kind=None)
+        self.assertEqual(without, explicit_none)          # byte-for-byte: no marker when unset
+        self.assertNotIn("engine-kind", without)
+
+    def test_kind_stamps_the_marker_and_round_trips(self):
+        for k in issue_kind.KINDS:
+            body = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", kind=k)
+            self.assertIn(f"<!-- engine-kind: {k} -->", body)
+            self.assertEqual(issue_kind.parse_kind(body), k)
+
+    def test_non_canonical_kind_is_refused_at_render(self):
+        for bad in ("Bug", "Engine fault", "Architecture", ""):
+            with self.assertRaises(ValueError):
+                issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", kind=bad)
+
+    def test_kind_precedes_severity_when_both_present(self):
+        body = issue_author.render_engine_issue_body(
+            what_this_is="a", whats_next="b", kind="Fix", urgency="trust-critical")
+        self.assertLess(body.index("engine-kind"), body.index("engine-severity"))  # severity remains last
+        self.assertTrue(body.rstrip().endswith("<!-- engine-severity: trust-critical -->"))
+
+    def test_title_is_rendered_from_kind_not_verbatim(self):
+        self.assertEqual(issue_author.title_from_input(dict(_GOOD)), "Fix: A finding")
+        # a prefix mistyped into the descriptive title is normalised away (never `Fix: Fix: …`):
+        self.assertEqual(issue_author.title_from_input({**_GOOD, "title": "Fix: A finding"}), "Fix: A finding")
+
+    def test_body_from_input_stamps_the_marker(self):
+        self.assertIn("<!-- engine-kind: Fix -->", issue_author.body_from_input(dict(_GOOD)))
+
+    def test_schema_requires_kind_and_rejects_non_canonical(self):
+        no_kind = {k: v for k, v in _GOOD.items() if k != "kind"}
+        with self.assertRaises(issue_author.IssueInputError):
+            issue_author.validate_input(no_kind)                 # kind is now required
+        with self.assertRaises(issue_author.IssueInputError):
+            issue_author.validate_input({**_GOOD, "kind": "Bug"})   # not one of the six
+
+    def test_schema_enum_mirrors_the_single_source(self):
+        # The JSON enum is a CLI-boundary gate that must stay equal to issue_kind.KINDS (the source of truth),
+        # exactly as urgency mirrors telemetry's severity classes.
+        with open(issue_author._INPUT_SCHEMA_REL, "r", encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(tuple(schema["properties"]["kind"]["enum"]), issue_kind.KINDS)
+        self.assertIn("kind", schema["required"])
+
+    def test_preview_shows_the_rendered_title(self):
+        text = issue_author.preview_text(dict(_GOOD), ["StarshipSuperjam/engine-template"])
+        self.assertIn("Fix: A finding", text)
 
 
 if __name__ == "__main__":
