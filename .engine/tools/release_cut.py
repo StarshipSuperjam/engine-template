@@ -1875,6 +1875,10 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
 
     out += ["_Closing this pull request leaves behind the `release/…` branch it was opened from. That branch is "
             "not a release — nothing is released until you merge — and it is safe to delete._"]
+    # The release pull request declares its OWN release impact as `none` (StarshipSuperjam/engine-template#942): a version-recording cut
+    # changes no public behaviour, so it carries a valid marker and passes the release-impact check like any pull
+    # request — and it is dropped from the merged-PR fold anyway (_parse_pr_lines strips the release PR).
+    out += ["", release_impact.impact_trailer("none")]
     return "\n".join(out)
 
 

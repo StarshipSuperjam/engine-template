@@ -133,6 +133,14 @@ def parse_impact(body: str) -> "str | None":
     return _CANONICAL_BY_LOWER.get(matches[-1].strip().lower())
 
 
+def find_impact_markers(body: str) -> list:
+    """Every raw value carried by an engine-release-impact marker in `body`, in order (may include non-enum or
+    duplicate values). The CI check uses this to demand EXACTLY ONE VALID marker (0 = missing, >1 = ambiguous);
+    the FOLD uses parse_impact (last-match), which tolerates a forged earlier marker. Two readers, two rules,
+    one regex."""
+    return [m.strip() for m in _IMPACT_RE.findall(body or "")]
+
+
 def is_author_exempt(author: "str | None") -> bool:
     """Whether `author` is an automated login exempt from declaring an impact (EXEMPT_AUTHORS). Total and never
     raises — a None or odd author simply reads as not-exempt (fail-closed: an unrecognised author is required to

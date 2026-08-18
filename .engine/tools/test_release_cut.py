@@ -232,6 +232,21 @@ class Classify(unittest.TestCase):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_all_fail_closed_validity_keys_survive_the_reframe(self):
+        # RG-F1 (blocking): _cmd_propose reads each validity key as `.get(key) or []`, so if the classifier
+        # rewrite ever DROPS one, that refusal silently becomes a no-op. Pin every key's presence in the
+        # diff-mode return; the individual refusal fixtures (MigrationAccumulation, RemovedCapability, etc.)
+        # prove each still BITES against the rewritten classify().
+        base = _baseline_tree({"core": _module("core")})
+        try:
+            with _Tree({"core": _module("core")}):
+                p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+            for key in ("migration_violations", "retired_capability_violations", "removed_capability_violations",
+                        "dependency_violations", "default_on_dependency_violations", "local_reference_violations"):
+                self.assertIn(key, p, f"validity key {key} was dropped by the reframe — its refusal is now dead")
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
 
 def _write_text(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)

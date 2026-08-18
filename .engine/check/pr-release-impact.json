@@ -1,0 +1,13 @@
+{
+  "id": "engine/check/pr-release-impact",
+  "target": { "context": "pull-request-body" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/release_impact_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "ci_author_exempt": ["dependabot[bot]", "github-actions[bot]"],
+  "ci_label_exempt": ["engine-erasure"],
+  "message": "Every pull request must declare exactly one valid release impact — a hidden `engine-release-impact:` marker set to one of none, patch, minor, major, chosen by COMPATIBILITY (not size, effort, or importance). The release action folds these declarations to derive the next version, so a durable, reviewed impact per pull request replaces inferring SemVer from the diff at cut time. Change kind (Feature/Fix/…) is separate and does not set the impact. Engine-built pull requests get the marker rendered from the change you describe; on a hand-written pull request add it yourself (see the pull-request template). Automated dependency/maintenance pull requests are exempt from this check and fold to a conservative default at the cut. This is a hard check so a missing or invalid declaration is caught here, not batched to every release gate; it reads the body from the trusted event context and is a disclosed no-op where no body is available (a local rehearsal)."
+}
