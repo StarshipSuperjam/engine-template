@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/coordination-confinement",
+  "target": { "context": "coordination-confinement" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/coordination_confinement_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "Advisory cross-session coordination (StarshipSuperjam/engine-template#939, eADR-0043) must never carry authority, and that is guaranteed by CONFINING what the coordination code may do to GitHub: post and edit one comment, and read — nothing else. This is a fail-closed whitelist over the coordination library (.engine/tools/coordination_*.py): a GitHub-mutating call (POST/PUT/PATCH/DELETE) is allowed ONLY when it targets a comment endpoint, and importing or calling an authority-writing surface — the merge path, a label writer, the commit-status writer (ack_status), an issue-body edit, or a pull-request state change — is forbidden outright. A red here means a coordination file reached past that boundary, so a notice could begin to proxy consent, review, merge eligibility, or freshness — exactly what the advisory-only law forbids. To fix it, route the write back through coordination_board's comment transport (or make it a read), and never import an authority-writing module into coordination code. The default is deny; only the comment transport is allowed."
+}

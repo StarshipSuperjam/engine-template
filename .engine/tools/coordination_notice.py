@@ -161,8 +161,14 @@ def _safe_subject(subject) -> dict:
     if subject.get("branch") is not None:
         out["branch"] = render_safety.safe_ident(str(subject["branch"]), replacement="_")
     if subject.get("paths") is not None:
-        paths = list(subject["paths"])[:20]  # cap enforced here and by the schema
-        out["paths"] = [render_safety.safe_ident(str(p), replacement="_") for p in paths if str(p)]
+        # Keep only repo-relative paths (drop an absolute or home-dir path): a durable notice must never carry
+        # a worktree path or machine layout (eADR-0043 law 5). Emitters pass repo-relative paths already; this
+        # is the safety net that keeps a stray absolute path off the public surface.
+        paths = [str(p) for p in list(subject["paths"])[:20]
+                 if str(p) and not str(p).startswith("/") and "/Users/" not in str(p)
+                 and "/home/" not in str(p)]
+        if paths:
+            out["paths"] = [render_safety.safe_ident(p, replacement="_") for p in paths]
     if not out:
         raise NoticeError("subject must name at least one of pr/issue/branch/paths")
     return out
