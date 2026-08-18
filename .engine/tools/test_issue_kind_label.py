@@ -196,13 +196,38 @@ class TestRunFailContract(unittest.TestCase):
         self._env(GITHUB_EVENT_PATH=path)  # mappable but no token/repo → visible failure
         self.assertEqual(quiet_call.run(k.main, []), 1)
 
+    def test_engine_marker_already_canonical_no_native_label_exits_zero_without_token(self):
+        # An engine issue whose title already matches its marker AND whose kind (Maintenance) projects no native
+        # label is a TRUE no-op — quiet exit 0 even with no token, since reconcile_title would make zero calls.
+        path = self._event_file({"issue": {"number": 1, "title": "Maintenance: upkeep",
+                                            "labels": [{"name": issue_gate.ENGINE_LABEL}],
+                                            "body": issue_kind.kind_trailer("Maintenance")}})
+        self._env(GITHUB_EVENT_PATH=path)  # no token, but nothing to do → exit 0
+        self.assertEqual(quiet_call.run(k.main, []), 0)
+
+    def test_engine_marker_drifted_title_without_token_exits_one(self):
+        # ...but a drifted title (a real repair pending) with no token is a visible red — the net's own breakage.
+        path = self._event_file({"issue": {"number": 1, "title": "Architecture: drift",
+                                            "labels": [{"name": issue_gate.ENGINE_LABEL}],
+                                            "body": issue_kind.kind_trailer("Improvement")}})
+        self._env(GITHUB_EVENT_PATH=path)
+        self.assertEqual(quiet_call.run(k.main, []), 1)
+
 
 class TestImportLayering(unittest.TestCase):
     def test_hot_path_import_stays_lean(self):
-        # The applicator runs per issue event; importing it must never drag the module-manager stack in.
-        for heavy in ("release_cut", "module_manager", "module_coherence"):
-            self.assertNotIn(heavy, getattr(k, "__dict__", {}),
-                             f"issue_kind_label must not import {heavy} (per-issue CI hot path)")
+        # The reconciler runs per issue event; importing it must never drag the module-manager/release_cut/
+        # telemetry stack in — not directly, and NOT transitively through one of its imports. Check sys.modules
+        # in a FRESH interpreter: the in-process suite has already loaded these modules for other tests, so an
+        # in-process check would be a false green, and the old __dict__ check missed a transitive import.
+        tools = os.path.dirname(os.path.abspath(__file__))
+        heavy = ("release_cut", "module_manager", "module_coherence", "telemetry")
+        code = (f"import sys; sys.path.insert(0, {tools!r}); import issue_kind_label; "
+                f"print(','.join(m for m in {heavy!r} if m in sys.modules))")
+        proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "",
+                         f"issue_kind_label transitively imported a heavy module: {proc.stdout.strip()}")
 
 
 class TestEngineKindGate(unittest.TestCase):
@@ -353,6 +378,27 @@ class TestClientMinimalMutations(unittest.TestCase):
     def test_edit_title_raises_on_failure(self):
         with self.assertRaises(issue_label_client.DegradedWriteError):
             self._client(lambda m, p, b=None: (500, None)).edit_title(5, "Fix: x")
+
+
+class TestIssueTemplatesUseCanonicalKinds(unittest.TestCase):
+    """The acceptance guarantee that templates cannot emit a non-canonical prefix (Bug:/Engine fault:/Defect:)
+    is ONGOING, not one-time — pin each issue template's seeded title prefix to the canonical vocabulary so a
+    future edit that reintroduces a legacy prefix fails rather than passing every existing test."""
+
+    def test_each_issue_template_title_prefix_is_canonical(self):
+        tdir = os.path.join(validate.ROOT, ".github", "ISSUE_TEMPLATE")
+        seen = 0
+        for fname in sorted(os.listdir(tdir)):
+            if not fname.endswith(".md"):
+                continue
+            with open(os.path.join(tdir, fname), encoding="utf-8") as fh:
+                m = re.search(r"(?m)^title:\s*['\"]?([^'\"\n:]*):", fh.read())
+            if not m:
+                continue   # a template with no kind-prefixed title (a bare `title:`) is allowed
+            seen += 1
+            self.assertIn(m.group(1).strip(), issue_kind.KINDS,
+                          f"{fname} seeds a non-canonical kind prefix {m.group(1).strip()!r}")
+        self.assertGreater(seen, 0, "expected at least one kind-prefixed issue template")
 
 
 class TestDemoSelfChecks(unittest.TestCase):

@@ -26,14 +26,25 @@ THE TITLE-WRITE IS DOUBLE-GATED AND FAIL-CLOSED. A title is repaired ONLY when t
 label AND a valid marker parses (engine_kind_or_none). A non-engine Issue (whose title an external user
 controls) and an engine Issue with no/garbled marker are BOTH no-ops — the reconciler never guesses a kind. So
 a forged marker cannot retitle an arbitrary human Issue: an external user cannot self-apply the `engine` label
-that gates this path. RESIDUAL (honest): an actor who CAN edit an engine Issue's body (the bot author, a
-maintainer/triager) could append a later `<!-- engine-kind: X -->` that parse_kind's last-match rule would
-honour — bounded, because the value is enum-closed (a wrong but in-enum kind yields only a self-healing wrong
-prefix + native label), never arbitrary text.
+that gates this path. RESIDUAL (honest): anyone who can edit an engine Issue's body — the bot author, a
+maintainer/triager, OR the Issue's OWN (untrusted) author, who can pre-plant a dormant marker before the
+`engine` label exists and have it honoured once a maintainer later adds that label — could steer the marker
+parse_kind's last-match rule honours. Bounded: the value is enum-closed, so the worst case is a self-healing
+wrong title prefix + native label — a cosmetic effect, never a consent, merge, or gate effect.
 
-LOST-UPDATE SAFE. The event payload is a frozen snapshot. Before writing a title, the reconciler RE-READS the
-Issue live and recomputes from the current title + marker, skipping the write if the title changed under it — so
-a concurrent human descriptive edit is never reverted to a stale remainder.
+GOVERNANCE (disclosed, accepted). This title-write is a new privileged capability gated solely by the one-line
+engine_kind_or_none double-gate, and this tool is NOT in weakening_guard's floor — a future edit weakening that
+gate would not trip guardrail-weakening. Accepted rather than floored because the capability's blast radius is
+cosmetic and self-healing (an in-enum title/label change), not the consent-forging or gate-removing machinery
+the floor is reserved for; flooring a frequently-edited CI net would add disproportionate friction. A change
+broadening this to any consequential write should reconsider flooring.
+
+LOST-UPDATE SAFE (to a bounded window). The event payload is a frozen snapshot. Before writing a title, the
+reconciler RE-READS the Issue live and recomputes from the current title + marker, skipping the write if the
+live title is already canonical — so a concurrent human descriptive edit that landed before the re-read is not
+reverted. RESIDUAL: GitHub issue-update has no compare-and-set, so an edit landing in the single round trip
+BETWEEN the live read and the PATCH is still overwritten; the window is one HTTP round trip and the next
+`edited` event re-reconciles, so it is disclosed, not fully closed.
 
 LOOP SAFETY (this net now writes a WATCHED event type — a title edit fires `edited`). Production loop-prevention
 rests on GitHub's own rule that an event caused by the workflow's `GITHUB_TOKEN` does NOT trigger another
@@ -171,9 +182,13 @@ def reconcile_title(issue: dict, client) -> str:
     desired = issue_kind.render_title(live_kind, live_title)
     if desired == live_title:
         return "already-repaired"            # a concurrent edit already made it canonical — nothing to do
-    # Disclose the change (an invisible marker driving a visible retitle is otherwise a least-surprise trap).
-    print(f"kind-reconcile: issue #{issue['number']} title {live_title!r} -> {desired!r} (marker: {live_kind})")
     client.edit_title(issue["number"], desired)
+    # Disclose the change AFTER it lands (printing before the write would assert a change that a failed PATCH
+    # never made). An invisible marker driving a visible retitle is a least-surprise trap, so name the escape
+    # hatch plainly: the kind is DATA — change it via the marker, not by fighting the title.
+    print(f"kind-reconcile: issue #{issue['number']} retitled {live_title!r} -> {desired!r} (kind marker: "
+          f"{live_kind}). The kind is data — to change it, edit the engine-kind marker in the body or re-file "
+          f"via the issue helper; removing the `engine` label stops this.")
     return "retitled"
 
 
@@ -187,11 +202,16 @@ def _run() -> int:
         print("kind-label: no issue in the event — no action.")
         return 0
     # Decide whether there is anything to do BEFORE requiring a token (a bare no-op stays quiet, as before): a
-    # native label to apply, or an engine+marker Issue whose title may need a repair (confirmed live below).
+    # native label to apply, or an engine+marker Issue whose SNAPSHOT title is not already canonical (a repair
+    # may be needed — confirmed live below). An engine+marker Issue whose title already matches its marker AND
+    # whose kind projects no native label (Maintenance/Removal) is a TRUE no-op, so it exits 0 without a token,
+    # matching reconcile_title's own zero-network short-circuit on an already-canonical snapshot.
     native = native_label_for_issue(issue)
-    marker_present = engine_kind_or_none(issue) is not None
-    if native is None and not marker_present:
-        print("kind-label: title has no mappable kind and no engine-kind marker — no action.")
+    marker_kind = engine_kind_or_none(issue)
+    snapshot_title = issue.get("title") or ""
+    title_work = marker_kind is not None and issue_kind.render_title(marker_kind, snapshot_title) != snapshot_title
+    if native is None and not title_work:
+        print("kind-label: nothing to label and the title already matches any engine-kind marker — no action.")
         return 0
     repo, token = issue_event.resolve_repo_token()
     if not repo or not token:

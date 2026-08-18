@@ -102,6 +102,8 @@ def _run(argv: list) -> int:
     plan = plan_renames(issues)
     _print_plan(plan, apply)
     if not apply:
+        if confirm:
+            print("(Note: --confirm has no effect without --apply — this is still a dry run.)")
         if plan:
             print("\nThis was a DRY RUN — nothing was filed. Re-run with `--apply --confirm` to write these.")
         return 0

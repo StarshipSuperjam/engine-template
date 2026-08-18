@@ -15,8 +15,8 @@
      Two things worth knowing:
        - Leave the issue number out of the title. The notes append the pull-request number themselves, so a
          title already carrying "(#123)" renders the number twice.
-       - The issue templates seed a different word, because an issue names a problem and this names a change:
-         an issue titled "Bug:" is closed by a "Fix:" pull request; an "Engine fault:" by a Fix or Maintenance. -->
+       - Issue titles use these same canonical kinds: the bug and engine-fault templates seed "Fix:" (the
+         change that resolves the report), so an issue and its closing pull request share the kind word. -->
 
 <!-- BEFORE OPENING THIS PR — does this change COMPLETE a GitHub issue, including the final slice of a multi-PR effort? If yes, add one `Closes #N` line per issue directly below this comment. Only the `Closes #N` keyword auto-closes the issue on merge — describing the resolution in prose (e.g. "resolves / satisfies / finishes #N") does NOT close it, and the issue silently lingers open. One keyword per issue: "Closes #1, #2" closes only #1 — #2 is left open. If this PR is a slice that does not yet complete the issue, add no Closes line and instead write a `Part of #N` line in the Scope or Out-of-scope section below. That `Part of #N` phrase is what lets the engine tell an accidental stray closing keyword from an intended close and offer to fix it before you merge; without it, the engine can't tell the two apart, so it neither flags nor fixes a stray keyword — your backstop is then your own read of the "will close" list on the PR page. Delete this comment if the PR closes no issue. -->
 

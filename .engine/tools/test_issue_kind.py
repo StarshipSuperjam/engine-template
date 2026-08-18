@@ -56,18 +56,32 @@ class TestRenderAndSplit(unittest.TestCase):
         self.assertEqual(issue_kind.split_title("no colon at all"), (None, "no colon at all"))
         self.assertEqual(issue_kind.split_title("Fix: a: b"), ("Fix", "a: b"))               # only the first slot
 
-    def test_fixed_point_law_over_adversarial_remainders(self):
-        # render(k, split(render(k, d)).rest) == render(k, d): the reconciler's whole loop-safety rests here.
+    def test_idempotence_law_holds_universally(self):
+        # The reconciler's loop-safety invariant: re-rendering an already-rendered title is a no-op —
+        # render(k, render(k, d)) == render(k, d) — so a second reconcile pass never writes. This holds for
+        # EVERY input INCLUDING stacked recognised prefixes (unlike the narrower render∘split∘render
+        # formulation, which does not — see test_stacked_prefixes_are_single_stripped_and_converge).
         remainders = [
             "x", "  x  ", "", "a  b", "Feature: do X", "parser: handle nested", "a: b: c",
             "Fıx: exotic case fold", "café: unicode", "trailing ", " leading", "MixedCase Words",
             "colon:no space", "  Architecture: nested invented  ", "Fix:",
+            "Bug: Feature: stacked", "Fix: Fix: doubled", "Removal: Removal: x",   # stacked recognised prefixes
         ]
         for k in issue_kind.KINDS:
             for d in remainders:
                 once = issue_kind.render_title(k, d)
-                twice = issue_kind.render_title(k, issue_kind.split_title(once)[1])
-                self.assertEqual(once, twice, f"fixed point broke for kind={k!r} remainder={d!r}")
+                twice = issue_kind.render_title(k, once)          # re-render the WHOLE rendered title
+                self.assertEqual(once, twice, f"idempotence broke for kind={k!r} remainder={d!r}")
+
+    def test_stacked_prefixes_are_single_stripped_and_converge(self):
+        # A title with two stacked recognised prefixes (an unusual MANUAL edit; the helper never emits one,
+        # since it strips on render) is repaired to a canonical LEADING prefix with the inner token left as
+        # description — single-strip, not recursion (recursion would eat a legitimate `Removal:`-style
+        # descriptive token). It converges in one pass and stays put.
+        self.assertEqual(issue_kind.render_title("Improvement", "Bug: Feature: quote the hook path"),
+                         "Improvement: Feature: quote the hook path")
+        once = issue_kind.render_title("Improvement", "Bug: Feature: quote the hook path")
+        self.assertEqual(issue_kind.render_title("Improvement", once), once)   # no further recursion
 
     def test_repair_scenarios_from_the_issue(self):
         # The acceptance edit scenarios, expressed as the reconciler's one-call repair render_title(marker, title).

@@ -19,15 +19,22 @@ THE MARKER (mirrors telemetry's severity trailer). `kind_trailer` is the ONE pla
 is built; it validates against KINDS and raises otherwise, so the value is marker-safe by construction (an
 enum member carries no `<`, `>`, or `--`) — never free text. `parse_kind` takes the LAST marker so body prose
 forged before the genuine trailer cannot hijack it. HONEST RESIDUAL: last-match does not defend a marker
-appended AFTER the genuine one by an actor who can edit the body; that is bounded because the value is
-enum-closed (a wrong but in-enum kind yields only a self-healing wrong prefix + native label) and the
-title-repair is gated on the `engine` label, which an external user cannot self-apply.
+appended AFTER the genuine one by anyone who can edit the body — INCLUDING the Issue's own (untrusted) author,
+who can pre-plant a dormant marker before the `engine` label exists and have it honoured once a maintainer
+later adds that label. That is bounded because the value is enum-closed: a wrong-but-in-enum kind yields only a
+self-healing wrong title prefix + native label — a cosmetic effect, never a consent, merge, or gate effect.
 
 NORMALISED, IDEMPOTENT TITLES (the reconciler's loop-safety). `render_title` emits a normalised string —
 exactly one space after the colon, no surrounding whitespace — so its output is a fixed point of GitHub's own
-title normalisation (GitHub trims stored titles) AND of this module: `render(k, split(render(k, d)).rest)`
-equals `render(k, d)`. That is what lets the reconciler compare "what the title should be" against the live
-title and write only on a genuine difference, so an unrelated Issue edit never triggers a spurious re-titling.
+title normalisation (GitHub trims stored titles) AND of this module: `render(k, render(k, d)) == render(k, d)`
+— re-rendering an already-rendered title is a no-op, because the output always leads with the canonical `Kind:`
+slot. That idempotence is what lets the reconciler write `render(k, live_title)` and be sure a second pass over
+the result writes nothing, so an unrelated Issue edit never triggers a spurious re-titling. NOTE: render/split
+strip only the SINGLE leading kind slot. A title with STACKED recognised prefixes (`Bug: Feature: x` — an
+unusual MANUAL edit; the helper never emits one, since it strips on render) is repaired to a canonical LEADING
+prefix with the inner token left as description (`Improvement: Feature: x`); this still converges in one pass.
+Recursing into the description is deliberately avoided — it would eat a legitimately-descriptive `Removal:`-style
+token (data loss traded for a rare cosmetic edge).
 
 CLI (operator-runnable, falsifiable):
   uv run --directory .engine -- python tools/issue_kind.py demo   # scripted, self-checks the laws above
@@ -116,10 +123,12 @@ def split_title(title: str) -> "tuple[str | None, str]":
 def render_title(kind: str, descriptive: str) -> str:
     """Render the normalised canonical title `<Kind>: <descriptive>`. `kind` must be one of KINDS (fail-closed
     ValueError via canonical_kind). Output is normalised — exactly one space after the colon, no surrounding
-    whitespace — so it is a fixed point of GitHub's own title trim and of this module (render∘split∘render is
-    render). `descriptive` is the bare remainder; any leading recognised kind prefix it already carries is
-    stripped first (defensive: a caller passing an already-prefixed title never yields `Fix: Fix: …`), while an
-    unrecognised leading `Word:` in it is preserved. An empty remainder renders the bare `<Kind>:`."""
+    whitespace — so it is a fixed point of GitHub's own title trim and IDEMPOTENT under this function
+    (`render(k, render(k, x)) == render(k, x)`, since the output leads with the canonical slot). `descriptive`
+    is the bare remainder; the SINGLE leading recognised kind prefix it carries is stripped first (defensive: a
+    caller passing an already-prefixed title never yields `Fix: Fix: …`), while an unrecognised leading `Word:`
+    — and any SECOND stacked recognised prefix — is preserved as description. An empty remainder renders the
+    bare `<Kind>:`."""
     canon = canonical_kind(kind)
     _, remainder = split_title(descriptive if isinstance(descriptive, str) else "")
     return f"{canon}: {remainder}" if remainder else f"{canon}:"
@@ -191,11 +200,12 @@ def _demo() -> int:
     check("render_title normalises odd spacing to one space, no trailing ws",
           render_title("Fix", "  x  ") == "Fix: x" and render_title("Fix", "Fix:   x") == "Fix: x")
 
-    # 2. THE FIXED-POINT LAW — render(k, split(render(k, d)).rest) == render(k, d) over adversarial remainders.
-    for d in ["x", "  x  ", "", "Feature: do X", "parser: handle nested", "a  b", "Fıx: exotic", "café: x"]:
+    # 2. THE IDEMPOTENCE LAW — render(k, render(k, d)) == render(k, d) over adversarial remainders (the
+    # reconciler's convergence guarantee; holds even for stacked recognised prefixes, single-stripped).
+    for d in ["x", "  x  ", "", "Feature: do X", "parser: handle nested", "a  b", "Fıx: exotic", "café: x",
+              "Bug: Feature: stacked", "Fix: Fix: doubled"]:
         once = render_title("Improvement", d)
-        twice = render_title("Improvement", split_title(once)[1])
-        check(f"fixed point holds for remainder {d!r}", once == twice)
+        check(f"idempotence holds for remainder {d!r}", render_title("Improvement", once) == once)
 
     # 3. split_title strips a recognised prefix, PRESERVES an unrecognised one (never eats a descriptive token).
     check("split strips a recognised invented prefix: 'Architecture: example' -> 'example'",

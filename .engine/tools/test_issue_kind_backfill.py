@@ -77,6 +77,23 @@ class TestApplyRenames(unittest.TestCase):
         self.assertEqual(gh.title_edits(), [])
         self.assertTrue(all(m == "GET" for m, _, _ in gh.calls))
 
+    def test_partial_failure_propagates_never_a_false_done(self):
+        # If edit_title fails on the 2nd of 3, the exception propagates and the caller never claims a full
+        # success — the load-bearing "never a silent partial success claimed as done" property.
+        class _Client:
+            def __init__(self):
+                self.written = []
+
+            def edit_title(self, number, title):
+                if number == 2:
+                    raise issue_label_client.DegradedWriteError("boom on #2")
+                self.written.append(number)
+
+        c = _Client()
+        with self.assertRaises(issue_label_client.DegradedWriteError):
+            b.apply_renames([(1, "Bug: a", "Fix: a"), (2, "Bug: b", "Fix: b"), (3, "Bug: c", "Fix: c")], c)
+        self.assertEqual(c.written, [1])   # only the first landed; the summary count is never reached
+
 
 class TestCliGate(unittest.TestCase):
     def _env(self, **kv):
@@ -118,6 +135,31 @@ class TestCliGate(unittest.TestCase):
             rc = b.main([])
         self.assertEqual(rc, 1)
         self.assertIn("GITHUB_TOKEN", err.getvalue())
+
+    def test_apply_confirm_success_path_writes_via_main(self):
+        # Drive main(["--apply","--confirm"]) end to end against fakes: it lists, plans, and writes each rename.
+        self._env(GITHUB_REPOSITORY="o/r", GITHUB_TOKEN="tok")
+        writes = []
+
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def edit_title(self, number, title):
+                writes.append((number, title))
+
+        import telemetry
+        orig_issues, orig_client = telemetry.GitHubIssues, issue_label_client.IssueLabelClient
+        telemetry.GitHubIssues = lambda *a, **k: _FakeIssues([{"number": 1, "title": "Bug: broke"},
+                                                              {"number": 2, "title": "Fix: already fine"}])
+        issue_label_client.IssueLabelClient = _FakeClient
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = b.main(["--apply", "--confirm"])
+        finally:
+            telemetry.GitHubIssues, issue_label_client.IssueLabelClient = orig_issues, orig_client
+        self.assertEqual(rc, 0)
+        self.assertEqual(writes, [(1, "Fix: broke")])   # only the legacy-alias issue is rewritten
 
 
 class TestDemo(unittest.TestCase):
