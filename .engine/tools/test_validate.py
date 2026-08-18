@@ -178,6 +178,9 @@ class TestReportPartitioning(unittest.TestCase):
     def _noop(self, msg, rule):
         return {**validate.disclosed_noop(msg), "source_rule": rule}
 
+    def _deferred(self, msg, rule, missing=None):
+        return {**validate.witness_deferred(msg, missing=missing), "source_rule": rule}
+
     def test_actionable_shown_in_full_noops_collapsed_and_named(self):
         findings = [
             validate.finding("soft", "'a.md' is 812 lines, over its 800-line budget", {"file": "a.md", "line": None}),
@@ -236,6 +239,57 @@ class TestReportPartitioning(unittest.TestCase):
         clean = self._render([], gates=True)
         self.assertIn("OK — suite 'CI' passed, no hard findings.", clean)
 
+    # ---- witness-deferred surface (StarshipSuperjam/engine-template#761) ----
+
+    def test_witness_deferred_lifts_to_elevated_line_not_collapse(self):
+        # A credential/PR-context-gated check that no-ops locally but ENFORCES in CI is surfaced on
+        # its own elevated line naming it — never folded into the benign "nothing to do" collapse.
+        out = self._render([self._deferred("branch protection had no token here", "engine/check/protection")])
+        self.assertIn("not verified in this run", out)
+        self.assertIn("enforce in CI", out)
+        self.assertIn("engine/check/protection", out)
+        self.assertNotIn("nothing to do", out)                 # NOT the collapse bucket
+        self.assertNotIn("had no token here", out)             # boilerplate prose folds, name stays
+
+    def test_green_line_qualified_when_deferred(self):
+        # With no hard findings but a deferred check, the green line cannot read as full validation.
+        out = self._render([self._deferred("x", "engine/check/protection")], gates=True)
+        self.assertIn("OK — suite 'CI' passed, no hard findings — but 1 CI-only check(s) were not "
+                      "verified here (see above).", out)
+
+    def test_mixed_deferred_and_collapsible_partition(self):
+        # The ordering hazard: a deferred finding also carries not_applicable, so it must be peeled
+        # out BEFORE the collapse or it hides in "nothing to do". A genuine no-op stays collapsed.
+        out = self._render([
+            self._deferred("protection had no token", "engine/check/protection"),
+            self._noop("no docs/spec here", "engine/check/product-spec-form"),
+        ])
+        lines = out.splitlines()
+        # the genuine no-op collapses (and does NOT name the deferred check)...
+        collapse_line = next(l for l in lines if "nothing to do" in l)
+        self.assertIn("engine/check/product-spec-form", collapse_line)
+        self.assertNotIn("protection", collapse_line)
+        # ...while the deferred check is on its own elevated line (and the collapse check is not there)
+        elevated_line = next(l for l in lines if "not verified in this run" in l)
+        self.assertIn("engine/check/protection", elevated_line)
+        self.assertNotIn("product-spec-form", elevated_line)
+
+    def test_deferred_without_source_rule_renders_in_full(self):
+        # Fail-safe: an unnameable witness_deferred (no source_rule) renders in full, never a nameless
+        # "not verified" line — same posture as an unnameable disclosed_noop.
+        out = self._render([validate.witness_deferred("this check could not run here, here is why")])
+        self.assertIn("notes (1):", out)
+        self.assertIn("this check could not run here, here is why", out)
+        self.assertNotIn("not verified in this run —", out)
+
+    def test_no_deferred_output_is_byte_identical(self):
+        # The whole empty-deferred path must be byte-for-byte what it was pre-#761, so no existing
+        # assertion regresses: no elevated line, and the green line carries no qualifier.
+        clean = self._render([self._noop("dormant", "engine/check/dependency-pinning")], gates=True)
+        self.assertNotIn("not verified in this run", clean)
+        self.assertNotIn("were not verified here", clean)
+        self.assertIn("OK — suite 'CI' passed, no hard findings.", clean)
+
 
 class TestCustomScriptCarriesMarker(unittest.TestCase):
     """The load-bearing boundary: kind_custom_script rebuilds each script-emitted finding on the
@@ -263,6 +317,70 @@ class TestCustomScriptCarriesMarker(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertNotIn("evil", found[0], "only the finding.v1 allow-list may cross the trust boundary")
         self.assertFalse(found[0].get("not_applicable"))       # unmarked stays actionable
+
+    def test_witness_deferred_marker_survives_reingestion(self):
+        # A custom/script check's witness_deferred no-op keeps its full marker key-set across the
+        # boundary (StarshipSuperjam/engine-template#761) — so report() elevates it and collect() exposes it.
+        _verdict, found = self._run_script([{"severity": "soft", "message": "na", "not_applicable": True,
+                                             "witness_deferred": True, "missing_witness": ["GITHUB_TOKEN"]}])
+        self.assertEqual(len(found), 1)
+        self.assertIs(found[0]["witness_deferred"], True)
+        self.assertIs(found[0]["not_applicable"], True)
+        self.assertEqual(found[0]["missing_witness"], ["GITHUB_TOKEN"])
+
+    def test_missing_witness_is_sanitized_not_trusted(self):
+        # missing_witness is author-controllable across the trust boundary, so it is coerced to a
+        # bounded list of strings (like not_applicable is coerced to True) — a malformed value never
+        # leaks raw structure nor crashes report()'s join.
+        _verdict, found = self._run_script([{"severity": "soft", "message": "m",
+                                             "witness_deferred": 1,          # truthy non-bool -> True
+                                             "missing_witness": [1, {"x": 2}, "GITHUB_TOKEN"]}])
+        self.assertEqual(len(found), 1)
+        self.assertIs(found[0]["witness_deferred"], True)      # coerced to literal True
+        self.assertTrue(all(isinstance(x, str) for x in found[0]["missing_witness"]))
+        # and it renders without raising (the elevated line does a ", ".join over source_rule names)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            validate.report("CI", [{**found[0], "source_rule": "engine/check/x"}], True)
+        self.assertIn("not verified in this run", buf.getvalue())
+
+    def test_non_list_missing_witness_is_dropped(self):
+        # A non-list missing_witness is ignored entirely (never copied), so nothing odd rides through.
+        _verdict, found = self._run_script([{"severity": "soft", "message": "m",
+                                             "witness_deferred": True, "missing_witness": "GITHUB_TOKEN"}])
+        self.assertEqual(len(found), 1)
+        self.assertIs(found[0]["witness_deferred"], True)
+        self.assertNotIn("missing_witness", found[0])
+
+    def test_missing_witness_is_deduped_at_the_boundary(self):
+        # missing_witness is str-coerced AND deduped (order-preserving), so a duplicated author list
+        # never rides through doubled into the elevated line or collect().
+        _verdict, found = self._run_script([{"severity": "soft", "message": "m", "witness_deferred": True,
+                                             "missing_witness": ["GITHUB_TOKEN", "GITHUB_TOKEN", 1, "1"]}])
+        self.assertEqual(found[0]["missing_witness"], ["GITHUB_TOKEN", "1"])
+
+    def test_constructor_dedupes_missing(self):
+        # The witness_deferred() constructor itself dedupes (the four routed checks build through it).
+        f = validate.witness_deferred("m", missing=["GITHUB_TOKEN", "GITHUB_TOKEN", "pull-request context"])
+        self.assertEqual(f["missing_witness"], ["GITHUB_TOKEN", "pull-request context"])
+
+
+class TestCollectExposesWitnessDeferred(unittest.TestCase):
+    """Goal-3-lite (StarshipSuperjam/engine-template#761): the witness_deferred marker rides collect() so an
+    orchestrator can read "validated except for N CI-only checks" from the structured seam, no new
+    exit code. Run the real CI suite locally (no credentials) and confirm the marker is present."""
+
+    def test_collect_carries_the_marker_locally(self):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH",
+                            "GITHUB_ACTIONS", "CI")}
+        with mock.patch.dict(os.environ, env, clear=True):
+            findings = validate.collect("CI", validate.local_ctx(), with_source=True)
+        deferred = [f for f in findings if f.get("witness_deferred")]
+        # branch-protection is a core check present in every deployment; locally it has no token, so
+        # its witness_deferred no-op must be visible in the structured collect() output.
+        self.assertTrue(any(f.get("source_rule") == "engine/check/protection" for f in deferred),
+                        "collect() must expose the witness_deferred marker for a core credential-gated check")
 
 
 class TestLocalTriggers(unittest.TestCase):
@@ -938,6 +1056,16 @@ class TestLivePrBodyFetch(unittest.TestCase):
             self._presence_rule(), {"pr_body": "", "pr_body_source": "frozen-fallback"})
         note = self._soft_notes(findings)[0]
         self.assertEqual(note["severity"], "soft")
+
+    def test_absent_body_is_witness_deferred_not_a_plain_noop(self):
+        # pr-body-completeness ENFORCES in CI on a real pull request; when there is no body to
+        # evaluate here (a local or non-PR run), it is witness-deferred (StarshipSuperjam/engine-template#761) so
+        # report() lifts it onto the elevated "not verified here" line, never "nothing to do".
+        passed, findings = validate.kind_presence(self._presence_rule(), {"pr_body": None})
+        self.assertTrue(passed)                                # a no-op never gates
+        self.assertEqual(len(findings), 1)
+        self.assertIs(findings[0].get("witness_deferred"), True)
+        self.assertIs(findings[0].get("not_applicable"), True)
 
 
 if __name__ == "__main__":

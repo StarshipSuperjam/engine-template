@@ -149,6 +149,25 @@ def disclosed_noop(message: str, location: dict | None = None) -> dict:
     return {"severity": "soft", "message": message, "location": location, "not_applicable": True}
 
 
+def witness_deferred(message: str, location: dict | None = None, *, missing=None) -> dict:
+    """A DISCLOSED no-op for a check that could not run IN THIS RUN for lack of a live witness — a
+    credential or pull-request context present in CI but absent here — yet that DOES enforce in CI.
+    A distinct sub-class of `disclosed_noop`: report() lifts these onto their own elevated "not
+    verified in this run — enforces in CI" line (never folded into the benign "nothing to do"
+    summary), and the marker rides `collect()` so an orchestrator can see them (StarshipSuperjam/engine-template#761).
+    Soft (a no-op never gates) and carries `not_applicable` too, so every existing fail-safe / collapse /
+    audit path still holds if a reader ignores the new marker. `missing` optionally names the absent
+    witness(es). This reports a RUNTIME fact — "did not run here" — NOT an exemption from a check's
+    bite-proof: it is deliberately distinct from `hard_check_bite_check.py`'s frozen "NOT WITNESSED
+    HERE" carve-out (`_REQ_PROPERTY`), which is about whether a check's negative FIXTURE can be
+    witnessed. Both markers are additive finding.v1 keys; `missing_witness` is a list of strings."""
+    f = {"severity": "soft", "message": message, "location": location,
+         "not_applicable": True, "witness_deferred": True}
+    if missing:
+        f["missing_witness"] = list(dict.fromkeys(str(m) for m in missing))  # str-coerced + deduped
+    return f
+
+
 def env_override_path(var: str, default: "str | None" = None) -> "str | None":
     """Resolve an input-substitution env var to a path — the one shared seam the negative-fixture
     meta-check's custom/script units use (StarshipSuperjam/engine-template#286). When `var` is set and non-empty,
@@ -521,8 +540,12 @@ def kind_presence(rule, ctx):
     if target.get("context") == "pull-request-body":
         body = ctx.get("pr_body")
         if body is None:
-            return True, [disclosed_noop("PR body not available; completeness not "
-                                         "evaluated here (the CI run evaluates it).")]
+            # Witness-deferred, not merely not-applicable: this check enforces in CI on a real
+            # pull-request run; here there is no PR body to evaluate. Surfaced on report()'s
+            # elevated "not verified in this run" line, never folded into "nothing to do".
+            return True, [witness_deferred("PR body not available; completeness not evaluated in "
+                                           "this run (a CI pull-request run evaluates it).",
+                                           missing=["pull-request body"])]
         findings = section_presence_findings(body, sections, tier, message, "pull-request body", label)
         if label:
             findings += subsection_fill_findings(body, sections, label, tier, message,
@@ -1775,6 +1798,16 @@ def kind_custom_script(rule, ctx):
         rebuilt = finding(f.get("severity", tier), f.get("message", ""), f.get("location"))
         if f.get("not_applicable"):
             rebuilt["not_applicable"] = True
+        # The witness-deferred marker (a live-witness no-op the local report() elevates,
+        # StarshipSuperjam/engine-template#761) rides the boundary too — but COERCED, never copied verbatim,
+        # exactly as not_applicable is: the flag to literal True, and missing_witness to a bounded
+        # list of strings, so no author-controllable structure leaks through this trust boundary (a
+        # raw value could otherwise crash report()'s join or bloat collect()).
+        if f.get("witness_deferred"):
+            rebuilt["witness_deferred"] = True
+            mw = f.get("missing_witness")
+            if isinstance(mw, list):
+                rebuilt["missing_witness"] = list(dict.fromkeys(str(x) for x in mw))[:16]  # str + deduped, bounded
         findings.append(rebuilt)
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
@@ -2481,16 +2514,24 @@ def fmt(f: dict) -> str:
 def report(suite: str, findings: list, gates: bool) -> None:
     hard = [f for f in findings if f["severity"] == "hard"]
     soft = [f for f in findings if f["severity"] != "hard"]
-    # Partition soft notes so an actionable one stands out from the dormant "nothing to do" ones.
-    # Only a no-op we can NAME (it carries a source_rule) is collapsed into the summary line; an
-    # actionable note — OR a marked no-op with no source rule to name (the by-id `--check` path does
-    # not set one, and a single deliberately-invoked check is never noise) — renders in full. A
-    # finding WITHOUT the marker defaults to actionable (`.get`, never `[]`), so the fail-safe is a
-    # note shown in full (harmless), never an actionable note hidden. The collapsed no-ops stay
-    # DISCLOSED (named + counted, never a silent skip); only their boilerplate prose folds away.
-    collapsible, shown = [], []
+    # Partition soft notes THREE ways. An actionable one stands out from the dormant "nothing to do"
+    # ones, AND a WITNESS-DEFERRED no-op (a credential/PR-context-gated check that did not run here
+    # but DOES enforce in CI) is lifted onto its own elevated line rather than folded into the benign
+    # collapse. witness_deferred is peeled out FIRST: it also carries not_applicable, so without this
+    # it would hide in the "nothing to do" summary — reproducing the false-green this surface exists
+    # to kill (StarshipSuperjam/engine-template#761). As before, only a no-op we can NAME (source_rule) is
+    # collapsed/elevated; a marked no-op with no source rule to name (the by-id `--check` path sets
+    # none) renders in full; a finding WITHOUT any marker defaults to actionable (`.get`, never `[]`),
+    # so the fail-safe is a note shown in full (harmless), never one hidden. The collapsed and the
+    # elevated no-ops both stay DISCLOSED (named + counted, never a silent skip).
+    deferred, collapsible, shown = [], [], []
     for f in soft:
-        (collapsible if f.get("not_applicable") and f.get("source_rule") else shown).append(f)
+        if f.get("witness_deferred") and f.get("source_rule"):
+            deferred.append(f)
+        elif f.get("not_applicable") and f.get("source_rule"):
+            collapsible.append(f)
+        else:
+            shown.append(f)
     displayed = len(shown) + (1 if collapsible else 0)
     if displayed:
         print(f"\nnotes ({displayed}):")
@@ -2499,6 +2540,15 @@ def report(suite: str, findings: list, gates: bool) -> None:
         if collapsible:
             names = list(dict.fromkeys(str(f["source_rule"]) for f in collapsible))
             print(f"  - {len(names)} check(s) not applicable here (nothing to do): " + ", ".join(names))
+    # The elevated line — separate from notes and above the verdict — so a green result below cannot
+    # read as "checked and passed" for a check that never ran here. Truthful locally AND on a non-PR
+    # CI run (a push), where these same checks no-op for lack of a pull-request context.
+    deferred_names = list(dict.fromkeys(str(f["source_rule"]) for f in deferred))
+    if deferred_names:
+        print(f"\nnot verified in this run — {len(deferred_names)} check(s) enforce in CI but had no "
+              "witness here (a credential or pull-request context this run lacks): "
+              + ", ".join(deferred_names))
+        print("  these did NOT run here; they enforce when the change is proposed for merge in CI.")
     if hard and gates:
         print(f"\nFAIL ({len(hard)} hard finding(s)) [suite: {suite}] — blocks the merge:")
         for f in hard:
@@ -2508,7 +2558,9 @@ def report(suite: str, findings: list, gates: bool) -> None:
         for f in hard:
             print("  - " + fmt(f))
     else:
-        print(f"\nOK — suite '{suite}' passed, no hard findings.")
+        tail = (f" — but {len(deferred_names)} CI-only check(s) were not verified here (see above)"
+                if deferred_names else "")
+        print(f"\nOK — suite '{suite}' passed, no hard findings{tail}.")
 
 
 def _demo(argv: list) -> int:

@@ -28,6 +28,10 @@ write a flattering story about the change.
    - A recognized automation PR says its body-completeness result was **not applicable**, not verified. Keep
      that distinct from any separately required `guardrail-ack`; automation never supplies the operator's
      acknowledgement.
+   - The local pre-submission run lists any credential- or pull-request-witnessed check on a distinct **not
+     verified in this run — enforces in CI** line: it did not run here for lack of a local witness, so its
+     result is *not yet verified*, not *not applicable anywhere*. Read that line before marking ready — those
+     checks bite when CI runs on the real pull request.
    - An open fail-open finding goes in Validation as: “a safety check could not run on this change: what it
      would have checked; this work was not verified for X.” It informs consent and does not become a new gate.
    - Reuse boot's provider-specific `.engine/tools/boot.py` `mcp_availability_check` result. If it did not run,

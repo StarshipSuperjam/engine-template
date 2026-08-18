@@ -185,6 +185,26 @@ class IoTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         return json.loads(buf.getvalue())
 
+    def test_non_pr_event_is_witness_deferred_not_collapsed(self):
+        # StarshipSuperjam/engine-template#761 regression: repo+token+event are all present, but the event is NOT a
+        # pull request (e.g. a push / workflow_dispatch). This check enforces in CI on a real pull
+        # request; here it has no PR context, so it is WITNESS-DEFERRED (elevated on report()'s "not
+        # verified in this run" line), never folded into the benign "nothing to do" collapse. This
+        # branch was previously a plain disclosed_noop and reintroduced the false-green on a non-PR run.
+        os.makedirs(self._tmp, exist_ok=True)
+        path = os.path.join(self._tmp, "push_event.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"ref": "refs/heads/main", "commits": []}, fh)   # no pull_request key
+        os.environ["GITHUB_REPOSITORY"] = "owner/repo"
+        os.environ["GITHUB_TOKEN"] = "t0ken"
+        os.environ["GITHUB_EVENT_PATH"] = path
+        fs = self._run()
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "soft")
+        self.assertIs(fs[0].get("witness_deferred"), True)
+        self.assertIs(fs[0].get("not_applicable"), True)
+        self.assertIsInstance(fs[0].get("missing_witness"), list)
+
     def test_edited_settled_doc_in_ci_without_label_blocks_hard(self):
         self._set_event(labels=())
         self._fake_api(dir_entries=[{"type": "file", "path": "docs/spec/index.md"},
@@ -349,6 +369,11 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(len(fs), 1)
         self.assertEqual(fs[0]["severity"], "soft")
         self.assertNotIn("guardrail-ack", fs[0]["message"])  # not a blocking ask, just a disclosed no-op
+        # Witness-deferred (StarshipSuperjam/engine-template#761): lock-integrity ENFORCES in CI, it just had no
+        # credential / PR event here — surfaced on report()'s elevated line, not folded into "nothing to do".
+        self.assertIs(fs[0].get("not_applicable"), True)
+        self.assertIs(fs[0].get("witness_deferred"), True)
+        self.assertIsInstance(fs[0].get("missing_witness"), list)
 
     def test_main_routes_demo(self):
         rc, out = self._run_main(["demo"])
