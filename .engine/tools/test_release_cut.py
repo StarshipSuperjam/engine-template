@@ -1761,11 +1761,24 @@ class ProductReleaseMode(unittest.TestCase):
         self.assertEqual(p["mode"], "first-cut")
         self.assertIsNone(p["engine_floor_version"])       # first cut: version is chosen, not derived
 
-    def test_product_proposal_diff_floor_is_a_patch_bump(self):
-        # the derive-the-version default the workflow shell reads when the operator leaves the box blank.
+    def test_product_proposal_has_no_default_patch_floor(self):
+        # StarshipSuperjam/engine-template#942: a product NO LONGER defaults to a patch bump. The declared-impact fold sets the floor
+        # (_apply_impact_fold in the product cut path); an all-none tranche derives None -> the workflow requires
+        # an explicit version rather than silently patching. Fold semantics are covered by resolve_release_impact.
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
         self.assertEqual(p["mode"], "diff")
-        self.assertEqual(p["engine_floor_version"], "0.1.1")
+        self.assertIsNone(p["engine_floor_version"])
+
+    def test_product_all_none_does_not_become_patch(self):
+        # the product fold uses mechanical 'none'; an all-none set stays none -> no floor (not a silent patch).
+        res = rc.resolve_release_impact("none", "0.1.0",
+                                        [{"number": 1, "title": "x", "impact": "none", "author": "human"}])
+        self.assertIsNone(res["refusal"])
+        self.assertIsNone(res["engine_floor_version"])
+        # a declared minor on a product (no mechanical floor) still derives the minor.
+        res2 = rc.resolve_release_impact("none", "0.1.0",
+                                         [{"number": 2, "title": "y", "impact": "minor", "author": "human"}])
+        self.assertEqual(res2["engine_floor_version"], "0.2.0")
 
     # ---- product-worded renders carry no engine vocabulary ----
     def test_render_pr_body_product_wording(self):

@@ -962,10 +962,12 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
 def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list) -> dict:
     """The release proposal for a PRODUCT cut — the SAME mode-neutral shape the workflow shell and the
     renderers consume, with product semantics. A product has no engine packages to diff, so there is no
-    capability floor: the mechanical `engine_floor_version` is simply a PATCH bump of the current product
-    version (the derive-the-version default when the operator leaves the version blank; raise-only still lets
-    them name any higher one), and None on a first cut (where the version is chosen, not derived). The `product`
-    marker rides in the proposal so the renderers and the publisher speak of the PRODUCT."""
+    mechanical capability floor at all: `engine_floor_version` is left None here and the DECLARED-impact fold
+    (_apply_impact_fold, in the product cut path) sets the effective floor from the merged pull requests
+    (StarshipSuperjam/engine-template#942). Absence of a structural floor means "no floor", NOT "patch": an all-none product tranche
+    derives no version and the workflow requires an explicit one — it never silently patches. None on a first
+    cut too (the version is chosen, not derived). The `product` marker rides in the proposal so the renderers
+    and the publisher speak of the PRODUCT."""
     first_cut = baseline.first_cut
     note = ("this deployment has no published release yet — this is the first release of your product."
             if first_cut else f"releasing your product; the last release was {baseline.ref}.")
@@ -978,7 +980,9 @@ def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list
         "baseline_note": note,
         "current_engine": current_version,           # the current PRODUCT version (the renderers' generic key)
         "engine_floor_level": "none",                # a product has no structural capability floor
-        "engine_floor_version": None if first_cut else _bump_at_least(current_version, "patch"),
+        # StarshipSuperjam/engine-template#942: the declared-impact fold sets the effective floor. None here means "no floor" — an all-none
+        # product tranche does NOT silently become a patch; the workflow requires an explicit version instead.
+        "engine_floor_version": None,
         "package_floor": {},
         "change_inventory": inventory,
         "impacts": [],
@@ -1888,6 +1892,35 @@ def _current_sha() -> "str | None":
         return None
 
 
+def _apply_impact_fold(proposal: dict, previous_tag: str | None, target: str, slug: str | None,
+                       mechanical_level: str, legacy_impact: str | None):
+    """Run the declared-impact fold (fetch each merged pull request's marker, FAIL-CLOSED) and fold it into
+    `proposal`: set declared_impact / mechanical_floor_level / effective_impact / impact_defaulted /
+    declared_per_pr and, on success, engine_floor_version = the effective floor. Returns a refusal dict (an
+    unreadable body, a legacy/undeclared pull request, or a declaration below the proven floor) or None. The ONE
+    fold entry both the engine and product cut paths share, so their posture cannot drift (StarshipSuperjam/engine-template#942)."""
+    imp = merged_pr_impacts(previous_tag, target, repo=slug)
+    if imp["error"]:
+        return {"reason": "the release could not read the declared impact of every merged pull request, so it "
+                          "refuses to auto-derive a version it cannot stand behind (a skipped body could hide a "
+                          "breaking change)",
+                "violations": [imp["error"]],
+                "recovery": "This is a fail-closed guard for a version-authority read — a network/token failure, "
+                            "not your change. Re-run the release; if it persists, check the release job's "
+                            "GITHUB_TOKEN and GitHub availability."}
+    res = resolve_release_impact(mechanical_level, proposal["current_engine"], imp["per_pr"], legacy_impact)
+    proposal["declared_impact"] = res["declared"]
+    proposal["mechanical_floor_level"] = mechanical_level
+    proposal["effective_impact"] = res["effective"]
+    proposal["impact_defaulted"] = res["defaulted"]
+    proposal["declared_per_pr"] = [{"number": pr["number"], "title": pr["title"], "impact": pr["impact"]}
+                                   for pr in imp["per_pr"]]
+    if res["refusal"]:
+        return res["refusal"]
+    proposal["engine_floor_version"] = res["engine_floor_version"]
+    return None
+
+
 def _cmd_propose(args) -> int:
     mode, ctx = release_mode()
     if mode == "refuse":
@@ -1902,7 +1935,17 @@ def _cmd_propose(args) -> int:
         merged = ([] if args.baseline_tree
                   else merged_pr_titles(baseline.ref, _current_sha(), repo=ctx["slug"]))
         proposal = _product_proposal(baseline, ctx["current"] or "0.0.0", merged)
+        # A product has no capability tree to diff, so there is NO mechanical floor — the version follows the
+        # declared pull-request impact alone (absence of a structural floor means "no floor", never "patch": an
+        # all-none tranche derives no version and the workflow requires an explicit one, StarshipSuperjam/engine-template#942). Skipped on a
+        # first cut (the version is chosen) and the offline path. A refusal reaches a NON-ZERO exit (F6).
+        impact_refusal = (None if args.baseline_tree or baseline.first_cut else
+                          _apply_impact_fold(proposal, baseline.ref, _current_sha(), ctx["slug"],
+                                             "none", getattr(args, "legacy_impact", None)))
         print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
+        if impact_refusal:
+            _print_refusal(impact_refusal)
+            return 2
         return 0
     baseline = resolve_baseline()
     tree, cleanup = _baseline_tree_for(baseline, args.baseline_tree)
@@ -1916,38 +1959,11 @@ def _cmd_propose(args) -> int:
     proposal["merged_prs"] = ([] if args.baseline_tree
                               else merged_pr_titles(baseline.ref, _current_sha()))
     # The declared-impact fold (StarshipSuperjam/engine-template#942): fold the merged pull requests' declared impact, raise it by the
-    # PROVEN mechanical floor (proposal["engine_floor_level"]), and REWRITE engine_floor_version to the effective
-    # floor so `apply`'s raise-only enforces "not below what was declared". FAIL-CLOSED: an unreadable pull-request
-    # body, a legacy/undeclared pull request, or a declaration below the proven floor refuses the cut. Skipped on
-    # the offline/injected path (args.baseline_tree), where the fold is exercised directly in tests.
-    impact_refusal = None
-    if not args.baseline_tree:
-        imp = merged_pr_impacts(baseline.ref, _current_sha())
-        if imp["error"]:
-            impact_refusal = {
-                "reason": "the release could not read the declared impact of every merged pull request, so it "
-                          "refuses to auto-derive a version it cannot stand behind (a skipped body could hide a "
-                          "breaking change)",
-                "violations": [imp["error"]],
-                "recovery": "This is a fail-closed guard for a version-authority read — a network/token failure, "
-                            "not your change. Re-run the release; if it persists, check the release job's "
-                            "GITHUB_TOKEN and GitHub availability."}
-        else:
-            res = resolve_release_impact(proposal["engine_floor_level"], proposal["current_engine"],
-                                         imp["per_pr"], getattr(args, "legacy_impact", None))
-            proposal["declared_impact"] = res["declared"]
-            proposal["mechanical_floor_level"] = proposal["engine_floor_level"]
-            proposal["effective_impact"] = res["effective"]
-            proposal["impact_defaulted"] = res["defaulted"]
-            # DURABLE snapshot (StarshipSuperjam/engine-template#942 F4): the per-PR declared impact this cut READ, carried into the proposal
-            # so the published release notes record why the version was chosen even though the source pull-request
-            # bodies remain editable afterwards. Impact-only (number/title/impact) — never the author or body.
-            proposal["declared_per_pr"] = [{"number": pr["number"], "title": pr["title"], "impact": pr["impact"]}
-                                           for pr in imp["per_pr"]]
-            if res["refusal"]:
-                impact_refusal = res["refusal"]
-            else:
-                proposal["engine_floor_version"] = res["engine_floor_version"]
+    # PROVEN mechanical floor, and REWRITE engine_floor_version to the effective floor so apply's raise-only
+    # enforces "not below what was declared". FAIL-CLOSED (see _apply_impact_fold). Skipped on the offline path.
+    impact_refusal = (None if args.baseline_tree else
+                      _apply_impact_fold(proposal, baseline.ref, _current_sha(), None,
+                                         proposal["engine_floor_level"], getattr(args, "legacy_impact", None)))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
     # DISCLOSED-not-silent: if no local-reference vocabulary is declared, the shipped local-reference floor did
     # not run. Never a refusal (an absent declaration is a legitimate steady state), but never silent either at an
