@@ -2262,7 +2262,7 @@
       },
       "slug": "product-lock-integrity",
       "source": {
-        "fingerprint": "sha256:0cfd829c033c1ccaf4eaaabc1249ffdb5c3552729d0896308af9ad18306c031a",
+        "fingerprint": "sha256:73583037806461a1f34850416da7011f8b744571414bd270a502db87fde78c4f",
         "path": ".engine/check/product-lock-integrity.json"
       },
       "status": "active",
@@ -13202,7 +13202,7 @@
       },
       "slug": "lock_integrity",
       "source": {
-        "fingerprint": "sha256:ccbddefc0f056e538fbef7a2d5b33361b2c566b727d6b928111c93c0b9aad47e",
+        "fingerprint": "sha256:3873b018b5016e0a224467d235905ac884321e6cf6f455394cadd59a7ae31a68",
         "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
@@ -17470,7 +17470,7 @@
       },
       "slug": "test_lock_integrity",
       "source": {
-        "fingerprint": "sha256:016d0a47bcbed1d35d557e7e4bb2939db3c112f2a8c95b07a47dcd4cd7f45b23",
+        "fingerprint": "sha256:1b5487740ce226770a3592ed21508d6d0acbd377b5ffa83ac706a57f6e18a029",
         "path": ".engine/tools/product_design/test_lock_integrity.py"
       },
       "status": "active",
