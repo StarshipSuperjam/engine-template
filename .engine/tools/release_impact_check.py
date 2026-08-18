@@ -52,10 +52,14 @@ def _read_pr_body() -> "str | None":
 def findings() -> list:
     try:
         body = _read_pr_body()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        # Surface the diagnostic (type + message) rather than masking it — a bare, fixed no-op message would let
+        # a real future bug in _read_pr_body silently downgrade this gate to "not applicable" forever, with
+        # nothing in the CI log to tell an operator the check is broken rather than legitimately skipping (QA).
         return [{"severity": "soft", "not_applicable": True,
-                 "message": "Could not read the pull-request body (unreadable event context); the release-impact "
-                            "declaration was not evaluated. In CI the body is present and the check runs."}]
+                 "message": f"Could not read the pull-request body ({type(exc).__name__}: {exc}); the "
+                            "release-impact declaration was not evaluated. In CI the body is present, so if this "
+                            "persists there the check may be BROKEN (not merely skipping) — investigate."}]
     if body is None:
         return [{"severity": "soft", "not_applicable": True,
                  "message": "PR body not available (no event context); the release-impact declaration was not "

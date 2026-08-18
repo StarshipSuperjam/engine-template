@@ -21,8 +21,9 @@
 <!-- RELEASE IMPACT — declare this pull request's SemVer impact so the release action can derive the next
      version from what actually shipped. Engine-built pull requests get this rendered for you; on a hand-written
      pull request, add one HTML-comment marker of the form  engine-release-impact: VALUE  (a real HTML comment,
-     the way the severity/kind markers are written elsewhere — do NOT paste it inside this comment, or it will
-     close it early).
+     the way the severity/kind markers are written elsewhere). Put it on its OWN line right after this comment
+     block closes below — NOT inside this comment (an early close-marker would truncate this guidance and leak it
+     as visible text).
 
      Choose VALUE by COMPATIBILITY — never by size, effort, risk, or importance:
 

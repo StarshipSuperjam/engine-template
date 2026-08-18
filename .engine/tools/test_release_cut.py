@@ -296,11 +296,24 @@ class ContractSurfaceReframe(unittest.TestCase):
         self.assertIn("changed in place", p["compatibility_unknown"][0]["what"])
 
     def test_pair_renames_matches_similar_and_skips_dissimilar(self):
-        removed = {"old.md": b"the quick brown fox jumps over the lazy dog" * 5}
-        added = {"new.md": b"the quick brown fox jumps over the lazy dog" * 5,
-                 "unrelated.md": b"completely different content about turtles" * 5}
+        removed = {"old.md": b"the quick brown fox jumps over the lazy dog\n" * 5}
+        added = {"new.md": b"the quick brown fox jumps over the lazy dog\n" * 5,
+                 "unrelated.md": b"completely different content about turtles\n" * 5}
         pairs = rc._pair_renames(removed, added)
         self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
+
+    def test_pair_renames_line_based_resists_shared_boilerplate(self):
+        # QA finding: two UNRELATED contract files sharing only an ADR header must NOT pair (byte-level collided
+        # at ~0.76; line-level is a minority when the bodies are realistically substantial). A real breaking
+        # removal must keep its major floor, not be masked as a rename.
+        header = b"# Status\nAccepted\n\n# Context\nThis records a decision.\n\n# Decision\n"
+        removed_body = b"".join(f"Webhook removal detail line {i}: the legacy contract is gone.\n".encode()
+                                for i in range(25))
+        added_body = b"".join(f"Telemetry batching detail line {i}: an unrelated new capability.\n".encode()
+                              for i in range(25))
+        removed = {"eADR-0100-webhook-removed.md": header + removed_body}
+        added = {"eADR-0200-telemetry-batching.md": header + added_body}
+        self.assertEqual(rc._pair_renames(removed, added), {})       # NOT a rename -> the removal keeps major
 
 
 class DeclaredImpactFold(unittest.TestCase):
@@ -340,11 +353,25 @@ class DeclaredImpactFold(unittest.TestCase):
         res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "minor")])
         self.assertEqual(res["engine_floor_version"], "0.6.0")
 
-    def test_mismatch_refuses_and_names_under_declared(self):
+    def test_mismatch_refuses_naming_the_floor_not_ordering_relabels(self):
         # the diff PROVES major (a recorded removal), but the PR declared only patch -> refuse-until-corrected.
         res = rc.resolve_release_impact("major", self.CUR, [self._pr(7, "patch")])
         self.assertIsNotNone(res["refusal"])
-        self.assertTrue(any("#7" in v for v in res["refusal"]["violations"]))
+        self.assertIn("major", res["refusal"]["reason"])
+        self.assertIn("proven mechanical floor: major", " ".join(res["refusal"]["violations"]))
+
+    def test_mismatch_does_not_tell_operator_to_relabel_honest_prs(self):
+        # US-3: the mechanical floor is a whole-release signal, not attributable to one PR. A multi-PR release
+        # where ONE PR removed a capability (proven major) must NOT order every honest patch/none PR relabelled.
+        res = rc.resolve_release_impact("major", self.CUR, [
+            self._pr(1, "patch"), self._pr(2, "patch"), self._pr(3, "none"),
+            self._pr(4, "minor"), self._pr(5, "patch")])
+        self.assertIsNotNone(res["refusal"])
+        # the recovery must point at the responsible PR + forbid relabelling unrelated ones; it must NOT list
+        # every under-floor PR as a violation to raise.
+        self.assertIn("do NOT relabel unrelated", res["refusal"]["recovery"])
+        self.assertNotIn("#1", " ".join(res["refusal"]["violations"]))     # honest patch not ordered to major
+        self.assertNotIn("#3", " ".join(res["refusal"]["violations"]))     # honest none not ordered to major
 
     def test_mechanical_floor_raises_a_low_declaration_when_not_a_refusal(self):
         # declared minor, mechanical minor -> no mismatch, effective minor (equal, not exceeded).
@@ -394,20 +421,54 @@ class DeclaredImpactFold(unittest.TestCase):
         out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", _fetch_lines=boom)
         self.assertIsNotNone(out["error"])
 
-    def test_version_decision_snapshot_is_durable_and_honest(self):
+    def test_merged_pr_impacts_fails_closed_through_the_REAL_default_wiring(self):
+        # SG blocking finding: the DEFAULT enumerator must PROPAGATE a failure, not swallow it. Patch the raw
+        # fetch (_generate_notes_body) to raise, as a GitHub outage would, and call with NO injected fetcher —
+        # a swallowed failure would read as 'zero PRs' -> declared none -> silent under-version.
+        orig = rc._generate_notes_body
+        rc._generate_notes_body = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("GitHub 503"))
+        try:
+            out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x")   # real default _fetch_lines
+        finally:
+            rc._generate_notes_body = orig
+        self.assertIsNotNone(out["error"])                               # fail CLOSED, not {'per_pr':[], 'error':None}
+        self.assertEqual(out["per_pr"], [])
+
+    def test_version_decision_concise_vs_detailed(self):
         proposal = {"declared_impact": "minor", "effective_impact": "minor", "mechanical_floor_level": "none",
                     "compatibility_unknown": [{"what": "the contract surface 'x' changed in place"}],
                     "declared_per_pr": [{"number": 11, "title": "add a thing", "impact": "minor"},
-                                        {"number": 12, "title": "a bump", "impact": None}]}
-        text = "\n".join(rc._version_decision_lines(proposal))
-        self.assertIn("Effective release impact: **minor**", text)
-        self.assertIn("#11 add a thing: minor", text)                # durable per-PR snapshot
-        self.assertIn("#12 a bump: none/undeclared", text)
-        self.assertIn("unknown compatibility", text)
+                                        {"number": 12, "title": "a bump", "impact": None}],
+                    "impact_defaulted": ["#5 dep bump (exempt author dependabot[bot]; folded as patch)"]}
+        # CONCISE (published notes, §12: no per-PR dump) — effective/declared present, per-PR list absent.
+        concise = "\n".join(rc._version_decision_lines(proposal))
+        self.assertIn("Effective release impact: **minor**", concise)
+        self.assertNotIn("#11 add a thing", concise)                 # detail stays out of the notes
+        # DETAILED (release PR the maintainer reviews) — per-PR snapshot + exempt-bot disclosure present.
+        detailed = "\n".join(rc._version_decision_lines(proposal, heading="Version decision:", detailed=True))
+        self.assertIn("#11 add a thing: minor", detailed)            # durable per-PR snapshot
+        self.assertIn("#12 a bump: no marker (undeclared)", detailed)
+        self.assertIn("dependabot[bot]", detailed)                   # exempt-bot default DISCLOSED (usability)
+        # the notes carry the concise heading; the release PR body carries the detailed evidence.
         self.assertIn("## Version decision", rc.render_release_notes("v0.6.0", proposal))
+        self.assertNotIn("#11 add a thing", rc.render_release_notes("v0.6.0", proposal))
 
     def test_version_decision_empty_when_fold_did_not_run(self):
         self.assertEqual(rc._version_decision_lines({"engine_floor_level": "minor"}), [])
+
+    def test_declared_impact_is_independent_of_title_kind(self):
+        # acceptance list: a `Feature:` title must NOT force minor and a `Maintenance:` title must NOT force none
+        # — the DECLARED marker governs, the title kind only groups release notes. The fold reads only the marker
+        # (the impact field), never the title, so a Feature PR declaring none folds none and a Maintenance PR
+        # declaring minor folds minor.
+        feat_none = rc.resolve_release_impact(
+            "none", self.CUR, [{"number": 1, "title": "Feature: an internal-only thing", "impact": "none",
+                                "author": "human"}])
+        self.assertEqual(feat_none["effective"], "none")           # Feature title did NOT force minor
+        maint_minor = rc.resolve_release_impact(
+            "none", self.CUR, [{"number": 2, "title": "Maintenance: bump that adds a capability", "impact": "minor",
+                                "author": "human"}])
+        self.assertEqual(maint_minor["effective"], "minor")        # Maintenance title did NOT force none
 
 
 class MigrationAccumulation(unittest.TestCase):
@@ -1735,6 +1796,19 @@ class ProductReleaseMode(unittest.TestCase):
             self.assertTrue(r["product"])
             self.assertEqual(r["targets"], {})
             self.assertEqual(json.load(open(os.path.join(t.root, "product-version.json")))["version"], "0.1.0")
+
+    def test_apply_product_enforces_the_declared_floor(self):
+        # SC blocking finding: propose derives a floor for a product, but apply_product used to ignore it, so a
+        # version above current but BELOW the declared floor could publish. It must now refuse.
+        with _Tree({}, origin="acme/deployed") as t:
+            t.write_product_version("0.1.0")
+            proposal = {"engine_floor_version": "0.2.0"}          # a declared-minor floor from the fold
+            below = rc.apply_product("0.1.1", dry_run=False, proposal=proposal)   # above current, below floor
+            self.assertFalse(below["applied"])
+            self.assertEqual(below["reason"], "below-confirmed-floor")
+            self.assertEqual(json.load(open(os.path.join(t.root, "product-version.json")))["version"], "0.1.0")
+            at_floor = rc.apply_product("0.2.0", dry_run=False, proposal=proposal)
+            self.assertTrue(at_floor["applied"])
 
     def test_apply_product_is_raise_only(self):
         with _Tree({}, origin="acme/deployed") as t:
