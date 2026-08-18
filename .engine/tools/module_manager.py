@@ -2053,6 +2053,213 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     return "\n".join(out)
 
 
+def render_arrival_pr_body(*, engine_release=None, tier="solo", module_ids=None, overlaid_count=0,
+                           overlap_count=0, kept_as_is_count=0, claude_floor=None, agents_floor=None,
+                           home_repository=None, default_branch="the default branch", protected=False) -> str:
+    """The brownfield ARRIVAL pull-request body — the FIRST pull request the engine opens when it is dropped
+    into an existing project — authored in the repository template's shape (the nine required sections plus the
+    consent preamble every engine pull request carries) so the project's very first view of the engine reads
+    like every other engine pull request and honours the same body contract (StarshipSuperjam/engine-template#755). It is the arrival
+    counterpart to `render_upgrade_pr_body`, and — like it — reuses release_cut's public `pr_section`/
+    `template_preamble` primitives, so there is one preamble source and no second copy to drift from the gate's
+    anchor phrases.
+
+    THIS BODY IS THE SOLE CONSENT SURFACE FOR ADOPTING THE ENGINE, AND NOTHING MECHANICAL CAN REJECT A FALSE
+    CLAIM IN IT: a brownfield target has no engine checks yet — they arrive IN this pull request and arrival runs
+    checkless — so the renderer's own honesty is the only safeguard. Accordingly it says ONLY what the arrival
+    actually did. In particular it does NOT borrow the upgrade body's "the full suite runs on this pull request"
+    claim: for an arrival that is FALSE (the workflows are not on the branch until this merges), so Validation
+    states plainly that the engine's own checks are not yet running and arm only at the post-merge `finalize`.
+    It surfaces the must-see NEGATIVES — a floor it could not insert, a branch-protection it could not apply —
+    rather than dropping them, and it degrades tolerantly: an outcome absent from the arrival produces no line,
+    never a fabricated 'nothing happened' claim.
+
+    Imported LAZILY: release_cut imports this module (a top-level import would cycle), AND arrive() calls this on
+    the operator's bare Python 3.9 floor, where `import release_cut` is safe only because release_cut's jsonschema
+    dependency is now lazy (StarshipSuperjam/engine-template#755). Every externally-derived value (the default-branch name, the
+    update-home slug) is Markdown-literalized so a stray metacharacter cannot reshape the consent surface."""
+    import release_cut  # noqa: E402 — lazy: avoids the release_cut<->module_manager cycle AND keeps this safe to reach on the 3.9 arrival floor
+
+    module_ids = module_ids or []
+    tier = tier or "solo"
+
+    def _lit(value) -> str:
+        # One plain, Markdown-literal inline: collapse whitespace and escape structural characters so an
+        # externally-derived value (a branch name, an update-home slug) renders as itself and cannot reshape the
+        # body. Mirrors _retired_capability_line's discipline; the values here are short identifiers, not prose.
+        return " ".join(str(value or "").split()).translate(_MD_LITERAL)
+
+    def _floor_line(status, which, file_name):
+        # A must-see line for EACH runtime's instruction floor. 'degraded'/'skipped' are negatives the operator
+        # must meet on this surface before merging the whole engine — surfaced, never silently dropped; an
+        # unrecognised/absent status renders nothing (tolerant degradation).
+        if status == "inserted":
+            return (f"- Added the engine's instruction block to your {which} guide ({file_name}); anything you "
+                    f"already wrote there is left untouched.")
+        if status == "present":
+            return (f"- Your {which} guide ({file_name}) already carried the engine's instruction block, so it "
+                    f"was left as it was.")
+        if status == "degraded":
+            return (f"- Could NOT add the engine's instruction block to your {which} guide ({file_name}) — an "
+                    f"engine block already there looks damaged, so the file was left untouched. Before you "
+                    f"merge, ask your AI assistant to repair the engine block in {file_name} (its begin/end "
+                    f"marker comments).")
+        if status == "skipped":
+            return (f"- Did not add an engine instruction block to the {which} guide — this release ships none "
+                    f"for it.")
+        return None
+
+    # Scope — what the arrival actually did to the project, at an honest aggregate (per-collision choices are not
+    # retained at the opener site, so overlaps are reported by count and outcome, never as claimed dispositions).
+    lead = f"- Installed engine {_lit(engine_release)}" if engine_release else "- Installed the engine"
+    lead += (f" — {overlaid_count} engine files placed in their own namespaced corners (the `.engine/` area and "
+             "the provider guides), leaving your project's files where they are."
+             if overlaid_count else
+             " — its files placed in their own namespaced corners (the `.engine/` area and the provider guides), "
+             "leaving your project's files where they are.")
+    scope = [lead]
+    if module_ids:
+        scope.append(f"- Enabled {len(module_ids)} engine modules in {_lit(tier)} mode "
+                     f"(governance sized for {'a single maintainer' if tier == 'solo' else 'a team'}).")
+    if overlap_count:
+        settled = (f"- Found {overlap_count} place(s) where the engine's files overlapped your own; each was "
+                   f"surfaced and settled before anything was written")
+        settled += f" ({kept_as_is_count} left as it was)." if kept_as_is_count else "."
+        scope.append(settled)
+    else:
+        scope.append("- Found no overlap between the engine's files and your own.")
+    for line in (_floor_line(claude_floor, "Claude", "CLAUDE.md"),
+                 _floor_line(agents_floor, "Codex", "AGENTS.md")):
+        if line:
+            scope.append(line)
+    if home_repository:
+        scope.append(f"- Recorded where this project fetches its engine updates from ({_lit(home_repository)}).")
+    if protected:
+        scope.append("- Turned on branch protection for the default branch: it has already been turned on as "
+                     "part of this arrival, so a change now needs a reviewed pull request and the branch cannot "
+                     "be force-pushed or deleted.")
+    else:
+        scope.append("- Branch protection for the default branch could NOT be turned on during this arrival "
+                     "(usually a sign-in that cannot administer the repository), so it is not on yet — the "
+                     "post-merge step in Review turns it on.")
+    scope += [
+        "",
+        "### Behaviors",
+        "",
+        "**With the engine installed, this project can orient, validate, and protect its work.**",
+        "",
+        f"- The engine knows your default branch ({_lit(default_branch)}) and whether its safety gate is on — "
+        "the orientation every session starts from.",
+        "- The installed configuration is internally consistent and passes the engine's own local checks.",
+        "- From here, changes are developed in isolated worktrees and reviewed through protected pull requests.",
+    ]
+
+    out = ["# Adding the engine to this project", "", release_cut.template_preamble(), ""]
+    out += release_cut.pr_section(
+        "Purpose",
+        "This adds the engine to your project, for you to review and merge.",
+        ["- Merging adopts the engine here; closing this changes nothing and leaves your project as it is.",
+         "- It sets up a reviewable, reversible, protected-branch way of working — every later change arrives "
+         "as its own reviewed pull request."],
+        "merging is your consent to run the engine in this project; nothing changes until you merge.")
+    scope_paren = "; ".join(
+        ([f"{len(module_ids)} modules, {_lit(tier)} mode"] if module_ids else [])
+        + ([f"{overlaid_count} files"] if overlaid_count else []))
+    scope_summary = (
+        f"What the arrival did — installed engine {_lit(engine_release)}" if engine_release
+        else "What the arrival did — installed the engine")
+    scope_summary += f" ({scope_paren})" if scope_paren else ""
+    scope_summary += (", settled any overlap with your own files, and "
+                      + ("turned on branch protection."
+                         if protected else "could not turn on branch protection (see Scope and Review)."))
+    out += release_cut.pr_section(
+        "Scope", scope_summary, scope,
+        "the project gains the engine's governance layer while your own files and history stay untouched.")
+    out += release_cut.pr_section(
+        "Out of scope",
+        "What this does not do.",
+        ["- It does not change your project's own files, code, or content.",
+         "- It does not change settings you configured yourself — turning on branch protection (see Scope) is "
+         "the one repository setting the arrival sets.",
+         "- It touches only the engine's own files and the engine's marked blocks in your shared guides.",
+         "- It does not delete any existing branch."],
+        "the arrival stays independently reviewable; changes to your project begin only after this merges.")
+    risk = [
+        "- The engine's own checks (engine-ci, engine-guard) cannot be *required* on a branch until their "
+        "workflows are on it — and those workflows arrive in THIS pull request. So they are not yet enforced "
+        "on this pull request; until you run the post-merge step in Review, your own review is the gate.",
+        "- This adds a large governance layer — the engine's tools, checks, and workflows. Reverting this pull "
+        "request removes the engine's files again.",
+    ]
+    if not protected:
+        risk.insert(1, "- Branch protection is not on yet (see Scope), so the default branch stays unprotected "
+                    "until the post-merge step in Review turns it on.")
+    out += release_cut.pr_section(
+        "Risk", "What to weigh before merging.", risk,
+        "the engine's automated checks only begin guarding after the post-merge step, so this first merge rests "
+        "on your review; everything the arrival added is reversible.")
+    out += release_cut.pr_section(
+        "Validation",
+        "What the engine checked before opening this — and what it honestly did not.",
+        ["- The engine's first-run consistency checks passed before this pull request was opened — the checks "
+         "that catch a missing, orphaned, or mismatched engine file.",
+         "- The engine's own generated index of its parts was rebuilt and checked against the installed files "
+         "before opening — so what the engine records about itself matches what is actually there.",
+         "- These are structural checks run locally during the arrival. The engine's full check suite does NOT "
+         "run on this pull request yet — its workflows arrive in this very pull request and only start running "
+         "once they are on the default branch (see Review). Nothing here is represented as a passing check that "
+         "is not actually running."],
+        "the engine's local state was checked for consistency; the native automated checks are honestly not yet "
+        "running on this pull request, so your review is the real gate for this first merge.")
+    review = [
+        "- Merge to adopt the engine; close this to decline — nothing changes and your project stays as it is.",
+        "- **After you merge, run `python .engine/tools/bootstrap.py finalize` from the project.** It turns on "
+        "the engine's required checks (engine-ci, engine-guard)"
+        + ("" if protected else ", and turns on branch protection itself, since this arrival could not turn it "
+           "on directly")
+        + ". The engine's guardrails are not fully armed until you do.",
+        "- No separate independent review ran; the installation was checked mechanically (see Validation) and "
+        "refuses to open on a hard finding.",
+        "- To undo the arrival after merging, revert this pull request — it removes the engine's files again.",
+    ]
+    out += release_cut.pr_section(
+        "Review", "How to act on this, and the one step to run after you merge.", review,
+        "your merge is the binding gate, and the post-merge finalize step is what arms the engine's automated "
+        "protection — until then its guardrails are not fully on.")
+    out += release_cut.pr_section(
+        "Demonstration",
+        "What you can check for yourself, before and after merging.",
+        ["- Check out this branch and run `python .engine/tools/bootstrap.py status` — it reports the engine's "
+         "safety gate and the branch it operates on.",
+         "- Run the engine's local check suite against the branch: `python .engine/tools/validate.py --suite "
+         "CI` — the same structural checks the arrival ran.",
+         "- The fuller behaviour — the engine guarding your merges through its own required checks — begins "
+         "once you run the finalize step in Review."],
+        "the arrival's effects are inspectable now (the installed engine reports its own status and passes its "
+        "own local checks); the merge-time guarding begins after finalize.")
+    out += release_cut.pr_section(
+        "Files of interest",
+        "What this adds.",
+        ["- The engine's own files under `.engine/` — its tools, checks, contracts, schemas, and state.",
+         "- Your provider instruction guides (CLAUDE.md and AGENTS.md) — the engine added its marked block; "
+         "anything outside that block is untouched.",
+         "- The merge-gating workflows and settings (`.github/workflows/engine-ci.yml`, `engine-guard.yml`, and "
+         "the pull-request template).",
+         "- The engine's configuration record (`.engine/engine.json`), including where this project fetches its "
+         "updates."],
+        "these files determine what engine was installed, how your agents behave, and how future merges are "
+        "gated.")
+    out += release_cut.pr_section(
+        "AI involvement",
+        "Who did what.",
+        ["- The engine's arrival process installed itself here — overlaying its files, surfacing and settling "
+         "each overlap with your files, inserting its instruction block into your provider guides, and "
+         "configuring branch protection — and it authored this pull request.",
+         "- It did not decide to adopt the engine or to merge this; those decisions are yours."],
+        "the arrival was performed by the engine; your merge is the decision.")
+    return "\n".join(out)
+
+
 def _github_error_detail(exc) -> str:
     """GitHub's human-readable reason from a FAILED API response body, safe to show the operator — WITHOUT
     surfacing anything sensitive. The body is field-validation JSON and never echoes request headers, so the

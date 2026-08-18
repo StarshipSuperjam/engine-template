@@ -73,8 +73,6 @@ import shutil
 import sys
 import tempfile
 
-import jsonschema
-
 import validate
 import module_coherence
 import module_manager
@@ -929,6 +927,9 @@ def _raise_only_violations(engine_ver: str, targets: dict, engine_cur: str, pres
 
 
 def _schema_ok(instance, schema_path: str) -> list[str]:
+    import jsonschema  # lazy: a tool-runtime dep absent on the bare-3.9 arrival floor, so keep it out of module
+    # import so `import release_cut` stays 3.9-safe (arrive() reaches pr_section/template_preamble on that floor;
+    # StarshipSuperjam/engine-template#755) — mirrors validate.py's lazy third-party discipline. This is the only jsonschema user here.
     schema = validate.load_json(schema_path)
     v = jsonschema.Draft202012Validator(schema)
     return [e.message for e in v.iter_errors(instance)]

@@ -2083,6 +2083,22 @@ def _build_fixture(root: str) -> None:
     # removed) is exercised; the apply-demo also proves the construction repo's own LICENSE stays untouched.
     with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
         fh.write(_TEMPLATE_LICENSE_SEED)
+    # The published template ships the pull-request template carrying the consent-preamble blockquote every
+    # engine PR lifts (release_cut.template_preamble). The arrival body reads that preamble from the RELEASE
+    # tree, so a faithful release fixture must ship it (#755); only the leading `>` blockquote is load-bearing.
+    os.makedirs(os.path.join(root, ".github"))
+    with open(os.path.join(root, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
+        fh.write(
+            "> *A green mechanical check below shows this change conforms to the engine's rules — not that it "
+            "is correct. What covers correctness is the behavioural steps in **Review** you can run yourself "
+            "and the change's honest self-report — not a reading of the diff for defects; a green check is "
+            "never a substitute for that. **Your merge is the binding gate.***\n"
+            ">\n"
+            "> *About those checks: only the one that runs when the change is proposed for merge can stop a "
+            "risky merge — a check that ran while the change was still being written is early advice. Each "
+            "check is itself proven against a deliberately broken example it must catch, so a passing check "
+            "can't be one that quietly did nothing — but that proves the check works, not that this change is "
+            "right. And a check that could not run leaves its area unverified.*\n\n## Purpose\n")
     # A "Use this template" copy inherits the committed root CLAUDE.md, which since #323 IS the fenced adopter
     # floor (no separate .deployed.md, and no construction file to swap). Plant it fenced so the fixture models
     # the real published template; the apply-demo proves apply leaves it untouched. The floor body carries boot's
@@ -3384,31 +3400,28 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             # `Feature:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): arriving in a
             # project is a new capability, and the prefix is what groups it in the deployed repo's release notes.
             title = "Feature: add the engine to this project"
-            # The protection sentence is CONDITIONAL on what actually happened: the control-plane step degrades
-            # LOUD but does not halt (e.g. a sign-in that can't administer the repo), and the arrival still opens
-            # this pull request — so a categorical "protection is on" claim could be false on that path.
+            # The body is CONDITIONAL on what actually happened: the control-plane step degrades LOUD but does not
+            # halt (e.g. a sign-in that can't administer the repo), and the arrival still opens this pull request —
+            # so a categorical "protection is on" claim could be false on that path. render_arrival_pr_body carries
+            # every arrival outcome through the Engine PR-body contract (the nine sections + consent preamble every
+            # engine pull request has), so the project's FIRST pull request honours the same contract as every
+            # other — including the checkless-arrival honesty (the engine's own checks are not required until the
+            # post-merge finalize) and the must-see negatives (a floor it could not insert, protection it could not
+            # apply). (StarshipSuperjam/engine-template#755, replacing the free-form paragraph this used to build inline.)
             protected = any(s.get("step") == "control-plane" and s.get("protected") for s in result["steps"])
-            if protected:
-                protection_line = (
-                    "Branch protection for the main branch has already been turned on as part of this arrival "
-                    "(a change now needs a reviewed pull request, and the branch cannot be force-pushed or "
-                    "deleted). What this pull request adds is the engine's files themselves — including the "
-                    "workflows for its own checks. ")
-            else:
-                protection_line = (
-                    "Branch protection for the main branch could NOT be turned on during this arrival (the "
-                    "setup output explains why — usually a sign-in that cannot administer the repository), so "
-                    "it is not on yet. Merging this pull request adds the engine's files — including the "
-                    "workflows for its own checks. ")
-            body = ("This pull request adds the engine to the project: its files are placed in their own "
-                    "namespaced corners, any overlap with the project's own files was surfaced and settled, "
-                    "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
-                    + protection_line +
-                    "ONE STEP REMAINS AFTER YOU MERGE: the engine's own checks (engine-ci, engine-guard) cannot "
-                    "be *required* until their workflows are on the main branch — which only happens once this "
-                    "merges. After merging, run `python .engine/tools/bootstrap.py finalize` from the project to "
-                    "turn those required checks on (it also turns on the branch-protection floor itself if this "
-                    "arrival could not). Reverting this pull request removes the engine's files again.")
+            # Composed BEFORE the opener's try so a render defect surfaces as itself, never mislabeled as a publish
+            # failure. Facts not retained on `result` are read here: home_repository (the same _existing_home_repository
+            # confirm reads) and the class-1 overlaps the operator left in place (`exclude`). Rendered UNDER the
+            # RELEASE tree's root so the consent preamble is lifted from the release's OWN pull-request template
+            # (the version being installed) — never from whatever template the target happened to keep (#755).
+            with _redirect_root(release_tree):
+                body = module_manager.render_arrival_pr_body(
+                    engine_release=engine_release, tier=tier or "solo", module_ids=release_ids,
+                    overlaid_count=len(result.get("overlaid") or []),
+                    overlap_count=len(result.get("collisions") or []), kept_as_is_count=len(exclude),
+                    claude_floor=result.get("floor"), agents_floor=result.get("agents_floor"),
+                    home_repository=_existing_home_repository(release_tree),
+                    default_branch=default_branch or target_default_branch, protected=protected)
             try:
                 result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
             except Exception as pr_exc:  # noqa: BLE001 — the engine IS installed; only publishing the PR failed
