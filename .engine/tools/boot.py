@@ -199,6 +199,31 @@ def gh_token() -> str | None:
     return _run(["gh", "auth", "token"])
 
 
+def gh_unreachable_note() -> str:
+    """The one operator-facing sentence a caller prints when `gh_token()` resolves no token from here —
+    single-homed so the wording cannot drift across the callers. `gh auth token` is a LOCAL credential-store
+    read, so its failure means only that no token was reachable FROM HERE: inside a sandbox (e.g. Codex) the
+    host keyring is unreachable and the read fails exactly as a genuinely signed-out machine would. The note
+    therefore stays inconclusive — it never declares the token invalid or expired, and it does not lean either
+    way, because at this point the process cannot tell a sandbox from a real logout. A genuinely rejected token
+    is a distinct API-layer 401, seen at request time. StarshipSuperjam/engine-template#808."""
+    return (
+        "No GitHub token was reachable. This does not by itself mean your token is invalid or expired. If "
+        "you're running inside a sandbox (for example Codex), your GitHub login is likely intact but "
+        "unreachable from inside it — rerun this from a shell outside the sandbox, or approve the sandbox's "
+        "escalation prompt for this command. Only if you're genuinely signed out does `gh auth login` apply."
+    )
+
+
+def repo_unresolved_note() -> str:
+    """Companion to `gh_unreachable_note()` for the OTHER half of a combined `not repo or not token` guard:
+    when a token IS present but `repo_slug()` could not name the repository (no GitHub remote in this
+    checkout, or a non-GitHub remote). Kept distinct so a repo-resolution failure is never misreported as the
+    token/sandbox story — StarshipSuperjam/engine-template#808 (review)."""
+    return ("I couldn't tell which GitHub repository this is — there may be no GitHub remote in this "
+            "checkout, or its remote isn't a GitHub URL.")
+
+
 # ---- committed state (the card facts; refuse-on-malformed) ----------------------------------
 
 def _cursor_conforms(state: dict) -> bool:

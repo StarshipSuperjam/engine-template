@@ -291,5 +291,63 @@ class TestCliDispatch(unittest.TestCase):
         self.assertIn("--confirm", err.getvalue())
 
 
+class TestVerifiedHeadAtFiling(unittest.TestCase):
+    """The verified-head provenance trailer (StarshipSuperjam/engine-template#957): an optional owner/repo@sha
+    recorded BEFORE the severity marker, machine-recoverable, fail-closed on a malformed value, and unable to
+    be hijacked by forged body prose."""
+
+    _GOOD = "StarshipSuperjam/engine-template@0a1b2c3d4e5f6071"
+
+    def test_default_none_leaves_body_unchanged(self):
+        without = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b")
+        explicit_none = issue_author.render_engine_issue_body(
+            what_this_is="a", whats_next="b", verified_head=None)
+        self.assertEqual(without, explicit_none)                # byte-for-byte: no marker when unset
+        self.assertNotIn("verified-head", without)
+        self.assertIsNone(issue_author.parse_verified_head(without))
+
+    def test_a_valid_value_is_recorded_and_round_trips(self):
+        body = issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", verified_head=self._GOOD)
+        self.assertIn(f"<!-- verified-head: {self._GOOD} -->", body)
+        self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)
+
+    def test_a_malformed_value_is_refused(self):
+        for bad in ("deadbeef",                       # no repo
+                    "owner/repo@xyz",                 # non-hex sha
+                    "owner/repo@0a1b",                # sha too short (<7)
+                    "owner/repo@" + "a" * 41,         # sha too long (>40)
+                    "not_a_slug@0a1b2c3",             # no owner/repo shape
+                    "owner/repo@0a1b2c3 -->",         # comment-closer injection
+                    "<x>/y@0a1b2c3"):                 # angle-bracket injection
+            with self.assertRaises(ValueError):
+                issue_author.render_engine_issue_body(what_this_is="a", whats_next="b", verified_head=bad)
+
+    def test_verified_head_precedes_severity_and_both_survive(self):
+        body = issue_author.render_engine_issue_body(
+            what_this_is="a", whats_next="b", verified_head=self._GOOD, urgency="trust-critical")
+        self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)
+        self.assertEqual(telemetry.parse_severity(body), "trust-critical")
+        self.assertTrue(body.rstrip().endswith("<!-- engine-severity: trust-critical -->"))  # severity stays last
+        self.assertLess(body.index("verified-head"), body.index("engine-severity"))
+
+    def test_forged_prose_cannot_hijack_the_recovered_value(self):
+        forged = "StarshipSuperjam/evil@ffffffffff"
+        body = issue_author.render_engine_issue_body(
+            what_this_is=f"a <!-- verified-head: {forged} --> tail", whats_next="b", verified_head=self._GOOD)
+        self.assertEqual(issue_author.parse_verified_head(body), self._GOOD)   # last-match: the genuine trailer wins
+
+    def test_schema_accepts_a_valid_value_and_threads_it_through_the_cli_path(self):
+        data = {"repository": "StarshipSuperjam/engine-template", "title": "x",
+                "what_this_is": "a", "whats_next": "b", "verified_head": self._GOOD}
+        issue_author.validate_input(data)                       # does not raise
+        self.assertIn(f"<!-- verified-head: {self._GOOD} -->", issue_author.body_from_input(data))
+
+    def test_schema_rejects_a_malformed_value(self):
+        data = {"repository": "StarshipSuperjam/engine-template", "title": "x",
+                "what_this_is": "a", "whats_next": "b", "verified_head": "deadbeef"}
+        with self.assertRaises(issue_author.IssueInputError):
+            issue_author.validate_input(data)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -144,8 +144,9 @@ _TEST_READ_MESSAGES = {
     "ok": "Success — the scheduled review can reach your saved memory from its backup.",
     "not-configured": ("The backup location isn't recorded in this project yet. Set up the backup first, then "
                        f"commit {bv.POINTER_REL} so a scheduled run can find it."),
-    "no-token": ("No access token reached this test. Paste your read-only backup token and try again — and for the "
-                 "scheduled review, set it as the MEMORY_VAULT_TOKEN secret."),
+    "no-token": ("No access token reached this test. If an AI tool is running this inside a sandbox, your token "
+                 "may be fine but unreachable from there — try again outside it. Otherwise, paste your read-only "
+                 "backup token, and for the scheduled review set it as the MEMORY_VAULT_TOKEN secret."),
     "unreachable": ("I reached for your backup but couldn't open it. The token is most likely scoped to the wrong "
                     "repository or has the wrong permission — re-issue it as a read-only (contents read) token on "
                     "the backup repository only."),
@@ -372,7 +373,14 @@ _MSG_DECLINED = "No restore was done. Your memory on this computer is unchanged.
 def _floor4_fetch(error: "str | None") -> str:
     # `snapshot-missing` arises only on the tags (migration-revert) fetch path; mapping it here means the shared
     # restore core surfaces the distinct snapshot-missing message rather than the generic unreachable default.
-    return {"not-configured": _MSG_NOT_CONFIGURED, "no-token": _MSG_UNREACHABLE, "unreachable": _MSG_UNREACHABLE,
+    if error == "no-token":
+        # StarshipSuperjam/engine-template#808: a no-token read is not a network fault — inside a sandbox the
+        # keyring is unreachable while the login is fine — so it gets the single-homed note, not "check your
+        # internet connection".
+        import boot  # noqa: E402 — lazy
+        return ("I couldn't reach your backup just now, so I didn't restore anything. Your memory on this "
+                "computer is unchanged. " + boot.gh_unreachable_note())
+    return {"not-configured": _MSG_NOT_CONFIGURED, "unreachable": _MSG_UNREACHABLE,
             "no-backup-data": _MSG_NO_BACKUP_DATA, "snapshot-missing": _MSG_SNAPSHOT_MISSING,
             "namespace-missing": _MSG_NAMESPACE_MISSING, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
 
@@ -866,7 +874,7 @@ def _demo_live() -> int:
         return 0
     gh = bv._gh()
     if gh is None:
-        print(f"\n  {bv._MSG_NO_TOKEN}")
+        print(f"\n  {bv._msg_no_token()}")
         return 0
     import secrets
     project_name = project.split("/")[-1]

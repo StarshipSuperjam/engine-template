@@ -379,9 +379,9 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
         token = boot.gh_token()
         if not token:
             return {"status": DEGRADED,
-                    "message": "The engine couldn't reach GitHub to update your progress board (it isn't "
-                               "signed in here). Run `gh auth login` and it will refresh the board next "
-                               "session. Your issues and pull requests are unchanged."}
+                    "message": ("The engine couldn't reach GitHub to update your progress board. "
+                                f"{boot.gh_unreachable_note()} Your issues and pull requests are "
+                                "unchanged.")}
         gql = BoardGraphQL(token)
 
     try:
@@ -451,8 +451,7 @@ def _cmd_check() -> int:
     project = cfg.get("project") or {}
     token = boot.gh_token()
     if not token:
-        print("A board is set up, but the engine isn't signed in to GitHub here, so it can't refresh it. "
-              "Run `gh auth login`.")
+        print(f"A board is set up, but it can't be refreshed from here. {boot.gh_unreachable_note()}")
         return 0
     try:
         board = resolve_board(BoardGraphQL(token), project.get("id"))
@@ -479,8 +478,7 @@ def _cmd_resolve(rest: list) -> int:
         return 2
     token = boot.gh_token()
     if not token:
-        print("The engine isn't signed in to GitHub here. Run `gh auth login`, then try again.",
-              file=sys.stderr)
+        print(f"Couldn't resolve the board from here. {boot.gh_unreachable_note()}", file=sys.stderr)
         return 1
     try:
         board = resolve_board(BoardGraphQL(token), project_id)

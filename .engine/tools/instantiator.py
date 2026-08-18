@@ -290,9 +290,9 @@ FALLBACK_COPY = {
         "the command line — I'll set it; or just tell me your account name and I'll set it now."
     ),
     "control-plane-unavailable": (
-        "I couldn't find this project on GitHub or sign in just now, so I couldn't turn on the review gate that "
-        "protects your main branch. The rest of setup is unaffected. Once you're signed in to GitHub from the "
-        "command line and the project is connected, I can turn it on — just ask me to finish setup."
+        "I couldn't find this project on GitHub just now, so I couldn't turn on the review gate that protects "
+        "your main branch — there may be no GitHub remote connected to this checkout yet. The rest of setup is "
+        "unaffected. Once the project is connected, I can turn it on — just ask me to finish setup."
     ),
     "actions-enablement": (
         "One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic "
@@ -1505,9 +1505,17 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
     real orchestration deterministically, independent of the ambient environment (e.g. CI's own token)."""
     repo = repo or boot.repo_slug()
     token = token or boot.gh_token()
-    if not repo or not token:
+    if not token:
+        # Split from the repo case (StarshipSuperjam/engine-template#808): a no-token read inside a sandbox is
+        # inconclusive, not proof you're signed out — route it through the single-homed note rather than the
+        # signed-out framing.
+        say("I couldn't turn on the review gate that protects your main branch, because I couldn't reach GitHub "
+            "to do it. The rest of setup is unaffected. " + boot.gh_unreachable_note() +
+            " Once GitHub is reachable, ask me to finish setup.")
+        return {"step": "control-plane", "status": "degraded", "detail": "no sign-in", "protected": False}
+    if not repo:
         say(copy["control-plane-unavailable"])
-        return {"step": "control-plane", "status": "degraded", "detail": "no project/sign-in", "protected": False}
+        return {"step": "control-plane", "status": "degraded", "detail": "no project", "protected": False}
     cp = bootstrap.ControlPlane(repo, token, transport=control_transport, refresh_fn=gh_refresh,
                                 issues=control_issues, checkless=checkless)
     result = cp.apply(announce=say)  # branch=None -> apply resolves the authoritative default (env->recorded->origin/HEAD)

@@ -279,5 +279,18 @@ class TestDemo(_Base):
         self.assertEqual(quiet_call.run(ps._demo), 0)
 
 
+class TestSandboxAwareNoToken(_Base):
+    """StarshipSuperjam/engine-template#808: when no token resolves, the board-sync degrade message carries the
+    single-homed inconclusive note, so a sandboxed read is not reported as a signed-out/expired board."""
+
+    def test_no_token_degrades_with_the_inconclusive_note(self):
+        from unittest import mock
+        with mock.patch.object(ps.boot, "gh_token", return_value=None):
+            result = ps.sync(force=True, config=_config(), signals=_signals(), now=_NOW)
+        self.assertEqual(result["status"], ps.DEGRADED)
+        self.assertIn("does not by itself mean", result["message"])   # the inconclusive #808 note is wired in
+        self.assertIn("sandbox", result["message"])
+
+
 if __name__ == "__main__":
     unittest.main()
