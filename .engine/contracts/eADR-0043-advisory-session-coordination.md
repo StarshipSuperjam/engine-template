@@ -39,7 +39,7 @@ Seven properties bind every part of this capability:
 3. **Advisory-only, never a proxy.** A notice may report that an authoritative fact exists ("PR #N merged");
    it may never *be* that fact. It can never satisfy or stand in for operator approval, a permission prompt,
    `guardrail-ack`, a review or QA attestation, merge eligibility, exact integration-candidate freshness
-   (eADR-0021 / #915), canon or specification authority, credentials, or deployment authority. The receiver
+   (eADR-0021 / StarshipSuperjam/engine-template#915), canon or specification authority, credentials, or deployment authority. The receiver
    verifies the authoritative surface. This is enforced mechanically by a **fail-closed whitelist**:
    coordination code may reach GitHub only through one named comment post/patch transport and read-only
    reads — any other mutating call, or any import of an authority-writing module (the merge path,

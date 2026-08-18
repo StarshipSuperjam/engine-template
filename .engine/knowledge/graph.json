@@ -3394,7 +3394,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:f8cf9e91b4e5a71042c3054e8bf236418bc214cda7fcf634eb811cf9385ad8a1",
+        "fingerprint": "sha256:ff0f8b120b7b27bd787a35175b86ae7874e5e641e301853e6ca820b0e9e1e115",
         "path": ".agents/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -3434,7 +3434,7 @@
       },
       "slug": "engine-coordination-read",
       "source": {
-        "fingerprint": "sha256:78ecc67060b4260f47c1fde9a25553efa00085495a63d11821af2185d401dc69",
+        "fingerprint": "sha256:986ff18d0c8f0d354180d10b7436ea99277c4b61358c8bf193229d9413f5b09c",
         "path": ".agents/skills/engine-coordination-read/SKILL.md"
       },
       "status": "active",
@@ -5954,7 +5954,7 @@
       },
       "slug": "eADR-0043-advisory-session-coordination",
       "source": {
-        "fingerprint": "sha256:0adfd14c2f358d5445dd36c76f8e7b49c4722165ffa412018f3bc746faf2f119",
+        "fingerprint": "sha256:d89f8b0bfec5919a3008764d4eaf6fecc4c03cb5a4ef46f1ca94294e818f4264",
         "path": ".engine/contracts/eADR-0043-advisory-session-coordination.md"
       },
       "status": "accepted",
@@ -8264,7 +8264,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:2ec8d9ea3d473e5e2f95e1aeed667037016ac3aedef922566393124f5920920f",
+        "fingerprint": "sha256:9cb6821731182b38d20cfe2a2bf84d60d215db58c4e53d8a251755a1e8224532",
         "path": ".claude/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -8289,7 +8289,7 @@
       },
       "slug": "engine-coordination-read",
       "source": {
-        "fingerprint": "sha256:36e6dc285ca61359fcda76fc9b9c2fb3eb0ea7b15923b4dacb198db171cfd500",
+        "fingerprint": "sha256:fff30b354a9c19d16ce9b588d5d6bfebab5b96e778e9c7355a3f698c715aa8c2",
         "path": ".claude/skills/engine-coordination-read/SKILL.md"
       },
       "status": "active",
@@ -12607,7 +12607,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:0ad9b3d79b695ea7031c3b4c4708d1fe5f887335dc86417a2d694addaa9aba53",
+        "fingerprint": "sha256:ddc4dbac32c985a8a451dfb924612ee4e91dbee880a2c804681187b5e794d1c0",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",

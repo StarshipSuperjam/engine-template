@@ -1683,6 +1683,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_ack_authority.py",
     ".engine/tools/demo_audit_concern_list.py",
     ".engine/tools/demo_coordination_two_sessions.py",
+    ".engine/tools/test_coordination_demo.py",
     ".engine/tools/demo_audit_digest.py",
     ".engine/tools/demo_boot_slice.py",
     ".engine/tools/demo_ci_author_exempt.py",
