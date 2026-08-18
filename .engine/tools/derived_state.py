@@ -236,8 +236,15 @@ def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberR
     if not os.path.isfile(tool_path):
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"generator tool {member.tool} absent in the tree")
-    proc = subprocess.run([sys.executable, tool_path, "generate"], capture_output=True, text=True,
-                          timeout=300, check=False, cwd=base)
+    try:
+        proc = subprocess.run([sys.executable, tool_path, "generate"], capture_output=True, text=True,
+                              timeout=300, check=False, cwd=base)
+    except Exception as exc:  # noqa: BLE001 — a hung (TimeoutExpired) or un-spawnable (OSError) generator is
+        # a per-member FAILURE, never a raise: an uncaught exception here would propagate past a caller that
+        # has already merged (pr_reconcile._execute_bring_up_to_date), skipping its reset --hard cleanup and
+        # the coordinator's admission release — the same never-swallowed-never-raise contract the import path
+        # honours (mirrors the pre-refactor pr_reconcile._regen_members `except: return False`).
+        return MemberResult(member.path, "failed", False, "generator subprocess raised", error=repr(exc))
     if proc.returncode != 0:
         return MemberResult(member.path, "failed", False, "generator exited non-zero",
                             error=(proc.stderr or proc.stdout or "").strip()[:500])
@@ -298,9 +305,12 @@ def _cli(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "members":
+        print("The derived-committed files the Engine regenerates from source:")
         for m in MEMBERS:
-            present = "present" if _present(m, None) else "absent"
-            print(f"{m.path}\t{present}\treconcile={m.reconcile}\trelease={m.release}\tcheck={m.check_rule}")
+            here = "present here" if _present(m, validate.ROOT) else "not present here"
+            roles = [r for r, on in (("reconciled on a spurious conflict", m.reconcile),
+                                     ("refreshed at release", m.release)) if on]
+            print(f"  - {m.path} — {here}; {', '.join(roles)}; drift check: {m.check_rule}")
         return 0
     if args.cmd == "regenerate":
         sel = paths(release=True) if args.release else None

@@ -103,6 +103,16 @@ class TestRegenerate(unittest.TestCase):
         with self.assertRaises(ValueError):
             ds.regenerate(dispatch="carrier-pigeon")
 
+    def test_subprocess_dispatch_surfaces_a_raise_as_failed_never_propagates(self):
+        # A hung (TimeoutExpired) or un-spawnable (OSError) generator on the subprocess path must become a
+        # 'failed' MemberResult, NOT an uncaught exception — else a caller mid-merge skips its cleanup and the
+        # integration queue wedges. (The subprocess path is what pr_reconcile/the coordinator use.)
+        graph = ".engine/knowledge/graph.json"
+        with mock.patch.object(ds.subprocess, "run", side_effect=OSError("spawn boom")):
+            results = {r.path: r for r in ds.regenerate([graph], dispatch="subprocess")}
+        self.assertEqual(results[graph].status, "failed")
+        self.assertIn("spawn boom", results[graph].error)
+
 
 class TestRepair(unittest.TestCase):
     def test_repair_regenerates_exactly_the_drifted_members(self):

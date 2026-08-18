@@ -37,11 +37,12 @@ def _serialized(gh):
 
 
 class TestNativeStub(unittest.TestCase):
-    def test_native_unavailable_names_the_guard_isolation_reason(self):
+    def test_native_unavailable_discloses_plainly_and_names_the_tracking_issue(self):
         ok, why = be.NativeMergeQueueBackend().available("main")
         self.assertFalse(ok)
         self.assertIn("989", why)
-        self.assertIn("trusted-base", why)
+        self.assertIn("merge queue", why.lower())
+        self.assertNotIn("merge_group", why)      # operator-facing: no CI internals
 
     def test_select_backend_falls_back_to_serialized_and_discloses(self):
         gh = _FakeGH({})

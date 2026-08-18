@@ -13,8 +13,9 @@ one another, and its durable store is GitHub itself (open PRs + labels), never a
 
 Durable facts, all read live from GitHub:
   - candidate set    = open PRs targeting the protected branch.
-  - reviewed         = the `engine-integrate-ready` label, plus — in TEAM identity — a code-owner approval
-                       surviving the last push; in SOLO identity, the PR being ready (not draft). Solo has no
+  - reviewed         = the `engine-integrate-ready` label, plus — in TEAM identity — an approval surviving
+                       the last push (GitHub's require_code_owner_review is the binding code-owner gate at
+                       merge, not this recognition); in SOLO identity, the PR being ready (not draft). Solo has no
                        distinct reviewer, so "reviewed" here is OPERATOR-ACKNOWLEDGED readiness, never a claim
                        that an independent review gate passed (eADR-0021, eADR-0042).
   - admission        = a singleton `engine-integrating` label (the backend's advisory CAS).
@@ -67,8 +68,10 @@ def _labels(pr: dict) -> set:
 
 
 def _approval_survives_last_push(transport: Callable, repo: str, pr_number: int, head_sha: str) -> bool:
-    """TEAM: a code-owner APPROVED review whose commit is the current head — an approval that survived the
-    last push (the same signal the team floor requires)."""
+    """TEAM readiness signal: an APPROVED review whose commit is the current head — an approval that survived
+    the last push. GitHub's reviews API does NOT expose whether the reviewer is a CODEOWNERS-designated owner,
+    so this recognizes any surviving approval; the binding CODE-OWNER requirement is GitHub's own
+    require_code_owner_review at the merge gate (protection_guard / eADR-0021), never this advisory pre-flight."""
     status, reviews = transport("GET", f"/repos/{repo}/pulls/{pr_number}/reviews", None)
     if status >= 400 or not isinstance(reviews, list):
         return False
@@ -133,7 +136,9 @@ def prove_ready(transport: Callable, repo: str, candidate: Candidate, base: str,
     if protection_guard.missing_floor(_branch_rules(transport, repo, base), required, tier=tier):
         reasons.append("the protected-branch floor is not fully in force")
     head = _protected_head(transport, repo, base)
-    if head and candidate.base_sha and candidate.base_sha != head:
+    if head is None:                       # read FAILED — fail closed (like the floor + checks reads), never
+        reasons.append("could not read the current main to confirm the candidate is up to date")
+    elif candidate.base_sha and candidate.base_sha != head:
         reasons.append("the candidate is behind the current main — it needs bringing up to date")
     if not _checks_green(transport, repo, candidate.head_sha, required):
         reasons.append("the required checks are not green on the candidate's current head")
@@ -162,7 +167,9 @@ def surface_next(transport: Callable, repo: str, base: str, *, tier: str, be, th
     silently advancing to the next."""
     candidates = reviewed_candidates(transport, repo, base, tier=tier)
     if not candidates:
-        return {"status": "empty", "detail": "No reviewed candidate is waiting to integrate."}
+        return {"status": "empty",
+                "detail": ("No reviewed candidate is waiting to integrate. A pull request joins the queue once "
+                           f"it carries the `{READY_LABEL}` label and is out of draft.")}
     holder = be.admitted()
     if holder is not None and holder != this_pr:
         return {"status": "busy", "admitted": holder,
@@ -171,19 +178,30 @@ def surface_next(transport: Callable, repo: str, base: str, *, tier: str, be, th
     adm = be.admit(nxt.pr)
     if not adm.acquired:
         return {"status": "not-admitted", "detail": adm.disclosure, "next": nxt.pr}
-    if this_pr is not None and nxt.pr == this_pr and prepare_fn is not None:
+    # Whose PR is this candidate? Only bring it up to date when it is THIS session's own branch; otherwise we
+    # can only report on it (a peer session or the operator owns its preparation).
+    mine = this_pr is not None and nxt.pr == this_pr
+    if mine and prepare_fn is not None:
         prep = prepare_fn(apply=True)
         if prep.get("status") not in ("prepared", "healthy"):
             be.release(nxt.pr)
-            return {"status": "blocked", "next": nxt.pr, "detail": prep.get("reason", prep.get("status")),
-                    "note": "left the candidate for a human decision; released admission."}
+            reason = prep.get("reason", prep.get("status"))
+            if reason == "authored-conflict":
+                detail = (f"PR #{nxt.pr} conflicts with the latest main in files a human edited — a real "
+                          "decision, so I left both branches exactly as they were and released the integration "
+                          "slot for the next candidate. Resolve it on the branch, then it can re-enter the queue.")
+            else:
+                detail = (f"PR #{nxt.pr} couldn't be brought up to date ({reason}); I changed nothing and "
+                          "released the integration slot. It needs a look before it can integrate.")
+            return {"status": "blocked", "next": nxt.pr, "reason": reason, "detail": detail}
     proof = prove_ready(transport, repo, nxt, base, tier=tier)
+    whose = "" if mine else f" (PR #{nxt.pr} is the next in the queue, not this session's own branch)"
     return {"status": "ready" if proof["ready"] else "not-ready", "next": nxt.pr, "title": nxt.title,
-            "admitted": nxt.pr, "reasons": proof["reasons"],
+            "admitted": nxt.pr, "reasons": proof["reasons"], "mine": mine,
             "detail": (f"PR #{nxt.pr} is the next ready candidate — it reconciles cleanly and its checks are "
-                       f"green against current main. Merge it when the evidence convinces you."
+                       f"green against current main. Merge it when the evidence convinces you.{whose}"
                        if proof["ready"] else
-                       f"PR #{nxt.pr} is admitted but not yet ready: {'; '.join(proof['reasons'])}.")}
+                       f"PR #{nxt.pr} is admitted but not yet ready: {'; '.join(proof['reasons'])}.{whose}")}
 
 
 # ---- CLI -------------------------------------------------------------------------------------------
@@ -220,13 +238,19 @@ def main(argv: list) -> int:
         print(f"next: PR #{cands[0].pr} ({cands[0].title})" if cands else "no reviewed candidate waiting")
         return 0
     if argv and argv[0] == "advance":
-        import boot
         this = _current_pr(transport, repo, base)
-        if this is not None:
-            be.release(this)
-            print(f"Released admission for PR #{this}; the next candidate can be admitted.")
+        if this is None:
+            print("No open pull request for the current branch to advance.")
+            return 0
+        held = be.admitted()
+        be.release(this)
+        if held == this:
+            print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
         else:
-            print("No open PR for the current branch to advance.")
+            where = f"PR #{held} holds it" if held else "no pull request holds it right now"
+            print(f"PR #{this} wasn't holding the integration slot ({where}); nothing changed. To free a slot "
+                  "stuck on another pull request, close that pull request (it drops out of the queue) or run "
+                  "advance from its branch.")
         return 0
     if argv and argv[0] == "prepare":
         import pr_reconcile

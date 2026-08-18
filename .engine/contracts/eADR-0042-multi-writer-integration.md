@@ -20,8 +20,10 @@ Work moves through five named states:
   - **worktree** — session-held work; the plan is non-durable until promoted (eADR-0025, eADR-0041).
   - **candidate PR** — the draft PR is the claim (eADR-0025). It carries the change and its *candidate
     validation*: proof the change is green **against the base it started from**.
-  - **reviewed PR** — a reviewed candidate. In **team** identity a distinct code owner's approval, surviving
-    the last push, is the review. In **solo** identity there is no distinct reviewer, so "reviewed" is
+  - **reviewed PR** — a reviewed candidate. In **team** identity an approval surviving the last push marks the
+    candidate reviewed for ordering; the binding code-owner requirement is enforced by GitHub's own
+    `require_code_owner_review` at the merge gate (eADR-0021), not by this recognition. In **solo** identity
+    there is no distinct reviewer, so "reviewed" is
     **operator-acknowledged readiness**, not code review (eADR-0021: the solo merge is informed consent, not
     review) — the state must never be presented to the operator as though an independent review gate passed.
   - **integration candidate** — the head brought up to date with the **then-current canonical tree plus all

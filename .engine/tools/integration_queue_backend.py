@@ -67,10 +67,13 @@ class NativeMergeQueueBackend:
     name = "native"
 
     def available(self, base_branch: str) -> tuple[bool, str]:
+        # Operator-facing: plain language, no CI internals. The engineering reason (a merge_group trigger
+        # would force engine-guard onto the head-tainted merge commit, breaking its base-only trusted-base
+        # isolation) is recorded in the class docstring and StarshipSuperjam/engine-template#989.
         return (False,
-                "GitHub merge queue is deferred (StarshipSuperjam/engine-template#989): a merge_group trigger would force engine-guard onto the "
-                "head-tainted merge commit, breaking its base-only trusted-base isolation. Using Engine "
-                "serialized integration instead.")
+                "GitHub's built-in merge queue isn't used yet — turning it on would weaken a safety check "
+                "that guards your pull requests, so it's held until that's resolved (tracked as "
+                "StarshipSuperjam/engine-template#989). The Engine integrates one candidate at a time instead; for you it works the same.")
 
     def admit(self, pr: int) -> Admission:      # pragma: no cover — stub until StarshipSuperjam/engine-template#989
         raise NotImplementedError("native merge-queue admit is StarshipSuperjam/engine-template#989: add the PR to the branch merge queue")
@@ -100,16 +103,25 @@ class SerializedFallbackBackend:
         return (True, "Engine-controlled serialized integration (one candidate at a time; works on any "
                       "repository and plan).")
 
-    def _open_pulls(self) -> list:
+    def _open_pulls(self) -> Optional[list]:
+        """Open PRs, or None when the read FAILED (distinct from an empty list). A failed read must not read
+        as 'no one holds admission' — the caller decides fail-open (advisory display) vs fail-closed (the CAS
+        re-check)."""
         transport = self._transport or self._labels._http
         status, pulls = transport("GET", f"/repos/{self.repo}/pulls?state=open&per_page=100", None)
-        return pulls if status < 400 and isinstance(pulls, list) else []
+        if status >= 400 or not isinstance(pulls, list):
+            return None
+        return pulls
 
-    def _holders(self) -> list[int]:
-        """Every open PR currently carrying the singleton admission label (list reads are eventually
-        consistent, so this can lag — the CAS is advisory, never a mutex)."""
+    def _holders(self) -> Optional[list[int]]:
+        """Every open PR currently carrying the singleton admission label, or None if the read failed (list
+        reads are eventually consistent, so even a successful read can lag — the CAS is advisory, never a
+        mutex)."""
+        pulls = self._open_pulls()
+        if pulls is None:
+            return None
         held = []
-        for pr in self._open_pulls():
+        for pr in pulls:
             names = [lab.get("name") for lab in pr.get("labels", []) if isinstance(lab, dict)]
             if INTEGRATING_LABEL in names:
                 held.append(pr.get("number"))
@@ -117,7 +129,7 @@ class SerializedFallbackBackend:
 
     def admitted(self) -> Optional[int]:
         holders = self._holders()
-        return holders[0] if holders else None
+        return holders[0] if holders else None   # advisory display: an unknown (None) read shows no holder
 
     def admit(self, pr: int) -> Admission:
         """Compare-and-swap the singleton label: refuse if another PR already holds it; otherwise add it,
@@ -130,6 +142,12 @@ class SerializedFallbackBackend:
             return Admission(pr, False, holder, f"PR #{holder} is currently integrating — not admitting yet.")
         self._labels.add_label(pr, INTEGRATING_LABEL)
         holders = self._holders()
+        if holders is None:
+            # the re-read FAILED — we cannot confirm we are the sole holder, so fail CLOSED: drop ours and
+            # back off rather than proceed on an unknown (a failed read must never read as "slot free").
+            self._labels.remove_label(pr, INTEGRATING_LABEL)
+            return Admission(pr, False, None,
+                             "Couldn't confirm the integration slot is free (a read failed) — backing off; try again.")
         if len([h for h in holders if h != pr]) >= 1:
             # a concurrent session admitted a DIFFERENT PR at the same time — both back off, drop ours.
             self._labels.remove_label(pr, INTEGRATING_LABEL)

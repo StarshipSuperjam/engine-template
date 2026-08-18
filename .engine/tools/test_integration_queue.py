@@ -138,6 +138,10 @@ class TestSurfaceNext(unittest.TestCase):
         r = iq.surface_next(gh.transport, "you/proj", "main", tier="solo", be=backend_obj, this_pr=5,
                             prepare_fn=lambda **kw: {"status": "needs-manual", "reason": "authored-conflict"})
         self.assertEqual(r["status"], "blocked")
+        self.assertEqual(r["reason"], "authored-conflict")
+        # the operator-facing detail is PLAIN language, not the raw reason code
+        self.assertIn("conflicts with the latest main", r["detail"])
+        self.assertNotEqual(r["detail"], "authored-conflict")
         self.assertIsNone(backend_obj.admitted())     # admission released, not left wedged
 
 

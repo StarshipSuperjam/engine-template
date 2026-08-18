@@ -5811,7 +5811,7 @@
       },
       "slug": "eADR-0042-multi-writer-integration",
       "source": {
-        "fingerprint": "sha256:ab722f04f94bfff612e6680421930d99458f3ef7e865c77a313bd385af5a5dc3",
+        "fingerprint": "sha256:2f531e5d35cb08af7da295ca030cea0f1fa2c6ee42b7a341c85b554974936f9e",
         "path": ".engine/contracts/eADR-0042-multi-writer-integration.md"
       },
       "status": "accepted",
@@ -11577,7 +11577,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:5206e9bf613e72dc838be0191ffbf60dc397768f927d6e2211a1429cc38b7e50",
+        "fingerprint": "sha256:d4f48ef5e181a7588a9033f055310c222d7eaa5cbf1b937d49cd2be37f245da2",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -12216,7 +12216,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:f62983b561766ce4c42abe5c8121276c3a0560f01fcefbb4f0eec2ddb48917e0",
+        "fingerprint": "sha256:cfbfdceb2f5a30f74570d7df83253b36d9e977dbe496e858960c9c532c2da245",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -12239,7 +12239,7 @@
       },
       "slug": "integration_queue_backend",
       "source": {
-        "fingerprint": "sha256:b67cd59db37d670f454f312609c07e1a3141c9f8f7d7d62a8008a74d125c8852",
+        "fingerprint": "sha256:5761a7c284af7a1377dcf26fc4208808120dc15c30d4ef03cd58905275f53288",
         "path": ".engine/tools/integration_queue_backend.py"
       },
       "status": "active",
@@ -15576,7 +15576,7 @@
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:3de2765c5a19b9af1c7c32dfbe42a2d37ab51a00fb9538f069d51ba45eac1681",
+        "fingerprint": "sha256:b108f4a7d6b5436954c1b22ca12a18b97382c0d5bd912c315245e11175cceaaa",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -16232,7 +16232,7 @@
       },
       "slug": "test_integration_queue",
       "source": {
-        "fingerprint": "sha256:134989094c0ee25bf4dfcd976267c6be7683b0bcd2232f6f40cb8967bcde872e",
+        "fingerprint": "sha256:650130f003d1bf67de91a9381c9cd4c3e667570e7c41f69ffb2287d55b8cf5c2",
         "path": ".engine/tools/test_integration_queue.py"
       },
       "status": "active",
@@ -16255,7 +16255,7 @@
       },
       "slug": "test_integration_queue_backend",
       "source": {
-        "fingerprint": "sha256:bacdfd0305037a2f86ad563853d313ed9547a3737fd85b8aa670e69ecdc443ad",
+        "fingerprint": "sha256:1fa5c9ed7dcbdd99946685e6e9b7456e03a6bd0a1b9373e0fded520da433829d",
         "path": ".engine/tools/test_integration_queue_backend.py"
       },
       "status": "active",
@@ -17316,7 +17316,7 @@
       },
       "slug": "test_pr_reconcile",
       "source": {
-        "fingerprint": "sha256:6ded9e2b85ddc7fc47557b186dec49f8a35ad9cc35b322eb95a7e10454711a92",
+        "fingerprint": "sha256:3efea446e75191f61a7c1d753c6da7cc87f895a95ee24f9a0828fa49f1ad7624",
         "path": ".engine/tools/test_pr_reconcile.py"
       },
       "status": "active",
