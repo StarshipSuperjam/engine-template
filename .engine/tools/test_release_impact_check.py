@@ -11,12 +11,12 @@ import release_impact_check as chk
 
 class ReleaseImpactCheck(unittest.TestCase):
     def _run(self, body):
-        orig = chk.validate.get_pr_body
-        chk.validate.get_pr_body = lambda _x: body
+        orig = chk._read_pr_body
+        chk._read_pr_body = lambda: body
         try:
             return chk.findings()
         finally:
-            chk.validate.get_pr_body = orig
+            chk._read_pr_body = orig
 
     def test_valid_marker_passes(self):
         self.assertEqual(self._run("purpose\n<!-- engine-release-impact: minor -->"), [])
@@ -46,28 +46,28 @@ class ReleaseImpactCheck(unittest.TestCase):
         self.assertTrue(f[0].get("not_applicable"))       # local rehearsal: never a fail-closed wall
 
     def test_unreadable_event_is_disclosed_no_op(self):
-        orig = chk.validate.get_pr_body
+        orig = chk._read_pr_body
 
-        def boom(_x):
+        def boom():
             raise RuntimeError("bad event")
-        chk.validate.get_pr_body = boom
+        chk._read_pr_body = boom
         try:
             f = chk.findings()
         finally:
-            chk.validate.get_pr_body = orig
+            chk._read_pr_body = orig
         self.assertTrue(f[0].get("not_applicable"))
 
     def test_main_emits_json_array(self):
         import io
         import contextlib
-        orig = chk.validate.get_pr_body
-        chk.validate.get_pr_body = lambda _x: "<!-- engine-release-impact: patch -->"
+        orig = chk._read_pr_body
+        chk._read_pr_body = lambda: "<!-- engine-release-impact: patch -->"
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
                 rc = chk.main()
         finally:
-            chk.validate.get_pr_body = orig
+            chk._read_pr_body = orig
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(buf.getvalue()), [])
 

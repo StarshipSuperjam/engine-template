@@ -1,0 +1,5 @@
+{
+  "env": {
+    "GITHUB_EVENT_PATH": ".engine/_fixtures/pr-release-impact/event.json"
+  }
+}

@@ -10,7 +10,7 @@
 
     "release_impact": {
       "enum": ["none", "patch", "minor", "major"],
-      "description": "The SemVer impact this pull request declares, chosen by COMPATIBILITY (not size, effort, or importance): none = no public release impact; patch = a backward-compatible change to an existing feature; minor = a new capability or an explicit deprecation; major = an incompatible change to public behaviour, an API, or a contract. The release action folds these declarations to derive the next version (engine-template#942). This is the ONE judgment slot the session supplies for versioning; the renderer projects it to the visible line and the machine marker. It is independent of the pull-request title kind (Feature/Fix/…), which only groups the release notes. The fillable template emits null here, so an unfilled slot fails validation and must be chosen deliberately."
+      "description": "The SemVer impact this pull request declares, chosen by COMPATIBILITY (not size, effort, or importance): none = no public release impact; patch = a backward-compatible change to an existing feature; minor = a new capability or an explicit deprecation; major = an incompatible change to public behaviour, an API, or a contract. The release action folds these declarations to derive the next version (StarshipSuperjam/engine-template#942). This is the ONE judgment slot the session supplies for versioning; the renderer projects it to the visible line and the machine marker. It is independent of the pull-request title kind (Feature/Fix/…), which only groups the release notes. The fillable template emits null here, so an unfilled slot fails validation and must be chosen deliberately."
     },
 
     "linkage": {

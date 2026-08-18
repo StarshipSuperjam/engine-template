@@ -40,8 +40,9 @@ the safe floor for a routine dependency bump), named in the release evidence rat
 is the ONE Python home for that set; the check's own `ci_author_exempt` is bound equal to it by test so the two
 enforcement points (the CI check and the cut-time fold) cannot drift.
 
-THE ROLLOUT BOUNDARY. This vocabulary became mandatory at #942 (MANDATORY_SINCE). A merged pull request with no
-valid marker is either pre-#942 history or a post-boundary non-compliance; the cut cannot auto-derive across
+THE ROLLOUT BOUNDARY. This vocabulary became mandatory at StarshipSuperjam/engine-template#942 (MANDATORY_SINCE).
+A merged pull request with no valid marker is either pre-boundary history (before this vocabulary existed) or a
+post-boundary non-compliance; the cut cannot auto-derive across
 one, so it requires the operator to supply an explicit aggregate for that tranche and names every such pull
 request. That fallback is PERMANENT (the fail-closed path for any markerless non-exempt pull request), not
 temporary scaffolding.
@@ -79,7 +80,7 @@ DEFAULT_EXEMPT_IMPACT = "patch"
 # The release at which a declared impact became mandatory. Informational for the operator-facing evidence; the
 # cut detects a pre-boundary/non-compliant pull request by MARKER ABSENCE (robust — no merge-date bookkeeping),
 # and routes it through the explicit --legacy-impact aggregate.
-MANDATORY_SINCE = "#942"
+MANDATORY_SINCE = "StarshipSuperjam/engine-template#942"
 
 _IMPACT_TEMPLATE = "<!-- engine-release-impact: {impact} -->"
 _IMPACT_RE = re.compile(r"<!--\s*engine-release-impact:\s*(.+?)\s*-->")

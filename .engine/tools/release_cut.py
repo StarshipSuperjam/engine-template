@@ -418,7 +418,7 @@ def merged_pr_titles(previous_tag: str | None, target: str, repo: str | None = N
         return []
 
 
-# --------------------------------------------------------------------------- declared release impact (#942)
+# ------------------------------------------------------ declared release impact (StarshipSuperjam/engine-template#942)
 _PR_NUMBER_RE = re.compile(r"\(#(\d+)\)\s*$")
 
 

@@ -85,7 +85,7 @@ def fillable_template() -> dict:
     unfilled field without any substring grading of prose."""
     return {
         "schema_version": "pr-body-claim.v1",
-        "release_impact": None,   # the null fails enum validation, so this versioning slot must be chosen (#942)
+        "release_impact": None,   # the null fails enum validation, so this versioning slot must be chosen
         "linkage": {"closes": [], "part_of": []},
         "purpose": {"thesis": None, "problem": None, "mechanism": [], "impact": None},
         "scope": {"summary": None, "items": [], "impact": None},

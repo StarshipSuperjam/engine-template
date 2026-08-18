@@ -660,6 +660,9 @@
   ".engine/check/pr-body-completeness.json": [
    "validators-core"
   ],
+  ".engine/check/pr-release-impact.json": [
+   "validators-core"
+  ],
   ".engine/check/product-adr-form.json": [
    "product-design"
   ],
@@ -1974,6 +1977,12 @@
   ".engine/tools/release_gate.py": [
    "core"
   ],
+  ".engine/tools/release_impact.py": [
+   "core"
+  ],
+  ".engine/tools/release_impact_check.py": [
+   "core"
+  ],
   ".engine/tools/release_integrity_check.py": [
    "core"
   ],
@@ -2341,6 +2350,12 @@
    "core"
   ],
   ".engine/tools/test_release_gate.py": [
+   "core"
+  ],
+  ".engine/tools/test_release_impact.py": [
+   "core"
+  ],
+  ".engine/tools/test_release_impact_check.py": [
    "core"
   ],
   ".engine/tools/test_release_source.py": [

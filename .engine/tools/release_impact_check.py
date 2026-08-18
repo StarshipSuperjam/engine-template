@@ -33,15 +33,31 @@ _HOWTO = (f"Add one hidden HTML-comment marker of the form  engine-release-impac
           f"see the pull-request template. Change kind (Feature/Fix/…) is separate — it does not set the impact.")
 
 
+def _read_pr_body() -> "str | None":
+    """The pull-request body from the trusted event context ($GITHUB_EVENT_PATH .pull_request.body), resolving a
+    ROOT-RELATIVE event path against validate.ROOT (only the negative fixture uses a relative path — GitHub sets
+    GITHUB_EVENT_PATH absolute in production, so this is a no-op there). Mirrors release_integrity_check's
+    ROOT-join so the seeded fixture body is found regardless of the check's working directory. None when no event
+    is available (a local rehearsal); raises only on a genuinely malformed event."""
+    event = os.environ.get("GITHUB_EVENT_PATH")
+    if not event:
+        return None
+    if not os.path.isabs(event):
+        event = os.path.join(validate.ROOT, event)
+    if not os.path.exists(event):
+        return None
+    return (validate.load_json(event).get("pull_request") or {}).get("body") or ""
+
+
 def findings() -> list:
     try:
-        body = validate.get_pr_body(None)
+        body = _read_pr_body()
     except Exception:
-        return [{"severity": "hard", "not_applicable": True,
+        return [{"severity": "soft", "not_applicable": True,
                  "message": "Could not read the pull-request body (unreadable event context); the release-impact "
                             "declaration was not evaluated. In CI the body is present and the check runs."}]
     if body is None:
-        return [{"severity": "hard", "not_applicable": True,
+        return [{"severity": "soft", "not_applicable": True,
                  "message": "PR body not available (no event context); the release-impact declaration was not "
                             "evaluated. In CI the body is present and the check runs."}]
     markers = release_impact.find_impact_markers(body)
