@@ -23,9 +23,12 @@ on:
   pull_request:
     types: [closed]
 
-# Least privilege: the driver only posts/edits issue comments (the coordination board). No contents, no merge,
-# no labels — the advisory-only law made a token scope.
+# Least privilege. `contents: read` is for the checkout step (materializing the engine tool-runtime on the
+# merged commit) — the same grant every sibling workflow that checks out uses. `pull-requests: write` is the
+# ONLY write scope: the driver posts/edits issue comments (the coordination board) and nothing else — no
+# merge, no labels, no statuses, no contents write. The advisory-only law made a token scope.
 permissions:
+  contents: read
   pull-requests: write
 
 # One fan-out at a time per merged pull request; a re-run queues rather than cancelling a run mid-post.

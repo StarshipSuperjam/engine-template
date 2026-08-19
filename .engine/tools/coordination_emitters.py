@@ -33,6 +33,21 @@ import coordination_notice as cn  # noqa: E402
 # and the public wrappers must still return None without propagating.
 _FORCE_RAISE = False
 
+# Live-poke surfacing (StarshipSuperjam/engine-template#939, eADR-0043). When an emit actually posts/edits a durable notice, the
+# fixed one-line poke that points at it is appended here; the CALLER (a session-facing verb via _coordinate)
+# drains and prints these so its own agent can relay them to a peer through its host's messaging — the live
+# "doorbell." Autonomous callers (the post-merge workflow) simply never drain; the pokes are then just dropped.
+# A poke is a POINTER, never authority — the receiver re-verifies canonical state regardless (eADR-0043).
+_PENDING_POKES: list = []
+
+
+def drain_pokes() -> list:
+    """Return and clear the poke lines rendered for notices posted/edited since the last drain. A session-facing
+    caller prints these so its agent can relay the live poke; an autonomous caller may ignore them."""
+    global _PENDING_POKES
+    out, _PENDING_POKES = _PENDING_POKES, []
+    return out
+
 
 def _now() -> str:
     import moment  # lazy: wall-clock read at the IO edge (eADR-0032)
@@ -69,6 +84,12 @@ def _emit(transport, repo: str, pr: int, *, kind: str, event: str, verify_action
     outcome = board.post_notice(client, pr, notice)
     if outcome in ("posted", "edited"):
         ledger.record_event("posted", at=notice["emitted_at"], pr=pr, kind=kind)
+        # Surface the fixed pointer poke for the durable notice we just changed, so a session-facing caller can
+        # relay it live (the doorbell). Best-effort — a render hiccup never affects the emit.
+        try:
+            _PENDING_POKES.append(cn.render_poke_line(notice, repo))
+        except Exception:  # noqa: BLE001 — poke surfacing is advisory; never break the emit
+            pass
     return outcome
 
 

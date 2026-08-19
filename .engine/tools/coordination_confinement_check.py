@@ -53,8 +53,12 @@ _DENY = [
     (re.compile(r"\b(?:set_ready|set_draft)\s*\("), "a pull-request state change"),
 ]
 
-# A quoted HTTP mutating method — allowed ONLY on a line that also references a comment endpoint.
-_MUTATING_METHOD = re.compile(r"\"(POST|PUT|PATCH|DELETE)\"")
+# A quoted HTTP mutating method. The law (eADR-0043 law 3) sanctions ONLY the two comment-WRITE shapes —
+# POST (create a comment) and PATCH (edit one). DELETE and PUT are never sanctioned, even against a comments
+# path, so they are flagged wherever they appear on an API line. Case-insensitive so a lowercase literal
+# cannot slip the catch-all.
+_MUTATING_METHOD = re.compile(r"\"(POST|PUT|PATCH|DELETE)\"", re.IGNORECASE)
+_COMMENT_WRITE_METHOD = re.compile(r"\"(POST|PATCH)\"", re.IGNORECASE)
 _API_PATH = re.compile(r"/repos/|issues/|pulls/")
 
 
@@ -78,10 +82,15 @@ def _scan(path: str, rel: str) -> list:
             if rx.search(line):
                 findings.append(validate.finding(
                     "hard", f"{_MSG} — {rel}:{lineno} reaches {what}", {"file": rel, "line": lineno}))
-        if _MUTATING_METHOD.search(line) and _API_PATH.search(line) and "comments" not in line:
-            findings.append(validate.finding(
-                "hard", f"{_MSG} — {rel}:{lineno} makes a GitHub write to a non-comment endpoint",
-                {"file": rel, "line": lineno}))
+        if _MUTATING_METHOD.search(line) and _API_PATH.search(line):
+            # Exempt ONLY a POST/PATCH to a comments endpoint — the two sanctioned comment-write shapes. A
+            # DELETE/PUT (even to a comments path) or any write to a non-comment path is a forbidden write.
+            sanctioned = ("comments" in line) and bool(_COMMENT_WRITE_METHOD.search(line))
+            if not sanctioned:
+                findings.append(validate.finding(
+                    "hard", f"{_MSG} — {rel}:{lineno} makes a GitHub write outside the sanctioned comment "
+                            "POST/PATCH shapes",
+                    {"file": rel, "line": lineno}))
     return findings
 
 

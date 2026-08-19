@@ -8,7 +8,10 @@ tests drive it against a fake in-memory GitHub — no network — and assert it 
 comment/read endpoints, inert on a solo repo, and best-effort (a broken transport never raises)."""
 import os
 import sys
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import coordination_postmerge as pm  # noqa: E402
@@ -147,15 +150,48 @@ class TestSummaryAndMain(unittest.TestCase):
         self.assertIn("1 dependency-update", s)
         self.assertIn("PR #2", s)
 
-    def test_summary_no_merge(self):
-        s = pm._summary("o/r", 1, None, None)
-        self.assertIn("not a merge", s)
+    def test_summary_no_merge_is_silent(self):
+        # A non-merge (ctx None) says nothing — the workflow's merged==true gate already filters these.
+        self.assertEqual(pm._summary("o/r", 1, None, None), "")
+
+    def test_summary_merged_but_no_result_does_not_crash(self):
+        # ctx resolved (merged) but no base SHA available -> fan_out skipped, result is None. _summary is called
+        # OUTSIDE main()'s try/except, so it must report this, never AttributeError on result.get(...).
+        s = pm._summary("o/r", 9, {"base": "main", "merge_sha": ""}, None)
+        self.assertIn("merged", s)
+        self.assertIn("could not be determined", s)
+
+    def test_summary_all_zero_is_silent(self):
+        # Nothing posted (solo / no overlapping candidate) -> stay silent, like boot.render_coordination.
+        self.assertEqual(pm._summary("o/r", 1, {"base": "main", "merge_sha": "abc"},
+                                     {"revalidation": 0, "dependency": 0, "next": None}), "")
 
     def test_main_no_op_without_env(self):
         # No repo/token/PR in the environment -> a clean no-op that exits 0 and reports it was not a merge.
         for key in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "PR_NUMBER", "MERGE_SHA"):
             os.environ.pop(key, None)
         self.assertEqual(pm.main([]), 0)
+
+    def test_main_fans_out_end_to_end_through_the_real_glue(self):
+        # Drive main() the way the workflow does — env vars + a real (faked) github_client.reader transport and
+        # protection_guard.resolve_tier — so the glue (transport build, tier resolution, summary-out write) is
+        # exercised, not just fan_out() in isolation. A regression in that glue would otherwise be invisible.
+        gh = _FakeGitHub(merged_pr=1, merged_files=[".engine/tools/boot.py"],
+                         candidates={2: {"files": [".engine/tools/boot.py"], "ready": True, "draft": False}})
+        fake_reader = types.SimpleNamespace(transport=gh.transport)
+        sumfile = os.path.join(tempfile.mkdtemp(), "sum.md")
+        env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "t", "PR_NUMBER": "1", "MERGE_SHA": "a" * 40}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch("github_client.reader", return_value=fake_reader), \
+                mock.patch("protection_guard.resolve_tier", return_value="solo"):
+            rc = pm.main(["--summary-out", sumfile])
+        self.assertEqual(rc, 0)
+        # a real comment write reached the board for the overlapping candidate, and the summary was written
+        self.assertTrue(any(m in ("POST", "PATCH") and "comments" in p for m, p in gh.paths))
+        self.assertTrue(_confined(gh.paths))
+        with open(sumfile, encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("revalidation", body)
 
 
 if __name__ == "__main__":

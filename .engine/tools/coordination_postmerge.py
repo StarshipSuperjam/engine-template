@@ -60,6 +60,12 @@ def fan_out(transport, repo: str, merged_pr: int, *, base: str, tier: str, base_
             result["next"] = cands[0].pr
     except Exception:  # noqa: BLE001
         pass
+    # This driver runs in a workflow with no session to relay a live poke — the durable board is the delivery.
+    # Drain and discard any surfaced pokes so they never leak into a later call in the same process.
+    try:
+        emitters.drain_pokes()
+    except Exception:  # noqa: BLE001
+        pass
     return result
 
 
@@ -75,10 +81,20 @@ def _merged_pr_context(transport, repo: str, merged_pr: int) -> "dict | None":
 
 
 def _summary(repo: str, merged_pr: int, ctx: "dict | None", result: "dict | None") -> str:
+    """The run-summary line. Returns "" when there is nothing to say — a non-merge, or a merge with no
+    advisory notice posted (the solo/no-overlap case) — so the workflow appends nothing, the same
+    fail-toward-silence boot.render_coordination() uses. `result is None` (merged but the new base state could
+    not be determined) is reported, not crashed on: `_summary` is called outside main()'s try/except, so it
+    must never call `.get` on a None result."""
     if ctx is None:
-        return (f"**Coordination (post-merge).** PR #{merged_pr} on `{repo}` was not a merge (closed without "
-                "merging, or unreadable) — no advisory notices posted.")
-    nxt = result.get("next") if result else None
+        return ""  # not a merge (the workflow's merged==true gate already filters these) — nothing to report
+    if not result:
+        return (f"**Coordination (post-merge) for PR #{merged_pr} on `{repo}`.** The pull request merged, but "
+                "the new base state could not be determined, so no advisory notices were posted. Advisory-only "
+                "(eADR-0043) — canonical state is unaffected.")
+    nxt = result.get("next")
+    if not (result.get("revalidation", 0) or result.get("dependency", 0) or nxt):
+        return ""  # nothing posted (solo / no overlapping candidate) — stay silent, like boot.render_coordination
     nxt_line = f"next-in-queue -> PR #{nxt}" if nxt else "no next candidate waiting"
     return (f"**Coordination (post-merge) for PR #{merged_pr} on `{repo}`.** Advisory notices posted: "
             f"{result.get('revalidation', 0)} revalidation, {result.get('dependency', 0)} dependency-update; "
@@ -121,8 +137,11 @@ def main(argv: "list | None" = None) -> int:
                 if base_sha:
                     result = fan_out(transport, repo, merged_pr, base=ctx["base"],
                                      tier=protection_guard.resolve_tier(), base_sha=base_sha)
-        except Exception:  # noqa: BLE001 — advisory; never fail the post-merge run
-            pass
+        except Exception as exc:  # noqa: BLE001 — advisory; never fail the post-merge run
+            # Swallow to keep the run green, but leave a diagnostic on stderr so a genuine internal bug here
+            # (an import/API change that raises) is distinguishable in the logs from a normal non-merge, rather
+            # than vanishing behind the same "not a merge" summary.
+            print(f"coordination-postmerge: internal error (advisory, ignored): {exc}", file=sys.stderr)
 
     summary = _summary(repo, merged_pr, ctx, result)
     print(summary)

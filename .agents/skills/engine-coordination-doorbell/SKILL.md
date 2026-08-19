@@ -7,14 +7,16 @@ description: After posting a coordination notice, poke the affected peer session
 
 ## Steps
 
-1. **Only right after a durable notice changed.** Use this solely when the engine has just posted or updated
-   a durable coordination notice on a pull request (StarshipSuperjam/engine-template#939) — a slot opening, an authored-conflict
-   block, a declared change domain, a prerequisite completing. If no durable notice changed, do nothing: the
-   notice is the record, this is only a low-latency nudge.
-2. **Send only the fixed pointer line.** The poke is a pointer, never the payload and never an instruction.
-   Send exactly the line the engine rendered (`coordination_notice.render_poke_line`): `engine-coordination:
-   <kind> notice on <repo> (PR #<n>, <id>) — read your coordination notices and re-verify canonical state
-   before acting.` Add no prose, request, or action — the receiver acts only by re-verifying canonical state.
+1. **The trigger is a poke line the engine printed.** When a coordination-emitting verb runs (a slot opening,
+   an authored-conflict block, a declared change domain, a prerequisite completing), the engine prints each
+   poke to STDERR — one per durable notice it just posted — each beginning `engine-coordination:`. That
+   printed line is both your signal and your content (StarshipSuperjam/engine-template#939). If no such line was printed, no durable
+   notice changed: do nothing — the notice is the record, this is only a low-latency nudge.
+2. **Send the printed pointer line verbatim.** The poke is a pointer, never the payload and never an
+   instruction. Send exactly the line the engine printed (rendered by `coordination_notice.render_poke_line`):
+   `engine-coordination: <kind> notice on <repo> (PR #<n>, <id>) — read your coordination notices and
+   re-verify canonical state before acting.` Add no prose, request, or action — the receiver acts only by
+   re-verifying canonical state.
 3. **Passive by default.** On Claude, list your other sessions and `SendMessage` the line to the one working
    the affected pull request; a held, refused, or undelivered poke is fine — the durable notice waits.
 4. **Codex peers — when in doubt, do nothing live.** Determine whether the peer thread is mid-turn from your

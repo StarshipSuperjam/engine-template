@@ -230,6 +230,10 @@ def _coordinate(fn) -> None:
     try:
         import coordination_emitters
         fn(coordination_emitters)
+        # Surface any live-poke line to STDERR (never stdout) so this session's agent can relay it via the
+        # doorbell skill — a pointer to the durable notice, never authority (StarshipSuperjam/engine-template#939, eADR-0043).
+        for _line in coordination_emitters.drain_pokes():
+            print(_line, file=sys.stderr)
     except Exception:  # noqa: BLE001 — an advisory emit never propagates into the queue
         pass
 
@@ -284,6 +288,14 @@ def main(argv: list) -> int:
         # (StarshipSuperjam/engine-template#939, eADR-0043). `advance` keeps only its slot-release duty.
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
+            # Advisory (StarshipSuperjam/engine-template#939): releasing the slot is a handoff — tell the next reviewed candidate the
+            # slot opened. This rides the deliberate release ACTION (unlike the merge-reactions above): the
+            # merge path is covered by the deterministic post-merge next-in-queue notice, and this is its
+            # session-action twin for a voluntary/abandon release. Never a lock — the receiver re-checks the
+            # queue. Best-effort; any poke is surfaced by _coordinate.
+            _nextc = reviewed_candidates(transport, repo, base, tier=tier)
+            if _nextc:
+                _coordinate(lambda ce: ce.emit_handoff(transport, repo, _nextc[0].pr, "slot-released"))
         else:
             where = f"PR #{held} holds it" if held else "no pull request holds it right now"
             print(f"PR #{this} wasn't holding the integration slot ({where}); nothing changed. To free a slot "

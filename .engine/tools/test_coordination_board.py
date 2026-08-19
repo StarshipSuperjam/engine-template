@@ -131,6 +131,20 @@ class TestCommentOnlyGuard(unittest.TestCase):
             with self.assertRaises(cb.BoardError):
                 g(method, path, {})
 
+    def test_refuses_an_off_host_target(self):
+        # The guard confines the HOST, not just the path shape: a comment-shaped path aimed at a foreign host
+        # (absolute or protocol-relative) is refused for writes AND reads (a read could exfiltrate the token).
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        off_host = [
+            ("POST", "http://evil.example.com/repos/o/r/issues/1/comments"),
+            ("POST", "//evil.example.com/repos/o/r/issues/1/comments"),
+            ("GET", "https://evil.example.com/repos/o/r/pulls?state=open"),
+        ]
+        for method, path in off_host:
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
     def test_comment_writes_with_a_benign_query_still_pass(self):
         # The path component is what matters: a real comment write carrying a harmless query (e.g. pagination
         # on the collection) is still a comment endpoint and must pass.

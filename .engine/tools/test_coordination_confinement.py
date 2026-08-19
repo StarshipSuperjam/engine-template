@@ -56,6 +56,18 @@ class TestConfinementPerCategory(unittest.TestCase):
         # a *_check.py with violations is the scanner surface, not coordination runtime -> not scanned
         self.assertFalse(self._bites('import ack_status\n', filename="coordination_evil_check.py"))
 
+    def test_delete_to_a_comment_bites(self):
+        # The law sanctions only the two comment-WRITE shapes (POST create, PATCH edit); DELETE is never
+        # sanctioned, even to a comments path -> the scanner must flag it (not exempt it for "comments").
+        self.assertTrue(self._bites('def f(t, r, n): t("DELETE", f"/repos/{r}/issues/comments/{n}", None)\n'))
+
+    def test_put_to_a_comment_bites(self):
+        self.assertTrue(self._bites('def f(t, r, n): t("PUT", f"/repos/{r}/issues/comments/{n}", {"body": "x"})\n'))
+
+    def test_lowercase_mutating_method_bites(self):
+        # case-insensitive: a lowercase literal to a non-comment endpoint must not slip the catch-all
+        self.assertTrue(self._bites('def f(t, r, n): t("post", f"/repos/{r}/issues/{n}/subscription", {})\n'))
+
 
 class TestRealTreeConfined(unittest.TestCase):
     def test_real_coordination_library_is_confined(self):

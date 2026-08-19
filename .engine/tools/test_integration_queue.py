@@ -161,5 +161,59 @@ class TestNeverMerges(unittest.TestCase):
         self.assertNotIn("/merge", src)                 # no REST merge endpoint
 
 
+class TestAdvanceCoordination(unittest.TestCase):
+    """StarshipSuperjam/engine-template#939: `advance`, when it successfully releases the slot, hands off to the next reviewed
+    candidate (slot-released). The merge-reaction fan-out does NOT ride advance (it is deterministic on the
+    post-merge workflow) — assert advance emits ONLY the slot-released handoff, driven at the real CLI entry."""
+
+    def test_advance_emits_slot_released_to_the_next_candidate(self):
+        import contextlib
+        import io
+        released = []
+
+        class _BE:
+            def admitted(self):
+                return 5
+
+            def release(self, n):
+                released.append(n)
+
+        cand = iq.Candidate(pr=6, head_sha="h", base_sha="b", reviewed=True, order_key=(1, 6), title="t")
+        import coordination_emitters as ce
+        with mock.patch.object(iq, "_live_context",
+                               return_value=(lambda *a, **k: (200, []), "you/proj", "main", "solo", _BE(), "")), \
+                mock.patch.object(iq, "_current_pr", return_value=5), \
+                mock.patch.object(iq, "reviewed_candidates", return_value=[cand]), \
+                mock.patch.object(ce, "emit_handoff") as m_handoff, \
+                mock.patch.object(ce, "emit_integration_next") as m_next, \
+                contextlib.redirect_stdout(io.StringIO()):
+            iq.main(["advance"])
+        self.assertEqual(released, [5])                       # the slot was released
+        m_handoff.assert_called_once()
+        self.assertEqual(m_handoff.call_args[0][2], 6)        # handoff addressed to the next candidate
+        self.assertEqual(m_handoff.call_args[0][3], "slot-released")
+        m_next.assert_not_called()                            # next-in-queue is the post-merge path, not advance
+
+    def test_advance_that_did_not_hold_the_slot_emits_nothing(self):
+        import contextlib
+        import io
+
+        class _BE:
+            def admitted(self):
+                return 9           # someone else holds the slot
+
+            def release(self, n):
+                pass
+
+        import coordination_emitters as ce
+        with mock.patch.object(iq, "_live_context",
+                               return_value=(lambda *a, **k: (200, []), "you/proj", "main", "solo", _BE(), "")), \
+                mock.patch.object(iq, "_current_pr", return_value=5), \
+                mock.patch.object(ce, "emit_handoff") as m_handoff, \
+                contextlib.redirect_stdout(io.StringIO()):
+            iq.main(["advance"])
+        m_handoff.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

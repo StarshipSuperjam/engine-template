@@ -58,6 +58,35 @@ def _all(transport):
     ]
 
 
+class TestPokeSurfacing(unittest.TestCase):
+    """The live-poke half of the doorbell: an emit that actually posts a durable notice surfaces exactly one
+    fixed pointer line, drainable by the session-facing caller; a skipped/deduped emit surfaces none."""
+
+    def setUp(self):
+        ce.drain_pokes()  # isolate from any poke left by another test
+
+    def test_a_posted_notice_surfaces_one_pointer_poke(self):
+        gh = FakeGitHub(open_prs=2)
+        ce.emit_integration_admitted(gh.transport, "o/r", 5)
+        pokes = ce.drain_pokes()
+        self.assertEqual(len(pokes), 1)
+        self.assertTrue(pokes[0].startswith("engine-coordination:"))
+        self.assertIn("PR #5", pokes[0])
+        self.assertEqual(ce.drain_pokes(), [])  # draining is one-shot
+
+    def test_a_deduped_re_emit_surfaces_no_new_poke(self):
+        gh = FakeGitHub(open_prs=2)
+        ce.emit_integration_admitted(gh.transport, "o/r", 5)
+        ce.drain_pokes()
+        ce.emit_integration_admitted(gh.transport, "o/r", 5)  # identical condition -> deduped, no post
+        self.assertEqual(ce.drain_pokes(), [])
+
+    def test_a_solo_skip_surfaces_no_poke(self):
+        gh = FakeGitHub(open_prs=1)  # no peer -> nothing posted
+        ce.emit_integration_admitted(gh.transport, "o/r", 5)
+        self.assertEqual(ce.drain_pokes(), [])
+
+
 class TestNoHarm(unittest.TestCase):
     def test_forced_raise_is_swallowed_for_every_emitter(self):
         gh = FakeGitHub()

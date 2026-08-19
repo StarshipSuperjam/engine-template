@@ -56,11 +56,19 @@ def comment_only(transport):
     harmless."""
     def _guarded(method, path, body=None):
         m = (method or "").upper()
+        parts = urllib.parse.urlsplit(path or "")
+        # Confine the HOST too, not just the path shape: a request must be relative (no scheme, no netloc), so
+        # coordination can never be aimed at an off-host endpoint that happens to carry a comment-shaped path
+        # (e.g. `http://evil/repos/o/r/issues/1/comments`). This holds for GETs as well — a read to a foreign
+        # host could still exfiltrate the bearer token. Real callers always pass `/repos/...` relative paths.
+        if parts.scheme or parts.netloc:
+            raise BoardError(
+                f"coordination may reach only the current GitHub host (eADR-0043 law 3); refused {m} {path}")
         if m == "GET":
             return transport(method, path, body)
         # Match the path GitHub actually routes on — never the query/fragment, which are caller-controlled
         # and do not participate in routing. Anchored fullmatch, so no prefix/suffix decoy can satisfy it.
-        routed = urllib.parse.urlsplit(path or "").path
+        routed = parts.path
         if m == "POST" and _POST_COMMENT_PATH.fullmatch(routed):
             return transport(method, path, body)
         if m == "PATCH" and _PATCH_COMMENT_PATH.fullmatch(routed):

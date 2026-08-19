@@ -3394,7 +3394,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:9c2e54167cde54b2b1505813f26683bc82d53a6d3ff9123d8762f12536a66fc2",
+        "fingerprint": "sha256:598e6b75f05c265ef578b4ab77f0e176a971c07829a0d1efe8b0bb98372f7e64",
         "path": ".agents/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -8264,7 +8264,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:e9c90aea72d07f177c04c7d11c1f462b0d2c3032157cc69825ff3c0c17f84a00",
+        "fingerprint": "sha256:8e97b05d2aab11f1ef891d01cf44f807171ae8633e564627099d62031e2a1ba9",
         "path": ".claude/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -9816,6 +9816,7 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
+          "tool:coordination_domains",
           "tool:coordination_emitters",
           "tool:github_client",
           "tool:repo_identity",
@@ -9830,7 +9831,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:f638810b429c2db936a57cef8d844280efc6bde65f8f9423fbdec188b519ac5d",
+        "fingerprint": "sha256:a17f0a27782025d4f2d103b81ee0994a192a2d6aed69cd7e909f9075f247f311",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10450,7 +10451,7 @@
       },
       "slug": "coordination_board",
       "source": {
-        "fingerprint": "sha256:03b0949ca17a1aca82e8f449ca7c4e8551247fd016788b58e2118d6dce1b4743",
+        "fingerprint": "sha256:31408277b36162a169e385c4ed32456c890119bd4f34e42ae08b2e844729bcac",
         "path": ".engine/tools/coordination_board.py"
       },
       "status": "active",
@@ -10473,7 +10474,7 @@
       },
       "slug": "coordination_confinement_check",
       "source": {
-        "fingerprint": "sha256:7f51a89f2c6b8ae336e5bbc1ffa875ade8e0fad1d16fa4f40ce5dcffedb3efd2",
+        "fingerprint": "sha256:543b682e6f8c7a43b6445f96fa85b9f751c81fea9c5b7c2943fcd06139166b38",
         "path": ".engine/tools/coordination_confinement_check.py"
       },
       "status": "active",
@@ -10523,7 +10524,7 @@
       },
       "slug": "coordination_emitters",
       "source": {
-        "fingerprint": "sha256:7fbb3394e9c2acc7fda4d399e026e440b62717f42bd70d07f0f457e486950c50",
+        "fingerprint": "sha256:6bc4f53c83e5ab6ef85f0e9f3129693fa24fc7d1f61d355cdb31cb5c4c37d315",
         "path": ".engine/tools/coordination_emitters.py"
       },
       "status": "active",
@@ -10594,7 +10595,7 @@
       },
       "slug": "coordination_postmerge",
       "source": {
-        "fingerprint": "sha256:e87fc364ddd805d2f035b84550e2adca4c1359ccf5d9514a14841e50a9058d5c",
+        "fingerprint": "sha256:c3bd0711e5e2ca3657e43c93ea191410fbf35b2a5faba93df488ae9ec741988f",
         "path": ".engine/tools/coordination_postmerge.py"
       },
       "status": "active",
@@ -12667,7 +12668,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:af615a7652a32fb7cb58dba1dfeb5da41fddbf661fbd5507da7a17cebf2879ba",
+        "fingerprint": "sha256:1d6dc05b1cb8ef7033fcac107a937f7ec273e4966be5dcbc3b142e37cfb3b7c7",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -15511,12 +15512,13 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_github",
+          "tool:coordination_emitters",
           "tool:spec_referent"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:9fcbadb6dc2cbe375b89ccba104b57f8f5d0876648a777fbf67c38fdefcf367e",
+        "fingerprint": "sha256:820c24ae07599e597bdfcf3c782f9fef67600d80415702afd7477ae5f9e41578",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16099,7 +16101,7 @@
       },
       "slug": "test_coordination_board",
       "source": {
-        "fingerprint": "sha256:973dd6bfe99527c875c10b7814eee9f79964e5d4d4cb6c3d37dee30702f6b9ec",
+        "fingerprint": "sha256:af06069a34d2679a9a87b498054e13c422b8bc01955bd66e8a65f31612dca21e",
         "path": ".engine/tools/test_coordination_board.py"
       },
       "status": "active",
@@ -16149,7 +16151,7 @@
       },
       "slug": "test_coordination_confinement",
       "source": {
-        "fingerprint": "sha256:c6c14926877f8344b18822eaab35133672ebde6cdd83b42c10b6075929877589",
+        "fingerprint": "sha256:1f1a3f70ded88fccd27945a3d4c9894ebc7735a163a52ddea8aa89bbf282bc77",
         "path": ".engine/tools/test_coordination_confinement.py"
       },
       "status": "active",
@@ -16221,7 +16223,7 @@
       },
       "slug": "test_coordination_emitters",
       "source": {
-        "fingerprint": "sha256:5f350bdf0ec7db0079738ac5b9b330b3f1c4c8d86f6406feea08b820bd36ed59",
+        "fingerprint": "sha256:67e72c82f2bb8f9808ede351dd5b9d7271ec05901ea5500ed10b2d7b60911d2e",
         "path": ".engine/tools/test_coordination_emitters.py"
       },
       "status": "active",
@@ -16290,7 +16292,7 @@
       },
       "slug": "test_coordination_postmerge",
       "source": {
-        "fingerprint": "sha256:004c4dd0d13c19aec1ca3eecac681b2eb80c899274a1195a5d385ae420d5f8c3",
+        "fingerprint": "sha256:9d826a76fa97df1fff1b02043e28a657fa033e0311c03a2c22902ad4896b7ab2",
         "path": ".engine/tools/test_coordination_postmerge.py"
       },
       "status": "active",
@@ -16989,6 +16991,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:coordination_emitters",
           "tool:integration_queue",
           "tool:integration_queue_backend",
           "tool:protection_guard"
@@ -16996,7 +16999,7 @@
       },
       "slug": "test_integration_queue",
       "source": {
-        "fingerprint": "sha256:650130f003d1bf67de91a9381c9cd4c3e667570e7c41f69ffb2287d55b8cf5c2",
+        "fingerprint": "sha256:721a38e728196ee93299f3429ad77d3917d7bd8e06588fc8e00effc5f05943db",
         "path": ".engine/tools/test_integration_queue.py"
       },
       "status": "active",
