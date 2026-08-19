@@ -13,11 +13,15 @@ notice is emitted, carried, read, and acted on, and why every step is advisory.
 
 ## Steps
 
-1. **A notice is emitted at a bounded lifecycle point, never on a timer.** The Engine emits a typed
-   coordination notice only at a semantically meaningful moment — an integration slot opening or releasing,
-   an authored-conflict block, a build declaring or completing its change domain, a prerequisite reaching a
-   durable state. Emission is best-effort: it can never block, fail, or change the behaviour of the step it
-   rides. On a single-session repository (no peer candidate) nothing is written at all.
+1. **A notice is emitted at a bounded, determined trigger, never on a timer.** The Engine emits a typed
+   coordination notice only at a semantically meaningful moment. A signal that rides a session's deliberate
+   action — an integration slot opening, an authored-conflict block, a build declaring or completing its
+   change domain — fires from that action. A signal that is a *reaction to a merge* — the base advanced
+   (revalidation), a merge touched a peer's declared surface (dependency-update), the slot freed so the next
+   candidate is up — fires deterministically from the merge EVENT, a `pull_request: closed` workflow
+   (`engine-coordination-postmerge.yml`), never from a human remembering to run a verb. Emission is
+   best-effort: it can never block, fail, or change the behaviour of the step or event it rides. On a
+   single-session repository (no peer candidate) nothing is written at all.
 2. **The payload is durable; the doorbell is live.** The notice is stored as a typed, digest-verified block
    in ONE Engine-maintained comment on the pull request or issue it concerns (`coordination_board`) — a
    best-effort durable cache, quietly updated in place, never a stream of timeline comments. A peer's live

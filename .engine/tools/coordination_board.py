@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,8 +37,14 @@ USER_AGENT = "engine-coordination-board"
 # edit, or an indirection through a differently-named helper, cannot reach a merge/label/status/issue-body
 # endpoint. The static confinement check is the compile-time half; this is the mechanical backstop the static
 # scan cannot give (it catches the naive in-file case, not a deliberate indirection).
-_POST_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/\d+/comments/?(?:\?|$)")
-_PATCH_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/comments/\d+/?(?:\?|$)")
+#
+# The patterns FULLMATCH the ROUTED path component ONLY — never the query string or fragment. GitHub routes
+# solely on the path; a query/fragment is caller-controlled and inert on the wire (urllib even strips a
+# fragment entirely). So the guard first extracts `urlsplit(path).path` and matches THAT exactly: a decoy that
+# appends a comment-shaped query or fragment onto a non-comment path (a label or issue-body write) is refused,
+# where an unanchored substring search over the raw string would have admitted it.
+_POST_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/\d+/comments/?")
+_PATCH_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/comments/\d+/?")
 
 
 def comment_only(transport):
@@ -51,9 +58,12 @@ def comment_only(transport):
         m = (method or "").upper()
         if m == "GET":
             return transport(method, path, body)
-        if m == "POST" and _POST_COMMENT_PATH.search(path or ""):
+        # Match the path GitHub actually routes on — never the query/fragment, which are caller-controlled
+        # and do not participate in routing. Anchored fullmatch, so no prefix/suffix decoy can satisfy it.
+        routed = urllib.parse.urlsplit(path or "").path
+        if m == "POST" and _POST_COMMENT_PATH.fullmatch(routed):
             return transport(method, path, body)
-        if m == "PATCH" and _PATCH_COMMENT_PATH.search(path or ""):
+        if m == "PATCH" and _PATCH_COMMENT_PATH.fullmatch(routed):
             return transport(method, path, body)
         raise BoardError(
             f"coordination is confined to reads and comment writes (eADR-0043 law 3); refused {m} {path}")

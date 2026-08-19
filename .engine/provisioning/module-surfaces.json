@@ -1416,6 +1416,9 @@
   ".engine/tools/coordination_notice.py": [
    "core"
   ],
+  ".engine/tools/coordination_postmerge.py": [
+   "core"
+  ],
   ".engine/tools/demo_467_deployment_eadr_namespace.py": [
    "core"
   ],
@@ -2230,6 +2233,9 @@
    "core"
   ],
   ".engine/tools/test_coordination_notice.py": [
+   "core"
+  ],
+  ".engine/tools/test_coordination_postmerge.py": [
    "core"
   ],
   ".engine/tools/test_derived_state.py": [

@@ -49,10 +49,16 @@ Seven properties bind every part of this capability:
    static scan is the early tripwire on top of it (it does not follow the import graph, and does not claim
    to).
 
-4. **Bounded emission, no broadcast.** Notices are emitted only at semantically meaningful lifecycle points,
-   never per file edit and never on a timer. Emission is deduplicated on the structured condition; a live
-   poke fires only on a durable-board change; emission is single-attempt and fire-and-forget, and can never
-   block, fail, or alter the behaviour of the lifecycle step it rides.
+4. **Bounded emission, no broadcast; each signal rides its own determined trigger.** Notices are emitted only
+   at semantically meaningful points, never per file edit and never on a timer. A signal that rides a
+   session's *deliberate action* (declaring, claiming, abandoning, submitting, or preparing work) fires from
+   that action. A signal that is a *reaction to a merge* — the base advanced (revalidation), a merge touched a
+   peer's declared surface (dependency-update), the integration slot freed (next-in-queue) — fires from the
+   merge EVENT itself, a `pull_request: closed` workflow gated on merge, never from a human remembering to run
+   a verb: the base advances the instant the merge lands, so the emission must be as deterministic as the
+   event. Emission is deduplicated on the structured condition; a live poke fires only on a durable-board
+   change; emission is single-attempt and fire-and-forget, and can never block, fail, or alter the behaviour
+   of the step or event it rides.
 
 5. **Repo-native identifiers only on durable surfaces.** A durable notice carries only
    repository-native facts — pull request and issue numbers, branch names, commit SHAs, tool and event

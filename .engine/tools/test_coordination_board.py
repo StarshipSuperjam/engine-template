@@ -115,6 +115,31 @@ class TestCommentOnlyGuard(unittest.TestCase):
             with self.assertRaises(cb.BoardError):
                 g(method, path, {})
 
+    def test_refuses_a_decoy_query_or_fragment_bypass(self):
+        # A caller building its own path cannot smuggle a non-comment write past the guard by appending a
+        # comment-shaped decoy in the query string or fragment: GitHub routes on the path component only, so
+        # the guard must too. Both of these route to a LABEL / ISSUE-BODY write, never a comment.
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        decoys = [
+            ("POST", "/repos/o/r/issues/1/labels?x=/repos/o/r/issues/1/comments"),   # ?-decoy -> labels
+            ("POST", "/repos/o/r/issues/1/labels#/repos/o/r/issues/1/comments"),     # #-decoy -> labels
+            ("PATCH", "/repos/o/r/issues/1?x=/repos/o/r/issues/comments/9"),         # ?-decoy -> issue body
+            ("PATCH", "/repos/o/r/issues/1#/repos/o/r/issues/comments/9"),           # #-decoy -> issue body
+        ]
+        for method, path in decoys:
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
+    def test_comment_writes_with_a_benign_query_still_pass(self):
+        # The path component is what matters: a real comment write carrying a harmless query (e.g. pagination
+        # on the collection) is still a comment endpoint and must pass.
+        seen = []
+        raw = lambda m, p, b=None: (seen.append((m, p)) or (200, []))  # noqa: E731
+        g = cb.comment_only(raw)
+        g("POST", "/repos/o/r/issues/5/comments?per_page=1", {"body": "x"})
+        self.assertEqual(len(seen), 1)
+
     def test_board_client_is_confined_even_with_a_raw_transport(self):
         # a client handed a fully-generic transport can still only reach comment endpoints
         seen = []

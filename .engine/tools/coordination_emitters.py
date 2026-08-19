@@ -97,10 +97,10 @@ def emit_integration_blocked(transport, repo: str, pr: int) -> "str | None":
     return out
 
 
-def emit_integration_next(transport, repo: str, pr: int) -> "str | None":
+def emit_integration_next(transport, repo: str, pr: int, *, require_peer: bool = True) -> "str | None":
     return _safe(lambda: _emit(
         transport, repo, pr, kind="integration-notice", event="next-in-queue", verify_action="recheck-queue",
-        subject={"pr": pr}, work_ref={"pr": pr}))
+        subject={"pr": pr}, work_ref={"pr": pr}, require_peer=require_peer))
 
 
 def emit_handoff(transport, repo: str, pr: int, event: str) -> "str | None":
@@ -122,12 +122,13 @@ def emit_bounded_status(transport, repo: str, pr: int, event: str, *, paths: "li
         subject=subject, work_ref={"pr": pr}))
 
 
-def emit_revalidation_base_advanced(transport, repo: str, pr: int, *, base_sha: str) -> "str | None":
+def emit_revalidation_base_advanced(transport, repo: str, pr: int, *, base_sha: str,
+                                    require_peer: bool = True) -> "str | None":
     """Emitted only when an OBSERVED base-SHA change is known (never merely because a slot was released — an
     abandon leaves the base unchanged). `base_sha` is the new protected head the emitter saw."""
     return _safe(lambda: _emit(
         transport, repo, pr, kind="revalidation-notice", event="base-advanced", verify_action="recheck-base",
-        subject={"pr": pr}, work_ref={"pr": pr}, observed={"base_sha": base_sha}))
+        subject={"pr": pr}, work_ref={"pr": pr}, observed={"base_sha": base_sha}, require_peer=require_peer))
 
 
 def emit_overlap(transport, repo: str, pr: int, other_pr: int, *, paths: "list | None" = None) -> "str | None":
@@ -171,13 +172,19 @@ def emit_overlap_scan(transport, repo: str, pr: int, declared_paths: "list | Non
     return _safe(_run) or 0
 
 
-def emit_dependency_merged_scan(transport, repo: str, merged_pr: int, *, base_sha: str) -> int:
+def emit_dependency_merged_scan(transport, repo: str, merged_pr: int, *, base_sha: str,
+                                require_peer: bool = True) -> int:
     """After `merged_pr` merged, tell every OTHER open pull request whose change domain overlaps the merged
     one that a dependency landed — a domain-filtered signal to re-check the canonical files that moved (use
     case 5). Distinct from the revalidation fan-out: revalidation says "the base moved" to everyone;
     dependency-update says "the merge touched YOUR surface" only to overlapping peers. `base_sha` is the new
     protected head (the observed change the receiver re-checks against). Returns the count posted; never
-    raises."""
+    raises.
+
+    `require_peer` defaults True for a from-a-session caller (whose own open pull request keeps the open count
+    above one); the post-merge driver passes False because the merged pull request has left the open set, so
+    the open list itself is the concurrency gate — an empty list posts nothing (solo-safe), a single remaining
+    candidate is still notified."""
     def _run():
         import coordination_domains as cdz
         reader = lambda m, p: transport(m, p, None)  # noqa: E731 — domains wants (method, path)
@@ -192,24 +199,28 @@ def emit_dependency_merged_scan(transport, repo: str, merged_pr: int, *, base_sh
                 out = _safe(lambda o=opr: _emit(
                     transport, repo, o, kind="dependency-update", event="merged",
                     verify_action="recheck-base", subject={"pr": merged_pr}, work_ref={"pr": merged_pr},
-                    observed={"base_sha": base_sha}))
+                    observed={"base_sha": base_sha}, require_peer=require_peer))
                 if out:
                     posted += 1
         return posted
     return _safe(_run) or 0
 
 
-def emit_revalidation_scan(transport, repo: str, *, base_sha: str, exclude_pr: "int | None" = None) -> int:
+def emit_revalidation_scan(transport, repo: str, *, base_sha: str, exclude_pr: "int | None" = None,
+                           require_peer: bool = True) -> int:
     """After the protected base advanced (a merge), tell every other open candidate its green may be stale.
     Emits revalidation-notice/base-advanced on each open pull request except `exclude_pr`. Returns the count
-    posted (0 on failure). Never raises."""
+    posted (0 on failure). Never raises. `require_peer` — see emit_dependency_merged_scan: the post-merge
+    driver passes False so a single remaining candidate is still notified, the empty open list being the
+    solo-safe gate."""
     def _run():
         posted = 0
         for other in _open_prs(transport, repo):
             opr = other.get("number")
             if not isinstance(opr, int) or opr == exclude_pr:
                 continue
-            if emit_revalidation_base_advanced(transport, repo, opr, base_sha=base_sha):
+            if emit_revalidation_base_advanced(transport, repo, opr, base_sha=base_sha,
+                                               require_peer=require_peer):
                 posted += 1
         return posted
     return _safe(_run) or 0

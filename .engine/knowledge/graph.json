@@ -5954,7 +5954,7 @@
       },
       "slug": "eADR-0043-advisory-session-coordination",
       "source": {
-        "fingerprint": "sha256:194a4b50f2f4dad006a5815684318915d5bec3a7cef0ab2926014a5b976af56b",
+        "fingerprint": "sha256:df8a08a067fae0c433d8f11c5dbb94fc3a3456a824ae3b218adf841a13df145c",
         "path": ".engine/contracts/eADR-0043-advisory-session-coordination.md"
       },
       "status": "accepted",
@@ -6984,7 +6984,7 @@
       },
       "slug": "serialized-integration",
       "source": {
-        "fingerprint": "sha256:4c1c82160c86d9fa1bb534bbd29ceb4ab30c0d470059c614d770fb8cef050f16",
+        "fingerprint": "sha256:2f27965ed20900e841328ec530afceb0500b3cc3cf2e847fff8a339df015a96b",
         "path": ".engine/operations/serialized-integration.md"
       },
       "status": "active",
@@ -7004,7 +7004,7 @@
       },
       "slug": "session-coordination",
       "source": {
-        "fingerprint": "sha256:67c45d523db37aee91c310a10fa848202cdcf9cfa8e64ce1f86d2c0b163ce6b2",
+        "fingerprint": "sha256:27ca9df95d49bc7747f5bde45801b2320291665200e40cd3034365af0ef6d5f0",
         "path": ".engine/operations/session-coordination.md"
       },
       "status": "active",
@@ -10450,7 +10450,7 @@
       },
       "slug": "coordination_board",
       "source": {
-        "fingerprint": "sha256:ae36da070426aa3a78e8f6e13f7c361450e47b8242ff87bdfcbeb8c7b47dcd6a",
+        "fingerprint": "sha256:03b0949ca17a1aca82e8f449ca7c4e8551247fd016788b58e2118d6dce1b4743",
         "path": ".engine/tools/coordination_board.py"
       },
       "status": "active",
@@ -10523,7 +10523,7 @@
       },
       "slug": "coordination_emitters",
       "source": {
-        "fingerprint": "sha256:c17a1f75987ba1d6de5e9b16222c781d7632c55f9cfe30708f74b4604166922a",
+        "fingerprint": "sha256:7fbb3394e9c2acc7fda4d399e026e440b62717f42bd70d07f0f457e486950c50",
         "path": ".engine/tools/coordination_emitters.py"
       },
       "status": "active",
@@ -10572,6 +10572,33 @@
       },
       "status": "active",
       "summary": "coordination_notice — assemble, fingerprint, render, and parse ONE advisory cross-session coordination",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:coordination_postmerge",
+      "name": ".engine/tools/coordination_postmerge.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:coordination_board",
+          "tool:coordination_emitters",
+          "tool:github_client",
+          "tool:integration_queue",
+          "tool:protection_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "coordination_postmerge",
+      "source": {
+        "fingerprint": "sha256:e87fc364ddd805d2f035b84550e2adca4c1359ccf5d9514a14841e50a9058d5c",
+        "path": ".engine/tools/coordination_postmerge.py"
+      },
+      "status": "active",
+      "summary": "coordination_postmerge — the DETERMINISTIC merge-reaction fan-out (StarshipSuperjam/engine-template#939, eADR-0043).",
       "type": "tool"
     },
     {
@@ -12640,7 +12667,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:9287d4228ac4a1094f88bc24214f9c00860b574a97d2101f2f62db0caa136a61",
+        "fingerprint": "sha256:af615a7652a32fb7cb58dba1dfeb5da41fddbf661fbd5507da7a17cebf2879ba",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -14221,7 +14248,7 @@
       },
       "slug": "render_safety",
       "source": {
-        "fingerprint": "sha256:a8ed7a0948ecfac8b823f39c6d7fbb2387379573be10670f674b6ac61d030643",
+        "fingerprint": "sha256:41062599069fccd76ee4477c641d4d9fe25c8f2e3a4ed310a5fd7f193505cb58",
         "path": ".engine/tools/render_safety.py"
       },
       "status": "active",
@@ -16072,7 +16099,7 @@
       },
       "slug": "test_coordination_board",
       "source": {
-        "fingerprint": "sha256:ad3f1d00187e7e3678c8d12a7f2c51946f34137bb7374100aba2de2a0504ba2e",
+        "fingerprint": "sha256:973dd6bfe99527c875c10b7814eee9f79964e5d4d4cb6c3d37dee30702f6b9ec",
         "path": ".engine/tools/test_coordination_board.py"
       },
       "status": "active",
@@ -16245,6 +16272,29 @@
       },
       "status": "active",
       "summary": "Tests for coordination_notice — the by-construction render, the condition fingerprint, the integrity",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_coordination_postmerge",
+      "name": ".engine/tools/test_coordination_postmerge.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:coordination_postmerge"
+        ]
+      },
+      "slug": "test_coordination_postmerge",
+      "source": {
+        "fingerprint": "sha256:004c4dd0d13c19aec1ca3eecac681b2eb80c899274a1195a5d385ae420d5f8c3",
+        "path": ".engine/tools/test_coordination_postmerge.py"
+      },
+      "status": "active",
+      "summary": "Tests for coordination_postmerge — the deterministic merge-reaction fan-out (StarshipSuperjam/engine-template#939, eADR-0043).",
       "type": "tool"
     },
     {
@@ -18388,7 +18438,7 @@
       },
       "slug": "test_render_safety",
       "source": {
-        "fingerprint": "sha256:37c99a8606892d1dedabe417e68d13938267e6a202fcf72cc3a08973cab3e99f",
+        "fingerprint": "sha256:914ee702bd26d310b612e532b1a866616a0259d1a9e6ec33365b23b4c7e1b675",
         "path": ".engine/tools/test_render_safety.py"
       },
       "status": "active",

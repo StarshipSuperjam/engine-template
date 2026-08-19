@@ -48,12 +48,17 @@ the engine and no authored conflict guessed away.
 ## Notes
 
 **Advisory coordination rides this lifecycle, it never gates it.** When session coordination is active
-(`session-coordination.md`, eADR-0043), admitting, blocking, and releasing a slot each emit an advisory
-notice on the pull request concerned — "a slot opened; prepare and re-check the queue", "the base advanced;
-re-prove against the current main". These make the lifecycle cheaper and less surprising for concurrent
-sessions, but they carry no authority: a session still acts only by re-running `prepare`/`prove_ready`
-against live state, freshness is still the ruleset's at your merge, and a missed or forged notice changes
-nothing (the reconcile/merge path recovers it). The overlap warning prompts sequencing; it is never a lock.
+(`session-coordination.md`, eADR-0043), admitting or blocking a candidate at `prepare` emits an advisory
+notice on the pull request concerned — "a slot opened; prepare and re-check the queue". The *merge-reaction*
+signals — "the base advanced; re-prove against the current main" (revalidation), "a merge touched your
+declared surface" (dependency-update), and "you're next in the queue" — do NOT ride the `advance` verb, which
+is a human afterthought to a merge (and by the "merge, then advance" flow the merged pull request is already
+closed by then). They fire deterministically from the merge EVENT: a `pull_request: closed` workflow
+(`engine-coordination-postmerge.yml`) runs on merge and posts them to the affected candidates' boards. These
+make the lifecycle cheaper and less surprising for concurrent sessions, but they carry no authority: a session
+still acts only by re-running `prepare`/`prove_ready` against live state, freshness is still the ruleset's at
+your merge, and a missed or forged notice changes nothing (the reconcile/merge path recovers it). The overlap
+warning prompts sequencing; it is never a lock.
 
 **Toward the merge-queue outcome without a native merge queue.** The O(n²) re-prove churn the strict
 freshness lane (StarshipSuperjam/engine-template#915) can incur across concurrent candidates is what a native GitHub merge queue

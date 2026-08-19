@@ -33,8 +33,18 @@ class TestSafeIdent(unittest.TestCase):
 
     def test_length_is_bounded(self):
         out = rs.safe_ident("x" * 5000)
-        self.assertLessEqual(len(out), rs.MAX_IDENT_LEN + len("...TRUNCATED"))
+        # The marker is counted IN the budget: the RESULT never exceeds max_len (the invariant a caller that
+        # also enforces max_len as a hard field bound relies on), not max_len + marker.
+        self.assertLessEqual(len(out), rs.MAX_IDENT_LEN)
         self.assertTrue(out.endswith("...TRUNCATED"))
+
+    def test_result_never_exceeds_max_len_even_below_marker_width(self):
+        # A max_len smaller than the marker itself must still bound the result — the marker is clipped, not
+        # appended past the budget (else a caller enforcing max_len as a hard field bound rejects a value
+        # this function claims it made fit).
+        for n in range(0, 15):
+            out = rs.safe_ident("x" * 5000, max_len=n)
+            self.assertLessEqual(len(out), n)
 
     def test_truncation_marker_is_whitelist_safe(self):
         # a truncated value must still satisfy a whitelist-constrained field

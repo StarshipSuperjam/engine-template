@@ -275,23 +275,13 @@ def main(argv: list) -> int:
             return 0
         held = be.admitted()
         be.release(this)
-        # Advisory coordination (best-effort, never gates). All wrapped so a GitHub hiccup never crashes the
-        # release that already succeeded.
-        def _advance_coordination(ce):
-            _next = reviewed_candidates(transport, repo, base, tier=tier)
-            if _next:
-                ce.emit_integration_next(transport, repo, _next[0].pr)
-            # Only fan out base-advanced signals when THIS pull request actually MERGED (advance can also
-            # follow an abandon, which leaves the base unchanged). Gating on the observed merge is the
-            # base-SHA-change gate the plan committed to.
-            st, pr_data = transport("GET", f"/repos/{repo}/pulls/{this}", None)
-            merged = st < 400 and isinstance(pr_data, dict) and bool(pr_data.get("merged"))
-            if merged:
-                sc, cdata = transport("GET", f"/repos/{repo}/commits/{base}", None)
-                if sc < 400 and isinstance(cdata, dict) and cdata.get("sha"):
-                    ce.emit_revalidation_scan(transport, repo, base_sha=cdata["sha"], exclude_pr=this)
-                    ce.emit_dependency_merged_scan(transport, repo, this, base_sha=cdata["sha"])
-        _coordinate(_advance_coordination)
+        # NOTE: the merge-reaction coordination fan-out (next-in-queue, base-advanced revalidation, and the
+        # dependency-merged scan) does NOT ride this verb. `advance` is a human afterthought to a merge —
+        # relying on someone running it would make those signals non-deterministic, and by the documented
+        # "merge, then advance" flow the merged pull request is already closed here, so a merge could never be
+        # observed from this branch. Those signals fire deterministically from the post-merge workflow
+        # (engine-coordination-postmerge.yml -> coordination_postmerge.py) on the merge event itself
+        # (StarshipSuperjam/engine-template#939, eADR-0043). `advance` keeps only its slot-release duty.
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
         else:

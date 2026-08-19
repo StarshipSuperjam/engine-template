@@ -54,9 +54,12 @@ def safe_ident(value: str, *, replacement: str = "?", max_len: int = MAX_IDENT_L
         # budget, not appended past it, so a caller that also enforces `max_len` as a hard field bound (the
         # coordination-notice branch/path charset) never rejects a value this function claims it made fit.
         # The marker is plain whitelist ASCII (dots + letters), so it carries no markup and stays in-charset.
+        # The final `[:max_len]` is the hard guarantee even for a `max_len` SMALLER than the marker itself:
+        # then `keep` is 0 and the marker alone would overflow, so we clip it too — the result is never
+        # longer than max_len, whatever max_len is.
         marker = "...TRUNCATED"
         keep = max(0, max_len - len(marker))
-        safe = safe[:keep] + marker
+        safe = (safe[:keep] + marker)[:max_len]
     return safe
 
 
