@@ -686,8 +686,6 @@
           "codex-skill:engine-configure-codex",
           "codex-skill:engine-configure-memory-backup",
           "codex-skill:engine-coordinate-build",
-          "codex-skill:engine-coordination-doorbell",
-          "codex-skill:engine-coordination-read",
           "codex-skill:engine-design",
           "codex-skill:engine-design-product",
           "codex-skill:engine-develop-engine",
@@ -761,8 +759,6 @@
           "codex-skill:engine-configure-codex",
           "codex-skill:engine-configure-memory-backup",
           "codex-skill:engine-coordinate-build",
-          "codex-skill:engine-coordination-doorbell",
-          "codex-skill:engine-coordination-read",
           "codex-skill:engine-design",
           "codex-skill:engine-design-product",
           "codex-skill:engine-develop-engine",
@@ -956,8 +952,7 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-advisory-session-coordination"
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-frontmatter",
@@ -1025,8 +1020,7 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-advisory-session-coordination"
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-shape",
@@ -1095,42 +1089,13 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-advisory-session-coordination"
+          "contract:eADR-0042-multi-writer-integration"
         ]
       },
       "slug": "contract-threshold",
       "source": {
         "fingerprint": "sha256:78cdfb9ab575f242a59cdc2ffc02e8fd277fcd7da25374b4e27ed1c409111db1",
         "path": ".engine/check/contract-threshold.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
-      "id": "check:coordination-confinement",
-      "kind": "custom/script",
-      "name": ".engine/check/coordination-confinement.json",
-      "owner": "validators-core",
-      "predicates": {
-        "enforced_by": [
-          "tool:coordination_confinement_check"
-        ],
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ]
-      },
-      "slug": "coordination-confinement",
-      "source": {
-        "fingerprint": "sha256:58795c2b8b0f22fa0c8d5dc274d3e1a5fbaeb6c831fbfae289ef732503e4078c",
-        "path": ".engine/check/coordination-confinement.json"
       },
       "status": "active",
       "suites": [
@@ -1890,7 +1855,6 @@
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:serialized-integration",
-          "operation:session-coordination",
           "operation:tune-policy"
         ]
       },
@@ -1951,7 +1915,6 @@
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:serialized-integration",
-          "operation:session-coordination",
           "operation:tune-policy"
         ]
       },
@@ -2176,34 +2139,6 @@
       "source": {
         "fingerprint": "sha256:fc1b86a18b523532f2952e756d4caad3858ae2b3621c8b90a149ac009dbcd8a2",
         "path": ".engine/check/pr-body-completeness.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
-      "id": "check:pr-release-impact",
-      "kind": "custom/script",
-      "name": ".engine/check/pr-release-impact.json",
-      "owner": "validators-core",
-      "predicates": {
-        "enforced_by": [
-          "tool:release_impact_check"
-        ],
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ]
-      },
-      "slug": "pr-release-impact",
-      "source": {
-        "fingerprint": "sha256:6640faa568aaead0c409e2029d1fd707ce2241828052c88ec798a436c7520df3",
-        "path": ".engine/check/pr-release-impact.json"
       },
       "status": "active",
       "suites": [
@@ -2739,8 +2674,6 @@
           "skill:engine-configure-codex",
           "skill:engine-configure-memory-backup",
           "skill:engine-coordinate-build",
-          "skill:engine-coordination-doorbell",
-          "skill:engine-coordination-read",
           "skill:engine-design",
           "skill:engine-design-product",
           "skill:engine-develop-engine",
@@ -2814,8 +2747,6 @@
           "skill:engine-configure-codex",
           "skill:engine-configure-memory-backup",
           "skill:engine-coordinate-build",
-          "skill:engine-coordination-doorbell",
-          "skill:engine-coordination-read",
           "skill:engine-design",
           "skill:engine-design-product",
           "skill:engine-develop-engine",
@@ -3404,86 +3335,6 @@
       "source": {
         "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
         "path": ".agents/skills/engine-coordinate-build/agents/openai.yaml"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-coordination-doorbell",
-      "name": ".agents/skills/engine-coordination-doorbell/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-coordination-doorbell",
-      "source": {
-        "fingerprint": "sha256:598e6b75f05c265ef578b4ab77f0e176a971c07829a0d1efe8b0bb98372f7e64",
-        "path": ".agents/skills/engine-coordination-doorbell/SKILL.md"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-coordination-doorbell.policy",
-      "name": ".agents/skills/engine-coordination-doorbell/agents/openai.yaml",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-coordination-doorbell.policy",
-      "source": {
-        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
-        "path": ".agents/skills/engine-coordination-doorbell/agents/openai.yaml"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-coordination-read",
-      "name": ".agents/skills/engine-coordination-read/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-coordination-read",
-      "source": {
-        "fingerprint": "sha256:68775497a589bd5bde10fe9d5bf32410579153c369870ce2fca5c9e4c9a21898",
-        "path": ".agents/skills/engine-coordination-read/SKILL.md"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-coordination-read.policy",
-      "name": ".agents/skills/engine-coordination-read/agents/openai.yaml",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-coordination-read.policy",
-      "source": {
-        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
-        "path": ".agents/skills/engine-coordination-read/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -5942,7 +5793,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:534a83e1d2e6c595db41dc2048bcc5c8c210a602e24d46d61eb884b4db709ab0",
+        "fingerprint": "sha256:a03530c331536d973a36d12ba5011ece365648eefa7fdead4f4f07c9fc46d943",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -5964,26 +5815,6 @@
       "source": {
         "fingerprint": "sha256:2f531e5d35cb08af7da295ca030cea0f1fa2c6ee42b7a341c85b554974936f9e",
         "path": ".engine/contracts/eADR-0042-multi-writer-integration.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0043-advisory-session-coordination",
-      "name": ".engine/contracts/eADR-0043-advisory-session-coordination.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0043-advisory-session-coordination",
-      "source": {
-        "fingerprint": "sha256:df8a08a067fae0c433d8f11c5dbb94fc3a3456a824ae3b218adf841a13df145c",
-        "path": ".engine/contracts/eADR-0043-advisory-session-coordination.md"
       },
       "status": "accepted",
       "type": "contract"
@@ -6161,7 +5992,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:bf7a847fb6f00b8d38c29e2054171e7df799e4309b28847d930e259c0b5b75db",
+        "fingerprint": "sha256:6f59a5c9daa5a6bbdca4ff566d9734b5dc2109507aab191de8d0fad7e3c06a2c",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6371,7 +6202,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:5fb2b03a8702f46e15bb8e453c7a359d0791fa55a4d897284ec5b1fa6d808f0e",
+        "fingerprint": "sha256:24e1b4b4029b9485299a152cf5f7e55a1db97d8323ded118790a6c9f46d46e01",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -7012,28 +6843,8 @@
       },
       "slug": "serialized-integration",
       "source": {
-        "fingerprint": "sha256:2f27965ed20900e841328ec530afceb0500b3cc3cf2e847fff8a339df015a96b",
+        "fingerprint": "sha256:1e426beac26f5a38ef1592eb99d8ffb2ecf3393cf065ada2587fead12224c5e6",
         "path": ".engine/operations/serialized-integration.md"
-      },
-      "status": "active",
-      "type": "operation"
-    },
-    {
-      "id": "operation:session-coordination",
-      "name": ".engine/operations/session-coordination.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:operation.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "session-coordination",
-      "source": {
-        "fingerprint": "sha256:27ca9df95d49bc7747f5bde45801b2320291665200e40cd3034365af0ef6d5f0",
-        "path": ".engine/operations/session-coordination.md"
       },
       "status": "active",
       "type": "operation"
@@ -7429,7 +7240,7 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:f722f8a0a2c134f04f76ad30281198d577f9c702418430194b08d8f72dfdb63e",
+        "fingerprint": "sha256:8a84917d434e80ed7385265f56fe5d3a6c344f255986041068c2c3870b995fbc",
         "path": ".engine/schemas/build-handoff.v1.json"
       },
       "status": "active",
@@ -7446,7 +7257,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:726181752d742fba502bb36eff279743cd3ce5c19c6f1be8546661040bae0a1c",
+        "fingerprint": "sha256:99916b4fa5a0b5375979e14bc285cdcc0ce2b19241ab4fa4bea701590bdf9e49",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7686,23 +7497,6 @@
       "source": {
         "fingerprint": "sha256:95a37258f57a0193099b9e498078d3a5c13be69f8fcf24b1560822ae0f03a55b",
         "path": ".engine/schemas/contract.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
-      "id": "schema:coordination-notice.v1",
-      "name": ".engine/schemas/coordination-notice.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination-notice.v1",
-      "source": {
-        "fingerprint": "sha256:f0a653ef67a20848b6579495c55c8deb45e69844b83bc1404e998bc00dd16d06",
-        "path": ".engine/schemas/coordination-notice.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7956,7 +7750,7 @@
       },
       "slug": "pr-body-claim.v1",
       "source": {
-        "fingerprint": "sha256:674608594bdc225c1433b49207f9a52640038de5f9a8fbfeafbafc46cb710543",
+        "fingerprint": "sha256:c4184fc77789f98ba4767ef0ecb10b498ac3bd8170f19f06ee76251790e5af97",
         "path": ".engine/schemas/pr-body-claim.v1.json"
       },
       "status": "active",
@@ -8272,56 +8066,6 @@
       },
       "status": "active",
       "title": "engine-coordinate-build",
-      "type": "skill"
-    },
-    {
-      "id": "skill:engine-coordination-doorbell",
-      "invocation": "model-only",
-      "name": ".claude/skills/engine-coordination-doorbell/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ],
-        "routes_to": [
-          "operation:session-coordination"
-        ]
-      },
-      "slug": "engine-coordination-doorbell",
-      "source": {
-        "fingerprint": "sha256:8e97b05d2aab11f1ef891d01cf44f807171ae8633e564627099d62031e2a1ba9",
-        "path": ".claude/skills/engine-coordination-doorbell/SKILL.md"
-      },
-      "status": "active",
-      "title": "engine-coordination-doorbell",
-      "type": "skill"
-    },
-    {
-      "id": "skill:engine-coordination-read",
-      "invocation": "model-only",
-      "name": ".claude/skills/engine-coordination-read/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ],
-        "routes_to": [
-          "operation:session-coordination"
-        ]
-      },
-      "slug": "engine-coordination-read",
-      "source": {
-        "fingerprint": "sha256:89e7af6dd8583b2e76b483a74a55d5811c3f955fd7f0b4cefe49cf204f1fd486",
-        "path": ".claude/skills/engine-coordination-read/SKILL.md"
-      },
-      "status": "active",
-      "title": "engine-coordination-read",
       "type": "skill"
     },
     {
@@ -9707,7 +9451,6 @@
           "tool:boot_alarm_ledger",
           "tool:boot_slice",
           "tool:checkout_health",
-          "tool:coordination_ledger",
           "tool:execution_environment",
           "tool:first_run_health",
           "tool:forget",
@@ -9740,7 +9483,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:60ca1253d3c4229b43057a4fed3eb42919d12f0ed2ee95594c521904486e8dce",
+        "fingerprint": "sha256:7604b3f6867bab7d29599a8aae38c7b33d7756e48fef9f6f3cca7ec88c2fd09c",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9836,7 +9579,6 @@
       "predicates": {
         "imports": [
           "tool:agent_bindings",
-          "tool:boot",
           "tool:build_coordinator_contract",
           "tool:build_coordinator_core",
           "tool:build_coordinator_dag",
@@ -9844,9 +9586,6 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
-          "tool:coordination_domains",
-          "tool:coordination_emitters",
-          "tool:github_client",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -9859,7 +9598,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:a17f0a27782025d4f2d103b81ee0994a192a2d6aed69cd7e909f9075f247f311",
+        "fingerprint": "sha256:0c052d272b8252f24e62832e68cef887ba65ca04c3b169a729fd47eb100a5959",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9874,8 +9613,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:release_cut",
-          "tool:release_impact"
+          "tool:release_cut"
         ],
         "provided_by": [
           "module:core"
@@ -9883,7 +9621,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:0487404004c7a8d48ca79e95241ffd1af068ab2448b4cff45e0a10be624a1d7b",
+        "fingerprint": "sha256:6720f4bd604f0e498ed09e97b07afb9e86f73b3570220f5d3944d5d49a56ba55",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -9996,7 +9734,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:613897da5564e41c32623bb1ce718de7ba990fdd633c69f7ace940cf005946a1",
+        "fingerprint": "sha256:72c0febf486dea2f75cbc03f2dce6aa0c05dfe1883bfb04f1daecdb8874f0a38",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10461,174 +10199,6 @@
       },
       "status": "active",
       "summary": "Cross-repo issue contribution — file an Issue into a target repo, following ITS own conventions.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:coordination_board",
-      "name": ".engine/tools/coordination_board.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:coordination_notice",
-          "tool:github_client"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_board",
-      "source": {
-        "fingerprint": "sha256:6e3cf1cde5ff76cb68f6f3d7802d91a805802f734cf53fbb3060b66c1f764b3a",
-        "path": ".engine/tools/coordination_board.py"
-      },
-      "status": "active",
-      "summary": "coordination_board — the one Engine-maintained coordination comment on a pull request or issue: the",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "ci",
-      "guarded": true,
-      "id": "tool:coordination_confinement_check",
-      "name": ".engine/tools/coordination_confinement_check.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_confinement_check",
-      "source": {
-        "fingerprint": "sha256:7e64f281a5a3c453ef742bf31f50c83a964ffa5d59be6858da199e826838137b",
-        "path": ".engine/tools/coordination_confinement_check.py"
-      },
-      "status": "active",
-      "summary": "coordination-confinement — prove the advisory-only law mechanically (StarshipSuperjam/engine-template#939, eADR-0043 law 3).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:coordination_domains",
-      "name": ".engine/tools/coordination_domains.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:build_coordinator_dag"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_domains",
-      "source": {
-        "fingerprint": "sha256:86387032c556501326645ac5065f00964a534324107d9bb78905788ea09c2daf",
-        "path": ".engine/tools/coordination_domains.py"
-      },
-      "status": "active",
-      "summary": "coordination_domains — a pull request's CHANGE DOMAIN and lock-free overlap between two of them",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:coordination_emitters",
-      "name": ".engine/tools/coordination_emitters.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:coordination_board",
-          "tool:coordination_domains",
-          "tool:coordination_ledger",
-          "tool:coordination_notice",
-          "tool:moment"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_emitters",
-      "source": {
-        "fingerprint": "sha256:b9b2107ad8c3c0c7227884c570b8581d874c983276974cd23caf246c73deaed2",
-        "path": ".engine/tools/coordination_emitters.py"
-      },
-      "status": "active",
-      "summary": "coordination_emitters — the best-effort emit points that turn a lifecycle moment into an advisory",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:coordination_ledger",
-      "name": ".engine/tools/coordination_ledger.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_ledger",
-      "source": {
-        "fingerprint": "sha256:7c4396bd89ae1d641dc91ac959c2bff9e2e30fff14849ce8dee928455a23a021",
-        "path": ".engine/tools/coordination_ledger.py"
-      },
-      "status": "active",
-      "summary": "coordination_ledger — the local, ephemeral bookkeeping for advisory coordination",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:coordination_notice",
-      "name": ".engine/tools/coordination_notice.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:moment",
-          "tool:render_safety"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_notice",
-      "source": {
-        "fingerprint": "sha256:0652b2bfac589179a973de5a5b3d698ab78f451b3a47582a3750fa8efecdfe08",
-        "path": ".engine/tools/coordination_notice.py"
-      },
-      "status": "active",
-      "summary": "coordination_notice — assemble, fingerprint, render, and parse ONE advisory cross-session coordination",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:coordination_postmerge",
-      "name": ".engine/tools/coordination_postmerge.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:coordination_board",
-          "tool:coordination_emitters",
-          "tool:github_client",
-          "tool:integration_queue",
-          "tool:protection_guard"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "coordination_postmerge",
-      "source": {
-        "fingerprint": "sha256:c3bd0711e5e2ca3657e43c93ea191410fbf35b2a5faba93df488ae9ec741988f",
-        "path": ".engine/tools/coordination_postmerge.py"
-      },
-      "status": "active",
-      "summary": "coordination_postmerge — the DETERMINISTIC merge-reaction fan-out (StarshipSuperjam/engine-template#939, eADR-0043).",
       "type": "tool"
     },
     {
@@ -11292,32 +10862,6 @@
       },
       "status": "active",
       "summary": "Demo — first-run provisioning creates the COMPLETE set of labels the engine's guards depend on.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
-      "id": "tool:demo_coordination_two_sessions",
-      "name": ".engine/tools/demo_coordination_two_sessions.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:coordination_board",
-          "tool:coordination_domains",
-          "tool:coordination_emitters",
-          "tool:coordination_notice"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_coordination_two_sessions",
-      "source": {
-        "fingerprint": "sha256:cde63badd4db3790b024633df8e12559ebc82f62ef35b17e9a3b4562514f9c38",
-        "path": ".engine/tools/demo_coordination_two_sessions.py"
-      },
-      "status": "active",
-      "summary": "demo_coordination_two_sessions — a fully offline walkthrough of advisory cross-session coordination",
       "type": "tool"
     },
     {
@@ -12664,7 +12208,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:ddc4dbac32c985a8a451dfb924612ee4e91dbee880a2c804681187b5e794d1c0",
+        "fingerprint": "sha256:d74dd7fe581ff89dc77e6f75cb4a2646664ad0d51aff1375af95bc417d4038d6",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12680,9 +12224,6 @@
       "predicates": {
         "imports": [
           "tool:boot",
-          "tool:coordination_board",
-          "tool:coordination_emitters",
-          "tool:coordination_ledger",
           "tool:demo_integration_queue",
           "tool:github_client",
           "tool:integration_queue_backend",
@@ -12697,7 +12238,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:9549a0ee9e87b7a08844e61889a5750a0be7efb6929915ce49bf15e0efa24691",
+        "fingerprint": "sha256:cfbfdceb2f5a30f74570d7df83253b36d9e977dbe496e858960c9c532c2da245",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -13772,7 +13313,6 @@
           "tool:github_client",
           "tool:module_coherence",
           "tool:module_manager",
-          "tool:render_safety",
           "tool:repo_identity",
           "tool:validate",
           "tool:weakening_guard"
@@ -13783,7 +13323,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:a5afd7dd0d5fd51d850d74a6472617550cac3975c18d3282c17e10879022a054",
+        "fingerprint": "sha256:da009da77b4458ca87c205edab8dffe22bbd43fa903605e9cc711ac294d51e9e",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -14148,12 +13688,9 @@
           "tool:local_references",
           "tool:module_coherence",
           "tool:module_manager",
-          "tool:module_surfaces",
-          "tool:release_impact",
           "tool:release_source",
           "tool:shipped_local_references_check",
-          "tool:validate",
-          "tool:weakening_guard"
+          "tool:validate"
         ],
         "provided_by": [
           "module:core"
@@ -14161,7 +13698,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:f4e0dfc3342ddeb5675c5c0e827e3747d1c340f8915d5295948c7f84058c30af",
+        "fingerprint": "sha256:3b95ffb77149307e0e741308c4dc6d55ee3e00deb23b4c1df36c95d4b766a615",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -14192,50 +13729,6 @@
       },
       "status": "active",
       "summary": "Release-cut deployment gate — the cut-time proof that a release OPERATES and UPGRADES when deployed.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:release_impact",
-      "name": ".engine/tools/release_impact.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "release_impact",
-      "source": {
-        "fingerprint": "sha256:59534091343be1f71493c07b9506175297beff8bfc03696e50a0d1d94f3af3d5",
-        "path": ".engine/tools/release_impact.py"
-      },
-      "status": "active",
-      "summary": "The canonical release-impact vocabulary — the ONE source of truth for a pull request's declared SemVer impact.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "ci",
-      "guarded": true,
-      "id": "tool:release_impact_check",
-      "name": ".engine/tools/release_impact_check.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:release_impact",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "release_impact_check",
-      "source": {
-        "fingerprint": "sha256:f8f1071d31d1dd7b1c643915ab6fc6ebf3e5e778705b6f489c1dcb22415f3412",
-        "path": ".engine/tools/release_impact_check.py"
-      },
-      "status": "active",
-      "summary": "Hard CI check: every pull request declares EXACTLY ONE VALID release-impact marker, so the release action can",
       "type": "tool"
     },
     {
@@ -14310,26 +13803,6 @@
       },
       "status": "active",
       "summary": "Release publisher — the terminal cut.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:render_safety",
-      "name": ".engine/tools/render_safety.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "render_safety",
-      "source": {
-        "fingerprint": "sha256:41062599069fccd76ee4477c641d4d9fe25c8f2e3a4ed310a5fd7f193505cb58",
-        "path": ".engine/tools/render_safety.py"
-      },
-      "status": "active",
-      "summary": "The one render-safety boundary — neutralise an attacker-influenceable identifier before it is rendered",
       "type": "tool"
     },
     {
@@ -15588,13 +15061,12 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_github",
-          "tool:coordination_emitters",
           "tool:spec_referent"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:820c24ae07599e597bdfcf3c782f9fef67600d80415702afd7477ae5f9e41578",
+        "fingerprint": "sha256:8077e884111d51f7c134127986a354710eb6fc7add227e3c61da7daa3c6394c3",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15616,14 +15088,13 @@
           "tool:build_coordinator_contract",
           "tool:close_linkage_preflight",
           "tool:release_cut",
-          "tool:release_impact",
           "tool:spec_referent",
           "tool:validate"
         ]
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:9ce3bd049d926e674a1e0b1df766200ab953855fab45d1e44f70f6a09050f14a",
+        "fingerprint": "sha256:573c12b09c17ea678d21435d263f71fd992ae0e9af838310c7876bff8b04bceb",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -15743,7 +15214,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:eea3652bf82b4fd4dbeed41f74653f52cfa13fe595b2fb5b5c7206e165dfeac2",
+        "fingerprint": "sha256:2934d6c1d65b7e49aafdc8f86811f5b5507a6a1850bb080f67e1f280ffb0eb65",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16159,221 +15630,6 @@
       },
       "status": "active",
       "summary": "Tests for the cross-repo issue contribution tooling (external-contribution module).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_board",
-      "name": ".engine/tools/test_coordination_board.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_board",
-          "tool:coordination_notice"
-        ]
-      },
-      "slug": "test_coordination_board",
-      "source": {
-        "fingerprint": "sha256:b6360f36ac68037a49e865470fb6ad51dce058226108f532b41756a68df52e5b",
-        "path": ".engine/tools/test_coordination_board.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_board — the maintained-comment read-modify-write, fingerprint dedupe, priority-aware",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_boot_relay",
-      "name": ".engine/tools/test_coordination_boot_relay.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:boot",
-          "tool:coordination_ledger"
-        ]
-      },
-      "slug": "test_coordination_boot_relay",
-      "source": {
-        "fingerprint": "sha256:2e84777feffaab0a190d15174f4bffabeb595a04cdbfea870c2b3cacd84c1360",
-        "path": ".engine/tools/test_coordination_boot_relay.py"
-      },
-      "status": "active",
-      "summary": "Tests for boot's coordination relay (StarshipSuperjam/engine-template#939): it renders unread notices from the LOCAL ledger only",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_confinement",
-      "name": ".engine/tools/test_coordination_confinement.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_confinement_check",
-          "tool:coordination_notice",
-          "tool:integration_queue",
-          "tool:pr_reconcile"
-        ]
-      },
-      "slug": "test_coordination_confinement",
-      "source": {
-        "fingerprint": "sha256:7e815d917040a595cfa07d5742e3ebc976d36709989ca5801dc93be47087f184",
-        "path": ".engine/tools/test_coordination_confinement.py"
-      },
-      "status": "active",
-      "summary": "Tests for the coordination advisory-only guarantees (StarshipSuperjam/engine-template#939): the fail-closed confinement check",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_demo",
-      "name": ".engine/tools/test_coordination_demo.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:demo_coordination_two_sessions",
-          "tool:quiet_call"
-        ]
-      },
-      "slug": "test_coordination_demo",
-      "source": {
-        "fingerprint": "sha256:54e51608ca17b660de75cbe121ea6d3ebafe440d4c9c61ff1332aeaaafbcc1eb",
-        "path": ".engine/tools/test_coordination_demo.py"
-      },
-      "status": "active",
-      "summary": "The coordination two-session demo passes, and can genuinely FAIL (StarshipSuperjam/engine-template#939) — a demo that can only",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_domains",
-      "name": ".engine/tools/test_coordination_domains.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:build_coordinator_dag",
-          "tool:coordination_domains"
-        ]
-      },
-      "slug": "test_coordination_domains",
-      "source": {
-        "fingerprint": "sha256:d19221800545a94adb60f3fe0f20ef83499c103d33b20af0665d2b7a96184a14",
-        "path": ".engine/tools/test_coordination_domains.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_domains — declared/actual domain resolution and lock-free overlap, with the",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_emitters",
-      "name": ".engine/tools/test_coordination_emitters.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_emitters",
-          "tool:coordination_ledger"
-        ]
-      },
-      "slug": "test_coordination_emitters",
-      "source": {
-        "fingerprint": "sha256:36a3500c463295d773cfa2578ae12a7e11a6373ebf3bd46c250fa8dd996b398d",
-        "path": ".engine/tools/test_coordination_emitters.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_emitters — the no-harm guarantee (an emit never raises and never affects the",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_ledger",
-      "name": ".engine/tools/test_coordination_ledger.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_ledger"
-        ]
-      },
-      "slug": "test_coordination_ledger",
-      "source": {
-        "fingerprint": "sha256:a3a762b4a1e74e29d4eb267b250a423c9ac909ff73341c8120742dabc902ee94",
-        "path": ".engine/tools/test_coordination_ledger.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_ledger — the local board-snapshot/seen bookkeeping and the bounded measurement ring",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_notice",
-      "name": ".engine/tools/test_coordination_notice.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_notice"
-        ]
-      },
-      "slug": "test_coordination_notice",
-      "source": {
-        "fingerprint": "sha256:e07aa00bdfdbc4f8cfa354046f8dd9f5a5c0573612cece9c7592d32930d96c75",
-        "path": ".engine/tools/test_coordination_notice.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_notice — the by-construction render, the condition fingerprint, the integrity",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_coordination_postmerge",
-      "name": ".engine/tools/test_coordination_postmerge.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:coordination_postmerge"
-        ]
-      },
-      "slug": "test_coordination_postmerge",
-      "source": {
-        "fingerprint": "sha256:9d826a76fa97df1fff1b02043e28a657fa033e0311c03a2c22902ad4896b7ab2",
-        "path": ".engine/tools/test_coordination_postmerge.py"
-      },
-      "status": "active",
-      "summary": "Tests for coordination_postmerge — the deterministic merge-reaction fan-out (StarshipSuperjam/engine-template#939, eADR-0043).",
       "type": "tool"
     },
     {
@@ -17068,7 +16324,6 @@
           "module:core"
         ],
         "tests": [
-          "tool:coordination_emitters",
           "tool:integration_queue",
           "tool:integration_queue_backend",
           "tool:protection_guard"
@@ -17076,7 +16331,7 @@
       },
       "slug": "test_integration_queue",
       "source": {
-        "fingerprint": "sha256:30f85cac66c9680d6ad3b01bfd8766e16b4c56e434618261cd48b2789738c708",
+        "fingerprint": "sha256:650130f003d1bf67de91a9381c9cd4c3e667570e7c41f69ffb2287d55b8cf5c2",
         "path": ".engine/tools/test_integration_queue.py"
       },
       "status": "active",
@@ -17870,7 +17125,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:46000b436e6bde407636b0e9b8ed19b624161e263e119efddf5fc5351a2804c9",
+        "fingerprint": "sha256:c0a9db297b5aa6fdcedd173927879d6ed653a07542ac533a4cbd5f8487894f7e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18418,7 +17673,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:0e254c15d6b53d23b1b6a5e79bab1706bd2abc0710057570856b0c3ffe82a4ad",
+        "fingerprint": "sha256:0309eabee4d075f2200c48cba1318e0012be807760a9c5fdb77cc40f38de9091",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -18448,53 +17703,6 @@
       },
       "status": "active",
       "summary": "Tests for `release_gate.py` — the cut-time deployment gate.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_release_impact",
-      "name": ".engine/tools/test_release_impact.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:release_impact"
-        ]
-      },
-      "slug": "test_release_impact",
-      "source": {
-        "fingerprint": "sha256:0e5087f79059efb57c3dd3e2b20414277ec19145e5aebcd0d7020e6832b73eda",
-        "path": ".engine/tools/test_release_impact.py"
-      },
-      "status": "active",
-      "summary": "Tests for release_impact — the canonical release-impact vocabulary, marker quartet, ordering, and fold.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_release_impact_check",
-      "name": ".engine/tools/test_release_impact_check.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:release_impact",
-          "tool:release_impact_check"
-        ]
-      },
-      "slug": "test_release_impact_check",
-      "source": {
-        "fingerprint": "sha256:d0dddf6688f8a62eeaea745247259c6e84f1ce029bf273e230902e6bd562923e",
-        "path": ".engine/tools/test_release_impact_check.py"
-      },
-      "status": "active",
-      "summary": "Tests for release_impact_check — the hard CI check that every pull request declares exactly one valid impact.",
       "type": "tool"
     },
     {
@@ -18547,29 +17755,6 @@
       },
       "status": "active",
       "summary": "Unit tests for release_terminal — the terminal-cut publisher (tag + GitHub Release on merge).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_render_safety",
-      "name": ".engine/tools/test_render_safety.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:render_safety"
-        ]
-      },
-      "slug": "test_render_safety",
-      "source": {
-        "fingerprint": "sha256:914ee702bd26d310b612e532b1a866616a0259d1a9e6ec33365b23b4c7e1b675",
-        "path": ".engine/tools/test_render_safety.py"
-      },
-      "status": "active",
-      "summary": "Tests for render_safety — the one identifier render-safety boundary (StarshipSuperjam/engine-template#939).",
       "type": "tool"
     },
     {
