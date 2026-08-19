@@ -2185,6 +2185,34 @@
       "type": "check"
     },
     {
+      "id": "check:pr-release-impact",
+      "kind": "custom/script",
+      "name": ".engine/check/pr-release-impact.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:release_impact_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "pr-release-impact",
+      "source": {
+        "fingerprint": "sha256:6640faa568aaead0c409e2029d1fd707ce2241828052c88ec798a436c7520df3",
+        "path": ".engine/check/pr-release-impact.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:product-adr-form",
       "kind": "custom/script",
       "name": ".engine/check/product-adr-form.json",
@@ -6343,7 +6371,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:865bc75925f3ab87c3a62f0141a2502eef3cae41919fe9770495243d6258a5f5",
+        "fingerprint": "sha256:5fb2b03a8702f46e15bb8e453c7a359d0791fa55a4d897284ec5b1fa6d808f0e",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -7928,7 +7956,7 @@
       },
       "slug": "pr-body-claim.v1",
       "source": {
-        "fingerprint": "sha256:c4184fc77789f98ba4767ef0ecb10b498ac3bd8170f19f06ee76251790e5af97",
+        "fingerprint": "sha256:674608594bdc225c1433b49207f9a52640038de5f9a8fbfeafbafc46cb710543",
         "path": ".engine/schemas/pr-body-claim.v1.json"
       },
       "status": "active",
@@ -9846,7 +9874,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:release_cut"
+          "tool:release_cut",
+          "tool:release_impact"
         ],
         "provided_by": [
           "module:core"
@@ -9854,7 +9883,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:6720f4bd604f0e498ed09e97b07afb9e86f73b3570220f5d3944d5d49a56ba55",
+        "fingerprint": "sha256:0487404004c7a8d48ca79e95241ffd1af068ab2448b4cff45e0a10be624a1d7b",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -14119,9 +14148,12 @@
           "tool:local_references",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:module_surfaces",
+          "tool:release_impact",
           "tool:release_source",
           "tool:shipped_local_references_check",
-          "tool:validate"
+          "tool:validate",
+          "tool:weakening_guard"
         ],
         "provided_by": [
           "module:core"
@@ -14129,7 +14161,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:3b95ffb77149307e0e741308c4dc6d55ee3e00deb23b4c1df36c95d4b766a615",
+        "fingerprint": "sha256:f4e0dfc3342ddeb5675c5c0e827e3747d1c340f8915d5295948c7f84058c30af",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -14160,6 +14192,50 @@
       },
       "status": "active",
       "summary": "Release-cut deployment gate — the cut-time proof that a release OPERATES and UPGRADES when deployed.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:release_impact",
+      "name": ".engine/tools/release_impact.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_impact",
+      "source": {
+        "fingerprint": "sha256:59534091343be1f71493c07b9506175297beff8bfc03696e50a0d1d94f3af3d5",
+        "path": ".engine/tools/release_impact.py"
+      },
+      "status": "active",
+      "summary": "The canonical release-impact vocabulary — the ONE source of truth for a pull request's declared SemVer impact.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:release_impact_check",
+      "name": ".engine/tools/release_impact_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:release_impact",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_impact_check",
+      "source": {
+        "fingerprint": "sha256:f8f1071d31d1dd7b1c643915ab6fc6ebf3e5e778705b6f489c1dcb22415f3412",
+        "path": ".engine/tools/release_impact_check.py"
+      },
+      "status": "active",
+      "summary": "Hard CI check: every pull request declares EXACTLY ONE VALID release-impact marker, so the release action can",
       "type": "tool"
     },
     {
@@ -15540,13 +15616,14 @@
           "tool:build_coordinator_contract",
           "tool:close_linkage_preflight",
           "tool:release_cut",
+          "tool:release_impact",
           "tool:spec_referent",
           "tool:validate"
         ]
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:573c12b09c17ea678d21435d263f71fd992ae0e9af838310c7876bff8b04bceb",
+        "fingerprint": "sha256:9ce3bd049d926e674a1e0b1df766200ab953855fab45d1e44f70f6a09050f14a",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -17793,7 +17870,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:965466bfd57ed338223c580318aae4e8fa39567290e247c9609e97eca4ecd7e0",
+        "fingerprint": "sha256:46000b436e6bde407636b0e9b8ed19b624161e263e119efddf5fc5351a2804c9",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18341,7 +18418,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:0309eabee4d075f2200c48cba1318e0012be807760a9c5fdb77cc40f38de9091",
+        "fingerprint": "sha256:0e254c15d6b53d23b1b6a5e79bab1706bd2abc0710057570856b0c3ffe82a4ad",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -18371,6 +18448,53 @@
       },
       "status": "active",
       "summary": "Tests for `release_gate.py` — the cut-time deployment gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_release_impact",
+      "name": ".engine/tools/test_release_impact.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:release_impact"
+        ]
+      },
+      "slug": "test_release_impact",
+      "source": {
+        "fingerprint": "sha256:0e5087f79059efb57c3dd3e2b20414277ec19145e5aebcd0d7020e6832b73eda",
+        "path": ".engine/tools/test_release_impact.py"
+      },
+      "status": "active",
+      "summary": "Tests for release_impact — the canonical release-impact vocabulary, marker quartet, ordering, and fold.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_release_impact_check",
+      "name": ".engine/tools/test_release_impact_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:release_impact",
+          "tool:release_impact_check"
+        ]
+      },
+      "slug": "test_release_impact_check",
+      "source": {
+        "fingerprint": "sha256:d0dddf6688f8a62eeaea745247259c6e84f1ce029bf273e230902e6bd562923e",
+        "path": ".engine/tools/test_release_impact_check.py"
+      },
+      "status": "active",
+      "summary": "Tests for release_impact_check — the hard CI check that every pull request declares exactly one valid impact.",
       "type": "tool"
     },
     {

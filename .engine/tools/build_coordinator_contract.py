@@ -85,6 +85,7 @@ def fillable_template() -> dict:
     unfilled field without any substring grading of prose."""
     return {
         "schema_version": "pr-body-claim.v1",
+        "release_impact": None,   # the null fails enum validation, so this versioning slot must be chosen
         "linkage": {"closes": [], "part_of": []},
         "purpose": {"thesis": None, "problem": None, "mechanism": [], "impact": None},
         "scope": {"summary": None, "items": [], "impact": None},
@@ -322,6 +323,16 @@ def compose(claim: dict, evidence: dict) -> str:
     lines += _section("AI involvement", "How this change was produced and who decided what.", ai_body, ai["impact"])
 
     body = "\n".join(lines).rstrip() + "\n"
+
+    # The declared release impact (StarshipSuperjam/engine-template#942): a VISIBLE operator-readable line so a reviewer of this pull
+    # request sees the declaration without reading an HTML comment, plus the machine marker the release action's
+    # fold and the pr-release-impact CI check read. The session supplies only the enum value (claim.release_impact,
+    # schema-required); the renderer owns both projections — exactly one marker, so the check's "exactly one" holds.
+    impact = claim.get("release_impact")
+    if impact:
+        import release_impact  # stdlib-only leaf; local import matches this module's lazy-import discipline
+        body += "\n*" + release_impact.impact_line(impact) + "*\n"
+        body += "\n" + release_impact.impact_trailer(impact) + "\n"
 
     marker = evidence.get("composition_marker")
     if marker:

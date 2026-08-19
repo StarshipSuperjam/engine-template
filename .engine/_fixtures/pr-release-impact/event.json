@@ -1,0 +1,6 @@
+{
+  "pull_request": {
+    "body": "## Purpose\nA deliberately-broken fixture: this pull-request body carries NO engine-release-impact marker, so the hard check must catch it.\n",
+    "user": { "login": "a-human-author" }
+  }
+}

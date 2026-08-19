@@ -58,6 +58,7 @@
       ".engine/check/policy-shape.json",
       ".engine/check/pr-behaviors-declared.json",
       ".engine/check/pr-body-completeness.json",
+      ".engine/check/pr-release-impact.json",
       ".engine/check/provider-exceptions-schema.json",
       ".engine/check/provider-vocabulary-confinement.json",
       ".engine/check/provisioning-catalog.json",

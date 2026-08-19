@@ -18,6 +18,27 @@
        - Issue titles use these same canonical kinds: the bug and engine-fault templates seed "Fix:" (the
          change that resolves the report), so an issue and its closing pull request share the kind word. -->
 
+<!-- RELEASE IMPACT — declare this pull request's SemVer impact so the release action can derive the next
+     version from what actually shipped. Engine-built pull requests get this rendered for you; on a hand-written
+     pull request, add one HTML-comment marker of the form  engine-release-impact: VALUE  (a real HTML comment,
+     the way the severity/kind markers are written elsewhere). Put it on its OWN line right after this comment
+     block closes below — NOT inside this comment (an early close-marker would truncate this guidance and leak it
+     as visible text).
+
+     Choose VALUE by COMPATIBILITY — never by size, effort, risk, or importance:
+
+       none   - no public release impact (internal-only, docs, or test-only)
+       patch  - a backward-compatible correction or change to an EXISTING feature
+       minor  - a backward-compatible NEW capability, or an explicit deprecation of one still present
+       major  - an INCOMPATIBLE change to public behaviour, an API, or a contract
+
+     Rules of thumb:
+       - Ask "would an existing user or deployment break on upgrade?" If yes, it is major. That major is rare
+         is a CONSEQUENCE of a healthy codebase, not the test — a small-but-breaking change is still major.
+       - This is INDEPENDENT of the title kind above. A "Fix:" is usually patch but is major if it removes an
+         obsolete public contract; a "Feature:" is usually minor but is none if it is internal or experimental.
+       - Automated dependency and maintenance pull requests are normally none or patch. -->
+
 <!-- BEFORE OPENING THIS PR — does this change COMPLETE a GitHub issue, including the final slice of a multi-PR effort? If yes, add one `Closes #N` line per issue directly below this comment. Only the `Closes #N` keyword auto-closes the issue on merge — describing the resolution in prose (e.g. "resolves / satisfies / finishes #N") does NOT close it, and the issue silently lingers open. One keyword per issue: "Closes #1, #2" closes only #1 — #2 is left open. If this PR is a slice that does not yet complete the issue, add no Closes line and instead write a `Part of #N` line in the Scope or Out-of-scope section below. That `Part of #N` phrase is what lets the engine tell an accidental stray closing keyword from an intended close and offer to fix it before you merge; without it, the engine can't tell the two apart, so it neither flags nor fixes a stray keyword — your backstop is then your own read of the "will close" list on the PR page. Delete this comment if the PR closes no issue. -->
 
 > *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** you can run yourself and the change's honest self-report — not a reading of the diff for defects; a green check is never a substitute for that. **Your merge is the binding gate.***

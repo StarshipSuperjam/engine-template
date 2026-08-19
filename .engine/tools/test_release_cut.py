@@ -179,7 +179,10 @@ class Classify(unittest.TestCase):
             with _Tree(mods):
                 p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
             self.assertEqual(p["engine_floor_level"], "none")
-            self.assertIn("no structural signal", " ".join(p["change_inventory"]))
+            # StarshipSuperjam/engine-template#942: the honest no-floor caveat — NOT "at most a patch" (the version follows the declared
+            # PR impact); it says the diff proved no mechanical compatibility floor.
+            self.assertIn("no mechanical compatibility floor", " ".join(p["change_inventory"]).lower())
+            self.assertIn("does not mean 'at most a patch'", " ".join(p["change_inventory"]).lower())
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
@@ -210,9 +213,10 @@ class Classify(unittest.TestCase):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
-    def test_diff_migration_and_retirement_combine_without_clobber(self):
-        # a migration AND a retirement added at the same module version: the second writer must not overwrite the
-        # first's floor — take the higher, so identical inputs keep the same floor rather than lowering it.
+    def test_diff_migration_patches_and_retirement_raises_no_clobber(self):
+        # StarshipSuperjam/engine-template#942: a migration MOVES the package a PATCH (so the updater's version-ranged machinery sees
+        # it) but is NOT a SemVer signal (its existence implies no minor); a retirement is a MINOR floor. When both
+        # land at the same module version, the combine takes the HIGHER (minor), never clobbering downward.
         mig = {"0.4.0": {"description": "d", "run": "r", "kind": "config"}}
         ret = {"0.4.0": {"description": "gone"}}
         base = _baseline_tree({"core": _module("core", ver="0.3.0")})
@@ -221,9 +225,293 @@ class Classify(unittest.TestCase):
                 floor_mig = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
             with _Tree({"core": _module("core", ver="0.4.0", migrations=mig, retired_capabilities=ret)}):
                 floor_both = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)["package_floor"]["core"]
-            self.assertEqual(floor_mig, floor_both)                       # combine kept the floor, never clobbered
+            self.assertEqual(floor_mig, "0.4.1")                          # a migration alone: a patch mover, not minor
+            self.assertEqual(floor_both, "0.5.0")                         # a retirement raises it to a minor
+            self.assertGreaterEqual(rc.validate._ver_tuple(floor_both),
+                                    rc.validate._ver_tuple(floor_mig))    # combine never clobbers downward
         finally:
             shutil.rmtree(base, ignore_errors=True)
+
+    def test_all_fail_closed_validity_keys_survive_the_reframe(self):
+        # RG-F1 (blocking): _cmd_propose reads each validity key as `.get(key) or []`, so if the classifier
+        # rewrite ever DROPS one, that refusal silently becomes a no-op. Pin every key's presence in the
+        # diff-mode return; the individual refusal fixtures (MigrationAccumulation, RemovedCapability, etc.)
+        # prove each still BITES against the rewritten classify().
+        base = _baseline_tree({"core": _module("core")})
+        try:
+            with _Tree({"core": _module("core")}):
+                p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+            for key in ("migration_violations", "retired_capability_violations", "removed_capability_violations",
+                        "dependency_violations", "default_on_dependency_violations", "local_reference_violations"):
+                self.assertIn(key, p, f"validity key {key} was dropped by the reframe — its refusal is now dead")
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+
+def _write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+class ContractSurfaceReframe(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: the classifier proves a floor only where it genuinely can. An ADDED contract surface -> minor;
+    # a genuine REMOVED surface -> major; a RENAMED/relocated surface -> 'unknown' (NOT a false major); a surface
+    # CHANGED in place -> 'unknown'. 'unknown' sets no floor and is surfaced for review.
+    _BODY = "# eADR-0001\n\n" + ("A settled decision with enough body to make similarity real.\n" * 20)
+
+    def _classify_with_contracts(self, base_files, live_files):
+        base = _baseline_tree({"core": _module("core")})
+        for name, text in base_files.items():
+            _write_text(os.path.join(base, ".engine", "contracts", name), text)
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                for name, text in live_files.items():
+                    _write_text(os.path.join(t.root, ".engine", "contracts", name), text)
+                return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_added_surface_floors_minor(self):
+        p = self._classify_with_contracts({}, {"eADR-0009-new.md": self._BODY})
+        self.assertEqual(p["engine_floor_level"], "minor")
+        self.assertEqual(p["compatibility_unknown"], [])
+
+    def test_removed_surface_floors_major(self):
+        p = self._classify_with_contracts({"eADR-0009-gone.md": self._BODY}, {})
+        self.assertEqual(p["engine_floor_level"], "major")
+
+    def test_renamed_surface_is_unknown_not_major(self):
+        # the SAME body under a NEW name: a rename, not a removal. It must NOT floor major; it is 'unknown'.
+        p = self._classify_with_contracts({"eADR-0009-old.md": self._BODY},
+                                          {"eADR-0009-relocated.md": self._BODY})
+        self.assertEqual(p["engine_floor_level"], "none")            # a rename never forces major
+        self.assertTrue(any("renamed/relocated" in im["what"] for im in p["compatibility_unknown"]))
+
+    def test_changed_in_place_is_unknown_not_minor(self):
+        p = self._classify_with_contracts({"eADR-0009-x.md": self._BODY},
+                                          {"eADR-0009-x.md": self._BODY + "\nappended clause changing it.\n"})
+        self.assertEqual(p["engine_floor_level"], "none")            # a byte change proves nothing -> no floor
+        self.assertEqual(len(p["compatibility_unknown"]), 1)
+        self.assertIn("changed in place", p["compatibility_unknown"][0]["what"])
+
+    def test_pair_renames_matches_similar_and_skips_dissimilar(self):
+        removed = {"old.md": b"the quick brown fox jumps over the lazy dog\n" * 5}
+        added = {"new.md": b"the quick brown fox jumps over the lazy dog\n" * 5,
+                 "unrelated.md": b"completely different content about turtles\n" * 5}
+        pairs = rc._pair_renames(removed, added)
+        self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
+
+    def test_pair_renames_resists_real_eADR_boilerplate_shape(self):
+        # QA re-audit: this repo's real eADRs share ~10 identical frontmatter/heading LINES and carry their
+        # substance in a FEW long paragraph-lines, so two UNRELATED decisions score ~0.77 LINE-similarity —
+        # above 0.5 but below the 0.85 rename bar. They must NOT pair, or a genuine breaking removal in the same
+        # window as an unrelated addition would be masked as a rename and lose its major floor.
+        boiler = [b"---", b"title: eADR", b"status: accepted", b"---", b"", b"# Status", b"Accepted", b"",
+                  b"# Context", b"", b"# Decision", b"", b"# Significance", b"", b"# Rationale"]  # ~15 shared lines
+        removed_body = [f"Webhook removal paragraph {i}: the legacy contract is gone.".encode() for i in range(6)]
+        added_body = [f"Telemetry paragraph {i}: an unrelated new capability nothing depended on.".encode()
+                      for i in range(6)]
+        removed = {"eADR-0100-webhook.md": b"\n".join(boiler + removed_body)}
+        added = {"eADR-0200-telemetry.md": b"\n".join(boiler + added_body)}
+        ratio = __import__("difflib").SequenceMatcher(
+            None, rc._rename_lines(list(removed.values())[0]), rc._rename_lines(list(added.values())[0])).ratio()
+        self.assertTrue(0.5 <= ratio < 0.85, f"expected the collision regime, got {ratio:.3f}")
+        self.assertEqual(rc._pair_renames(removed, added), {})       # 0.85 threshold keeps them unpaired
+
+    def test_pair_renames_still_detects_a_genuine_rename(self):
+        # a rename keeps NEAR-IDENTICAL content (a relocation, or a rename with a tiny edit) -> must still pair,
+        # so a genuine rename is not a false major.
+        body = (b"---\ntitle: eADR-0009\n---\n\n# Decision\n\n"
+                + b"".join(f"Decision detail line {i} describing the retained capability.\n".encode()
+                           for i in range(20)))
+        renamed = body.replace(b"line 3 ", b"line 3 (typo fixed) ")   # one tiny edit
+        self.assertEqual(rc._pair_renames({"eADR-0009-old-name.md": body}, {"eADR-0009-new-name.md": renamed}),
+                         {"eADR-0009-old-name.md": "eADR-0009-new-name.md"})
+
+
+class DeclaredImpactFold(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: effective = max(declared PR impact, proven mechanical floor); refuse-until-corrected on a
+    # too-low declaration; legacy/undeclared refusal; exempt bots default to patch; none never becomes patch.
+    CUR = "0.5.0"
+
+    def _pr(self, n, impact=None, author="human"):
+        return {"number": n, "title": f"PR {n}", "impact": impact, "author": author}
+
+    def test_patch_patch_none_derives_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR,
+                                        [self._pr(1, "patch"), self._pr(2, "patch"), self._pr(3, "none")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["declared"], "patch")
+        self.assertEqual(res["effective"], "patch")
+        self.assertEqual(res["engine_floor_version"], "0.5.1")
+
+    def test_any_minor_derives_minor(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "patch"), self._pr(2, "minor")])
+        self.assertEqual(res["effective"], "minor")
+        self.assertEqual(res["engine_floor_version"], "0.6.0")
+
+    def test_any_major_derives_major(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "major")])
+        self.assertEqual(res["effective"], "major")
+        self.assertEqual(res["engine_floor_version"], "1.0.0")
+
+    def test_all_none_does_not_become_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "none"), self._pr(2, "none")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "none")
+        self.assertIsNone(res["engine_floor_version"])           # none has no floor -> workflow requires explicit
+
+    def test_declared_minor_with_no_mechanical_floor_still_sets_floor(self):
+        # F7: apply's raise-only must enforce a declared minor even when the diff proved nothing.
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(1, "minor")])
+        self.assertEqual(res["engine_floor_version"], "0.6.0")
+
+    def test_mismatch_refuses_naming_the_floor_not_ordering_relabels(self):
+        # the diff PROVES major (a recorded removal), but the PR declared only patch -> refuse-until-corrected.
+        res = rc.resolve_release_impact("major", self.CUR, [self._pr(7, "patch")])
+        self.assertIsNotNone(res["refusal"])
+        self.assertIn("major", res["refusal"]["reason"])
+        self.assertIn("proven mechanical floor: major", " ".join(res["refusal"]["violations"]))
+
+    def test_mismatch_does_not_tell_operator_to_relabel_honest_prs(self):
+        # US-3: the mechanical floor is a whole-release signal, not attributable to one PR. A multi-PR release
+        # where ONE PR removed a capability (proven major) must NOT order every honest patch/none PR relabelled.
+        res = rc.resolve_release_impact("major", self.CUR, [
+            self._pr(1, "patch"), self._pr(2, "patch"), self._pr(3, "none"),
+            self._pr(4, "minor"), self._pr(5, "patch")])
+        self.assertIsNotNone(res["refusal"])
+        # the recovery must point at the responsible PR + forbid relabelling unrelated ones; it must NOT list
+        # every under-floor PR as a violation to raise.
+        self.assertIn("NOT relabel unrelated", res["refusal"]["recovery"])
+        self.assertIn("hidden marker", res["refusal"]["recovery"])          # US-2: names the marker, not just "raise impact"
+        self.assertNotIn("#1", " ".join(res["refusal"]["violations"]))     # honest patch not ordered to major
+        self.assertNotIn("#3", " ".join(res["refusal"]["violations"]))     # honest none not ordered to major
+
+    def test_mechanical_floor_raises_a_low_declaration_when_not_a_refusal(self):
+        # declared minor, mechanical minor -> no mismatch, effective minor (equal, not exceeded).
+        res = rc.resolve_release_impact("minor", self.CUR, [self._pr(1, "minor")])
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "minor")
+
+    def test_legacy_undeclared_refuses_without_aggregate(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(9, impact=None, author="human")])
+        self.assertIsNotNone(res["refusal"])
+        self.assertTrue(any("#9" in v for v in res["refusal"]["violations"]))
+
+    def test_legacy_aggregate_folds_in(self):
+        res = rc.resolve_release_impact("none", self.CUR, [self._pr(9, impact=None, author="human")],
+                                        legacy_impact="minor")
+        self.assertIsNone(res["refusal"])
+        self.assertEqual(res["effective"], "minor")
+
+    def test_exempt_bot_markerless_defaults_to_patch(self):
+        res = rc.resolve_release_impact("none", self.CUR,
+                                        [self._pr(5, impact=None, author="dependabot[bot]")])
+        self.assertIsNone(res["refusal"])                        # not legacy — an exempt author defaults
+        self.assertEqual(res["declared"], "patch")
+        self.assertTrue(any("#5" in d for d in res["defaulted"]))
+
+    def test_merged_pr_impacts_parses_bodies(self):
+        lines = ["Feature: add a thing (#11)", "Fix: correct it (#12)"]
+        bodies = {11: {"body": "x\n" + rc.release_impact.impact_trailer("minor"), "author": "human"},
+                  12: {"body": "y\n" + rc.release_impact.impact_trailer("patch"), "author": "human"}}
+        files = {11: [".engine/modules/qa-review/x.py"], 12: ["README.md"]}
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", want_files=True,
+                                   _fetch_lines=lambda *a, **k: lines,
+                                   _fetch_meta=lambda slug, n, tok: bodies[n],
+                                   _fetch_files=lambda slug, n, tok: files[n])
+        self.assertIsNone(out["error"])
+        self.assertEqual({p["number"]: p["impact"] for p in out["per_pr"]}, {11: "minor", 12: "patch"})
+        self.assertEqual({p["number"]: p["files"] for p in out["per_pr"]}, files)   # per-PR files carried for L10
+
+    def test_merged_pr_impacts_skips_the_files_read_when_not_wanted(self):
+        # DH-2: a product cut (want_files=False, the default) must NOT fetch files, so a files-fetch failure it
+        # has no use for can never refuse the release. A raising _fetch_files here must never be called.
+        def boom(slug, n, tok):
+            raise AssertionError("files must not be fetched when want_files is false")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"],
+                                   _fetch_meta=lambda slug, n, tok: {"body": "", "author": "u"},
+                                   _fetch_files=boom)
+        self.assertIsNone(out["error"])
+        self.assertEqual(out["per_pr"][0]["files"], [])
+
+    def test_merged_pr_impacts_fails_closed_on_unreadable_files(self):
+        # SC-3: the per-PR files read is version authority too — an unreadable file list fails CLOSED (not a
+        # silent no-files that would under-attribute a package).
+        def boom(slug, n, tok):
+            raise RuntimeError("500 on files")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", want_files=True,
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"],
+                                   _fetch_meta=lambda slug, n, tok: {"body": "", "author": "u"},
+                                   _fetch_files=boom)
+        self.assertIsNotNone(out["error"])
+        self.assertIn("changed files", out["error"])
+        self.assertIn("#3", out["error"])
+
+    def test_merged_pr_impacts_fails_closed_on_unreadable_body(self):
+        def boom(slug, n, tok):
+            raise RuntimeError("500")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"], _fetch_meta=boom)
+        self.assertIsNotNone(out["error"])                       # fail closed, not a silent skip
+        self.assertIn("#3", out["error"])
+
+    def test_merged_pr_impacts_fails_closed_on_enumeration_error(self):
+        def boom(*a, **k):
+            raise RuntimeError("no notes")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", _fetch_lines=boom)
+        self.assertIsNotNone(out["error"])
+
+    def test_merged_pr_impacts_fails_closed_through_the_REAL_default_wiring(self):
+        # SG blocking finding: the DEFAULT enumerator must PROPAGATE a failure, not swallow it. Patch the raw
+        # fetch (_generate_notes_body) to raise, as a GitHub outage would, and call with NO injected fetcher —
+        # a swallowed failure would read as 'zero PRs' -> declared none -> silent under-version.
+        orig = rc._generate_notes_body
+        rc._generate_notes_body = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("GitHub 503"))
+        try:
+            out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x")   # real default _fetch_lines
+        finally:
+            rc._generate_notes_body = orig
+        self.assertIsNotNone(out["error"])                               # fail CLOSED, not {'per_pr':[], 'error':None}
+        self.assertEqual(out["per_pr"], [])
+
+    def test_version_decision_concise_vs_detailed(self):
+        proposal = {"declared_impact": "minor", "effective_impact": "minor", "mechanical_floor_level": "none",
+                    "compatibility_unknown": [{"what": "the contract surface 'x' changed in place"}],
+                    "declared_per_pr": [{"number": 11, "title": "add a thing", "impact": "minor"},
+                                        {"number": 12, "title": "a bump", "impact": None}],
+                    "impact_defaulted": ["#5 dep bump (exempt author dependabot[bot]; folded as patch)"]}
+        # CONCISE (published notes, §12: no per-PR dump) — effective/declared present, per-PR list absent.
+        concise = "\n".join(rc._version_decision_lines(proposal))
+        self.assertIn("Effective release impact: **minor**", concise)
+        self.assertNotIn("#11 add a thing", concise)                 # detail stays out of the notes
+        # DETAILED (release PR the maintainer reviews) — per-PR snapshot + exempt-bot disclosure present.
+        detailed = "\n".join(rc._version_decision_lines(proposal, heading="Version decision:", detailed=True))
+        self.assertIn("#11 add a thing: minor", detailed)            # durable per-PR snapshot
+        self.assertIn("#12 a bump: no marker (undeclared)", detailed)
+        self.assertIn("dependabot[bot]", detailed)                   # exempt-bot default DISCLOSED (usability)
+        # the notes carry the concise heading; the release PR body carries the detailed evidence.
+        self.assertIn("## Version decision", rc.render_release_notes("v0.6.0", proposal))
+        self.assertNotIn("#11 add a thing", rc.render_release_notes("v0.6.0", proposal))
+
+    def test_version_decision_empty_when_fold_did_not_run(self):
+        self.assertEqual(rc._version_decision_lines({"engine_floor_level": "minor"}), [])
+
+    def test_declared_impact_is_independent_of_title_kind(self):
+        # acceptance list: a `Feature:` title must NOT force minor and a `Maintenance:` title must NOT force none
+        # — the DECLARED marker governs, the title kind only groups release notes. The fold reads only the marker
+        # (the impact field), never the title, so a Feature PR declaring none folds none and a Maintenance PR
+        # declaring minor folds minor.
+        feat_none = rc.resolve_release_impact(
+            "none", self.CUR, [{"number": 1, "title": "Feature: an internal-only thing", "impact": "none",
+                                "author": "human"}])
+        self.assertEqual(feat_none["effective"], "none")           # Feature title did NOT force minor
+        maint_minor = rc.resolve_release_impact(
+            "none", self.CUR, [{"number": 2, "title": "Maintenance: bump that adds a capability", "impact": "minor",
+                                "author": "human"}])
+        self.assertEqual(maint_minor["effective"], "minor")        # Maintenance title did NOT force none
 
 
 class MigrationAccumulation(unittest.TestCase):
@@ -868,7 +1156,7 @@ class Apply(unittest.TestCase):
             r = rc.apply("1.0.1", "1.0.1", {}, proposal, dry_run=True)
         self.assertFalse(r["applied"])
         self.assertEqual(r["reason"], "below-confirmed-floor")
-        self.assertTrue(any("mechanical floor 2.0.0" in v for v in r["violations"]))
+        self.assertTrue(any("required floor 2.0.0" in v for v in r["violations"]))
 
     def test_engine_at_mechanical_floor_passes(self):
         with _Tree({"core": _module("core", ver="1.0.0")}, engine_release="1.0.0"):
@@ -1552,6 +1840,19 @@ class ProductReleaseMode(unittest.TestCase):
             self.assertEqual(r["targets"], {})
             self.assertEqual(json.load(open(os.path.join(t.root, "product-version.json")))["version"], "0.1.0")
 
+    def test_apply_product_enforces_the_declared_floor(self):
+        # SC blocking finding: propose derives a floor for a product, but apply_product used to ignore it, so a
+        # version above current but BELOW the declared floor could publish. It must now refuse.
+        with _Tree({}, origin="acme/deployed") as t:
+            t.write_product_version("0.1.0")
+            proposal = {"engine_floor_version": "0.2.0"}          # a declared-minor floor from the fold
+            below = rc.apply_product("0.1.1", dry_run=False, proposal=proposal)   # above current, below floor
+            self.assertFalse(below["applied"])
+            self.assertEqual(below["reason"], "below-confirmed-floor")
+            self.assertEqual(json.load(open(os.path.join(t.root, "product-version.json")))["version"], "0.1.0")
+            at_floor = rc.apply_product("0.2.0", dry_run=False, proposal=proposal)
+            self.assertTrue(at_floor["applied"])
+
     def test_apply_product_is_raise_only(self):
         with _Tree({}, origin="acme/deployed") as t:
             t.write_product_version("0.2.0")
@@ -1592,11 +1893,24 @@ class ProductReleaseMode(unittest.TestCase):
         self.assertEqual(p["mode"], "first-cut")
         self.assertIsNone(p["engine_floor_version"])       # first cut: version is chosen, not derived
 
-    def test_product_proposal_diff_floor_is_a_patch_bump(self):
-        # the derive-the-version default the workflow shell reads when the operator leaves the box blank.
+    def test_product_proposal_has_no_default_patch_floor(self):
+        # StarshipSuperjam/engine-template#942: a product NO LONGER defaults to a patch bump. The declared-impact fold sets the floor
+        # (_apply_impact_fold in the product cut path); an all-none tranche derives None -> the workflow requires
+        # an explicit version rather than silently patching. Fold semantics are covered by resolve_release_impact.
         p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
         self.assertEqual(p["mode"], "diff")
-        self.assertEqual(p["engine_floor_version"], "0.1.1")
+        self.assertIsNone(p["engine_floor_version"])
+
+    def test_product_all_none_does_not_become_patch(self):
+        # the product fold uses mechanical 'none'; an all-none set stays none -> no floor (not a silent patch).
+        res = rc.resolve_release_impact("none", "0.1.0",
+                                        [{"number": 1, "title": "x", "impact": "none", "author": "human"}])
+        self.assertIsNone(res["refusal"])
+        self.assertIsNone(res["engine_floor_version"])
+        # a declared minor on a product (no mechanical floor) still derives the minor.
+        res2 = rc.resolve_release_impact("none", "0.1.0",
+                                         [{"number": 2, "title": "y", "impact": "minor", "author": "human"}])
+        self.assertEqual(res2["engine_floor_version"], "0.2.0")
 
     # ---- product-worded renders carry no engine vocabulary ----
     def test_render_pr_body_product_wording(self):
@@ -1774,6 +2088,273 @@ class RenderPRBodyDeploymentCheck(unittest.TestCase):
         # exercise the actual plumbing once. Best-effort: a real sha in a git checkout, or None on git failure.
         sha = rc._working_tree_sha()
         self.assertTrue(sha is None or (len(sha) == 40 and all(c in "0123456789abcdef" for c in sha)))
+
+
+class PerPackageImpactFold(unittest.TestCase):
+    """StarshipSuperjam/engine-template#942 L10: each PACKAGE reflects ONLY the pull requests that touched it (max-folded),
+    scoping WHERE a declared impact lands without inventing a level. `fold_package_impacts` is pure."""
+
+    def test_attributes_declared_impact_to_the_touched_package_only(self):
+        surfaces = {"a.py": ["m1"], "root.md": []}
+        present = {"m1": "0.1.0", "other": "0.2.0"}
+        per_pr = [{"number": 1, "impact": "minor", "author": "h", "files": ["a.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "0.2.0")          # minor bump of 0.1.0
+        self.assertNotIn("other", out["package_floor"])               # an untouched module is not bumped
+
+    def test_never_over_bumps_an_unrelated_package_to_the_aggregate(self):
+        surfaces = {"a.py": ["m1"], "b.py": ["m2"]}
+        present = {"m1": "1.0.0", "m2": "1.0.0"}
+        per_pr = [{"number": 1, "impact": "major", "author": "h", "files": ["a.py"]},
+                  {"number": 2, "impact": "patch", "author": "h", "files": ["b.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "2.0.0")          # major (its own change)
+        self.assertEqual(out["package_floor"]["m2"], "1.0.1")          # patch — NOT dragged to the release major
+
+    def test_max_folds_across_prs_touching_the_same_package(self):
+        surfaces = {"a.py": ["m1"]}
+        present = {"m1": "1.0.0"}
+        per_pr = [{"number": 1, "impact": "patch", "author": "h", "files": ["a.py"]},
+                  {"number": 2, "impact": "minor", "author": "h", "files": ["a.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "1.1.0")          # minor wins over patch
+
+    def test_none_declaration_never_bumps_a_package(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "none", "author": "h", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertNotIn("m1", out["package_floor"])
+
+    def test_exempt_bot_markerless_pr_folds_its_package_as_patch(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": None, "author": "dependabot[bot]", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"]["m1"], "1.0.1")
+
+    def test_raise_only_never_lowers_an_existing_mechanical_floor(self):
+        # a migration already floored m1 minor (1.1.0); a patch declaration must not lower it back to a patch.
+        out = rc.fold_package_impacts({"m1": "1.1.0"}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "patch", "author": "h", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"]["m1"], "1.1.0")
+
+    def test_a_file_no_module_owns_touches_no_package(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "major", "author": "h", "files": ["README.md"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"], {})
+
+    def test_a_file_owned_by_multiple_modules_bumps_each(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0", "m2": "1.0.0"}, [
+            {"number": 1, "impact": "minor", "author": "h", "files": ["shared.py"]}], {"shared.py": ["m1", "m2"]})
+        self.assertEqual(out["package_floor"], {"m1": "1.1.0", "m2": "1.1.0"})
+
+    def test_a_surface_owning_module_not_present_is_skipped(self):
+        # module-surfaces names an owner that is not an installed/present package -> no version to bump, skip it.
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "major", "author": "h", "files": ["gone.py"]}], {"gone.py": ["declined-mod"]})
+        self.assertEqual(out["package_floor"], {})
+
+
+class ImpactFoldGlue(unittest.TestCase):
+    """SC-3 / TI-2: `_apply_impact_fold` is the glue that wires the fold into the real `propose` command for both
+    modes — previously exercised only through `--baseline-tree`, which SHORT-CIRCUITS it. These drive it directly
+    with an injected `merged_pr_impacts` so the assembly (fields, refusal stamping, package fold) actually runs."""
+
+    def _patch(self, name, fn):
+        saved = getattr(rc, name)
+        setattr(rc, name, fn)
+        self.addCleanup(lambda: setattr(rc, name, saved))
+
+    def test_success_sets_the_fold_fields_and_folds_packages(self):
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 1, "title": "t", "impact": "minor", "author": "h", "files": ["a.py"]}]})
+        self._patch("_present_modules", lambda: {"m1": {"version": "1.0.0"}})
+        saved = rc.module_surfaces.load
+        rc.module_surfaces.load = lambda *a, **k: {"a.py": ["m1"]}
+        self.addCleanup(lambda: setattr(rc.module_surfaces, "load", saved))
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "none", None, fold_packages=True)
+        self.assertIsNone(ref)
+        self.assertEqual(proposal["declared_impact"], "minor")
+        self.assertEqual(proposal["effective_impact"], "minor")
+        self.assertEqual(proposal["package_floor"]["m1"], "1.1.0")     # package fold ran through the glue
+
+    def test_mismatch_refusal_is_stamped_and_skips_the_package_fold(self):
+        # TI-2: give the PR files that WOULD map to a present module, so if the refusal-gate were removed the
+        # package fold would populate m1 — the empty-package_floor assertion then genuinely protects the ordering
+        # (a files:[] fixture could not, since nothing would map regardless of the gate).
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 1, "title": "t", "impact": "patch", "author": "h", "files": ["a.py"]}]})
+        self._patch("_present_modules", lambda: {"m1": {"version": "1.0.0"}})
+        saved = rc.module_surfaces.load
+        rc.module_surfaces.load = lambda *a, **k: {"a.py": ["m1"]}
+        self.addCleanup(lambda: setattr(rc.module_surfaces, "load", saved))
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "major", None, fold_packages=True)
+        self.assertIsNotNone(ref)
+        self.assertIs(proposal["impact_refusal"], ref)                 # stamped so _render_proposal withholds
+        self.assertEqual(proposal["package_floor"], {})                # fold SKIPPED on refusal (would be {m1:…} if not)
+
+    def test_fetch_error_fails_closed_and_is_stamped(self):
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": "GitHub 503", "per_pr": []})
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "none", None)
+        self.assertIsNotNone(ref)
+        self.assertIn("503", " ".join(ref["violations"]))
+        self.assertIs(proposal["impact_refusal"], ref)
+
+    def test_cmd_propose_engine_refusal_exits_non_zero_through_the_glue(self):
+        # End-to-end through the CLI with NO --baseline-tree: mock the baseline + tree + fold so the real
+        # _cmd_propose fold branch runs and a legacy refusal reaches exit code 2 (the contract TI-2 flagged).
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        self._patch("resolve_baseline", lambda slug=None: rc.Baseline("v0.4.0", False, "prior"))
+        self._patch("_baseline_tree_for", lambda baseline, arg: ("/nonexistent-tree", None))
+        self._patch("classify", lambda baseline, tree: {
+            "mode": "diff", "baseline_note": "n", "current_engine": "0.5.0", "engine_floor_level": "none",
+            "engine_floor_version": None, "package_floor": {}, "change_inventory": ["work"], "impacts": [],
+            "compatibility_unknown": [], "migration_violations": [], "retired_capability_violations": [],
+            "removed_capability_violations": [], "dependency_violations": [],
+            "default_on_dependency_violations": [], "local_reference_violations": [], "removed_modules": []})
+        self._patch("merged_pr_titles", lambda *a, **k: [])
+        self._patch("_current_sha", lambda: "deadbeef")
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 9, "title": "legacy", "impact": None, "author": "human", "files": []}]})
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = rc.main(["propose"])
+        self.assertEqual(code, 2)                                      # legacy/undeclared -> fail closed
+        self.assertIn("WITHHELD", out.getvalue())                     # renderer did not print a contradictory version
+        self.assertIn("legacy", err.getvalue().lower() + out.getvalue().lower())
+
+
+class RenderProposalRefusal(unittest.TestCase):
+    """US-1: `_render_proposal` printed self-contradictory 'Version decision' text in the two refusal cases it
+    exists to make legible (inferring the state from engine_floor_version truthiness). It must now WITHHOLD."""
+
+    def _base(self, **over):
+        p = {"mode": "diff", "baseline_note": "n", "change_inventory": ["removed the 'x' capability"],
+             "impacts": [], "current_engine": "0.5.0", "engine_floor_level": "none", "declared_impact": None,
+             "effective_impact": None, "engine_floor_version": None, "package_floor": {},
+             "compatibility_unknown": [], "impact_defaulted": []}
+        p.update(over)
+        return p
+
+    def test_mismatch_withholds_the_version_instead_of_saying_none_declared(self):
+        p = self._base(engine_floor_level="major", declared_impact="patch",
+                       impact_refusal={"reason": "the diff PROVES at least a major change but the highest declared "
+                                       "is patch", "violations": [], "recovery": "raise it"})
+        text = rc._render_proposal(p)
+        self.assertIn("WITHHELD", text)
+        self.assertIn("major", text)
+        self.assertNotIn("no impact declared and none proven", text)   # the OLD contradictory line is gone
+
+    def test_legacy_refusal_is_not_rendered_as_a_clean_proposal(self):
+        p = self._base(impact_refusal={"reason": "2 merged pull requests declare no release impact",
+                                       "violations": [], "recovery": "use --legacy-impact"})
+        text = rc._render_proposal(p)
+        self.assertIn("WITHHELD", text)
+        self.assertNotIn("follows what the merged pull requests declared", text)   # the OLD clean line is gone
+
+    def test_clean_success_still_renders_the_version_decision(self):
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0")
+        text = rc._render_proposal(p)
+        self.assertNotIn("WITHHELD", text)
+        self.assertIn("0.6.0", text)
+
+    def test_package_attribution_note_surfaces_when_surfaces_missing(self):
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"m1": "1.1.0"},
+                       package_attribution_note="per-package impact attribution was SKIPPED — the registry is empty")
+        text = rc._render_proposal(p)
+        self.assertIn("SKIPPED", text)
+
+    def test_package_floor_heading_does_not_overclaim_pr_attribution(self):
+        # US-5: a package floor can come from a mechanical (migration/retirement) signal, not the PR fold, so the
+        # heading must NOT claim every entry reflects a pull request that touched it.
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"mech_only": "2.1.0"})            # no package_impact_attributions present
+        text = rc._render_proposal(p)
+        self.assertNotIn("each reflects only the pull requests that touched it", text)   # old overclaim gone
+        self.assertIn("mechanical floor", text)                        # heading names the mechanical source too
+
+    def test_package_attribution_prints_under_its_own_package_not_a_trailing_block(self):
+        # US-1/TI-2: in a mixed release the "from declared impact" line must attach to the package it explains,
+        # not the last package printed. m1 is PR-attributed; mech_only is a mechanical floor with no attribution.
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"m1": "1.1.0", "mech_only": "2.1.0"},
+                       package_impact_attributions={"m1": "declared minor by #3 (minor)"})
+        out = rc._render_proposal(p).splitlines()
+        i = out.index("  - m1: at least 1.1.0")
+        self.assertIn("from declared impact", out[i + 1])              # attribution directly under m1
+        j = out.index("  - mech_only: at least 2.1.0")
+        self.assertNotIn("from declared impact", out[j + 1] if j + 1 < len(out) else "")   # none under mech_only
+
+
+class EnumeratorPartialDropGuard(unittest.TestCase):
+    """TI-1: a line that names a merged pull request (…/pull/N) but does not parse into the list is undisclosed
+    format drift — it must FAIL CLOSED, not silently drop a line that could carry a major marker."""
+
+    def _patch_notes(self, body):
+        saved = rc._generate_notes_body
+        rc._generate_notes_body = lambda *a, **k: body
+        self.addCleanup(lambda: setattr(rc, "_generate_notes_body", saved))
+
+    def test_a_pr_line_that_does_not_parse_raises(self):
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* a drifted line with no author but acme/x/pull/12 in it\n"
+                          "* Fix: b by @u in acme/x/pull/13\n")
+        with self.assertRaises(RuntimeError):
+            rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+
+    def test_the_release_pr_line_and_changelog_footer_do_not_trip_it(self):
+        self._patch_notes("* Feature: a by @u in acme/x/pull/11\n"
+                          "* Release 1.2.0 by @github-actions[bot] in acme/x/pull/99\n"
+                          "**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)"])                    # release PR dropped, changelog ignored, no raise
+
+    def test_new_contributors_backreference_to_a_counted_pr_does_not_trip_it(self):
+        # DH-1/TI-1: GitHub's generated notes append a `## New Contributors` section that re-references an
+        # already-counted PR by /pull/N. Since #12 IS counted via its What's Changed line, the back-reference is
+        # accounted-for and must NOT raise (the earlier shape-based guard refused every release with a new author).
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* Fix: b by @bob in acme/x/pull/12\n"
+                          "\n## New Contributors\n"
+                          "* @bob made their first contribution in https://github.com/acme/x/pull/12\n"
+                          "\n**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)", "Fix: b (#12)"])    # both counted, New-Contributors ref ignored
+
+    def test_a_title_embedding_another_pulls_url_is_judged_by_its_own_number(self):
+        # TI-1: a well-formed line whose TITLE cites another pull request's /pull/N (a "supersedes"/"continues"
+        # reference) must be judged by its OWN trailing number (#11), not the embedded one (#5) — else a valid
+        # release with such a title is spuriously refused.
+        self._patch_notes("## What's Changed\n"
+                          "* Continue https://github.com/acme/x/pull/5 work by @alice in acme/x/pull/11\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Continue https://github.com/acme/x/pull/5 work (#11)"])   # #5 ignored, no raise
+
+    def test_new_contributors_backreference_to_the_release_pr_does_not_trip_it(self):
+        # DH-1: on a first cut the release-opening bot can be a "new contributor", so New Contributors back-
+        # references the release PR's OWN number (#99). The release PR is dropped from the parsed list by design,
+        # but its number is accounted, so this must NOT raise.
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* Release 1.2.0 by @github-actions[bot] in acme/x/pull/99\n"
+                          "\n## New Contributors\n"
+                          "* @github-actions[bot] made their first contribution in https://github.com/acme/x/pull/99\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)"])                    # release PR dropped, its NC back-ref ignored
+
+    def test_a_genuinely_uncounted_pr_line_still_raises(self):
+        # the safety case must survive the shape-aware rewrite: a New-Contributors-shaped line naming a PR that was
+        # never counted (a real dropped 'What's Changed' entry) still fails closed.
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "\n## New Contributors\n"
+                          "* @ghost made their first contribution in https://github.com/acme/x/pull/77\n")
+        with self.assertRaises(RuntimeError):
+            rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
 
 
 if __name__ == "__main__":

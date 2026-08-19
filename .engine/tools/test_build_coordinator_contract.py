@@ -24,6 +24,7 @@ ROOT = bcc.ROOT
 def _good_claim() -> dict:
     return {
         "schema_version": "pr-body-claim.v1",
+        "release_impact": "minor",
         "linkage": {"closes": [], "part_of": [900]},
         "purpose": {
             "thesis": "Compose the PR body from a typed claim instead of hand-pasting the template.",
@@ -621,6 +622,29 @@ class TestContractApply(unittest.TestCase):
                 bc.cmd_contract_apply(args, store)
         self.assertIn("concurrent edit", str(ctx.exception))
         self.assertEqual(pr["body"], "AN EXTERNAL EDIT")              # external edit preserved, never restored over
+
+
+class TestReleaseImpactMarker(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: the session supplies only the enum value (claim.release_impact); the renderer owns the visible
+    # line AND the machine marker the release-action fold and the pr-release-impact CI check read.
+    def test_compose_renders_visible_line_and_exactly_one_marker(self):
+        import release_impact
+        body = bcc.compose(_good_claim(), _good_evidence())
+        self.assertIn("Release-Impact: minor", body)                        # visible operator-readable line
+        self.assertEqual(release_impact.parse_impact(body), "minor")        # the machine marker
+        self.assertEqual(len(release_impact.find_impact_markers(body)), 1)  # exactly one -> passes the CI check
+
+    def test_missing_release_impact_fails_validation(self):
+        claim = _good_claim()
+        del claim["release_impact"]
+        with self.assertRaises(bcc.ContractError):
+            bcc.validate_claim(claim)
+
+    def test_null_release_impact_fails_validation(self):
+        claim = _good_claim()
+        claim["release_impact"] = None
+        with self.assertRaises(bcc.ContractError):
+            bcc.validate_claim(claim)
 
 
 if __name__ == "__main__":

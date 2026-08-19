@@ -4,9 +4,14 @@
   "description": "The compact typed input the Build coordinator's `contract` verbs render into a complete pull-request body. It carries ONLY what requires human/AI judgment or is observable solely by the session: narrative sections, falsifiable behaviors, operator-safe finding summaries, closing intent, honest caveats, and live-helper availability. Everything deterministic — the consent preamble, the change profile, spec-derived acceptance steps, validation results, reviewer-disagreement lines, reviewed/final commits and divergence, close-linkage — is supplied by the coordinator from observed facts and is NOT accepted here. All content values are single-line Markdown fragments; the renderer owns headings, bullets, emphasis, spacing, and machine markers. The fillable template emits null and empty arrays so ordinary schema validation catches an unfilled slot without grading prose.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "linkage", "purpose", "scope", "out_of_scope", "risk", "behaviors", "demonstration", "validation", "review", "files_of_interest", "ai_involvement"],
+  "required": ["schema_version", "release_impact", "linkage", "purpose", "scope", "out_of_scope", "risk", "behaviors", "demonstration", "validation", "review", "files_of_interest", "ai_involvement"],
   "properties": {
     "schema_version": {"const": "pr-body-claim.v1"},
+
+    "release_impact": {
+      "enum": ["none", "patch", "minor", "major"],
+      "description": "The SemVer impact this pull request declares, chosen by COMPATIBILITY (not size, effort, or importance): none = no public release impact; patch = a backward-compatible change to an existing feature; minor = a new capability or an explicit deprecation; major = an incompatible change to public behaviour, an API, or a contract. The release action folds these declarations to derive the next version (StarshipSuperjam/engine-template#942). This is the ONE judgment slot the session supplies for versioning; the renderer projects it to the visible line and the machine marker. It is independent of the pull-request title kind (Feature/Fix/…), which only groups the release notes. The fillable template emits null here, so an unfilled slot fails validation and must be chosen deliberately."
+    },
 
     "linkage": {
       "type": "object",

@@ -37,6 +37,10 @@ on:
         description: "The new version, like 0.1.0. Leave blank to use the smallest version the changes require. A release can only ever go up, never down."
         required: false
         type: string
+      legacy_impact:
+        description: "One-time only: the aggregate release impact (none, patch, minor, or major) for pull requests merged BEFORE the release-impact marker existed. Set this the first time the cut reports undeclared/legacy pull requests; leave blank once every pull request carries its own marker. An out-of-enum value is rejected cleanly by the tool."
+        required: false
+        type: string
 
 # Only the built-in GITHUB_TOKEN's scope is governed here: it pushes the release branch, so it needs
 # contents: write. The pull request is opened with RELEASE_PAT, which carries its OWN scope — so no
@@ -101,9 +105,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # One-time rollout override for the pre-marker tranche (StarshipSuperjam/engine-template#942). Reaches the shell ONLY as a
+          # QUOTED env var, never interpolated into the script body — that quoting is what prevents shell
+          # injection, regardless of the value. The value backstop is release_cut.py's own argparse `choices=`,
+          # which rejects any out-of-enum value and fails the run cleanly.
+          LEGACY_IMPACT: ${{ inputs.legacy_impact }}
         run: |
           set -euo pipefail
-          uv run --directory .engine --frozen -- python tools/release_cut.py propose --json \
+          ARGS=(propose --json)
+          if [ -n "${LEGACY_IMPACT}" ]; then
+            ARGS+=(--legacy-impact "${LEGACY_IMPACT}")
+          fi
+          uv run --directory .engine --frozen -- python tools/release_cut.py "${ARGS[@]}" \
             > "${RUNNER_TEMP}/proposal.json"
       # Record the versions into the manifests (atomic, raise-only — the tool refuses a non-version string and a
       # non-increase). The dispatch input reaches the shell ONLY as a quoted environment variable, never
