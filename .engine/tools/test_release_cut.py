@@ -2275,6 +2275,18 @@ class RenderProposalRefusal(unittest.TestCase):
         self.assertNotIn("each reflects only the pull requests that touched it", text)   # old overclaim gone
         self.assertIn("mechanical floor", text)                        # heading names the mechanical source too
 
+    def test_package_attribution_prints_under_its_own_package_not_a_trailing_block(self):
+        # US-1/TI-2: in a mixed release the "from declared impact" line must attach to the package it explains,
+        # not the last package printed. m1 is PR-attributed; mech_only is a mechanical floor with no attribution.
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"m1": "1.1.0", "mech_only": "2.1.0"},
+                       package_impact_attributions={"m1": "declared minor by #3 (minor)"})
+        out = rc._render_proposal(p).splitlines()
+        i = out.index("  - m1: at least 1.1.0")
+        self.assertIn("from declared impact", out[i + 1])              # attribution directly under m1
+        j = out.index("  - mech_only: at least 2.1.0")
+        self.assertNotIn("from declared impact", out[j + 1] if j + 1 < len(out) else "")   # none under mech_only
+
 
 class EnumeratorPartialDropGuard(unittest.TestCase):
     """TI-1: a line that names a merged pull request (…/pull/N) but does not parse into the list is undisclosed
@@ -2312,6 +2324,37 @@ class EnumeratorPartialDropGuard(unittest.TestCase):
                           "\n**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
         out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
         self.assertEqual(out, ["Feature: a (#11)", "Fix: b (#12)"])    # both counted, New-Contributors ref ignored
+
+    def test_a_title_embedding_another_pulls_url_is_judged_by_its_own_number(self):
+        # TI-1: a well-formed line whose TITLE cites another pull request's /pull/N (a "supersedes"/"continues"
+        # reference) must be judged by its OWN trailing number (#11), not the embedded one (#5) — else a valid
+        # release with such a title is spuriously refused.
+        self._patch_notes("## What's Changed\n"
+                          "* Continue https://github.com/acme/x/pull/5 work by @alice in acme/x/pull/11\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Continue https://github.com/acme/x/pull/5 work (#11)"])   # #5 ignored, no raise
+
+    def test_new_contributors_backreference_to_the_release_pr_does_not_trip_it(self):
+        # DH-1: on a first cut the release-opening bot can be a "new contributor", so New Contributors back-
+        # references the release PR's OWN number (#99). The release PR is dropped from the parsed list by design,
+        # but its number is accounted, so this must NOT raise.
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* Release 1.2.0 by @github-actions[bot] in acme/x/pull/99\n"
+                          "\n## New Contributors\n"
+                          "* @github-actions[bot] made their first contribution in https://github.com/acme/x/pull/99\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)"])                    # release PR dropped, its NC back-ref ignored
+
+    def test_a_genuinely_uncounted_pr_line_still_raises(self):
+        # the safety case must survive the shape-aware rewrite: a New-Contributors-shaped line naming a PR that was
+        # never counted (a real dropped 'What's Changed' entry) still fails closed.
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "\n## New Contributors\n"
+                          "* @ghost made their first contribution in https://github.com/acme/x/pull/77\n")
+        with self.assertRaises(RuntimeError):
+            rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
 
 
 if __name__ == "__main__":

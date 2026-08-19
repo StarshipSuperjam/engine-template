@@ -469,28 +469,39 @@ def _enumerate_merged_pr_lines(previous_tag: str, target: str, repo: str | None 
     swallows every failure and returns [] for the cosmetic notes list. A swallowed connectivity/auth/HTTP failure
     would read as 'zero pull requests merged' and silently under-version a breaking release (a QA blocking
     finding); propagating the exception makes the fold fail CLOSED on that class. It ALSO fails closed on a
-    PARTIAL drop: if a merged pull request's number appears in the notes (`…/pull/N`) but was NOT counted into the
-    parsed list, that is undisclosed FORMAT DRIFT — a single such line could carry a `major` marker and vanish, so
-    rather than under-count we raise and name the number. Accounting is by NUMBER, not line shape, so GitHub's own
-    `## New Contributors` back-reference (`…made their first contribution in …/pull/N`, whose N was already counted
-    via its 'What's Changed' line) is recognised as accounted-for and never trips the guard (a QA blocking finding:
-    the earlier shape-based guard refused every release that included a first-time contributor). HONEST LIMIT: a 200
-    response that parses to zero lines with NO `…/pull/N` at all is still read as an empty range — indistinguishable
-    from a legitimately-empty range without a second source; the reachable classes (network/auth/status, and a
-    named-but-uncounted pull request) close."""
+    PARTIAL drop: a merged pull request whose number appears in the notes but was NOT counted into the parsed list
+    is undisclosed FORMAT DRIFT — a single such line could carry a `major` marker and vanish, so we raise. The
+    accounting is SHAPE-AWARE (three QA blocking findings taught this): a well-formed 'What's Changed' line is judged
+    by ITS OWN number (the trailing `in …/pull/N`), never a `…/pull/N` its TITLE happens to embed (a title that
+    cites another pull request's URL, e.g. "supersedes …/pull/…") — so such a title does not read as a drop; only a line that is NOT a
+    'What's Changed' entry (GitHub's `## New Contributors` back-reference) is matched by the loose scan, and it is
+    cleared when its number is already accounted. ACCOUNTED = the counted numbers PLUS the release pull request's own
+    number(s) (dropped from `parsed` by design, but a New Contributors line can back-reference the release PR itself
+    on a repo's first cut). HONEST LIMIT: a 200 response that parses to zero lines with NO `…/pull/N` at all is still
+    read as an empty range — indistinguishable from a legitimately-empty range without a second source; the reachable
+    classes (network/auth/status, and a named-but-uncounted pull request) close."""
     body = _generate_notes_body(repo, previous_tag, target, token)
     parsed = _parse_pr_lines(body)
     counted = {int(m.group(1)) for line in parsed for m in (_PR_NUMBER_RE.search(line),) if m}
+    # The release PR(s) are deliberately dropped from `parsed`; fold their own numbers in so a New Contributors
+    # back-reference to the release PR itself (a bot's first-ever merged PR on a fresh repo) never reads as a drop.
+    release_nums = {int(m.group(2)) for line in body.splitlines()
+                    for m in (_PR_LINE_RE.match(line.strip()),) if m and _RELEASE_PR_RE.match(m.group(1).strip())}
+    accounted = counted | release_nums
     for line in body.splitlines():
         s = line.strip()
-        pull = _PR_PULL_URL_RE.search(s)
+        m = _PR_LINE_RE.match(s)
+        if m:                                              # a well-formed 'What's Changed' line — judge by ITS number
+            if int(m.group(2)) in accounted:
+                continue                                   # counted, or the release PR (embedded title refs ignored)
+            raise RuntimeError(                            # shape-valid but its own number never parsed (defensive)
+                f"pull request #{m.group(2)} is a well-formed notes line but did not parse into the release's list "
+                f"(format drift) — refusing to under-count the release: {s!r}")
+        pull = _PR_PULL_URL_RE.search(s)                   # NOT a 'What's Changed' entry (e.g. New Contributors)
         if not pull:
             continue                                       # not a pull-request line (header / changelog footer / blank)
-        if int(pull.group(1)) in counted:
-            continue                                       # already counted (also clears the New Contributors back-ref)
-        m = _PR_LINE_RE.match(s)
-        if m and _RELEASE_PR_RE.match(m.group(1).strip()):
-            continue                                       # the engine's OWN release pull request — dropped by design
+        if int(pull.group(1)) in accounted:
+            continue                                       # a back-reference to an already-accounted pull request
         raise RuntimeError(
             f"pull request #{pull.group(1)} appears in GitHub's generated notes but did not parse into the release's "
             f"pull-request list (format drift) — refusing to under-count the release rather than drop it: {s!r}")
@@ -653,9 +664,10 @@ def fold_package_impacts(package_floor: dict, present_versions: dict, per_pr: li
     a patch stays a patch even in a minor/major release. Returns {'package_floor': {…}, 'attributions': [note,…]}.
 
     Pure and offline: `surfaces` and `present_versions` are passed in, `per_pr` carries each PR's `files`, so the
-    fold is fully unit-testable without a network or a checkout."""
+    fold is fully unit-testable without a network or a checkout. `attributions` is keyed by module id so the render
+    can print each package's evidence directly under its OWN floor line (never a trailing block that misattributes)."""
     floor = dict(package_floor)
-    attributions: list[str] = []
+    attributions: dict[str, str] = {}
     # Highest declared level each present package received, and the PRs that drove it (for the evidence line).
     per_module: dict[str, str] = {}
     drivers: dict[str, list] = {}
@@ -679,7 +691,7 @@ def fold_package_impacts(package_floor: dict, present_versions: dict, per_pr: li
         prior = floor.get(mid)
         floor[mid] = (candidate if not prior
                       or validate._ver_tuple(candidate) >= validate._ver_tuple(prior) else prior)
-        attributions.append(f"'{mid}' -> at least {floor[mid]} (declared {level} by {', '.join(drivers[mid])})")
+        attributions[mid] = f"declared {level} by {', '.join(drivers[mid])}"
     return {"package_floor": floor, "attributions": attributions}
 
 
@@ -1601,10 +1613,11 @@ def _render_proposal(p: dict) -> str:
         if p["package_floor"]:
             lines.append("Per-package floors (raise-only — each from that package's own mechanical floor "
                          "(migration/retirement) and/or the declared impact of the pull requests that touched it):")
+            attributions = p.get("package_impact_attributions") or {}
             for mid, ver in p["package_floor"].items():
                 lines.append(f"  - {mid}: at least {ver}")
-            for a in p.get("package_impact_attributions") or []:
-                lines.append(f"    from declared impact: {a}")
+                if mid in attributions:                    # printed under its OWN package, never a trailing block
+                    lines.append(f"    from declared impact: {attributions[mid]}")
     return "\n".join(lines)
 
 
