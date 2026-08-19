@@ -280,7 +280,7 @@ def discover_manifests(root: str | None = None) -> list:
     base = root or validate.ROOT
     out = []
     for abs_path in sorted(_glob.glob(os.path.join(base, MODULES_GLOB))):
-        out.append((os.path.relpath(abs_path, base), validate.load_json(abs_path)))
+        out.append((os.path.relpath(abs_path, base).replace(os.sep, "/"), validate.load_json(abs_path)))
     return out
 
 

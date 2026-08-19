@@ -26,7 +26,8 @@ def _needs_design_review(case) -> None:
     import module_coherence
     ids = {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
     if "design-review" not in ids:
-        case.skipTest("reads a reviewer prompt delivered by the declined design-review module")
+        case.skipTest("design-review is not installed in this repository, so the reviewer prompt this "
+                      "case reads is legitimately absent here")
 
 
 class TestPlanReviewOrdering(CoordinatorCase):

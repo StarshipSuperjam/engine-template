@@ -140,8 +140,10 @@ def check(tier: str = "hard", path: str | None = None, root: str | None = None) 
     turns the check red until it is regenerated. A DECLINED-module entry (no present manifest) is preserved by
     `derive` and so is legitimately not flagged; it has no manifest source of truth. Returns [] when in sync,
     one hard finding (carrying the plain-language regenerate guidance) on drift or an absent catalog. `path`
-    overrides only the committed-side read (the derivation still reads the real manifests), which is the seam
-    the negative-fixture meta-check uses to witness the gate biting a stale catalog."""
+    overrides the committed-side read and `root` the tree the derivation reads — together the seam the
+    negative-fixture meta-check uses to witness the gate biting a stale catalog. The derivation is rooted
+    because a deployment that declined its add-ons has no offerable manifests, so a real-tree derivation there
+    merge-preserves the seeded stale catalog unchanged and the aimed bite could never be witnessed."""
     target = path or CATALOG_PATH
     canonical = _serialize(derive(target, root))
     try:

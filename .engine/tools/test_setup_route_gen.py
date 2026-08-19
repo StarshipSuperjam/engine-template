@@ -66,5 +66,58 @@ class SetupRouteGenTests(unittest.TestCase):
             self.assertTrue(any(rel in f["message"] and "out of date" in f["message"] for f in fs))
 
 
+class StrayRouteToleranceTests(unittest.TestCase):
+    """The stray-route branch's BOTH arms. The tolerance is the only part of this gate with no negative
+    fixture behind it (the bite harness pins one message per check), so these are its only mechanical trace."""
+
+    def _tree(self, d, *, installed, known, routes):
+        """A checkout shape: `installed` is engine.json's package roster, `known` the modules the committed
+        module-surfaces registry names, `routes` the engine-setup-* directories on disk."""
+        os.makedirs(os.path.join(d, ".engine", "provisioning"), exist_ok=True)
+        with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"packages": {m: "1.0.0" for m in installed}}, fh)
+        with open(os.path.join(d, ".engine", "provisioning", "module-surfaces.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"surfaces": {f".engine/modules/{m}/manifest.json": [m] for m in known}}, fh)
+        for name in routes:
+            p = os.path.join(d, ".claude", "skills", name)
+            os.makedirs(p, exist_ok=True)
+            with open(os.path.join(p, "SKILL.md"), "w", encoding="utf-8") as fh:
+                fh.write("a surviving route\n")
+
+    def test_a_declined_modules_route_is_tolerated_and_disclosed(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d, installed=["core"], known=["core", "qa-review"],
+                       routes=["engine-setup-qa-review"])
+            fs = sr.check("hard", root=d)
+            self.assertEqual(_hard(fs), [], "a declined module's kept route is not a hard finding")
+            self.assertTrue(any(f["severity"] == "soft" and "qa-review" in f["message"] for f in fs),
+                            "the tolerance is disclosed, never silent")
+
+    def test_a_route_no_real_module_owns_is_still_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d, installed=["core"], known=["core", "qa-review"],
+                       routes=["engine-setup-qa-revue"])   # a typo / renamed / retired module
+            fs = _hard(sr.check("hard", root=d))
+            self.assertTrue(any("engine-setup-qa-revue" in f["message"] and "stale" in f["message"]
+                                for f in fs), "a route the registry does not know stays a hard finding")
+
+    def test_an_unreadable_installed_roster_tolerates_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d, installed=["core"], known=["core", "qa-review"],
+                       routes=["engine-setup-qa-review"])
+            os.remove(os.path.join(d, ".engine", "engine.json"))   # roster unreadable → fail closed
+            fs = _hard(sr.check("hard", root=d))
+            self.assertTrue(any("engine-setup-qa-review" in f["message"] for f in fs),
+                            "an undecidable roster must soften nothing")
+
+    def test_a_declined_modules_deleted_route_is_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._tree(d, installed=["core"], known=["core", "qa-review"], routes=[])
+            fs = _hard(sr.check("hard", root=d))
+            self.assertTrue(any("engine-setup-qa-review" in f["message"] and "missing" in f["message"]
+                                for f in fs), "a declined module's route must still be PRESENT")
+
+
 if __name__ == "__main__":
     unittest.main()

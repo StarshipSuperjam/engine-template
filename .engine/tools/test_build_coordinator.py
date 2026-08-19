@@ -1305,7 +1305,8 @@ def _needs_modules(case, *ids) -> None:
     deployment that declined it there is no subject to assert over — the absence is the module's contract."""
     missing = sorted(set(ids) - _installed_module_ids())
     if missing:
-        case.skipTest(f"reads a surface delivered by the declined module(s): {', '.join(missing)}")
+        case.skipTest(f"{', '.join(missing)} is not installed in this repository, so the file this case reads "
+                      f"is legitimately absent here")
 
 
 class TestHistoricalScenarioCorpus(unittest.TestCase):
@@ -1321,15 +1322,17 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
-        _needs_modules(self, "external-contribution")
+        # The two core-owned runbooks are present in EVERY projection, so they are asserted unconditionally;
+        # only the external-contribution line is conditional on that optional module being installed.
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
-        external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
         evidence = (bc.ROOT / ".engine/operations/build-submission-evidence.md").read_text()
         for phrase in ("mechanic_build.py worktree", "tools/local_references.py scan", "unpushed commits", "worker fails"):
             self.assertIn(phrase, owned)
-        self.assertIn("no draft PR is", external)
         for phrase in ("recognized automation", "fail-open", "mcp_availability_check", "unresolved-conversation", "operator-runnable demonstration"):
             self.assertIn(phrase, evidence)
+        if "external-contribution" in _installed_module_ids():
+            external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
+            self.assertIn("no draft PR is", external)
 
     def test_runbook_stays_within_the_250_line_cap(self):
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
@@ -1400,11 +1403,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_every_reviewer_receives_the_exact_approved_plan(self):
         agents = list((bc.ROOT / ".claude" / "agents").glob("engine-design-review-*.md"))
         agents += list((bc.ROOT / ".claude" / "agents").glob("engine-qa-review-*.md"))
-        # The full set of 9 ships only where BOTH reviewer modules are installed; a deployment that declined
-        # one carries fewer. Pin the count only where the set is complete, and assert the contract over every
-        # reviewer actually present either way — so a deployment still proves what it does carry.
-        if {"design-review", "qa-review"} <= _installed_module_ids():
-            self.assertEqual(len(agents), 9)
+        # Each reviewer module delivers a fixed set, so pin the count PER MODULE against what is installed —
+        # a deployment that declined one still proves the other's set is complete, which a single all-or-
+        # nothing count would drop entirely.
+        ids = _installed_module_ids()
+        expected = (4 if "design-review" in ids else 0) + (5 if "qa-review" in ids else 0)
+        self.assertEqual(len(agents), expected)
         for agent in agents:
             self.assertIn("exact operator-approved Build plan", agent.read_text(), agent.name)
 
@@ -1511,7 +1515,7 @@ class TestPlanV2Ingest(CoordinatorCase):
             self.assertFalse(self.real_confidently_home())   # a malformed manifest is not confidently home
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
-            self.assertTrue(bc._confidently_home())
+            self.assertTrue(self.real_confidently_home())
 
     def test_issue_sourced_v1_rebind_with_published_handoff_is_not_walled(self):
         # The exempt continuation path in a deployed repo demands real pre-existing continuation

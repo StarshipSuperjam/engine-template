@@ -111,8 +111,10 @@ def declined_route_owner(route_name: str, root: str | None = None) -> "str | Non
     None. Mirrors `module_surfaces.declined_surface_owner`, and reads the same two authorities: the committed
     module-surfaces registry for what modules REALLY exist (it ships complete, while a deployment carries only
     a subset of manifests — StarshipSuperjam/engine-template#646), and `engine.json`'s `packages` for what is
-    installed here. FAILS CLOSED: when the installed roster cannot be read it tolerates nothing, so a corrupt
-    engine.json can never soften the gate. A name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
+    installed here. Delegates to `module_surfaces.declined_surface_owner` — the engine's ONE authority for
+    "this path belongs to a module that is not installed" — so this gate and the link-integrity check can
+    never disagree, and the fail-closed rule (an unreadable roster tolerates nothing) has a single home. A
+    name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
     Deliberately NOT keyed on the module catalog: `module_catalog.derive` merge-preserves a prior entry for any
     manifest-less module, so a module RETIRED from source keeps its entry forever and is indistinguishable
     there from one declined in a deployment — the discriminator this gate needs."""
@@ -121,16 +123,21 @@ def declined_route_owner(route_name: str, root: str | None = None) -> "str | Non
     if not mid:
         return None
     import module_surfaces  # lazy: keep the import cost off the generate/derive path
-    try:
-        eng = validate.load_json(os.path.join(root, ".engine", "engine.json"))
-        installed = set((eng or {}).get("packages") or {})
-    except Exception:  # noqa: BLE001 — an unreadable roster must tolerate nothing
-        installed = set()
-    if not installed:            # a valid engine always has `core`; empty means the read failed
-        return None              # fail closed — never soften the gate when the roster is unknown
+    owner = module_surfaces.declined_surface_owner(os.path.join(root, ".engine", "modules", mid), root)
+    return owner if owner == mid else None
+
+
+def declined_route_names(root: str | None = None) -> set:
+    """The `engine-setup-*` route directory names this checkout SHOULD carry for its declined modules. The
+    committed module-surfaces registry ships complete (a deployment carries the full registry but a subset of
+    manifests), so it names every real module — which is what lets `check` assert a declined module's route is
+    still PRESENT rather than only tolerating it when it happens to be. Empty when the registry or the
+    installed roster cannot be read: undecidable means assert nothing, never invent a missing-route finding."""
+    root = root or validate.ROOT
+    import module_surfaces
     registry = module_surfaces.load(root)
     known = {owner for owners in registry.values() for owner in owners}
-    return mid if mid in known and mid not in installed else None
+    return {_route_name(mid) for mid in known if declined_route_owner(_route_name(mid), root)}
 
 
 def check(tier: str = "hard", root: str | None = None) -> list:
@@ -162,15 +169,36 @@ def check(tier: str = "hard", root: str | None = None) -> list:
     # not stale. The tolerance reads `declined_route_owner`, which fails CLOSED: an unreadable installed roster
     # tolerates nothing, and a module the registry does not know (renamed, retired from source, a typo) is never
     # tolerated — that leftover route stays a hard finding, which is this branch's whole purpose at home.
+    # The tolerance is DISCLOSED, not silent (the same shape validate.py uses for a declined module's link),
+    # and it is two-way: a declined module's route must still be PRESENT. Its absence was invited by this
+    # check's own former advice ("Remove it"), and once removed the operator can no longer be offered the
+    # add-on back, which is exactly what these core-owned routes exist to keep possible.
+    # RESIDUAL, stated plainly: a declined module's route cannot be content-verified — its text is derived
+    # from a manifest this checkout no longer has — so this gate proves such a route EXISTS, never that it is
+    # unaltered. An installed module's route is still content-verified above.
     expected_names = {os.path.basename(os.path.dirname(rel)) for rel in expected}
     skills_dir = os.path.join(base, ".claude", "skills")
+    present = set()
     if os.path.isdir(skills_dir):
         for name in sorted(os.listdir(skills_dir)):
-            if name.startswith(_NAME_PREFIX) and name not in expected_names:
-                if declined_route_owner(name, base):
-                    continue
-                findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
-                                f"behind it — a stale generated route. Remove it or restore its module."))
+            if not name.startswith(_NAME_PREFIX) or name in expected_names:
+                continue
+            present.add(name)
+            owner = declined_route_owner(name, base)
+            if owner:
+                findings.append(validate.finding("soft", f"The setup route '{name}' is kept for the declined "
+                                f"module '{owner}' (present here because declining an add-on removes the "
+                                f"module's own files but never its offer route, so it can be added back) — "
+                                f"not a stale route. Its text is not verified here: the manifest it derives "
+                                f"from is absent while the module is declined."))
+                continue
+            findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
+                            f"behind it — a stale generated route. Remove it or restore its module."))
+    for name in sorted(declined_route_names(base) - present):
+        findings.append(validate.finding(tier, f"The setup route '{name}' is missing for the declined module "
+                        f"'{name[len(_NAME_PREFIX):]}'. These routes are core-owned and survive a decline so "
+                        f"the add-on can be offered back; restore it from the engine (a re-run of "
+                        f"`engine-upgrade` overlays it) rather than leaving the offer unreachable."))
     return findings
 
 
