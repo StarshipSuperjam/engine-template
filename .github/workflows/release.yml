@@ -38,11 +38,9 @@ on:
         required: false
         type: string
       legacy_impact:
-        description: "One-time only: the aggregate release impact for pull requests merged BEFORE the release-impact marker existed (they carry none). Set this the first time the cut reports undeclared/legacy pull requests; leave blank once every pull request carries its own marker."
+        description: "One-time only: the aggregate release impact (none, patch, minor, or major) for pull requests merged BEFORE the release-impact marker existed. Set this the first time the cut reports undeclared/legacy pull requests; leave blank once every pull request carries its own marker. An out-of-enum value is rejected cleanly by the tool."
         required: false
-        type: choice
-        options: ["", "none", "patch", "minor", "major"]
-        default: ""
+        type: string
 
 # Only the built-in GITHUB_TOKEN's scope is governed here: it pushes the release branch, so it needs
 # contents: write. The pull request is opened with RELEASE_PAT, which carries its OWN scope — so no
@@ -109,9 +107,8 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           # One-time rollout override for the pre-marker tranche (StarshipSuperjam/engine-template#942). Reaches the shell ONLY as a
           # QUOTED env var, never interpolated into the script body — that quoting is what prevents shell
-          # injection, regardless of the value. (The `type: choice` list is a UI convenience, not a server-side
-          # guarantee; the real value backstop is release_cut.py's own argparse `choices=`, which rejects any
-          # out-of-enum value and fails the run cleanly.)
+          # injection, regardless of the value. The value backstop is release_cut.py's own argparse `choices=`,
+          # which rejects any out-of-enum value and fails the run cleanly.
           LEGACY_IMPACT: ${{ inputs.legacy_impact }}
         run: |
           set -euo pipefail
