@@ -45,7 +45,11 @@ class SetupRouteGenTests(unittest.TestCase):
             self.assertIn("ref: engine-setup", text, f"{rel} must target the engine-setup dispatcher")
 
     def test_committed_routes_are_in_sync(self):
-        self.assertEqual(sr.check("hard"), [], "the committed setup routes must match the derived text")
+        # HARD findings only: a checkout that declined an add-on legitimately carries its kept route, which
+        # the gate discloses as a SOFT note rather than a drift. Comparing the whole list would read that
+        # expected disclosure as a failure.
+        self.assertEqual(_hard(sr.check("hard")), [],
+                         "the committed setup routes must match the derived text")
 
     def test_missing_committed_route_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:   # a seeded module, no committed route → it is missing
