@@ -30,18 +30,6 @@
   ".agents/skills/engine-coordinate-build/agents/openai.yaml": [
    "core"
   ],
-  ".agents/skills/engine-coordination-doorbell/SKILL.md": [
-   "core"
-  ],
-  ".agents/skills/engine-coordination-doorbell/agents/openai.yaml": [
-   "core"
-  ],
-  ".agents/skills/engine-coordination-read/SKILL.md": [
-   "core"
-  ],
-  ".agents/skills/engine-coordination-read/agents/openai.yaml": [
-   "core"
-  ],
   ".agents/skills/engine-design-product/SKILL.md": [
    "core"
   ],
@@ -333,12 +321,6 @@
   ".claude/skills/engine-coordinate-build/SKILL.md": [
    "core"
   ],
-  ".claude/skills/engine-coordination-doorbell/SKILL.md": [
-   "core"
-  ],
-  ".claude/skills/engine-coordination-read/SKILL.md": [
-   "core"
-  ],
   ".claude/skills/engine-design-product/SKILL.md": [
    "core"
   ],
@@ -574,9 +556,6 @@
    "validators-core"
   ],
   ".engine/check/contract-threshold.json": [
-   "validators-core"
-  ],
-  ".engine/check/coordination-confinement.json": [
    "validators-core"
   ],
   ".engine/check/dependency-pinning.json": [
@@ -885,9 +864,6 @@
   ".engine/contracts/eADR-0042-multi-writer-integration.md": [
    "core"
   ],
-  ".engine/contracts/eADR-0043-advisory-session-coordination.md": [
-   "core"
-  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],
@@ -1041,9 +1017,6 @@
   ".engine/operations/serialized-integration.md": [
    "core"
   ],
-  ".engine/operations/session-coordination.md": [
-   "core"
-  ],
   ".engine/operations/tune-policy.md": [
    "core"
   ],
@@ -1159,9 +1132,6 @@
    "core"
   ],
   ".engine/schemas/contract.v1.json": [
-   "core"
-  ],
-  ".engine/schemas/coordination-notice.v1.json": [
    "core"
   ],
   ".engine/schemas/doc.v1.json": [
@@ -1401,27 +1371,6 @@
   ".engine/tools/conformance_sweep.py": [
    "core"
   ],
-  ".engine/tools/coordination_board.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_confinement_check.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_domains.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_emitters.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_ledger.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_notice.py": [
-   "core"
-  ],
-  ".engine/tools/coordination_postmerge.py": [
-   "core"
-  ],
   ".engine/tools/demo_467_deployment_eadr_namespace.py": [
    "core"
   ],
@@ -1498,9 +1447,6 @@
    "core"
   ],
   ".engine/tools/demo_control_plane_labels.py": [
-   "core"
-  ],
-  ".engine/tools/demo_coordination_two_sessions.py": [
    "core"
   ],
   ".engine/tools/demo_derived_reconcile.py": [
@@ -2218,33 +2164,6 @@
    "core"
   ],
   ".engine/tools/test_contract_canon.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_board.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_boot_relay.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_confinement.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_demo.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_domains.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_emitters.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_ledger.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_notice.py": [
-   "core"
-  ],
-  ".engine/tools/test_coordination_postmerge.py": [
    "core"
   ],
   ".engine/tools/test_derived_state.py": [

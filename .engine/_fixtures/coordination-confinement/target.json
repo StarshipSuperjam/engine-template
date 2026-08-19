@@ -1,5 +1,0 @@
-{
-  "env": {
-    "ENGINE_COORDINATION_CONFINEMENT_ROOT": ".engine/_fixtures/coordination-confinement"
-  }
-}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for render_safety — the one identifier render-safety boundary (StarshipSuperjam/engine-template#939)."""
+"""Tests for render_safety — the one identifier render-safety boundary."""
 import os
 import sys
 import unittest
@@ -10,12 +10,12 @@ import render_safety as rs  # noqa: E402
 
 class TestSafeIdent(unittest.TestCase):
     def test_real_path_is_lossless(self):
-        self.assertEqual(rs.safe_ident(".engine/tools/coordination_notice.py"),
-                         ".engine/tools/coordination_notice.py")
+        self.assertEqual(rs.safe_ident(".engine/tools/overlay_disclosure.py"),
+                         ".engine/tools/overlay_disclosure.py")
 
     def test_real_branch_is_lossless(self):
-        self.assertEqual(rs.safe_ident("claude/939-session-coordination"),
-                         "claude/939-session-coordination")
+        self.assertEqual(rs.safe_ident("engine-update-1.4.0"),
+                         "engine-update-1.4.0")
 
     def test_markup_is_neutralised(self):
         out = rs.safe_ident("```x`)[a](http://b)<img>")
