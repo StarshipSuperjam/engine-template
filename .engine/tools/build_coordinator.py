@@ -591,18 +591,6 @@ def cmd_plan_promote(args, store: StateStore) -> None:
                                               "promotion_nonce": None}),
                  from_revision=state["revision"])
     print(f"promoted exact plan {state['plan']['digest']} to Issue #{issue}")
-    # Advisory (StarshipSuperjam/engine-template#939): promotion publishes this Build's FULL declared change domain to the durable
-    # Issue — the earliest, most complete point to warn a peer whose open work overlaps it, well before any
-    # single node is claimed. Declare the domain and scan peers for overlap; never a lock (the receiver
-    # re-computes overlap; serialization stays the queue's job). Best-effort — any poke is surfaced by
-    # _coordinate; a failure never affects the promotion that already succeeded.
-    _t = getattr(args, "coordination_transport", None)
-    _repo, _pr = state["build"]["repository"], state["build"]["pr"]
-    if _t is not None and _repo and _pr:
-        import coordination_domains as _cdz
-        _paths = _cdz.declared_paths_from_plan(plan)
-        _coordinate(lambda ce: ce.emit_bounded_status(_t, _repo, _pr, "work-declared", paths=_paths))
-        _coordinate(lambda ce: ce.emit_overlap_scan(_t, _repo, _pr, _paths))
 
 
 def _reset_after_revision(state: dict, plan: dict) -> None:
@@ -1579,12 +1567,6 @@ def cmd_submit_apply(args, store: StateStore) -> None:
                     pass
         raise
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
-    # Advisory (StarshipSuperjam/engine-template#939): tell peers this work is complete and the pull request is ready — best-effort.
-    _t = getattr(args, "coordination_transport", None)
-    _repo, _pr = preview.get("repository"), preview.get("pr")
-    if _t is not None and _repo and _pr:
-        _coordinate(lambda ce: ce.emit_bounded_status(_t, _repo, _pr, "work-completed"))
-        _coordinate(lambda ce: ce.emit_handoff(_t, _repo, _pr, "ready-for-review"))
 
 
 def _bindings() -> dict:
@@ -1693,14 +1675,6 @@ def cmd_work_claim(args, store: StateStore) -> None:
 
     _work_mutate(store, change)
     print(json.dumps(emitted["packet"]))
-    # Advisory (StarshipSuperjam/engine-template#939): declare this node's change domain and warn peers whose work overlaps it —
-    # best-effort, never a lock (the receiver re-computes overlap; serialization stays the queue's job).
-    _t = getattr(args, "coordination_transport", None)
-    _build = (emitted.get("packet") or {}).get("build") or {}
-    _repo, _pr, _paths = _build.get("repository"), _build.get("pr"), (item.get("paths") or [])
-    if _t is not None and _repo and _pr:
-        _coordinate(lambda ce: ce.emit_bounded_status(_t, _repo, _pr, "work-declared", paths=_paths))
-        _coordinate(lambda ce: ce.emit_overlap_scan(_t, _repo, _pr, _paths))
 
 
 def cmd_work_attach(args, store: StateStore) -> None:
@@ -1801,13 +1775,6 @@ def cmd_work_abandon(args, store: StateStore) -> None:
 
     _work_mutate(store, change)
     print(f"abandoned {args.item} attempt {args.attempt}; resources released")
-    # Advisory (StarshipSuperjam/engine-template#939): a peer waiting on this node learns it was abandoned — best-effort.
-    _t = getattr(args, "coordination_transport", None)
-    if _t is not None:
-        _b = store.read().get("build") or {}
-        _repo, _pr = _b.get("repository"), _b.get("pr")
-        if _repo and _pr:
-            _coordinate(lambda ce: ce.emit_handoff(_t, _repo, _pr, "node-abandoned"))
 
 
 def cmd_work_integrate(args, store: StateStore) -> None:
@@ -2211,38 +2178,6 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-def _coordination_transport():
-    """Build a write-capable GitHub transport for advisory coordination emits (StarshipSuperjam/engine-template#939), or None when
-    there is no live token. ONLY main() attaches this to args; the cmd_* functions read it None-safely, so a
-    unit test that constructs args directly (with no such attribute) never emits — coordination can never
-    touch GitHub from a test, only from the live CLI."""
-    try:
-        import boot
-        import github_client
-        token = boot.gh_token()
-        if not token:
-            return None
-        return (lambda method, path, body=None:
-                github_client.json_request(method, path, token, user_agent="engine-coordination-emit", body=body))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _coordinate(fn) -> None:
-    """Run a best-effort advisory coordination emit, swallowing everything (eADR-0043: advisory, never affects
-    the step it rides). `fn` receives the coordination_emitters module, imported lazily so the coordinator
-    never loads coordination at module time. After the emit, any live-poke line for a notice we just posted is
-    printed to STDERR (never stdout, which carries machine-readable command output) so this session's agent can
-    relay it to a peer via the doorbell skill — a pointer, never authority."""
-    try:
-        import coordination_emitters
-        fn(coordination_emitters)
-        for _line in coordination_emitters.drain_pokes():
-            print(_line, file=sys.stderr)
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
@@ -2255,9 +2190,6 @@ def main(argv: list[str] | None = None) -> int:
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
         store = None if (standalone or stateless) else StateStore(args.state, args.expect_revision)
-        # Attach a live coordination transport for advisory emits (StarshipSuperjam/engine-template#939). Only set here in the live
-        # CLI, so a unit test calling a cmd_* directly (no such arg) never emits.
-        args.coordination_transport = _coordination_transport()
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

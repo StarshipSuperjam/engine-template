@@ -5,10 +5,9 @@ into a comment a person or a model reads.
 WHY THIS EXISTS (single home). A repo-native identifier — a file path, a git branch name — is not free
 prose, but it IS attacker-influenceable: a session can create a branch or a file whose *name* carries markup,
 a code-span-terminating backtick, an autolink, or (inside a fenced JSON block) a fence-closing run of
-backticks. Two surfaces now render such identifiers into a GitHub comment: `overlay_disclosure` (the
-overwrite-disclosure comment) and `coordination_board` (the advisory coordination notice, StarshipSuperjam/engine-template#939). Rather
-than copy a sanitizer into a second, unguarded surface, both call this one — so the injection boundary is
-defined once and cannot drift between them.
+backticks. `overlay_disclosure` (the overwrite-disclosure comment) renders such identifiers into a GitHub
+comment, so it neutralises them through this one shared boundary rather than an inline copy — the injection
+boundary is defined once, in a single home any future second caller reuses without letting the two drift.
 
 WHAT IT DOES. `safe_ident` maps every character outside a conservative whitelist (letters, digits, dot,
 underscore, slash, hyphen) to '?'. Real engine paths and branch names use only those, so it is lossless for
@@ -39,20 +38,19 @@ def safe_ident(value: str, *, replacement: str = "?", max_len: int = MAX_IDENT_L
     `...TRUNCATED` marker when it was longer). Lossless for real engine identifiers; neutralising for a
     crafted one.
 
-    `replacement` defaults to '?' — the historical marker for a rendered code span, where a non-whitelist
-    placeholder is fine (a '?' cannot break a code span). A caller that ALSO stores the result in a
-    whitelist-constrained field (the coordination notice's branch/path charset) passes a replacement that is
-    itself in the whitelist (e.g. '_'), so the neutralised value still satisfies that field's pattern. The
-    replacement must be exactly one character; picking one appropriate to the target surface is the caller's
-    choice (both '?' and '_' are render-safe)."""
+    `replacement` defaults to '?' — the marker for a rendered code span, where a non-whitelist placeholder is
+    fine (a '?' cannot break a code span). A caller that ALSO stores the result in a whitelist-constrained
+    field passes a replacement that is itself in the whitelist (e.g. '_'), so the neutralised value still
+    satisfies that field's pattern. The replacement must be exactly one character; picking one appropriate to
+    the target surface is the caller's choice (both '?' and '_' are render-safe)."""
     if len(replacement) != 1:
         raise ValueError("replacement must be exactly one character")
     text = value if isinstance(value, str) else str(value)
     safe = _UNSAFE_IDENT_CHAR.sub(replacement, text)
     if len(safe) > max_len:
         # Truncate a pathological value so the RESULT never exceeds max_len — the marker is counted IN the
-        # budget, not appended past it, so a caller that also enforces `max_len` as a hard field bound (the
-        # coordination-notice branch/path charset) never rejects a value this function claims it made fit.
+        # budget, not appended past it, so a caller that also enforces `max_len` as a hard field bound never
+        # rejects a value this function claims it made fit.
         # The marker is plain whitelist ASCII (dots + letters), so it carries no markup and stays in-charset.
         # The final `[:max_len]` is the hard guarantee even for a `max_len` SMALLER than the marker itself:
         # then `keep` is 0 and the marker alone would overflow, so we clip it too — the result is never

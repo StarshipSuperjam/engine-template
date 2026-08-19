@@ -151,10 +151,10 @@ def _is_bot(comment: dict) -> bool:
 
 def _safe_path(path: str) -> str:
     """A render-safe form of `path` — delegates to the one shared render-safety boundary
-    (`render_safety.safe_path`, StarshipSuperjam/engine-template#939), so this comment writer and the coordination-notice
-    board neutralise a crafted identifier through identical logic rather than two drifting copies. Real engine
-    paths pass through unchanged; a crafted rename target is neutralised so no backtick can terminate the code
-    span and no bracket/paren/angle-bracket/autolink can form inside it."""
+    (`render_safety.safe_path`), so a crafted identifier is neutralised through a single, tested implementation
+    rather than an inline copy that could drift. Real engine paths pass through unchanged; a crafted rename
+    target is neutralised so no backtick can terminate the code span and no bracket/paren/angle-bracket/autolink
+    can form inside it."""
     return render_safety.safe_path(path)
 
 

@@ -285,47 +285,6 @@ class TestIssueDurability(CoordinatorCase):
         self.assertIn(bc.PLAN_BEGIN + bc._digest(plan()), written["body"])
         self.assertEqual(self.state()["plan"]["source"], "issue")
 
-    def _run_promote(self, args):
-        """Drive cmd_plan_promote to completion with GitHub mocked, returning the patched emitter mocks."""
-        bodies = iter(["Human issue body\n", "Human issue body\n", None])
-        written = {}
-
-        def issue_body(repo, issue):
-            value = next(bodies)
-            return written.get("body") if value is None else value
-
-        def must_run(argv, input_text=None):
-            written["body"] = input_text
-            return ""
-
-        import coordination_emitters as ce
-        with mock.patch.object(bc.github, "issue_body", side_effect=lambda root, repo, issue: issue_body(repo, issue)), \
-                mock.patch.object(bc.github.core, "must_run", side_effect=lambda argv, root, input_value=None: must_run(argv, input_value)), \
-                mock.patch.object(bc, "_ensure_pr_closes_issue"), \
-                mock.patch.object(ce, "emit_bounded_status") as m_status, \
-                mock.patch.object(ce, "emit_overlap_scan") as m_overlap, \
-                contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_promote(args, self.store)
-        return m_status, m_overlap
-
-    def test_plan_promote_emits_coordination_when_a_transport_is_present(self):
-        # StarshipSuperjam/engine-template#939: promotion declares the full domain and scans peers for overlap — the wiring at the
-        # REAL CLI entry point (not just the emitter functions) must reach the emitters when a transport is set.
-        self.seed()
-        args = argparse.Namespace(input=str(self.plan_path), issue=11, ack_visibility=True,
-                                  coordination_transport=(lambda *a, **k: (200, [])))
-        m_status, m_overlap = self._run_promote(args)
-        m_status.assert_called_once()
-        m_overlap.assert_called_once()
-
-    def test_plan_promote_does_not_emit_without_a_transport(self):
-        # No coordination_transport on args (every existing caller/test) -> inert: getattr(...) is None.
-        self.seed()
-        args = argparse.Namespace(input=str(self.plan_path), issue=11, ack_visibility=True)
-        m_status, m_overlap = self._run_promote(args)
-        m_status.assert_not_called()
-        m_overlap.assert_not_called()
-
     def test_concurrent_issue_edit_aborts_before_write(self):
         self.seed()
         with mock.patch.object(bc.github, "issue_body", side_effect=["first", "changed"]), mock.patch.object(bc.github.core, "must_run") as write:
