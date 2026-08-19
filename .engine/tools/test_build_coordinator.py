@@ -88,6 +88,18 @@ class CoordinatorCase(unittest.TestCase):
         )
         stable.start()
         self.addCleanup(stable.stop)
+        # These cases exercise the v1 plan surface, which `cmd_plan_bind` refuses for a session-sourced bind
+        # OUTSIDE the engine's own home (build_coordinator._confidently_home). Pinning the predicate keeps
+        # them asserting their real subject in every shape — including a projected deployment, where the
+        # ambient answer is False — rather than being skipped there. The refusal itself keeps its own
+        # coverage, driven deliberately rather than inherited from this pin: TestPlanV2Ingest parameterizes
+        # the predicate over both arms, and test_confidently_home_requires_a_readable_matching_origin pins
+        # its fail-away-from-home direction.
+        # The UNPINNED function stays reachable for the cases whose subject IS the predicate.
+        self.real_confidently_home = bc._confidently_home
+        home = mock.patch.object(bc, "_confidently_home", return_value=True)
+        home.start()
+        self.addCleanup(home.stop)
         self.state_path = str(Path(self.temp.name) / "build.json")
         self.store = bc.StateStore(self.state_path)
         self.plan_path = Path(self.temp.name) / "plan.json"
@@ -159,8 +171,10 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertTrue(Path(self.state_path).exists())
 
     def test_snapshot_outside_os_temp_is_refused(self):
+        # The filesystem root is outside the OS temp dir in every environment. bc.ROOT is NOT: a projected
+        # deployment is itself created under the temp dir, where the refusal correctly does not fire.
         with self.assertRaisesRegex(bc.CoordinatorError, "OS temporary"):
-            bc.StateStore(str(bc.ROOT / "state.json"))
+            bc.StateStore(str(Path(os.sep) / "state.json"))
 
     def test_plan_revision_invalidates_approval_and_reviews_but_not_build_identity(self):
         self.seed(); self.approve()
@@ -1468,13 +1482,13 @@ class TestPlanV2Ingest(CoordinatorCase):
         # The governance polarity fix: an unreadable/mismatched origin is NOT confidently home, so the
         # v1-bind refusal fails toward ENFORCING rather than being silently skipped in a deployed repo.
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value=None):
-            self.assertFalse(bc._confidently_home())
+            self.assertFalse(self.real_confidently_home())
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="other/repo"):
-            self.assertFalse(bc._confidently_home())
+            self.assertFalse(self.real_confidently_home())
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", side_effect=ValueError("malformed manifest")):
-            self.assertFalse(bc._confidently_home())   # a malformed manifest is not confidently home
+            self.assertFalse(self.real_confidently_home())   # a malformed manifest is not confidently home
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
             self.assertTrue(bc._confidently_home())
