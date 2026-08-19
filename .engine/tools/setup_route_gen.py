@@ -109,10 +109,10 @@ def declined_route_owner(route_name: str, root: str | None = None) -> "str | Non
     """The owning module id when `route_name` (an `engine-setup-<mid>` directory) belongs to a REAL module NOT
     installed in this checkout — so its surviving route is a legitimate decline, not orphan generation — else
     None. Mirrors `module_surfaces.declined_surface_owner`, and reads the same two authorities: the committed
-    module-surfaces registry for what modules REALLY exist (it ships complete, while a deployment carries only a
-    subset of manifests, #646), and `engine.json`'s `packages` for what is installed here. FAILS CLOSED: when
-    the installed roster cannot be read it tolerates nothing, so a corrupt engine.json can never soften the
-    gate. A name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
+    module-surfaces registry for what modules REALLY exist (it ships complete, while a deployment carries only
+    a subset of manifests — StarshipSuperjam/engine-template#646), and `engine.json`'s `packages` for what is
+    installed here. FAILS CLOSED: when the installed roster cannot be read it tolerates nothing, so a corrupt
+    engine.json can never soften the gate. A name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
     Deliberately NOT keyed on the module catalog: `module_catalog.derive` merge-preserves a prior entry for any
     manifest-less module, so a module RETIRED from source keeps its entry forever and is indistinguishable
     there from one declined in a deployment — the discriminator this gate needs."""
