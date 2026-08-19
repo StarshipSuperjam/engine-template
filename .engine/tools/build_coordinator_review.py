@@ -146,10 +146,12 @@ def plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
 def disagreement_line(finding: dict) -> str:
     # Only the operator-safe summary reaches this line — never `private_reference`, which is
     # reviewer-internal detail (StarshipSuperjam/engine-template#981). `operator_summary` is required
-    # on exactly these downgraded-blocking findings (see cmd_finding_record), so the disclosure is
-    # never empty. This line is published verbatim into the PR body AND asserted present by the
-    # pr-contract preflight, so the redaction lives here — the single source both derive from.
-    summary = finding.get("operator_summary") or ""
+    # on exactly these downgraded-blocking findings (see cmd_finding_record), so on the normal path it
+    # is present. This line is published verbatim into the PR body AND asserted present by the
+    # pr-contract preflight, so the redaction lives here — the single source both derive from. A legacy
+    # or hand-edited finding could still carry a null summary; render a legible placeholder rather than
+    # a dangling colon, and never fall back to the private text.
+    summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
     return f"- Reviewer disagreement `{finding['id']}`: {summary}"
 
 

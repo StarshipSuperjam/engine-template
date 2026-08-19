@@ -15,6 +15,7 @@ import os
 import unittest
 
 import build_coordinator_contract as bcc
+import build_coordinator_review as review
 import spec_referent
 import validate
 
@@ -104,6 +105,24 @@ def _good_evidence() -> dict:
         "composition_marker": "<!-- engine-pr-contract:v1 sha256:deadbeef commit=abc1234 -->",
         "preserved_blocks": ["<!-- engine-build-handoff:v2 sha256:cafe -->\npreserved\n<!-- /engine-build-handoff:v2 -->"],
     }
+
+
+class TestComposedBodyOmitsPrivateReference(unittest.TestCase):
+    def test_body_carries_operator_summary_not_private_reference(self):
+        # StarshipSuperjam/engine-template#981, plan obligation #5: drive the REAL composer end to end
+        # (finding -> disagreement line -> evidence -> composed body) and confirm the public body carries
+        # the operator-safe disclosure but never the reviewer-internal private_reference. This guards the
+        # composition seam (build_coordinator_contract.compose appends disagreement_lines verbatim), not
+        # just the disagreement_line unit.
+        finding = {"id": "SEC-9", "severity": "blocking", "blocks_this_pr": False,
+                   "operator_summary": "Concern rejected on verified evidence.",
+                   "private_reference": "LEAKME-body-private-XYZ"}
+        line = review.disagreement_line(finding)
+        body = bcc.compose(_good_claim(), {**_good_evidence(), "disagreement_lines": [line]})
+        self.assertIn("Reviewer disagreement `SEC-9`", body)
+        self.assertIn("Concern rejected on verified evidence.", body)
+        self.assertNotIn("LEAKME-body-private-XYZ", body)
+        self.assertNotIn("Private details", body)
 
 
 class TestClaimValidation(unittest.TestCase):
