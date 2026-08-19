@@ -697,6 +697,9 @@ def cmd_status(args, store: StateStore) -> None:
         _assert_plan(state, plan)
     result = _status(state, plan)
     if args.json:
+        # The reminder rides in the JSON payload too, so a session consuming --json (a documented status
+        # path) still meets the submit-gate nudge (StarshipSuperjam/engine-template#1014).
+        result["reminder"] = _COORDINATOR_OWNED_REMINDER
         print(json.dumps(result, indent=2, sort_keys=True))
         return
     print(f"Phase: {result['phase']} (snapshot r{result['snapshot_revision']})")
@@ -1081,8 +1084,10 @@ def cmd_assumption_dispose(args, store: StateStore) -> None:
             "no assumption with that exact claim in the approved plan (match the claim text verbatim): " + claim)
     if authored[claim] != "unresolved":
         raise CoordinatorError(
-            f"only an assumption authored 'unresolved' can be dispositioned; this one is authored "
-            f"'{authored[claim]}' in the approved plan — change the plan itself with 'plan revise'")
+            f"this assumption is already authored '{authored[claim]}' in the approved plan — it is not "
+            f"unresolved, so there is nothing to dispose and no action is needed. (Disposition only clears an "
+            f"assumption authored 'unresolved'. To change a premise the plan already settled is a real plan "
+            f"change — 'plan revise' — which correctly re-opens approval and review.)")
 
     def change(state):
         entry = {"claim": claim, "resolved_as": args.resolved_as, "basis": args.basis.strip()}
@@ -1148,7 +1153,9 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         state["checkpoint"] = note
     store.mutate(change)
     if getattr(args, "json", False):
-        print(json.dumps(note, indent=2, sort_keys=True))
+        # Carry the reminder in the JSON payload too (see cmd_status); the stored checkpoint note is
+        # unchanged — this is a display-only field for a --json consumer.
+        print(json.dumps({**note, "coordinator_reminder": _COORDINATOR_OWNED_REMINDER}, indent=2, sort_keys=True))
     else:
         print(f"checkpoint {note['judgment']}: {note['work_item']}; {note['progress']}; "
               f"{len(note['changed_paths'])} changed path(s), {len(note['remaining_verification'])} verification item(s) remain")

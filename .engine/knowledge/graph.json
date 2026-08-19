@@ -6271,7 +6271,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:7e66f09e57951d768a708853a66531535b5143706ebd7a177bed90833c5ee47c",
+        "fingerprint": "sha256:caeb54268724d04f574113a0098d46d8ca3956c1da1c2d4cb996761d6781568c",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -9626,7 +9626,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:54735c6a63beacb2baf867985aa75f3c241a1ced7c4d4905344e0b4f5a74bfd6",
+        "fingerprint": "sha256:6d71a216d623905a392628699a0f8fbcee24e9cca9a9509aa15b91b0fadc016d",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9717,7 +9717,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:553f27814911bf090eac784636d8e84e48d133fe1bd898b203bab61e46054fdd",
+        "fingerprint": "sha256:e61bc1c0890367077d46045be14aea5c06e67c8769afafed46098d6aebdbcd24",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -15193,7 +15193,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:66c32250e731a8d2a20d5157008779c570501c2f332c7ed587e0ed870c890e47",
+        "fingerprint": "sha256:0093f9c9f6e89beddab2997edc37f64fbdba4ba26bbe626f039664f7b01ad489",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -15264,7 +15264,7 @@
       },
       "slug": "test_build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:c0896a57f235c57c2e5083362994aa2f3111db4240e23795251b4d5ef601004a",
+        "fingerprint": "sha256:551c58a86aa37bc13ad06c8d5600b6dfb5634d0a17c2cb545999f8d5a20d56d4",
         "path": ".engine/tools/test_build_coordinator_github.py"
       },
       "status": "active",

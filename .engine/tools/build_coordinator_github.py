@@ -25,8 +25,10 @@ GITHUB_BODY_BUDGET_BYTES = 60_000
 # The single home for the coordinator-ownership label. A coordinator-staged PR carries it as a durable,
 # visible "the Build coordinator owns this workflow" tag (StarshipSuperjam/engine-template#1014) — the
 # recurring reminder to finish through submit apply rather than a bare `gh pr ready`. It is engine-applied
-# (not operator-applied), so it is created on demand at bind rather than pre-provisioned; nothing enforces
-# on it this round (no CI backstop), so it is a soft aid, never a gate.
+# (not operator-applied) and backs NO guard — no check, workflow, or ruleset reads it — so it is deliberately
+# NOT in bootstrap's `REQUIRED_LABELS`, which is scoped to the labels the engine's guards depend on. It is
+# created on demand at bind (`tag_coordinator_owned`) instead, the right mechanism for a non-guard engine
+# label: a soft aid, never a gate.
 COORDINATOR_OWNED_LABEL = "engine-coordinator-owned"
 COORDINATOR_OWNED_LABEL_COLOR = "5319e7"
 COORDINATOR_OWNED_LABEL_DESCRIPTION = "Staged by the Build coordinator; reach ready only through submit apply."

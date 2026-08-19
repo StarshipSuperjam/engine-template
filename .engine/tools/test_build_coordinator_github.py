@@ -86,5 +86,37 @@ class TestReadyTransitionRace(CoordinatorCase):
         self.assertEqual(self.state()["submission"], "draft")
 
 
+class TestCoordinatorOwnedLabel(unittest.TestCase):
+    """The bind-time coordinator-ownership label helper (StarshipSuperjam/engine-template#1014)."""
+
+    def test_tag_creates_the_label_before_adding_it_with_the_declared_attributes(self):
+        with mock.patch.object(github.core, "must_run", return_value="") as remote:
+            ok = github.tag_coordinator_owned(ROOT, "owner/repo", 7)
+        self.assertTrue(ok)
+        calls = [c.args[0] for c in remote.call_args_list]
+        self.assertEqual(len(calls), 2)
+        # create-before-add: `gh pr edit --add-label` fails unless the label already exists, so the helper
+        # must create it (idempotently, via --force) first, then apply it.
+        self.assertEqual(calls[0][:3], ["gh", "label", "create"])
+        self.assertIn(github.COORDINATOR_OWNED_LABEL, calls[0])
+        self.assertIn("--force", calls[0])
+        self.assertIn(github.COORDINATOR_OWNED_LABEL_COLOR, calls[0])
+        self.assertIn(github.COORDINATOR_OWNED_LABEL_DESCRIPTION, calls[0])
+        self.assertEqual(calls[1][:4], ["gh", "pr", "edit", "7"])
+        self.assertIn("--add-label", calls[1])
+        self.assertIn(github.COORDINATOR_OWNED_LABEL, calls[1])
+        # GitHub caps a label description at 100 chars.
+        self.assertLessEqual(len(github.COORDINATOR_OWNED_LABEL_DESCRIPTION), 100)
+
+    def test_tag_is_non_fatal_when_the_add_label_call_fails(self):
+        # create succeeds, add-label fails -> caught, returns False, never raises.
+        def must_run(argv, root=None):
+            if "--add-label" in argv:
+                raise github.core.CoordinatorError("gh pr edit failed")
+            return ""
+        with mock.patch.object(github.core, "must_run", side_effect=must_run):
+            self.assertFalse(github.tag_coordinator_owned(ROOT, "owner/repo", 7))
+
+
 if __name__ == "__main__":
     unittest.main()
