@@ -269,10 +269,12 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
 # (merge / squash / rebase), so it holds in a generated repo too. This is a derived view of the pull requests
 # themselves (the one history store, eADR-0014), never a second store.
 _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
-# A looser signature: ANY line that carries a `…/pull/N` link plainly names a merged pull request. The
-# version-authority enumerator uses it to detect a line that names a PR but does NOT match the strict shape above
-# (undisclosed generate-notes format drift), so a drifted line carrying a marker fails closed instead of vanishing.
-_PR_PULL_URL_RE = re.compile(r"/pull/\d+\b")
+# A looser signature: ANY line that carries a `…/pull/N` link plainly names a merged pull request (capturing N).
+# The version-authority enumerator uses it to detect a line that names a PR whose number was NOT counted into the
+# parsed list (undisclosed generate-notes format drift), so a genuinely dropped line fails closed instead of
+# vanishing — while a line that merely RE-references an already-counted PR (GitHub's `## New Contributors` section:
+# `* @user made their first contribution in …/pull/N`) is recognised as accounted-for and does not trip the guard.
+_PR_PULL_URL_RE = re.compile(r"/pull/(\d+)\b")
 # The engine's OWN release pull request (title "Release X.Y.Z", authored by release.yml). At publish the notes
 # are generated over previous_tag..merge_sha, which spans the release PR's own merge — so without this it would
 # list itself and the count would be one high. Past release PRs sit before previous_tag, out of range.
@@ -446,29 +448,18 @@ def _fetch_pr_meta(slug: str, number: int, token: str | None) -> dict:
 
 
 def _fetch_pr_files(slug: str, number: int, token: str | None) -> list:
-    """GET /repos/{slug}/pulls/{number}/files -> the repo-relative paths the pull request changed. RAISES on any
-    failure, like _fetch_pr_meta: the touched-file set drives which PACKAGE a declared impact lands on (StarshipSuperjam/engine-template#942
-    L10), so an unreadable file list must fail closed rather than silently attribute a change to no package (which
-    would under-bump it). Paginated (100/page, follow until a short page); the GitHub cap is 3000 files/PR, past
-    which the list is truncated — a short page always terminates within it. Builds its own request like the peers."""
-    import urllib.request, json as _json, boot   # local: only the real fetch needs these
+    """The repo-relative paths a pull request changed -> which PACKAGE a declared impact lands on (StarshipSuperjam/engine-template#942 L10).
+    RAISES on any failure, like _fetch_pr_meta: an unreadable file list must fail closed rather than silently
+    attribute a change to no package (which would under-bump it). Unlike the single-GET peers this endpoint is
+    PAGINATED, so it delegates to the ONE Link-following, cycle-guarded changed-files paginator the codebase already
+    homes (weakening_guard.fetch_all_changed_files -> github_client) rather than a second hand-rolled loop that could
+    drift or lack a cycle guard (a QA finding). NOTE: this is a SECOND GitHub read per merged pull request beside the
+    body read, so a large release makes two sequential calls per PR — a disclosed efficiency cost (only paid on the
+    engine cut, which is the only caller that asks for files)."""
+    import boot, weakening_guard   # local: only the real fetch needs these (the shared github_client-homed paginator)
     tok = token if token is not None else boot.gh_token()
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-release-cut"}
-    if tok:
-        headers["Authorization"] = f"Bearer {tok}"
-    paths: list[str] = []
-    page = 1
-    while True:
-        url = f"https://api.github.com/repos/{slug}/pulls/{number}/files?per_page=100&page={page}"
-        req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            batch = _json.loads(resp.read()) or []
-        paths.extend(f.get("filename") for f in batch if f.get("filename"))
-        if len(batch) < 100:                               # a short (or empty) page is the last one
-            break
-        page += 1
-    return paths
+    return [f.get("filename") for f in weakening_guard.fetch_all_changed_files(slug, number, tok)
+            if f.get("filename")]
 
 
 def _enumerate_merged_pr_lines(previous_tag: str, target: str, repo: str | None = None,
@@ -478,37 +469,45 @@ def _enumerate_merged_pr_lines(previous_tag: str, target: str, repo: str | None 
     swallows every failure and returns [] for the cosmetic notes list. A swallowed connectivity/auth/HTTP failure
     would read as 'zero pull requests merged' and silently under-version a breaking release (a QA blocking
     finding); propagating the exception makes the fold fail CLOSED on that class. It ALSO fails closed on a
-    PARTIAL drop: a line that plainly names a merged pull request (`…/pull/N`) but does not parse into the list is
-    undisclosed FORMAT DRIFT — a single such line could carry a `major` marker and vanish silently, so rather than
-    under-count we raise and name it (a QA blocking finding: total-parse-failure was already closed, a partial one
-    was not). HONEST LIMIT: a 200 response that parses to zero lines with NO `…/pull/N` line at all is still read
-    as an empty range (no merges since the tag) — indistinguishable from a legitimately-empty range without a
-    second source; the reachable classes (network/auth/status, and a recognisable-but-unparsable PR line) close."""
+    PARTIAL drop: if a merged pull request's number appears in the notes (`…/pull/N`) but was NOT counted into the
+    parsed list, that is undisclosed FORMAT DRIFT — a single such line could carry a `major` marker and vanish, so
+    rather than under-count we raise and name the number. Accounting is by NUMBER, not line shape, so GitHub's own
+    `## New Contributors` back-reference (`…made their first contribution in …/pull/N`, whose N was already counted
+    via its 'What's Changed' line) is recognised as accounted-for and never trips the guard (a QA blocking finding:
+    the earlier shape-based guard refused every release that included a first-time contributor). HONEST LIMIT: a 200
+    response that parses to zero lines with NO `…/pull/N` at all is still read as an empty range — indistinguishable
+    from a legitimately-empty range without a second source; the reachable classes (network/auth/status, and a
+    named-but-uncounted pull request) close."""
     body = _generate_notes_body(repo, previous_tag, target, token)
     parsed = _parse_pr_lines(body)
+    counted = {int(m.group(1)) for line in parsed for m in (_PR_NUMBER_RE.search(line),) if m}
     for line in body.splitlines():
         s = line.strip()
-        if not _PR_PULL_URL_RE.search(s):
-            continue                                       # not a pull-request line at all (header/changelog/blank)
+        pull = _PR_PULL_URL_RE.search(s)
+        if not pull:
+            continue                                       # not a pull-request line (header / changelog footer / blank)
+        if int(pull.group(1)) in counted:
+            continue                                       # already counted (also clears the New Contributors back-ref)
         m = _PR_LINE_RE.match(s)
-        if m and not _RELEASE_PR_RE.match(m.group(1).strip()):
-            continue                                       # parsed into the list — accounted for
         if m and _RELEASE_PR_RE.match(m.group(1).strip()):
             continue                                       # the engine's OWN release pull request — dropped by design
         raise RuntimeError(
-            f"a line naming a merged pull request could not be parsed from GitHub's generated notes (format "
-            f"drift) — refusing to under-count the release rather than silently drop it: {s!r}")
+            f"pull request #{pull.group(1)} appears in GitHub's generated notes but did not parse into the release's "
+            f"pull-request list (format drift) — refusing to under-count the release rather than drop it: {s!r}")
     return parsed
 
 
 def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = None,
-                      token: str | None = None, *, _fetch_lines=None, _fetch_meta=None, _fetch_files=None) -> dict:
+                      token: str | None = None, *, want_files: bool = False,
+                      _fetch_lines=None, _fetch_meta=None, _fetch_files=None) -> dict:
     """The declared release impact of every pull request merged since the last release — FAIL-CLOSED, because
     this drives the version number. Returns
         {'per_pr': [{'number','title','impact'(canonical|None),'author','files'[paths]}], 'error': <reason|None>}.
-    Each entry also carries the repo-relative paths the pull request changed (`files`), so a later PURE fold can
-    attribute the declared impact to the specific PACKAGE(s) it touched (StarshipSuperjam/engine-template#942 L10) — that per-PR file read is
-    version authority too, so it fails closed alongside the body read.
+    When `want_files` is set, each entry ALSO carries the repo-relative paths the pull request changed (`files`), so
+    a later PURE fold can attribute the declared impact to the specific PACKAGE(s) it touched (StarshipSuperjam/engine-template#942 L10) — that
+    per-PR file read is version authority too, so it fails closed alongside the body read. Only the ENGINE cut asks
+    for files (it is the only path that attributes to packages); a product cut leaves `want_files` false so it never
+    inherits a `/pulls/{n}/files` failure it has no use for (a QA finding).
     `error` is non-None when the read could not be PROVEN complete — the enumeration failed, or a non-exempt pull
     request's body could not be read — and the caller then refuses to auto-derive rather than emit a version it
     cannot stand behind (a skipped body would silently drop a `major` PR to a lower release). A pull request's
@@ -541,13 +540,15 @@ def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = 
             meta = fetch_meta(slug, number, tok)
         except Exception as exc:  # noqa: BLE001 — a version-authority read; an unreadable body fails CLOSED
             return {"per_pr": [], "error": f"could not read pull request #{number}'s body: {exc}"}
-        try:
-            files = fetch_files(slug, number, tok)
-        except Exception as exc:  # noqa: BLE001 — the touched-package attribution read; also fails CLOSED
-            return {"per_pr": [], "error": f"could not read pull request #{number}'s changed files: {exc}"}
+        files: list = []
+        if want_files:
+            try:
+                files = list(fetch_files(slug, number, tok) or [])
+            except Exception as exc:  # noqa: BLE001 — the touched-package attribution read; also fails CLOSED
+                return {"per_pr": [], "error": f"could not read pull request #{number}'s changed files: {exc}"}
         per_pr.append({"number": number, "title": title,
                        "impact": release_impact.parse_impact(meta.get("body")),
-                       "author": meta.get("author"), "files": list(files or [])})
+                       "author": meta.get("author"), "files": files})
     return {"per_pr": per_pr, "error": None}
 
 
@@ -590,11 +591,11 @@ def resolve_release_impact(mechanical_level: str, current_engine: str, per_pr: l
                     "violations": legacy,
                     "recovery": "Give the pre-marker tranche one explicit aggregate impact with "
                                 "--legacy-impact <none|patch|minor|major> (choose the highest true impact across "
-                                "them), or add the hidden marker "
-                                f"'{release_impact.impact_trailer('patch')}' (with the true value) to each listed "
-                                "pull request's body and re-run — the visible '*Release-Impact: …*' line is "
-                                "cosmetic; only the hidden marker counts. Going forward every pull request carries "
-                                "its own marker."}}
+                                "them), or add the hidden marker '<!-- engine-release-impact: VALUE -->' (VALUE = "
+                                "that pull request's true level: none/patch/minor/major) to each listed pull "
+                                "request's body and re-run — the visible '*Release-Impact: …*' line is cosmetic; "
+                                "only the hidden marker counts. Going forward every pull request carries its own "
+                                "marker."}}
     if legacy_impact is not None and legacy:
         declared_candidates.append(release_impact.canonical_impact(legacy_impact))
 
@@ -1569,7 +1570,8 @@ def _render_proposal(p: dict) -> str:
             if floor and floor != "none":
                 lines.append(f"  - mechanical compatibility floor the diff could prove: {floor}")
             lines.append(f"  - {refusal['reason']}")
-            lines.append("  - no version is derived until this is resolved (see the refusal below).")
+            lines.append("  - no version is derived until this is resolved; the refusal reason and how to fix it "
+                         "are printed with the 'Refused' details.")
         elif declared is not None:                       # the declared-impact fold ran and did NOT refuse (StarshipSuperjam/engine-template#942)
             lines.append(f"Version decision (current {p['current_engine']}):")
             lines.append(f"  - highest declared pull-request impact: {declared}")
@@ -1597,9 +1599,12 @@ def _render_proposal(p: dict) -> str:
         if p.get("package_attribution_note"):
             lines.append(f"  ! {p['package_attribution_note']}")
         if p["package_floor"]:
-            lines.append("Per-package floors (each reflects only the pull requests that touched it):")
+            lines.append("Per-package floors (raise-only — each from that package's own mechanical floor "
+                         "(migration/retirement) and/or the declared impact of the pull requests that touched it):")
             for mid, ver in p["package_floor"].items():
                 lines.append(f"  - {mid}: at least {ver}")
+            for a in p.get("package_impact_attributions") or []:
+                lines.append(f"    from declared impact: {a}")
     return "\n".join(lines)
 
 
@@ -2102,7 +2107,7 @@ def _apply_impact_fold(proposal: dict, previous_tag: str | None, target: str, sl
     `fold_packages` (engine cut only) additionally attributes each pull request's declared impact to the PACKAGE(s)
     it touched, raising `proposal['package_floor']` per package (StarshipSuperjam/engine-template#942 L10). Product cuts pass False — a deployed
     product has no engine module tree to attribute against."""
-    imp = merged_pr_impacts(previous_tag, target, repo=slug)
+    imp = merged_pr_impacts(previous_tag, target, repo=slug, want_files=fold_packages)
     if imp["error"]:
         fetch_refusal = {
             "reason": "the release could not read the declared impact of every merged pull request, so it "

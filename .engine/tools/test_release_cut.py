@@ -417,13 +417,38 @@ class DeclaredImpactFold(unittest.TestCase):
         bodies = {11: {"body": "x\n" + rc.release_impact.impact_trailer("minor"), "author": "human"},
                   12: {"body": "y\n" + rc.release_impact.impact_trailer("patch"), "author": "human"}}
         files = {11: [".engine/modules/qa-review/x.py"], 12: ["README.md"]}
-        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", want_files=True,
                                    _fetch_lines=lambda *a, **k: lines,
                                    _fetch_meta=lambda slug, n, tok: bodies[n],
                                    _fetch_files=lambda slug, n, tok: files[n])
         self.assertIsNone(out["error"])
         self.assertEqual({p["number"]: p["impact"] for p in out["per_pr"]}, {11: "minor", 12: "patch"})
         self.assertEqual({p["number"]: p["files"] for p in out["per_pr"]}, files)   # per-PR files carried for L10
+
+    def test_merged_pr_impacts_skips_the_files_read_when_not_wanted(self):
+        # DH-2: a product cut (want_files=False, the default) must NOT fetch files, so a files-fetch failure it
+        # has no use for can never refuse the release. A raising _fetch_files here must never be called.
+        def boom(slug, n, tok):
+            raise AssertionError("files must not be fetched when want_files is false")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"],
+                                   _fetch_meta=lambda slug, n, tok: {"body": "", "author": "u"},
+                                   _fetch_files=boom)
+        self.assertIsNone(out["error"])
+        self.assertEqual(out["per_pr"][0]["files"], [])
+
+    def test_merged_pr_impacts_fails_closed_on_unreadable_files(self):
+        # SC-3: the per-PR files read is version authority too — an unreadable file list fails CLOSED (not a
+        # silent no-files that would under-attribute a package).
+        def boom(slug, n, tok):
+            raise RuntimeError("500 on files")
+        out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x", want_files=True,
+                                   _fetch_lines=lambda *a, **k: ["Fix: x (#3)"],
+                                   _fetch_meta=lambda slug, n, tok: {"body": "", "author": "u"},
+                                   _fetch_files=boom)
+        self.assertIsNotNone(out["error"])
+        self.assertIn("changed files", out["error"])
+        self.assertIn("#3", out["error"])
 
     def test_merged_pr_impacts_fails_closed_on_unreadable_body(self):
         def boom(slug, n, tok):
@@ -2115,6 +2140,17 @@ class PerPackageImpactFold(unittest.TestCase):
             {"number": 1, "impact": "major", "author": "h", "files": ["README.md"]}], {"a.py": ["m1"]})
         self.assertEqual(out["package_floor"], {})
 
+    def test_a_file_owned_by_multiple_modules_bumps_each(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0", "m2": "1.0.0"}, [
+            {"number": 1, "impact": "minor", "author": "h", "files": ["shared.py"]}], {"shared.py": ["m1", "m2"]})
+        self.assertEqual(out["package_floor"], {"m1": "1.1.0", "m2": "1.1.0"})
+
+    def test_a_surface_owning_module_not_present_is_skipped(self):
+        # module-surfaces names an owner that is not an installed/present package -> no version to bump, skip it.
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "major", "author": "h", "files": ["gone.py"]}], {"gone.py": ["declined-mod"]})
+        self.assertEqual(out["package_floor"], {})
+
 
 class ImpactFoldGlue(unittest.TestCase):
     """SC-3 / TI-2: `_apply_impact_fold` is the glue that wires the fold into the real `propose` command for both
@@ -2140,14 +2176,21 @@ class ImpactFoldGlue(unittest.TestCase):
         self.assertEqual(proposal["effective_impact"], "minor")
         self.assertEqual(proposal["package_floor"]["m1"], "1.1.0")     # package fold ran through the glue
 
-    def test_mismatch_refusal_is_stamped_on_the_proposal_for_the_renderer(self):
+    def test_mismatch_refusal_is_stamped_and_skips_the_package_fold(self):
+        # TI-2: give the PR files that WOULD map to a present module, so if the refusal-gate were removed the
+        # package fold would populate m1 — the empty-package_floor assertion then genuinely protects the ordering
+        # (a files:[] fixture could not, since nothing would map regardless of the gate).
         self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
-            {"number": 1, "title": "t", "impact": "patch", "author": "h", "files": []}]})
+            {"number": 1, "title": "t", "impact": "patch", "author": "h", "files": ["a.py"]}]})
+        self._patch("_present_modules", lambda: {"m1": {"version": "1.0.0"}})
+        saved = rc.module_surfaces.load
+        rc.module_surfaces.load = lambda *a, **k: {"a.py": ["m1"]}
+        self.addCleanup(lambda: setattr(rc.module_surfaces, "load", saved))
         proposal = {"current_engine": "0.5.0", "package_floor": {}}
         ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "major", None, fold_packages=True)
         self.assertIsNotNone(ref)
-        self.assertIs(proposal["impact_refusal"], ref)                 # so _render_proposal withholds, not contradicts
-        self.assertNotIn("m1", proposal["package_floor"])              # no package fold on a refusal
+        self.assertIs(proposal["impact_refusal"], ref)                 # stamped so _render_proposal withholds
+        self.assertEqual(proposal["package_floor"], {})                # fold SKIPPED on refusal (would be {m1:…} if not)
 
     def test_fetch_error_fails_closed_and_is_stamped(self):
         self._patch("merged_pr_impacts", lambda *a, **k: {"error": "GitHub 503", "per_pr": []})
@@ -2222,7 +2265,15 @@ class RenderProposalRefusal(unittest.TestCase):
                        package_attribution_note="per-package impact attribution was SKIPPED — the registry is empty")
         text = rc._render_proposal(p)
         self.assertIn("SKIPPED", text)
-        self.assertIn("only the pull requests that touched it", text)
+
+    def test_package_floor_heading_does_not_overclaim_pr_attribution(self):
+        # US-5: a package floor can come from a mechanical (migration/retirement) signal, not the PR fold, so the
+        # heading must NOT claim every entry reflects a pull request that touched it.
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"mech_only": "2.1.0"})            # no package_impact_attributions present
+        text = rc._render_proposal(p)
+        self.assertNotIn("each reflects only the pull requests that touched it", text)   # old overclaim gone
+        self.assertIn("mechanical floor", text)                        # heading names the mechanical source too
 
 
 class EnumeratorPartialDropGuard(unittest.TestCase):
@@ -2248,6 +2299,19 @@ class EnumeratorPartialDropGuard(unittest.TestCase):
                           "**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
         out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
         self.assertEqual(out, ["Feature: a (#11)"])                    # release PR dropped, changelog ignored, no raise
+
+    def test_new_contributors_backreference_to_a_counted_pr_does_not_trip_it(self):
+        # DH-1/TI-1: GitHub's generated notes append a `## New Contributors` section that re-references an
+        # already-counted PR by /pull/N. Since #12 IS counted via its What's Changed line, the back-reference is
+        # accounted-for and must NOT raise (the earlier shape-based guard refused every release with a new author).
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* Fix: b by @bob in acme/x/pull/12\n"
+                          "\n## New Contributors\n"
+                          "* @bob made their first contribution in https://github.com/acme/x/pull/12\n"
+                          "\n**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)", "Fix: b (#12)"])    # both counted, New-Contributors ref ignored
 
 
 if __name__ == "__main__":

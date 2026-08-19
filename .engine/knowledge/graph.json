@@ -13721,7 +13721,8 @@
           "tool:release_impact",
           "tool:release_source",
           "tool:shipped_local_references_check",
-          "tool:validate"
+          "tool:validate",
+          "tool:weakening_guard"
         ],
         "provided_by": [
           "module:core"
@@ -13729,7 +13730,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:6f7cc38667522e88b095ddb8b1fad282d317c226b13eb688a9fad0e0c9d9af08",
+        "fingerprint": "sha256:b572df4bbb1679b3183e57a1032a1d0758b845537f59931673af500e42c87639",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -17749,7 +17750,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:5c4df4555150b3c50364156c90df7756d7fea165f38c275144b92ccc1996faae",
+        "fingerprint": "sha256:fef0792c9ebe98bbc07442c6aa52402d8866305bdb646d883e469d2e9aaa7860",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
