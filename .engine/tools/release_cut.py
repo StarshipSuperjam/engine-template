@@ -442,11 +442,15 @@ def _fetch_pr_meta(slug: str, number: int, token: str | None) -> dict:
 
 def _enumerate_merged_pr_lines(previous_tag: str, target: str, repo: str | None = None,
                                token: str | None = None) -> list:
-    """The merged-pull-request 'Title (#N)' lines since `previous_tag`, RAISING on any failure. This is the
-    version-authority enumerator merged_pr_impacts folds — deliberately NOT merged_pr_titles, which swallows
-    every failure and returns [] for the cosmetic notes list. A swallowed enumeration failure would read as
-    'zero pull requests merged' and silently under-version a breaking release (a QA blocking finding); this
-    propagates the failure so the fold fails CLOSED."""
+    """The merged-pull-request 'Title (#N)' lines since `previous_tag`, RAISING on a fetch/transport failure.
+    This is the version-authority enumerator merged_pr_impacts folds — deliberately NOT merged_pr_titles, which
+    swallows every failure and returns [] for the cosmetic notes list. A swallowed connectivity/auth/HTTP failure
+    would read as 'zero pull requests merged' and silently under-version a breaking release (a QA blocking
+    finding); propagating the exception makes the fold fail CLOSED on that class. HONEST LIMIT (QA): this covers
+    RAISED failures, not a 200 response that parses to zero lines — an empty parse is read as an empty range (no
+    merges since the tag), the same as a legitimately-empty range, so severe generate-notes FORMAT DRIFT could
+    still read as zero. That residual is pre-existing (it fed the old default too) and undistinguishable from a
+    real empty range without a second source; the reachable failure class (network/auth/status) is closed here."""
     return _parse_pr_lines(_generate_notes_body(repo, previous_tag, target, token))
 
 
@@ -1021,7 +1025,15 @@ _CONTRACT_GLOBS = (
 )
 
 
-_RENAME_SIMILARITY = 0.5   # a removed↔added surface pair this similar (git's own default) reads as a RENAME
+# A removed↔added surface pair this similar (by LINE similarity) reads as a RENAME. Set HIGH (0.85, not git's
+# 0.5) deliberately: a genuine rename keeps NEAR-IDENTICAL content, whereas two UNRELATED files that merely share
+# heavy structural boilerplate — this repo's own eADRs share ~10 identical frontmatter/heading lines and score
+# 0.77 line-similarity between unrelated decisions (a QA re-audit reproduced this) — must NOT pair, or a genuine
+# breaking removal would be masked as a rename and lose its major floor. The bias is SAFETY: when content
+# similarity is ambiguous, DON'T pair, so the removal keeps its major floor (over-flagging major is safe;
+# masking a removal is not). A rename that also substantially rewrites content falls below the bar and is treated
+# as a removal+addition — the conservative, non-masking outcome.
+_RENAME_SIMILARITY = 0.85
 
 
 def _rename_lines(raw: bytes) -> list:

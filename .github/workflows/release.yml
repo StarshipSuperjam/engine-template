@@ -108,8 +108,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # One-time rollout override for the pre-marker tranche (StarshipSuperjam/engine-template#942). Reaches the shell ONLY as a
-          # quoted env var, never interpolated into the script body; the choice input already constrains it to
-          # the four values, so no value can inject a shell command.
+          # QUOTED env var, never interpolated into the script body — that quoting is what prevents shell
+          # injection, regardless of the value. (The `type: choice` list is a UI convenience, not a server-side
+          # guarantee; the real value backstop is release_cut.py's own argparse `choices=`, which rejects any
+          # out-of-enum value and fails the run cleanly.)
           LEGACY_IMPACT: ${{ inputs.legacy_impact }}
         run: |
           set -euo pipefail

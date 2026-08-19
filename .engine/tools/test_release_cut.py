@@ -302,18 +302,32 @@ class ContractSurfaceReframe(unittest.TestCase):
         pairs = rc._pair_renames(removed, added)
         self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
 
-    def test_pair_renames_line_based_resists_shared_boilerplate(self):
-        # QA finding: two UNRELATED contract files sharing only an ADR header must NOT pair (byte-level collided
-        # at ~0.76; line-level is a minority when the bodies are realistically substantial). A real breaking
-        # removal must keep its major floor, not be masked as a rename.
-        header = b"# Status\nAccepted\n\n# Context\nThis records a decision.\n\n# Decision\n"
-        removed_body = b"".join(f"Webhook removal detail line {i}: the legacy contract is gone.\n".encode()
-                                for i in range(25))
-        added_body = b"".join(f"Telemetry batching detail line {i}: an unrelated new capability.\n".encode()
-                              for i in range(25))
-        removed = {"eADR-0100-webhook-removed.md": header + removed_body}
-        added = {"eADR-0200-telemetry-batching.md": header + added_body}
-        self.assertEqual(rc._pair_renames(removed, added), {})       # NOT a rename -> the removal keeps major
+    def test_pair_renames_resists_real_eADR_boilerplate_shape(self):
+        # QA re-audit: this repo's real eADRs share ~10 identical frontmatter/heading LINES and carry their
+        # substance in a FEW long paragraph-lines, so two UNRELATED decisions score ~0.77 LINE-similarity —
+        # above 0.5 but below the 0.85 rename bar. They must NOT pair, or a genuine breaking removal in the same
+        # window as an unrelated addition would be masked as a rename and lose its major floor.
+        boiler = [b"---", b"title: eADR", b"status: accepted", b"---", b"", b"# Status", b"Accepted", b"",
+                  b"# Context", b"", b"# Decision", b"", b"# Significance", b"", b"# Rationale"]  # ~15 shared lines
+        removed_body = [f"Webhook removal paragraph {i}: the legacy contract is gone.".encode() for i in range(6)]
+        added_body = [f"Telemetry paragraph {i}: an unrelated new capability nothing depended on.".encode()
+                      for i in range(6)]
+        removed = {"eADR-0100-webhook.md": b"\n".join(boiler + removed_body)}
+        added = {"eADR-0200-telemetry.md": b"\n".join(boiler + added_body)}
+        ratio = __import__("difflib").SequenceMatcher(
+            None, rc._rename_lines(list(removed.values())[0]), rc._rename_lines(list(added.values())[0])).ratio()
+        self.assertTrue(0.5 <= ratio < 0.85, f"expected the collision regime, got {ratio:.3f}")
+        self.assertEqual(rc._pair_renames(removed, added), {})       # 0.85 threshold keeps them unpaired
+
+    def test_pair_renames_still_detects_a_genuine_rename(self):
+        # a rename keeps NEAR-IDENTICAL content (a relocation, or a rename with a tiny edit) -> must still pair,
+        # so a genuine rename is not a false major.
+        body = (b"---\ntitle: eADR-0009\n---\n\n# Decision\n\n"
+                + b"".join(f"Decision detail line {i} describing the retained capability.\n".encode()
+                           for i in range(20)))
+        renamed = body.replace(b"line 3 ", b"line 3 (typo fixed) ")   # one tiny edit
+        self.assertEqual(rc._pair_renames({"eADR-0009-old-name.md": body}, {"eADR-0009-new-name.md": renamed}),
+                         {"eADR-0009-old-name.md": "eADR-0009-new-name.md"})
 
 
 class DeclaredImpactFold(unittest.TestCase):

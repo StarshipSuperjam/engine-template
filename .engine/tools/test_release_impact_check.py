@@ -49,13 +49,16 @@ class ReleaseImpactCheck(unittest.TestCase):
         orig = chk._read_pr_body
 
         def boom():
-            raise RuntimeError("bad event")
+            raise RuntimeError("a distinctive parse error")
         chk._read_pr_body = boom
         try:
             f = chk.findings()
         finally:
             chk._read_pr_body = orig
         self.assertTrue(f[0].get("not_applicable"))
+        # the diagnostic (type + message) must be surfaced, not masked — so a real future bug is visible in CI.
+        self.assertIn("RuntimeError", f[0]["message"])
+        self.assertIn("a distinctive parse error", f[0]["message"])
 
     def test_main_emits_json_array(self):
         import io
