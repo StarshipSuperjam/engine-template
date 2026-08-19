@@ -848,6 +848,20 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
                 "handoff_summary": "Safe concern summary.", "operator_summary": "Safe disagreement.",
                 "private_reference": private_reference}
 
+    def test_handoff_restore_rejects_malformed_summary_cleanly(self):
+        # The strip-on-restore loop must not assume each finding_summaries entry is a dict: a malformed
+        # block (a non-dict summary) has to reach _validate and fail with the tool's clean CoordinatorError,
+        # not a raw AttributeError from an unconditional .pop() (StarshipSuperjam/engine-template#981).
+        self.seed("issue")
+        self.store.mutate(lambda s: s["findings"].append(self._blocking_finding_with_private(None)))
+        handoff = bc._handoff(self.state())
+        handoff["finding_summaries"] = ["not-a-dict"]
+        path = Path(self.temp.name) / "malformed-handoff-981.json"
+        path.write_text(json.dumps(handoff))
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored-malformed-981.json"))
+        with self.assertRaises(bc.CoordinatorError):
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+
     def test_handoff_never_publishes_private_reference(self):
         # StarshipSuperjam/engine-template#981: `handoff export --publish` writes finding summaries into
         # the public PR body, so a populated private_reference must not appear in the rendered handoff,
