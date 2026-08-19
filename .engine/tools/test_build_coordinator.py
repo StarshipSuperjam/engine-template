@@ -839,6 +839,58 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         self.assertEqual(restored.read()["findings"][0]["severity"], "blocking")
         self.assertEqual(restored.read()["validation"]["results"][0]["log_digest"], digest)
 
+    def _blocking_finding_with_private(self, private_reference):
+        digest = "sha256:" + "b" * 64
+        return {"id": "F-9", "stage": "deliverable", "lens": "security-governance",
+                "packet_digest": digest, "lens_packet_digest": digest, "commit": HEAD_A,
+                "severity": "blocking", "summary": "private", "disposition": "rejected",
+                "rationale": "private", "escalation_kind": None, "blocks_this_pr": False,
+                "handoff_summary": "Safe concern summary.", "operator_summary": "Safe disagreement.",
+                "private_reference": private_reference}
+
+    def test_handoff_never_publishes_private_reference(self):
+        # StarshipSuperjam/engine-template#981: `handoff export --publish` writes finding summaries into
+        # the public PR body, so a populated private_reference must not appear in the rendered handoff,
+        # and the round-trip must yield None for it (schema-valid restore = the field is dropped).
+        self.seed("issue")
+        self.store.mutate(lambda s: s["findings"].append(
+            self._blocking_finding_with_private("LEAKME-private-reference-XYZ")))
+        handoff = bc._handoff(self.state())
+        self.assertNotIn("private_reference", handoff["finding_summaries"][0])
+        self.assertNotIn("LEAKME-private-reference-XYZ", json.dumps(handoff))
+        path = Path(self.temp.name) / "handoff-981.json"
+        path.write_text(json.dumps(handoff))
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored-981.json"))
+        pr = {"number": 7, "state": "OPEN", "headRefOid": HEAD_A}
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_issue_body", return_value="durable"), \
+                mock.patch.object(bc, "_durable_plan", return_value=plan()):
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+        # A successful restore means the state passed build-state validation; the field is dropped to None.
+        self.assertIsNone(restored.read()["findings"][0]["private_reference"])
+
+    def test_handoff_restore_tolerates_legacy_private_reference(self):
+        # A handoff exported by an OLDER engine still carries private_reference; the tightened schema
+        # forbids it, but restore must strip the stray copy and continue rather than fail closed
+        # (StarshipSuperjam/engine-template#981) — the field never survives the round-trip anyway.
+        self.seed("issue")
+        self.store.mutate(lambda s: s["findings"].append(self._blocking_finding_with_private(None)))
+        handoff = bc._handoff(self.state())
+        handoff["finding_summaries"][0]["private_reference"] = "legacy private text that must not survive"
+        path = Path(self.temp.name) / "legacy-handoff-981.json"
+        path.write_text(json.dumps(handoff))
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored-legacy-981.json"))
+        pr = {"number": 7, "state": "OPEN", "headRefOid": HEAD_A}
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_issue_body", return_value="durable"), \
+                mock.patch.object(bc, "_durable_plan", return_value=plan()):
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+        self.assertIsNone(restored.read()["findings"][0]["private_reference"])
+
     def test_handoff_requires_summary_for_every_finding(self):
         self.seed("issue")
         self.store.mutate(lambda s: s["findings"].append({"id": "F-1", "stage": "plan", "lens": "x", "packet_digest": s["plan"]["digest"], "commit": None, "severity": "nit", "summary": "x", "disposition": "rejected", "rationale": "x", "escalation_kind": None, "blocks_this_pr": False, "handoff_summary": None}))

@@ -38,6 +38,22 @@ refusal that restores the prior body, never a merge wall; the existing `pr-contr
 `apply` never marks the draft ready. The close-linkage posture is unchanged — advisory lines are folded, the
 uniquely bounded defang is applied, contradictions stay visible without becoming a wall._
 
+_Amended 2026-08-18 for reviewer-finding privacy (StarshipSuperjam/engine-template#981): a finding's
+`private_reference` is reviewer-internal detail and is **never published** to the public PR body. The
+`pr-body-claim.v1` finding-summary lane already enforced this (it carries only the operator-safe
+`operator_summary` plus an optional deliberately-public `public_reference`); this amendment binds the two lanes
+that predated and bypassed it — the reviewer-disagreement line (`build_coordinator_review.disagreement_line`,
+which BC-21's `pr-contract` preflight requires present in the body) and the durable handoff's published
+`finding_summaries` (`_handoff`) — to the same rule. The redaction lives inside `disagreement_line`, the single
+source both the composed body and the preflight derive from, so they cannot drift; `operator_summary` is
+required on exactly these downgraded-blocking findings, so the disclosure is never emptied. The
+`build-handoff.v1/v2` schemas now **forbid** `private_reference` (removed from `properties` under
+`additionalProperties: false`) — a load-bearing structural guard: any future re-introduction into the published
+handoff fails validation rather than silently re-leaking. `private_reference` is retained as local reviewer
+state in `build-state` (written by `cmd_finding_record`, read by no publish path); a legacy handoff still
+carrying the field is stripped on restore, not failed closed. This strengthens BC-21 (a truthful, non-leaking
+contract) and introduces no new hard hold._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |

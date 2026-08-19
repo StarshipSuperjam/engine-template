@@ -1284,13 +1284,16 @@ def _handoff(state: dict) -> dict:
     for finding in state["findings"]:
         if not finding["handoff_summary"]:
             raise CoordinatorError(f"finding {finding['id']} needs a non-sensitive --handoff-summary")
+        # `private_reference` is deliberately NOT carried here: it is reviewer-internal detail
+        # (StarshipSuperjam/engine-template#981) and the handoff schema now forbids it. It stays local
+        # in build-state; this handoff is a redacted, publishable projection — like the stripped repair
+        # rationale and worker free-text — so only the operator-safe summaries reach the PR body.
         summaries.append({"id": finding["id"], "stage": finding["stage"], "lens": finding["lens"],
                           "packet_digest": finding["packet_digest"],
                           "lens_packet_digest": finding.get("lens_packet_digest", finding["packet_digest"]), "commit": finding["commit"],
                           "severity": finding["severity"], "disposition": finding["disposition"], "escalation_kind": finding["escalation_kind"],
                           "blocks_this_pr": finding["blocks_this_pr"], "summary": finding["handoff_summary"],
-                          "operator_summary": finding.get("operator_summary"),
-                          "private_reference": finding.get("private_reference")})
+                          "operator_summary": finding.get("operator_summary")})
     validation = None if not state["validation"] else {
         "commit": state["validation"]["commit"],
         "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"],
@@ -1375,7 +1378,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
                           "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
                           "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
                           "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
-                          "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
+                          "operator_summary": f["operator_summary"], "private_reference": f.get("private_reference")}
                          for f in value["finding_summaries"]],
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
@@ -1427,6 +1430,13 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
     version = value.get("schema_version")
     if version not in ("build-handoff.v1", "build-handoff.v2"):
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
+    # A handoff exported by an older engine carried `private_reference` in its finding summaries; the
+    # field is no longer published and the schema now forbids it (StarshipSuperjam/engine-template#981),
+    # so drop any stray copy before validation — an old block still restores cleanly instead of failing
+    # closed on the forbidden key. The value is reviewer-internal and never survives the round-trip
+    # (restore already yields None for it), so dropping it here loses nothing an up-to-date export keeps.
+    for _summary in value.get("finding_summaries") or []:
+        _summary.pop("private_reference", None)
     _validate(value, HANDOFF_SCHEMA_V2 if version == "build-handoff.v2" else HANDOFF_SCHEMA)
     repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
     if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):

@@ -24,7 +24,7 @@
       "type": "array",
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["id", "stage", "lens", "packet_digest", "lens_packet_digest", "commit", "severity", "disposition", "escalation_kind", "blocks_this_pr", "summary", "operator_summary", "private_reference"],
+        "required": ["id", "stage", "lens", "packet_digest", "lens_packet_digest", "commit", "severity", "disposition", "escalation_kind", "blocks_this_pr", "summary", "operator_summary"],
         "properties": {
           "id": {"type": "string"}, "stage": {"enum": ["plan", "deliverable", "repair"]},
           "lens": {"type": "string"}, "packet_digest": {"type": "string"}, "lens_packet_digest": {"type": "string"}, "commit": {"type": ["string", "null"]},
@@ -32,7 +32,7 @@
           "disposition": {"type": "string"},
           "escalation_kind": {"type": ["string", "null"], "enum": [null, "design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
           "blocks_this_pr": {"type": "boolean"}, "summary": {"type": "string", "minLength": 1},
-          "operator_summary": {"type": ["string", "null"]}, "private_reference": {"type": ["string", "null"]}
+          "operator_summary": {"type": ["string", "null"]}
         }
       }
     },

@@ -144,10 +144,13 @@ def plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
 
 
 def disagreement_line(finding: dict) -> str:
+    # Only the operator-safe summary reaches this line — never `private_reference`, which is
+    # reviewer-internal detail (StarshipSuperjam/engine-template#981). `operator_summary` is required
+    # on exactly these downgraded-blocking findings (see cmd_finding_record), so the disclosure is
+    # never empty. This line is published verbatim into the PR body AND asserted present by the
+    # pr-contract preflight, so the redaction lives here — the single source both derive from.
     summary = finding.get("operator_summary") or ""
-    private = finding.get("private_reference")
-    suffix = f" Private details: {private}." if private else ""
-    return f"- Reviewer disagreement `{finding['id']}`: {summary}{suffix}"
+    return f"- Reviewer disagreement `{finding['id']}`: {summary}"
 
 
 def required_disagreement_lines(state: dict) -> list[str]:
