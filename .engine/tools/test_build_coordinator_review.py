@@ -103,13 +103,29 @@ class TestReviewerContractFreshness(unittest.TestCase):
         stage["reviewer_contracts"] = changed
         self.assertEqual(review.current_receipt_lenses(stage), {"feasibility"})
 
-    def test_downgraded_blocking_finding_has_stable_operator_line(self):
+    def test_downgraded_blocking_finding_line_publishes_only_operator_summary(self):
+        # StarshipSuperjam/engine-template#981: the disagreement line is published verbatim to the
+        # public PR body, so it must carry ONLY the operator-safe summary — never `private_reference`.
         finding = {"id": "SEC-1", "severity": "blocking", "blocks_this_pr": False,
                    "operator_summary": "The public concern and rejection rationale.",
                    "private_reference": "private security note S-1"}
         line = review.disagreement_line(finding)
         self.assertIn("Reviewer disagreement `SEC-1`", line)
-        self.assertIn("private security note S-1", line)
+        self.assertIn("The public concern and rejection rationale.", line)
+        self.assertNotIn("private security note S-1", line)
+        self.assertNotIn("Private details", line)
+
+    def test_disagreement_line_without_operator_summary_is_still_safe(self):
+        # A missing operator_summary must never fall back to private text; the line renders a legible
+        # placeholder, not the private note and not a dangling colon. (cmd_finding_record requires
+        # operator_summary on these findings, so this is defense in depth against a malformed or legacy
+        # finding reaching the renderer.)
+        finding = {"id": "SEC-2", "severity": "blocking", "blocks_this_pr": False,
+                   "operator_summary": None, "private_reference": "private note that must never leak"}
+        line = review.disagreement_line(finding)
+        self.assertNotIn("private note that must never leak", line)
+        self.assertNotIn("Private details", line)
+        self.assertEqual(line, "- Reviewer disagreement `SEC-2`: [no operator-safe summary recorded]")
 
     def test_product_intent_challenges_no_spec_and_selected_document_judgment(self):
         prompt = (bc.ROOT / ".claude/agents/engine-design-review-product-intent.md").read_text()

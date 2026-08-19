@@ -1284,13 +1284,16 @@ def _handoff(state: dict) -> dict:
     for finding in state["findings"]:
         if not finding["handoff_summary"]:
             raise CoordinatorError(f"finding {finding['id']} needs a non-sensitive --handoff-summary")
+        # `private_reference` is deliberately NOT carried here: it is reviewer-internal detail
+        # (StarshipSuperjam/engine-template#981) and the handoff schema now forbids it. It stays local
+        # in build-state; this handoff is a redacted, publishable projection — like the stripped repair
+        # rationale and worker free-text — so only the operator-safe summaries reach the PR body.
         summaries.append({"id": finding["id"], "stage": finding["stage"], "lens": finding["lens"],
                           "packet_digest": finding["packet_digest"],
                           "lens_packet_digest": finding.get("lens_packet_digest", finding["packet_digest"]), "commit": finding["commit"],
                           "severity": finding["severity"], "disposition": finding["disposition"], "escalation_kind": finding["escalation_kind"],
                           "blocks_this_pr": finding["blocks_this_pr"], "summary": finding["handoff_summary"],
-                          "operator_summary": finding.get("operator_summary"),
-                          "private_reference": finding.get("private_reference")})
+                          "operator_summary": finding.get("operator_summary")})
     validation = None if not state["validation"] else {
         "commit": state["validation"]["commit"],
         "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"],
@@ -1375,7 +1378,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
                           "commit": f["commit"], "severity": f["severity"], "summary": f["summary"], "disposition": f["disposition"],
                           "rationale": f["summary"], "escalation_kind": f["escalation_kind"],
                           "blocks_this_pr": f["blocks_this_pr"], "handoff_summary": f["summary"],
-                          "operator_summary": f["operator_summary"], "private_reference": f["private_reference"]}
+                          "operator_summary": f["operator_summary"], "private_reference": f.get("private_reference")}
                          for f in value["finding_summaries"]],
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
@@ -1427,7 +1430,22 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
     version = value.get("schema_version")
     if version not in ("build-handoff.v1", "build-handoff.v2"):
         raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
+    # A handoff exported by an older engine carried `private_reference` in its finding summaries; the
+    # field is no longer published and the schema now forbids it (StarshipSuperjam/engine-template#981),
+    # so drop any stray copy before validation — an old block still restores cleanly instead of failing
+    # closed on the forbidden key. The value is reviewer-internal and never survives the round-trip
+    # (restore already yields None for it), so dropping it here loses nothing an up-to-date export keeps.
+    stripped_private = False
+    for _summary in value.get("finding_summaries") or []:
+        # Guard the shape: a malformed block (a non-dict summary) must still reach _validate and fail
+        # with the tool's clean CoordinatorError, not an AttributeError from an unconditional .pop().
+        if isinstance(_summary, dict) and _summary.pop("private_reference", None) is not None:
+            stripped_private = True
     _validate(value, HANDOFF_SCHEMA_V2 if version == "build-handoff.v2" else HANDOFF_SCHEMA)
+    if stripped_private:
+        # Match the codebase's visible-redaction convention (repair rationale, bounded work): say
+        # plainly that a legacy private note was dropped rather than stripping it silently.
+        print("dropped a legacy private_reference from the restored handoff (no longer published)")
     repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
     if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):
         raise CoordinatorError("handoff repository does not match the selected repository")
@@ -2165,7 +2183,7 @@ def parser() -> argparse.ArgumentParser:
     record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
     waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
-    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference"); frecord.set_defaults(func=cmd_finding_record)
+    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
