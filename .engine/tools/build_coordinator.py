@@ -58,6 +58,13 @@ CoordinatorError = core.CoordinatorError
 _json = core.json_file
 _input = core.input_text
 _validate = core.validate
+
+# The recurring reminder shown on every coordinator command a session runs mid-Build (status, checkpoint):
+# the coordinator owns this PR's workflow, so it must reach ready THROUGH the submit gate, not a bare
+# `gh pr ready` (StarshipSuperjam/engine-template#1014). It is a soft nudge — the operator's merge stays the
+# binding gate — pairing with the durable 'engine-coordinator-owned' PR label applied at bind.
+_COORDINATOR_OWNED_REMINDER = ("Coordinator-owned: reach ready only through 'submit apply' (never a bare "
+                               "'gh pr ready'); the tail is contract apply -> preflight -> submit apply.")
 _canonical = core.canonical
 _digest = core.digest
 
@@ -399,10 +406,33 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if plan_waived:
         warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
     if plan:
-        unresolved_assumptions = [x["claim"] for x in plan.get("assumptions", []) if x["status"] == "unresolved"]
-        accepted = [x["claim"] for x in plan.get("assumptions", []) if x["status"] == "accepted-risk"]
+        # An assumption's EFFECTIVE status is its authored plan status overlaid with any receipt-layer
+        # disposition (StarshipSuperjam/engine-template#1014). A disposition never edits the plan, so the
+        # plan digest, approval, and review receipts survive — but a genuinely-open premise the review
+        # verified no longer forces a full review re-run to clear its engineering-decision hold. Computed
+        # ONCE and fed to BOTH the judgment/warning lines AND the phase gate below, so a disposed assumption
+        # can never wall while still printing "investigate …" (a contradictory render).
+        dispositions = {d["claim"]: d for d in state.get("assumption_dispositions", [])}
+        unresolved_assumptions, accepted, resolved_notes = [], [], []
+        for item in plan.get("assumptions", []):
+            claim, authored = item["claim"], item["status"]
+            disposition = dispositions.get(claim)
+            effective = disposition["resolved_as"] if disposition else authored
+            if effective == "unresolved":
+                unresolved_assumptions.append(claim)
+            elif effective == "accepted-risk":
+                accepted.append(claim)
+            # A disposition can only touch an assumption authored 'unresolved', so its presence IS the
+            # "resolved after approval" signal — no timestamp needed. Disclosed for BOTH verified and
+            # accepted-risk (a 'verified' disposition must NOT vanish the way a plan-authored 'verified'
+            # does), so the operator meets a self-attested post-hoc resolution at merge, never a silent skip.
+            if disposition and authored == "unresolved":
+                resolved_notes.append(
+                    f"assumption resolved after approval (self-attested, not re-reviewed): {claim} "
+                    f"-> {disposition['resolved_as']} — basis: {disposition['basis']}")
         judgments.extend("investigate unresolved assumption: " + value for value in unresolved_assumptions)
         warnings.extend("accepted plan risk: " + value for value in accepted)
+        warnings.extend(resolved_notes)
     if trivial_violations:
         judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
 
@@ -518,6 +548,13 @@ def cmd_plan_bind(args, store: StateStore) -> None:
                     "with 'plan migrate-v1'")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue, mode)
     store.create(state)
+    # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
+    # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
+    # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
+    if not github.tag_coordinator_owned(ROOT, args.repository, args.pr):
+        print("build-coordinator: could not tag this PR 'engine-coordinator-owned' (a non-blocking aid); "
+              "the Build proceeds — reach ready only through 'submit apply', never a bare 'gh pr ready'.",
+              file=sys.stderr)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
 
 
@@ -600,6 +637,11 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     state["approval"] = None
     state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
     state["findings"] = []
+    # Assumption dispositions are cycle-bound evidence, like findings and review receipts: a plan revision
+    # re-authors the premises and re-reviews from scratch, so a stale disposition must not survive to silently
+    # re-clear a wall the freshly-authored plan re-opens (StarshipSuperjam/engine-template#1014). A depth-only
+    # change keeps the plan digest and does NOT reach this reset, so a disposition rightly survives it.
+    state.pop("assumption_dispositions", None)
     state["progress"] = {"current_item": None, "completed": []}
     if "work" in state:
         state["work"] = {}
@@ -658,6 +700,7 @@ def cmd_status(args, store: StateStore) -> None:
         print(json.dumps(result, indent=2, sort_keys=True))
         return
     print(f"Phase: {result['phase']} (snapshot r{result['snapshot_revision']})")
+    print(_COORDINATOR_OWNED_REMINDER)
     progress = result["progress"]
     if progress["total"]:
         print(f"Progress: {len(progress['completed'])} of {progress['total']} complete"
@@ -1017,6 +1060,40 @@ def cmd_finding_record(args, store: StateStore) -> None:
     print(f"recorded disposition for {args.id}; reviewer severity did not choose the remedy")
 
 
+def cmd_assumption_dispose(args, store: StateStore) -> None:
+    """Resolve a plan assumption authored 'unresolved' to 'verified' or 'accepted-risk' in the receipt layer,
+    bound to a --basis, WITHOUT editing the plan (StarshipSuperjam/engine-template#1014). Mirrors
+    cmd_finding_record: store.mutate never touches state['plan']['digest'], so approval and every review
+    receipt survive — the honest submit path no longer forces a full review re-run to clear a wall the review
+    already settled. The disposition is disclosed at merge (see _status); it is a self-attested judgment, not a
+    silent skip, and the operator's merge stays the binding gate."""
+    plan = _plan(args.plan)
+    state = store.read()
+    _assert_plan(state, plan)
+    claim = args.claim.strip()
+    if not claim:
+        raise CoordinatorError("an assumption disposition needs a non-empty --claim")
+    if not args.basis.strip():
+        raise CoordinatorError("a disposition needs a --basis stating how the assumption was resolved")
+    authored = {item["claim"]: item["status"] for item in plan.get("assumptions", [])}
+    if claim not in authored:
+        raise CoordinatorError(
+            "no assumption with that exact claim in the approved plan (match the claim text verbatim): " + claim)
+    if authored[claim] != "unresolved":
+        raise CoordinatorError(
+            f"only an assumption authored 'unresolved' can be dispositioned; this one is authored "
+            f"'{authored[claim]}' in the approved plan — change the plan itself with 'plan revise'")
+
+    def change(state):
+        entry = {"claim": claim, "resolved_as": args.resolved_as, "basis": args.basis.strip()}
+        kept = [d for d in state.get("assumption_dispositions", []) if d["claim"] != claim]
+        state["assumption_dispositions"] = kept + [entry]
+
+    store.mutate(change)
+    print(f"resolved assumption after approval: {claim} -> {args.resolved_as}; it clears the "
+          "engineering-decision hold without re-running review, and is disclosed at merge")
+
+
 def _changed_paths(base: str) -> list[str]:
     paths = set(_must_run(["git", "diff", "--name-only", f"{base}..HEAD"]).splitlines())
     paths.update(_must_run(["git", "diff", "--name-only"]).splitlines())
@@ -1075,6 +1152,7 @@ def cmd_checkpoint(args, store: StateStore) -> None:
     else:
         print(f"checkpoint {note['judgment']}: {note['work_item']}; {note['progress']}; "
               f"{len(note['changed_paths'])} changed path(s), {len(note['remaining_verification'])} verification item(s) remain")
+        print(_COORDINATOR_OWNED_REMINDER)
 
 
 def cmd_validate(args, store: StateStore) -> None:
@@ -1928,6 +2006,15 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
 
     marker = f"<!-- engine-pr-contract:v1 {_digest(claim)} commit={head} -->"
 
+    # Post-approval assumption resolutions, rendered for the operator's merge surface (the PR Review record),
+    # not just `status` (StarshipSuperjam/engine-template#1014). Only an assumption authored 'unresolved' can
+    # carry a disposition, so its presence is the "after approval" signal; both verified and accepted-risk are
+    # disclosed so a self-attested post-hoc resolution can never vanish before the operator sees it.
+    authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
+    assumption_resolutions = [
+        f"{d['claim']} -> {d['resolved_as']} (self-attested, not re-reviewed) — basis: {d['basis']}"
+        for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
+
     return {
         "closes": closes,
         "change_profile": change_profile,
@@ -1937,6 +2024,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "review_coverage": review_coverage,
         "code_execution_line": code_execution_line,
         "disagreement_lines": review.required_disagreement_lines(state),
+        "assumption_resolutions": assumption_resolutions,
         "drift_line": drift_line,
         "composition_marker": marker,
         # preserved marker blocks are extracted from the live body at apply time, where the write happens.
@@ -2151,6 +2239,8 @@ def parser() -> argparse.ArgumentParser:
     waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
+    assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
+    adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)

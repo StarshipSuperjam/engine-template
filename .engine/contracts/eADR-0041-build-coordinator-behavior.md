@@ -54,6 +54,30 @@ state in `build-state` (written by `cmd_finding_record`, read by no publish path
 carrying the field is stripped on restore, not failed closed. This strengthens BC-21 (a truthful, non-leaking
 contract) and introduces no new hard hold._
 
+_Amended 2026-08-19 for low-friction assumption resolution (StarshipSuperjam/engine-template#1014). An
+assumption authored `unresolved` pins the Build at the `engineering-decision` phase, which — because `submit
+apply` requires the `ready` phase — holds submission until it is resolved. Before this amendment the only way
+to resolve one was `plan revise`, which mints a new plan digest and so invalidates approval and every review
+receipt: an assumption the review had already settled could be cleared only by re-running the whole review for
+an identical result, which manufactured a real incentive to reach `ready` by a bare `gh pr ready` outside the
+submit gate (the failure StarshipSuperjam/engine-template#1014 records). The `assumption dispose` verb resolves an assumption authored
+`unresolved` to `verified` or `accepted-risk` in the **receipt layer** (a new `assumption_dispositions` field,
+written by `store.mutate` exactly as finding dispositions are), bound to a required `--basis`, WITHOUT editing
+the plan — so the plan digest, approval, and review receipts survive and no re-review is forced. `_status`
+computes each assumption's **effective** status (authored status overlaid with any disposition) once, feeding
+both the judgment lines and the phase gate, so only an *effectively*-unresolved assumption still holds the
+phase. This is a self-clearable engineering-judgment hold, never a mechanical hard hold: it introduces no new
+row in the hard-holds table, forces no re-review, and requires no operator escalation. Its honesty rests on
+disclosure, not tamper-proofing — a disposition is a self-attested judgment, so every post-approval resolution
+(both `verified` and `accepted-risk`) is surfaced durably in `status` and in the PR Review record the operator
+reads at merge, distinct from a plan-authored status; the operator's merge stays the binding gate. A `plan
+revise` clears `assumption_dispositions` (cycle-bound evidence, like findings and receipts), so a revision
+re-opens its premises; a depth-only change keeps the plan digest and so keeps the dispositions. This does not
+close the residual that an honest session could still bypass the gate — a durable independent build identity
+(StarshipSuperjam/engine-template#914) is that fix; this amendment removes the manufactured *reason* to bypass
+and adds a soft, recurring reminder (a bind-time `engine-coordinator-owned` PR label and a standing line in
+`status`/`checkpoint`) that a coordinator-staged PR must reach `ready` through the submit gate._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
@@ -66,7 +90,7 @@ contract) and introduces no new hard hold._
 | BC-06 | mechanical fact | The installed reviewer roster and omissions are discoverable, and receipts stay bound to the reviewer contract that produced them. | Consumed-review-lenses record | Review identity became a recursive protocol. | Derive personas from committed metadata; bind each receipt to the shared referent plus that lens's source path and digest, so one prompt change invalidates only its dependent receipt. |
 | BC-07 | AI judgment | Reviewer severity and proposed remedies are advice; the orchestrator critically adjudicates both. | Reviewer boundaries; historical cases 865, 924, 955 | Severity effectively selected the response and encouraged blind repair. | Findings record disposition, rationale, and `blocks_this_pr`; severity never decides readiness. |
 | BC-08 | operator authority | Only genuine design, law, scope-boundary, authority, or unresolved blocking decisions return to the operator. | Conduct and Build gate | Routine leaves and audit nits repeatedly stopped the Build. | `escalated` is available, but ordinary engineering leaves remain the orchestrator's work. |
-| BC-09 | advisory practice | Unexpected paths, assumptions, and nearby risks should be shown to the engineer. | Impact check and checkpoints | Path policing turned every surprise into an interlock. | Status and checkpoint highlight them without forbidding progress. |
+| BC-09 | advisory practice | Unexpected paths, assumptions, and nearby risks should be shown to the engineer. | Impact check and checkpoints | Path policing turned every surprise into an interlock. | Status and checkpoint highlight unexpected paths and nearby risks without forbidding progress; an assumption authored `unresolved` additionally holds the `ready` phase until the orchestrator resolves it — low-friction via `assumption dispose` (receipt-layer, review-preserving) or `plan revise` — a self-clearable judgment hold, never a mechanical hard hold. |
 | BC-10 | AI judgment | An implementation discovery revises the plan only when it changes intent, outcome, capability boundary, non-goals, settled criteria, authority, or agreed scope. | Plan settlement; historical cases 886 and 924 | Leaf changes invalidated approvals and reviews. | The orchestrator explicitly selects aligned, revision, or operator-decision posture. |
 | BC-11 | submission prerequisite | The authoritative plan must be reproducible and match the approved digest. | Both review gates | Event repair attempted to reconstruct authority. | Missing or mismatched plan is a hard hold; no transcript reconstruction. |
 | BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission unless the operator explicitly waives a now-retrospective plan review with a disclosed reason. Deliverable review cannot be waived. |
@@ -107,7 +131,10 @@ to this table with equivalent evidence before it can become mandatory.
 
 No other condition is a hard hold. In particular, reviewer severity, unexpected paths, accepted risks,
 unresolved non-blocking findings, and the size of a diff are inputs to judgment rather than mechanical stop
-conditions.
+conditions. An assumption authored `unresolved` holds the `ready` phase (and so submission) until the
+orchestrator resolves it, but this is a self-clearable engineering-judgment hold — cleared by `assumption
+dispose` (receipt-layer, review-preserving) or `plan revise`, never forcing re-review or operator escalation —
+not a hard hold in the sense of this table, which enumerates missing evidence and authority.
 
 ### Historical scenario traceability
 

@@ -43,6 +43,7 @@
       "properties": {"plan": {"$ref": "#/$defs/review_stage"}, "deliverable": {"$ref": "#/$defs/review_stage"}}
     },
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "assumption_dispositions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["claim", "resolved_as", "basis"], "properties": {"claim": {"type": "string", "minLength": 1}, "resolved_as": {"enum": ["verified", "accepted-risk"]}, "basis": {"type": "string", "minLength": 1}}}},
     "checkpoint": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/checkpoint"}]},
     "progress": {
       "type": "object", "additionalProperties": false, "required": ["current_item", "completed"],

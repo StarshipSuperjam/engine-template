@@ -226,8 +226,8 @@ omitted approved reviewer coverage; absent deliverable review; validation stale 
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
 would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0041-build-coordinator-behavior.md`.
-Assumptions, unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or
-judgment inputs.
+Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs; an
+`unresolved` assumption instead holds the `ready` phase until cleared by `assumption dispose` or `plan revise`.
 
 ## Done when
 

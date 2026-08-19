@@ -122,7 +122,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         args = argparse.Namespace(input=str(self.plan_path), source="session", repository="owner/repo", pr=7, issue=None)
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
-        with mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(args, self.store)
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE, "mode": "same-session"})
 
@@ -1402,6 +1402,7 @@ class TestPlanV2Ingest(CoordinatorCase):
             mock.patch.object(bc, "_verify_draft", return_value=pr),
             mock.patch.object(bc, "_head", return_value=HEAD_A),
             mock.patch.object(bc, "_confidently_home", return_value=home),
+            mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True),
         ]
         if source == "issue":
             stack.append(mock.patch.object(bc, "_durable_plan", return_value=value))
@@ -1608,6 +1609,168 @@ class TestDepthsVerb(unittest.TestCase):
             rc = bc.main(["depths", "--json"])
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out.getvalue())["available"], ["quick"])
+
+
+class TestAssumptionDisposition(CoordinatorCase):
+    """The receipt-layer assumption-resolution mechanism (StarshipSuperjam/engine-template#1014)."""
+
+    CLAIM = "eADR-0043 has no dependents"
+
+    def _plan_unresolved(self, objective="Ship a small instrument panel"):
+        value = plan(objective)
+        value["assumptions"] = [{"claim": self.CLAIM, "status": "unresolved"}]
+        return value
+
+    def _seed_unresolved(self, depth="standard"):
+        value = self._plan_unresolved()
+        self.write_plan(value)
+        self.store.create(bc._initial_state("owner/repo", 7, BASE, "session", value, None))
+        self.approve(depth)
+        return value
+
+    def _status_now(self, value):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_must_run", return_value="1"):
+            return bc._status(self.store.read(), value)
+
+    def _dispose(self, resolved_as="verified", basis="the risk-governance lens verified it", claim=None):
+        args = argparse.Namespace(plan=str(self.plan_path), claim=claim or self.CLAIM,
+                                  resolved_as=resolved_as, basis=basis)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_assumption_dispose(args, self.store)
+
+    def test_unresolved_assumption_walls(self):
+        value = self._seed_unresolved()
+        status = self._status_now(value)
+        self.assertTrue(any("investigate unresolved assumption" in j for j in status["engineering_judgment"]))
+        # An in-flight state carries no dispositions key at all — the field is materialized lazily.
+        self.assertNotIn("assumption_dispositions", self.state())
+
+    def test_dispose_clears_wall_without_touching_plan_or_review(self):
+        value = self._seed_unresolved()
+        digest_before = self.state()["plan"]["digest"]
+        approval_before = self.state()["approval"]
+        self._dispose("verified")
+        state = self.state()
+        # The plan digest, approval, and review receipts are untouched — no re-review is forced.
+        self.assertEqual(state["plan"]["digest"], digest_before)
+        self.assertEqual(state["approval"], approval_before)
+        self.assertEqual(state["assumption_dispositions"],
+                         [{"claim": self.CLAIM, "resolved_as": "verified",
+                           "basis": "the risk-governance lens verified it"}])
+        status = self._status_now(value)
+        self.assertFalse(any("investigate unresolved assumption" in j for j in status["engineering_judgment"]))
+
+    def test_render_is_contradiction_free(self):
+        # Feasibility lens: the overlay must feed BOTH sites, so a disposed assumption never yields a walling
+        # judgment line while the phase clears (or vice versa).
+        value = self._seed_unresolved()
+        self._dispose("verified")
+        status = self._status_now(value)
+        judgment_names_it = any("investigate unresolved assumption" in j for j in status["engineering_judgment"])
+        disclosed = any("resolved after approval" in w for w in status["warnings"])
+        self.assertFalse(judgment_names_it)
+        self.assertTrue(disclosed)
+
+    def test_disclosure_present_for_verified_and_accepted_risk(self):
+        for resolved_as in ("verified", "accepted-risk"):
+            with self.subTest(resolved_as=resolved_as):
+                self.setUp()
+                value = self._seed_unresolved()
+                self._dispose(resolved_as, basis="a stated basis")
+                warnings = self._status_now(value)["warnings"]
+                notes = [w for w in warnings if "resolved after approval" in w]
+                self.assertEqual(len(notes), 1)
+                self.assertIn(self.CLAIM, notes[0])
+                self.assertIn(resolved_as, notes[0])
+                self.assertIn("a stated basis", notes[0])
+
+    def test_dispose_requires_a_basis(self):
+        self._seed_unresolved()
+        with self.assertRaisesRegex(bc.CoordinatorError, "basis"):
+            self._dispose("verified", basis="   ")
+
+    def test_dispose_refuses_unknown_claim(self):
+        self._seed_unresolved()
+        with self.assertRaisesRegex(bc.CoordinatorError, "no assumption with that exact claim"):
+            self._dispose("verified", claim="a claim not in the plan")
+
+    def test_dispose_refuses_an_already_authored_status(self):
+        # plan()'s default assumption is authored 'verified' — it cannot be dispositioned.
+        self.seed(); self.approve("standard")
+        args = argparse.Namespace(plan=str(self.plan_path), claim="The harness can reproduce this JSON document.",
+                                  resolved_as="verified", basis="x")
+        with self.assertRaisesRegex(bc.CoordinatorError, "authored 'unresolved'"):
+            bc.cmd_assumption_dispose(args, self.store)
+
+    def test_plan_revision_clears_dispositions_even_when_the_claim_is_unchanged(self):
+        # RG/architecture lens: a revision that keeps the assumption's claim byte-identical must still re-open
+        # it — a stale disposition may not survive to silently re-clear the wall.
+        value = self._seed_unresolved()
+        self._dispose("verified")
+        revised = self._plan_unresolved("A genuinely changed outcome")  # same unresolved claim, new digest
+        self.write_plan(revised)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False), self.store)
+        self.assertNotIn("assumption_dispositions", self.state())
+        self.approve("standard")
+        status = self._status_now(revised)
+        self.assertTrue(any("investigate unresolved assumption" in j for j in status["engineering_judgment"]))
+
+    def test_depth_change_preserves_dispositions(self):
+        # A depth change keeps the plan digest, so a disposition rightly survives it (no needless re-open).
+        value = self._seed_unresolved(depth="standard")
+        self._dispose("verified")
+        self.approve("thorough")
+        self.assertEqual(len(self.state().get("assumption_dispositions", [])), 1)
+
+    def test_state_without_dispositions_validates_and_dispose_materializes_lazily(self):
+        # RG/feasibility lens back-compat: a state carrying no dispositions key is valid (schema optional),
+        # and the key appears only once a disposition is recorded.
+        self._seed_unresolved()
+        self.assertNotIn("assumption_dispositions", self.state())  # store.create validated it
+        self._dispose("verified")
+        self.assertIn("assumption_dispositions", self.state())      # store.mutate re-validated it
+
+
+class TestCoordinatorOwnedTag(CoordinatorCase):
+    """The bind-time coordinator-ownership tag and the recurring reminder (StarshipSuperjam/engine-template#1014)."""
+
+    def _bind(self):
+        args = argparse.Namespace(input=str(self.plan_path), source="session", repository="owner/repo", pr=7, issue=None)
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        with mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            bc.cmd_plan_bind(args, self.store)
+        return err.getvalue()
+
+    def test_bind_tags_the_pr_coordinator_owned(self):
+        with mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True) as tag:
+            self._bind()
+        tag.assert_called_once_with(bc.ROOT, "owner/repo", 7)
+
+    def test_bind_is_non_fatal_when_tagging_fails(self):
+        with mock.patch.object(bc.github, "tag_coordinator_owned", return_value=False):
+            err = self._bind()
+        # The Build still bound (state created), and the failure is disclosed on stderr, not stdout.
+        self.assertEqual(self.state()["build"]["pr"], 7)
+        self.assertIn("coordinator-owned", err)
+
+    def test_tag_helper_is_non_fatal_on_gh_failure(self):
+        with mock.patch.object(bc.github.core, "must_run", side_effect=bc.core.CoordinatorError("gh boom")):
+            self.assertFalse(bc.github.tag_coordinator_owned(bc.ROOT, "owner/repo", 7))
+
+    def test_status_carries_the_reminder(self):
+        self.seed(); self.approve("standard")
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_must_run", return_value="1"), contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
+        self.assertIn("submit apply", out.getvalue())
+        self.assertIn("gh pr ready", out.getvalue())
 
 
 if __name__ == "__main__":
