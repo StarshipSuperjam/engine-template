@@ -1,0 +1,4 @@
+{
+  "severity": "hard",
+  "message_contains": "coordination code may reach GitHub only through the comment transport"
+}

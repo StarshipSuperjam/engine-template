@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
@@ -59,6 +58,7 @@ import module_coherence
 import module_manager
 import repo_identity
 import validate
+import render_safety
 import weakening_guard
 
 COMMENT_MARKER = "<!-- engine-overlay-disclosure -->"
@@ -71,10 +71,6 @@ USER_AGENT = "engine-overlay-disclosure"
 # `engine-remove-cleanup` is not wrongly exempted); only the varying-ref update branch is matched by prefix.
 _ENGINE_AUTHORED_BRANCH_EXACT = ("engine-remove", "engine-arrival")
 _ENGINE_AUTHORED_BRANCH_PREFIXES = ("engine-update-",)
-
-# A conservative file-path whitelist. Real engine paths use only these, so the substitution is lossless for
-# them; anything else (a crafted rename target) becomes '?', which cannot break a markdown code span.
-_UNSAFE_PATH_CHAR = re.compile(r"[^A-Za-z0-9._/-]")
 
 _MAX_LISTED = 15   # cap the rendered list so a large edit is not a wall of paths; the rest is summarized.
 
@@ -154,12 +150,12 @@ def _is_bot(comment: dict) -> bool:
 
 
 def _safe_path(path: str) -> str:
-    """A render-safe form of `path`: every character outside a conservative file-path whitelist (letters,
-    digits, dot, underscore, slash, hyphen) becomes '?'. Real engine paths use only those, so this is
-    lossless for them; it neutralizes a crafted rename target so no backtick can terminate the code span and
-    no bracket/paren/angle-bracket/autolink can form inside it. Backslash-escaping is deliberately NOT used —
-    it has no effect inside a markdown code span (CommonMark)."""
-    return _UNSAFE_PATH_CHAR.sub("?", path)
+    """A render-safe form of `path` — delegates to the one shared render-safety boundary
+    (`render_safety.safe_path`, StarshipSuperjam/engine-template#939), so this comment writer and the coordination-notice
+    board neutralise a crafted identifier through identical logic rather than two drifting copies. Real engine
+    paths pass through unchanged; a crafted rename target is neutralised so no backtick can terminate the code
+    span and no bracket/paren/angle-bracket/autolink can form inside it."""
+    return render_safety.safe_path(path)
 
 
 def _changed_hits(changed: list, wanted: set) -> list:
