@@ -197,9 +197,8 @@ Read `.github/pull_request_template.md` in full and fill its literal contract, i
 Scope/Behaviors, Validation, operator-readable Review record, Demonstration, and AI involvement. The Review
 record says what depth and plain-language checks ran, whether code was executed in a throwaway copy, how
 findings were dispositioned, and—when final differs from reviewed—the commits, divergence, judgment, and any
-focused result. Keep reviewer-internal names out of operator-facing prose. Include spec-derived acceptance
-steps or honest no-spec line, change profile, and a genuinely operator-runnable demonstration (or the real
-reason none is observable).
+focused result. Include spec-derived acceptance steps or honest no-spec line, change profile, and a genuinely
+operator-runnable demonstration (or the real reason none is observable).
 
 Follow [Build submission evidence](build-submission-evidence.md) for complete logs, index and scope-profile
 disclosure, spec-derived review steps, hard-check declarations, unresolved conversations, recognized
@@ -213,7 +212,8 @@ exact plan, current local/remote head, confirmed mergeability, complete review a
 validation and preflights, proportional repair judgment, and complete PR contract.
 
 `submit apply` can invoke only `gh pr ready`. It has no merge command or merge API path. Marking ready submits
-the claim to the operator; the Build ends there.
+the claim to the operator; the Build ends there. Reach it through this gate, not a bare `gh pr ready` — `plan
+bind` labels the PR `engine-coordinator-owned` and `status`/`checkpoint` carry a standing reminder.
 
 ### Coordinator status and holds
 
@@ -226,8 +226,8 @@ omitted approved reviewer coverage; absent deliverable review; validation stale 
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
 would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0041-build-coordinator-behavior.md`.
-Assumptions, unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or
-judgment inputs.
+Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs; an
+`unresolved` assumption instead holds the `ready` phase until cleared by `assumption dispose` or `plan revise`.
 
 ## Done when
 

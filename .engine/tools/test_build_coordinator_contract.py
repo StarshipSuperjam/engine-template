@@ -321,6 +321,60 @@ class TestPreviewEvidence(unittest.TestCase):
         self.assertTrue(verdict, [f["message"] for f in findings])
         self.assertIn("Change profile", body)
 
+    def test_post_approval_assumption_resolution_reaches_the_pr_review_record(self):
+        # StarshipSuperjam/engine-template#1014: a disposition of an assumption authored 'unresolved' is the
+        # operator's merge-time disclosure — it must render into the composed PR body, for verified AND
+        # accepted-risk, distinct from any plan-authored status.
+        import build_coordinator as bc
+        from unittest import mock
+        claim = _good_claim()
+        pr_data = {"body": "old body", "baseRefOid": "b" * 40}
+        prof = mock.Mock(stdout="**Change profile** — small: 3 files.", returncode=0)
+        plan = {"intent_source": {"kind": "direct"}, "spec": {},
+                "assumptions": [{"claim": "eADR-0043 has no dependents", "status": "unresolved"}]}
+        for resolved_as in ("verified", "accepted-risk"):
+            with self.subTest(resolved_as=resolved_as):
+                state = self._state()
+                state["assumption_dispositions"] = [
+                    {"claim": "eADR-0043 has no dependents", "resolved_as": resolved_as,
+                     "basis": "the review confirmed it"}]
+                with mock.patch.object(bc, "_run", return_value=prof), \
+                     mock.patch.object(bc.spec_service, "canonical_spec",
+                                       return_value={"posture": "none", "review_steps": "No settled spec applies."}), \
+                     mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+                     mock.patch.object(bc, "_installed",
+                                       return_value=[{"lens": "spec-conformance"}, {"lens": "divergence-hunter"}]):
+                    ev = bc._assemble_evidence(state, plan, claim, "c" * 40, pr_data)
+                self.assertEqual(len(ev["assumption_resolutions"]), 1)
+                self.assertIn("eADR-0043 has no dependents", ev["assumption_resolutions"][0])
+                self.assertIn(resolved_as, ev["assumption_resolutions"][0])
+                self.assertIn("the review confirmed it", ev["assumption_resolutions"][0])
+                body = bcc.compose(claim, ev)
+                self.assertIn("Assumption resolved after approval", body)
+                self.assertIn("eADR-0043 has no dependents", body)
+
+    def test_disposition_of_a_non_unresolved_assumption_is_not_surfaced(self):
+        # The defensive filter: only assumptions authored 'unresolved' produce a disclosure (a stray
+        # disposition for an already-clean claim never leaks into the PR body).
+        import build_coordinator as bc
+        from unittest import mock
+        claim = _good_claim()
+        pr_data = {"body": "old body", "baseRefOid": "b" * 40}
+        prof = mock.Mock(stdout="**Change profile** — small: 3 files.", returncode=0)
+        plan = {"intent_source": {"kind": "direct"}, "spec": {},
+                "assumptions": [{"claim": "already settled", "status": "verified"}]}
+        state = self._state()
+        state["assumption_dispositions"] = [
+            {"claim": "already settled", "resolved_as": "verified", "basis": "x"}]
+        with mock.patch.object(bc, "_run", return_value=prof), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "No settled spec applies."}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed",
+                               return_value=[{"lens": "spec-conformance"}, {"lens": "divergence-hunter"}]):
+            ev = bc._assemble_evidence(state, plan, claim, "c" * 40, pr_data)
+        self.assertEqual(ev["assumption_resolutions"], [])
+
     def test_durable_issue_added_to_closes(self):
         import build_coordinator as bc
         from unittest import mock

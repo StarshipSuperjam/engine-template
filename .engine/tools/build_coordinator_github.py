@@ -22,6 +22,17 @@ HANDOFF_END_V2 = "<!-- /engine-build-handoff:v2 -->"
 BUILD_MARKER = "<!-- engine-build-id:v1 nonce={nonce} repo={repo} pr={pr} plan={plan_digest} -->"
 GITHUB_BODY_BUDGET_BYTES = 60_000
 
+# The single home for the coordinator-ownership label. A coordinator-staged PR carries it as a durable,
+# visible "the Build coordinator owns this workflow" tag (StarshipSuperjam/engine-template#1014) — the
+# recurring reminder to finish through submit apply rather than a bare `gh pr ready`. It is engine-applied
+# (not operator-applied) and backs NO guard — no check, workflow, or ruleset reads it — so it is deliberately
+# NOT in bootstrap's `REQUIRED_LABELS`, which is scoped to the labels the engine's guards depend on. It is
+# created on demand at bind (`tag_coordinator_owned`) instead, the right mechanism for a non-guard engine
+# label: a soft aid, never a gate.
+COORDINATOR_OWNED_LABEL = "engine-coordinator-owned"
+COORDINATOR_OWNED_LABEL_COLOR = "5319e7"
+COORDINATOR_OWNED_LABEL_DESCRIPTION = "Staged by the Build coordinator; reach ready only through submit apply."
+
 
 def _version_tag(schema_version: str) -> str:
     """'build-plan.v2' -> 'v2'. The tag that selects a document's marker pair."""
@@ -70,6 +81,23 @@ def set_ready(root: Path, repo: str, pr: int) -> None:
 
 def set_draft(root: Path, repo: str, pr: int) -> None:
     core.must_run(["gh", "pr", "ready", str(pr), "--repo", repo, "--undo"], root=root)
+
+
+def tag_coordinator_owned(root: Path, repo: str, pr: int) -> bool:
+    """Best-effort: create-on-demand and apply COORDINATOR_OWNED_LABEL to a coordinator-staged PR. Two calls
+    because `gh pr edit --add-label` fails if the label does not already exist; `gh label create --force`
+    creates-or-updates idempotently. `core.must_run` raises on any non-zero exit, so both are caught: a
+    labeling failure must never abort the Build — the caller discloses and proceeds (the tag is an aid, not a
+    gate). Returns True only when both the ensure and the apply succeed."""
+    try:
+        core.must_run(["gh", "label", "create", COORDINATOR_OWNED_LABEL, "--repo", repo,
+                       "--color", COORDINATOR_OWNED_LABEL_COLOR,
+                       "--description", COORDINATOR_OWNED_LABEL_DESCRIPTION, "--force"], root=root)
+        core.must_run(["gh", "pr", "edit", str(pr), "--repo", repo,
+                       "--add-label", COORDINATOR_OWNED_LABEL], root=root)
+        return True
+    except core.CoordinatorError:
+        return False
 
 
 def issue_body(root: Path, repo: str, issue: int) -> str:

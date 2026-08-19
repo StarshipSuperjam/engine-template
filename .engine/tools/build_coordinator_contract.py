@@ -296,6 +296,12 @@ def compose(claim: dict, evidence: dict) -> str:
         review_body.append(line)
     for dl in evidence.get("disagreement_lines", []):
         review_body.append(dl)
+    # Post-approval assumption resolutions the operator must meet at merge: a premise authored 'unresolved'
+    # that the orchestrator later self-attested as resolved WITHOUT a plan revision or re-review
+    # (StarshipSuperjam/engine-template#1014). Disclosed verbatim so a 'verified' disposition can never
+    # vanish silently the way a plan-authored 'verified' does.
+    for ar in evidence.get("assumption_resolutions", []):
+        review_body.append(f"- **Assumption resolved after approval.** {ar}")
     if evidence.get("drift_line"):
         review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
     for cl in evidence.get("close_linkage_lines", []):
