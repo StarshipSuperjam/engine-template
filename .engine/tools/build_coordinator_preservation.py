@@ -28,6 +28,13 @@ def validate_map(root: Path) -> dict:
         seen.add(obligation["id"])
         owner = root / obligation["owner"]
         if not owner.is_file():
+            # A `home-only` obligation names an owner that exists ONLY in the engine's home repository: the
+            # schema already declares the field (`scope`: all | home-only) and the absence is mechanical —
+            # the owner is a first-run-retired asset, so a deployed copy legitimately does not carry it, and
+            # its prose anchor cannot be read there either. Keyed on the DECLARED scope, never on ambient
+            # deployedness, so every other obligation keeps verifying its owner in every projection.
+            if obligation.get("scope") == "home-only":
+                continue
             raise core.CoordinatorError(f"{obligation['id']} names missing owner {obligation['owner']}")
         anchor = obligation["anchor"]
         if obligation["disposition"] == "mechanical":

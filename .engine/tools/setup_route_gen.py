@@ -103,6 +103,34 @@ def derive() -> dict:
     return out
 
 
+def declined_route_owner(route_name: str, root: str | None = None) -> "str | None":
+    """The owning module id when `route_name` (an `engine-setup-<mid>` directory) belongs to a REAL module NOT
+    installed in this checkout — so its surviving route is a legitimate decline, not orphan generation — else
+    None. Mirrors `module_surfaces.declined_surface_owner`, and reads the same two authorities: the committed
+    module-surfaces registry for what modules REALLY exist (it ships complete, while a deployment carries only a
+    subset of manifests, #646), and `engine.json`'s `packages` for what is installed here. FAILS CLOSED: when
+    the installed roster cannot be read it tolerates nothing, so a corrupt engine.json can never soften the
+    gate. A name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
+    Deliberately NOT keyed on the module catalog: `module_catalog.derive` merge-preserves a prior entry for any
+    manifest-less module, so a module RETIRED from source keeps its entry forever and is indistinguishable
+    there from one declined in a deployment — the discriminator this gate needs."""
+    root = root or validate.ROOT
+    mid = route_name[len(_NAME_PREFIX):]
+    if not mid:
+        return None
+    import module_surfaces  # lazy: keep the import cost off the generate/derive path
+    try:
+        eng = validate.load_json(os.path.join(root, ".engine", "engine.json"))
+        installed = set((eng or {}).get("packages") or {})
+    except Exception:  # noqa: BLE001 — an unreadable roster must tolerate nothing
+        installed = set()
+    if not installed:            # a valid engine always has `core`; empty means the read failed
+        return None              # fail closed — never soften the gate when the roster is unknown
+    registry = module_surfaces.load(root)
+    known = {owner for owners in registry.values() for owner in owners}
+    return mid if mid in known and mid not in installed else None
+
+
 def check(tier: str = "hard", root: str | None = None) -> list:
     """Findings when a committed setup route is missing or diverges from its derived text, or a stray
     `engine-setup-*` route exists with no offerable module behind it. The drift gate for the derived-committed
@@ -123,12 +151,20 @@ def check(tier: str = "hard", root: str | None = None) -> list:
                 findings.append(validate.finding(tier, f"The setup route {rel} is out of date — it no longer "
                                 f"matches its module's presentation. Regenerate with "
                                 f"`setup_route_gen.py generate`."))
-    # A stray engine-setup-<id> route whose module is not an offerable present module is orphan generation.
+    # A stray engine-setup-<id> route whose module is not an offerable present module is orphan generation —
+    # EXCEPT where the module is real but DECLINED here. The routes are core-owned and survive a decline on
+    # purpose (see this module's docstring; ADR 0336: the derived-committed surfaces "travel with a deployment,
+    # including its declined-module memory"), so in a deployment that declined a module its route is expected,
+    # not stale. The tolerance reads `declined_route_owner`, which fails CLOSED: an unreadable installed roster
+    # tolerates nothing, and a module the registry does not know (renamed, retired from source, a typo) is never
+    # tolerated — that leftover route stays a hard finding, which is this branch's whole purpose at home.
     expected_names = {os.path.basename(os.path.dirname(rel)) for rel in expected}
     skills_dir = os.path.join(base, ".claude", "skills")
     if os.path.isdir(skills_dir):
         for name in sorted(os.listdir(skills_dir)):
             if name.startswith(_NAME_PREFIX) and name not in expected_names:
+                if declined_route_owner(name, base):
+                    continue
                 findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
                                 f"behind it — a stale generated route. Remove it or restore its module."))
     return findings
