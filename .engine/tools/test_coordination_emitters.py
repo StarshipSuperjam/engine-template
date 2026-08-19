@@ -130,6 +130,12 @@ class TestScans(unittest.TestCase):
         self.assertEqual(posted, 2)  # PRs 2 and 3, not 1
         self.assertEqual({c["number"] for c in gh.comments.values()}, {2, 3})
 
+    def test_dependency_merged_scan_posts_only_for_overlapping_peer(self):
+        gh = FakeGitHub(open_prs=3, files={1: ["a.py"], 2: ["a.py"], 3: ["b.py"]})
+        posted = ce.emit_dependency_merged_scan(gh.transport, "o/r", 1, base_sha="a" * 40)
+        self.assertEqual(posted, 1)  # peer 2 overlaps the merged PR 1; peer 3 does not
+        self.assertEqual({c["number"] for c in gh.comments.values()}, {2})
+
     def test_scans_never_raise(self):
         # a transport that errors on everything -> scans return 0, never raise
         def _boom(method, path, body=None):

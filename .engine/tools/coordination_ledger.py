@@ -45,6 +45,7 @@ LEDGER_FILENAME = "coordination.json"
 
 _EVENTS_CAP = 500     # the measurement ring: newest 500 events, oldest evicted
 _SEEN_CAP = 200       # per-pull-request seen-id history (a board never holds more than a handful live)
+_PR_CAP = 100         # tracked pull requests: bound the file so a long-lived clone never grows unboundedly
 
 
 def _run(cmd: list) -> "str | None":
@@ -166,7 +167,14 @@ def sync_board(pr: int, notices: list, *, cwd=None, path=None) -> list:
     snapshot = [{"notice_id": n["notice_id"], "kind": n["kind"]} for n in notices]
 
     def _fn(ledger):
+        # Move this pull request to the most-recent position (pop then set), then bound the tracked set so a
+        # long-lived shared clone never grows the file without limit — evict the least-recently-synced.
+        ledger["boards"].pop(str(pr), None)
         ledger["boards"][str(pr)] = snapshot
+        while len(ledger["boards"]) > _PR_CAP:
+            stale = next(iter(ledger["boards"]))
+            ledger["boards"].pop(stale, None)
+            ledger["seen"].pop(stale, None)
         seen = set(ledger["seen"].get(str(pr), []))
         return [n for n in notices if n["notice_id"] not in seen]
 

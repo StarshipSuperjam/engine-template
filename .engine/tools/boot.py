@@ -3073,12 +3073,13 @@ def render_coordination() -> str:
         return ""
     if not pending:
         return ""
-    lines = ["▸ Coordination notices (advisory — re-verify canonical state before acting):"]
+    lines = ["▸ Coordination notices from concurrent sessions are waiting (advisory — relay this in plain "
+             "words, then re-verify canonical state before acting on any of it):"]
     for pr in sorted(pending):
         kinds = sorted({e.get("kind", "?") for e in pending[pr]})
         n = len(pending[pr])
-        lines.append(f"  - PR #{pr}: {n} unread ({', '.join(kinds)}) — read them with "
-                     "`integration_queue.py status` and re-check the canonical state each names.")
+        lines.append(f"  - pull request #{pr}: {n} unread ({', '.join(kinds)}) — read this pull request's "
+                     "coordination board and re-verify the canonical state each notice names before acting.")
     return "\n".join(lines)
 
 

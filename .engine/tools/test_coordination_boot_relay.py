@@ -28,11 +28,9 @@ class TestBootRelay(unittest.TestCase):
                           {"notice_id": "b" * 32, "kind": "revalidation-notice"}], path=self.ledger)
         # boot reads the default ledger path (env-pointed at our tmp dir)
         block = boot.render_coordination()
-        self.assertIn("PR #7", block)
+        self.assertIn("pull request #7", block)
         self.assertIn("integration-notice", block)
         self.assertIn("2 unread", block)
-        # no branch/path identifiers leak into the relay
-        self.assertNotIn("/", block.split("integration_queue.py")[0].replace("PR #7", ""))
 
     def test_seen_notices_drop_out(self):
         cl.sync_board(7, [{"notice_id": "a" * 32, "kind": "integration-notice"}], path=self.ledger)

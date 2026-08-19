@@ -181,6 +181,11 @@ class TestSchemaConstantDrift(unittest.TestCase):
             for event in events:
                 self.assertIn((kind, event), cn._OPERATOR_LINE, f"missing operator copy for {kind}/{event}")
 
+    def test_every_verify_action_has_a_phrase(self):
+        for action in cn.VERIFY_ACTIONS:
+            self.assertIn(action, cn._VERIFY_PHRASE, f"missing verify phrase for {action}")
+        self.assertEqual(set(cn._VERIFY_PHRASE), set(cn.VERIFY_ACTIONS))
+
 
 class TestDemo(unittest.TestCase):
     def test_demo_passes(self):

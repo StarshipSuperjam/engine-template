@@ -11,8 +11,15 @@ outright. A violation is a HARD finding, so the blocklist-evadable "scan for kno
 review flagged is closed: the DEFAULT is deny, and only the comment transport is allowed.
 
 The check reads the tree at ROOT (or an `ENGINE_COORDINATION_CONFINEMENT_ROOT` override, the fixture seam),
-so its negative fixture can point it at a deliberately-bad coordination file and prove it bites. It is a
-static source scan — the confinement is a property of the code, provable without running it.
+so its negative fixture can point it at a deliberately-bad coordination file and prove it bites.
+
+TWO LAYERS, HONESTLY. This static scan is the COMPILE-TIME half: it catches the naive case — a merge/label/
+status/body call written directly in a `coordination_*.py` file — and blocks it at CI before merge. It does
+NOT follow the import graph, so a call routed through a differently-named helper would slip past it. The
+RUNTIME backstop that closes that gap is `coordination_board.comment_only`: every transport coordination
+holds is wrapped so it can issue only reads and the two comment-write shapes, raising on anything else — so
+even an indirected or future-added write cannot reach a forbidden endpoint at run time. The mechanical
+guarantee is the runtime guard; this scan is the early, static tripwire on top of it.
 """
 from __future__ import annotations
 

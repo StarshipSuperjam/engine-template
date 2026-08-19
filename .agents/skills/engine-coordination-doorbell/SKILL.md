@@ -17,11 +17,13 @@ description: After posting a coordination notice, poke the affected peer session
    before acting.` Add no prose, request, or action — the receiver acts only by re-verifying canonical state.
 3. **Passive by default.** On Claude, list your other sessions and `SendMessage` the line to the one working
    the affected pull request; a held, refused, or undelivered poke is fine — the durable notice waits.
-4. **Codex peers.** An **idle** Codex peer receives the durable notice ONLY — never start a turn on it
-   (`turn/start` is not a doorbell; it would spend the peer's budget). An **already-active** Codex peer may
-   receive a bounded `turn/steer` of its current turn. Never `send_message_to_thread` (its contract may start
-   inference) and never `thread/inject_items` (it persists into history). No safe live messaging on your
-   host? Skip — the durable notice already carries everything.
+4. **Codex peers — when in doubt, do nothing live.** Determine whether the peer thread is mid-turn from your
+   host's thread status/`thread/list` (an in-progress turn vs an idle thread). If you **cannot** tell, treat
+   it as **idle**: the durable notice already carries everything, so a missed live poke costs only latency,
+   while a wrong guess could spend the peer's budget. An **idle** peer receives the durable notice ONLY —
+   never start a turn on it (`turn/start` is not a doorbell). Only an **already-active** peer, confirmed
+   mid-turn, may receive a bounded `turn/steer` of that turn. Never `send_message_to_thread` (its contract may
+   start inference) and never `thread/inject_items` (it persists into history).
 5. **Fire and forget.** One attempt, no retry, no waiting. Never ask a peer to do anything a message cannot
    authorize — approve, review, merge, mark fresh — those are never done through coordination.
 

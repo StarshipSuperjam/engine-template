@@ -50,9 +50,13 @@ def safe_ident(value: str, *, replacement: str = "?", max_len: int = MAX_IDENT_L
     text = value if isinstance(value, str) else str(value)
     safe = _UNSAFE_IDENT_CHAR.sub(replacement, text)
     if len(safe) > max_len:
-        # Truncate a pathological value; the marker is plain whitelist ASCII (dots + letters) so it neither
-        # carries markup nor violates a whitelist-constrained field.
-        safe = safe[:max_len] + "...TRUNCATED"
+        # Truncate a pathological value so the RESULT never exceeds max_len — the marker is counted IN the
+        # budget, not appended past it, so a caller that also enforces `max_len` as a hard field bound (the
+        # coordination-notice branch/path charset) never rejects a value this function claims it made fit.
+        # The marker is plain whitelist ASCII (dots + letters), so it carries no markup and stays in-charset.
+        marker = "...TRUNCATED"
+        keep = max(0, max_len - len(marker))
+        safe = safe[:keep] + marker
     return safe
 
 

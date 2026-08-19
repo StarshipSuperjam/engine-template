@@ -275,17 +275,23 @@ def main(argv: list) -> int:
             return 0
         held = be.admitted()
         be.release(this)
-        # Advisory: the slot just freed, so tell the new next candidate it is up (best-effort, never gates).
-        _next = reviewed_candidates(transport, repo, base, tier=tier)
-        if _next:
-            _coordinate(lambda ce, pr=_next[0].pr: ce.emit_integration_next(transport, repo, pr))
-        # advance follows the operator's merge, so the base likely advanced — tell other candidates their
-        # green may be stale (best-effort; a spurious one is harmless, the receiver re-checks the base).
-        def _revalidate(ce):
-            st, data = transport("GET", f"/repos/{repo}/commits/{base}", None)
-            if st < 400 and isinstance(data, dict) and data.get("sha"):
-                ce.emit_revalidation_scan(transport, repo, base_sha=data["sha"], exclude_pr=this)
-        _coordinate(_revalidate)
+        # Advisory coordination (best-effort, never gates). All wrapped so a GitHub hiccup never crashes the
+        # release that already succeeded.
+        def _advance_coordination(ce):
+            _next = reviewed_candidates(transport, repo, base, tier=tier)
+            if _next:
+                ce.emit_integration_next(transport, repo, _next[0].pr)
+            # Only fan out base-advanced signals when THIS pull request actually MERGED (advance can also
+            # follow an abandon, which leaves the base unchanged). Gating on the observed merge is the
+            # base-SHA-change gate the plan committed to.
+            st, pr_data = transport("GET", f"/repos/{repo}/pulls/{this}", None)
+            merged = st < 400 and isinstance(pr_data, dict) and bool(pr_data.get("merged"))
+            if merged:
+                sc, cdata = transport("GET", f"/repos/{repo}/commits/{base}", None)
+                if sc < 400 and isinstance(cdata, dict) and cdata.get("sha"):
+                    ce.emit_revalidation_scan(transport, repo, base_sha=cdata["sha"], exclude_pr=this)
+                    ce.emit_dependency_merged_scan(transport, repo, this, base_sha=cdata["sha"])
+        _coordinate(_advance_coordination)
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
         else:
@@ -313,9 +319,12 @@ def main(argv: list) -> int:
     print(f"backend: {st['backend']}; admitted: {st['admitted']}")
     for c in st["candidates"]:
         print(f"  candidate PR #{c['pr']}: {c['title']}")
-    _this = _current_pr(transport, repo, base)
-    if _this is not None:
-        _coordination_sync(transport, repo, _this)
+    try:  # the coordination read is advisory — a GitHub hiccup must never crash `status`
+        _this = _current_pr(transport, repo, base)
+        if _this is not None:
+            _coordination_sync(transport, repo, _this)
+    except Exception:  # noqa: BLE001
+        pass
     return 0
 
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -29,6 +30,34 @@ import coordination_notice as cn  # noqa: E402
 import github_client  # noqa: E402
 
 USER_AGENT = "engine-coordination-board"
+
+# The RUNTIME half of the advisory-only law (StarshipSuperjam/engine-template#939, eADR-0043 law 3): the two comment write shapes
+# coordination may perform. Anything else is refused by comment_only() below — so even a future coordination
+# edit, or an indirection through a differently-named helper, cannot reach a merge/label/status/issue-body
+# endpoint. The static confinement check is the compile-time half; this is the mechanical backstop the static
+# scan cannot give (it catches the naive in-file case, not a deliberate indirection).
+_POST_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/\d+/comments/?(?:\?|$)")
+_PATCH_COMMENT_PATH = re.compile(r"/repos/[^/]+/[^/]+/issues/comments/\d+/?(?:\?|$)")
+
+
+def comment_only(transport):
+    """Wrap a raw GitHub transport so coordination can issue ONLY read-only GETs and the two comment-write
+    shapes (POST an issue's comments collection, PATCH a comment by id). Any other method, or a write to any
+    other path — a merge, a label, a commit status, an issue-body edit — raises, at runtime, before it
+    reaches GitHub. This makes the advisory-only law a property coordination cannot escape by refactoring the
+    call into a helper the static check does not scan. Idempotent: wrapping an already-wrapped transport is
+    harmless."""
+    def _guarded(method, path, body=None):
+        m = (method or "").upper()
+        if m == "GET":
+            return transport(method, path, body)
+        if m == "POST" and _POST_COMMENT_PATH.search(path or ""):
+            return transport(method, path, body)
+        if m == "PATCH" and _PATCH_COMMENT_PATH.search(path or ""):
+            return transport(method, path, body)
+        raise BoardError(
+            f"coordination is confined to reads and comment writes (eADR-0043 law 3); refused {m} {path}")
+    return _guarded
 BOARD_MARKER = "<!-- engine-coordination-board:v1 -->"
 BOARD_INTRO = (
     "**Engine coordination board.** Advisory notices from concurrent Engine worker sessions on this work "
@@ -62,7 +91,10 @@ class _Comments:
     def __init__(self, repo: str, token: str, *, transport=None):
         self.repo = repo
         self.token = token
-        self._transport = transport or self._http
+        # Wrap the effective transport in the comment-only guard, so EVERY board call — and anything that
+        # holds this client — can issue only reads and comment writes, at runtime, whatever the caller passed
+        # (StarshipSuperjam/engine-template#939, eADR-0043 law 3: the mechanical backstop the static confinement scan cannot give).
+        self._transport = comment_only(transport or self._http)
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None

@@ -90,6 +90,46 @@ class TestBoardRMW(unittest.TestCase):
             self.assertNotIn("/statuses", path)
 
 
+class TestCommentOnlyGuard(unittest.TestCase):
+    def test_reads_and_comment_writes_pass(self):
+        seen = []
+        raw = lambda m, p, b=None: (seen.append((m, p)) or (200, []))  # noqa: E731
+        g = cb.comment_only(raw)
+        g("GET", "/repos/o/r/pulls?state=open", None)
+        g("POST", "/repos/o/r/issues/5/comments", {"body": "x"})
+        g("PATCH", "/repos/o/r/issues/comments/9", {"body": "x"})
+        self.assertEqual(len(seen), 3)  # all three permitted shapes reached the raw transport
+
+    def test_refuses_a_merge(self):
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        with self.assertRaises(cb.BoardError):
+            g("POST", "/repos/o/r/pulls/5/merge", {})
+
+    def test_refuses_label_status_and_body_edits(self):
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        for method, path in [("POST", "/repos/o/r/issues/5/labels"),
+                             ("POST", "/repos/o/r/statuses/abc"),
+                             ("PATCH", "/repos/o/r/issues/5")]:  # issue-body edit (not a comment)
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
+    def test_board_client_is_confined_even_with_a_raw_transport(self):
+        # a client handed a fully-generic transport can still only reach comment endpoints
+        seen = []
+
+        def raw(method, path, body=None):
+            seen.append((method, path))
+            if method == "GET":
+                return 200, []
+            return 201, {"id": 1, "number": 5, "body": body["body"], "user": {"type": "Bot"}}
+
+        client = cb._Comments("o/r", "tok", transport=raw)
+        cb.post_notice(client, 5, _notice())
+        self.assertTrue(all("/comments" in p or "/pulls" not in p for _m, p in seen))
+
+
 class TestEviction(unittest.TestCase):
     def test_cap_and_priority(self):
         gh = FakeGitHub()

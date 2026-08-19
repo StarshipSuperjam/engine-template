@@ -6,6 +6,13 @@ Two Engine worker sessions share a repository. Session A, preparing PR #5, posts
 B, on PR #6, reads the board and would re-verify canonical state. No network: a fake in-memory GitHub models
 the comments and the pull requests, so the whole thing runs in CI.
 
+HONEST SCOPE: this is a SINGLE-PROCESS simulation of two sessions — it drives the real notice/board/parser
+and the three advisory-only properties deterministically, but it is not two OS processes and does not
+exercise the ledger's cross-process file lock. Genuine multi-process concurrency (two real sessions on one
+machine) is the local live arm below, disclosed as unrun in CI. The canonical decision shown in control 1
+(change-domain overlap) reads GitHub, never the board or the local ledger, which is why deleting the board
+cannot change it.
+
 The point of a demo is that it can FAIL. Three controls each assert a load-bearing property of eADR-0043 and
 return a non-zero exit if the property does not hold:
   1. DELIVERY-INDEPENDENCE — the canonical decision (here, change-domain overlap) is byte-identical whether or

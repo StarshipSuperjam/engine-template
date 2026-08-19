@@ -3394,7 +3394,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:ff0f8b120b7b27bd787a35175b86ae7874e5e641e301853e6ca820b0e9e1e115",
+        "fingerprint": "sha256:9c2e54167cde54b2b1505813f26683bc82d53a6d3ff9123d8762f12536a66fc2",
         "path": ".agents/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -3434,7 +3434,7 @@
       },
       "slug": "engine-coordination-read",
       "source": {
-        "fingerprint": "sha256:986ff18d0c8f0d354180d10b7436ea99277c4b61358c8bf193229d9413f5b09c",
+        "fingerprint": "sha256:68775497a589bd5bde10fe9d5bf32410579153c369870ce2fca5c9e4c9a21898",
         "path": ".agents/skills/engine-coordination-read/SKILL.md"
       },
       "status": "active",
@@ -5954,7 +5954,7 @@
       },
       "slug": "eADR-0043-advisory-session-coordination",
       "source": {
-        "fingerprint": "sha256:d89f8b0bfec5919a3008764d4eaf6fecc4c03cb5a4ef46f1ca94294e818f4264",
+        "fingerprint": "sha256:194a4b50f2f4dad006a5815684318915d5bec3a7cef0ab2926014a5b976af56b",
         "path": ".engine/contracts/eADR-0043-advisory-session-coordination.md"
       },
       "status": "accepted",
@@ -7004,7 +7004,7 @@
       },
       "slug": "session-coordination",
       "source": {
-        "fingerprint": "sha256:2f06bdeed499ce83eea7197b7098432522115ae5f787199082e781d9257e4f7c",
+        "fingerprint": "sha256:67c45d523db37aee91c310a10fa848202cdcf9cfa8e64ce1f86d2c0b163ce6b2",
         "path": ".engine/operations/session-coordination.md"
       },
       "status": "active",
@@ -8264,7 +8264,7 @@
       },
       "slug": "engine-coordination-doorbell",
       "source": {
-        "fingerprint": "sha256:9cb6821731182b38d20cfe2a2bf84d60d215db58c4e53d8a251755a1e8224532",
+        "fingerprint": "sha256:e9c90aea72d07f177c04c7d11c1f462b0d2c3032157cc69825ff3c0c17f84a00",
         "path": ".claude/skills/engine-coordination-doorbell/SKILL.md"
       },
       "status": "active",
@@ -8289,7 +8289,7 @@
       },
       "slug": "engine-coordination-read",
       "source": {
-        "fingerprint": "sha256:fff30b354a9c19d16ce9b588d5d6bfebab5b96e778e9c7355a3f698c715aa8c2",
+        "fingerprint": "sha256:89e7af6dd8583b2e76b483a74a55d5811c3f955fd7f0b4cefe49cf204f1fd486",
         "path": ".claude/skills/engine-coordination-read/SKILL.md"
       },
       "status": "active",
@@ -9712,7 +9712,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2ba40b75ab5bb1c7c0fc82f5d7f506db0a4c6d64051b2491f853eb01f5118054",
+        "fingerprint": "sha256:60ca1253d3c4229b43057a4fed3eb42919d12f0ed2ee95594c521904486e8dce",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -10450,7 +10450,7 @@
       },
       "slug": "coordination_board",
       "source": {
-        "fingerprint": "sha256:b3a6b751a6119590c83bdfa2348c9628503d0a7d9ab98da80249ea999a45ca83",
+        "fingerprint": "sha256:ae36da070426aa3a78e8f6e13f7c361450e47b8242ff87bdfcbeb8c7b47dcd6a",
         "path": ".engine/tools/coordination_board.py"
       },
       "status": "active",
@@ -10473,7 +10473,7 @@
       },
       "slug": "coordination_confinement_check",
       "source": {
-        "fingerprint": "sha256:384fb5454014e67fef1f62b3fce67d92e4a5680092c448cde6c91c47ccbeb822",
+        "fingerprint": "sha256:7f51a89f2c6b8ae336e5bbc1ffa875ade8e0fad1d16fa4f40ce5dcffedb3efd2",
         "path": ".engine/tools/coordination_confinement_check.py"
       },
       "status": "active",
@@ -10523,7 +10523,7 @@
       },
       "slug": "coordination_emitters",
       "source": {
-        "fingerprint": "sha256:99538818a81c5e03739f89257ec8a1139af2107f367f2b2171b29b0aaa478d2f",
+        "fingerprint": "sha256:c17a1f75987ba1d6de5e9b16222c781d7632c55f9cfe30708f74b4604166922a",
         "path": ".engine/tools/coordination_emitters.py"
       },
       "status": "active",
@@ -10543,7 +10543,7 @@
       },
       "slug": "coordination_ledger",
       "source": {
-        "fingerprint": "sha256:072184ac2060fb97feecc2e4773e6ac91871a64fe89df1916c6d324a15819851",
+        "fingerprint": "sha256:7c4396bd89ae1d641dc91ac959c2bff9e2e30fff14849ce8dee928455a23a021",
         "path": ".engine/tools/coordination_ledger.py"
       },
       "status": "active",
@@ -10567,7 +10567,7 @@
       },
       "slug": "coordination_notice",
       "source": {
-        "fingerprint": "sha256:15fdc62562e55dc6356903800d4a3de699a3b8ab1b72b9df25f932a09888649c",
+        "fingerprint": "sha256:0652b2bfac589179a973de5a5b3d698ab78f451b3a47582a3750fa8efecdfe08",
         "path": ".engine/tools/coordination_notice.py"
       },
       "status": "active",
@@ -11256,7 +11256,7 @@
       },
       "slug": "demo_coordination_two_sessions",
       "source": {
-        "fingerprint": "sha256:37d8a552a80fbab9e4b6a471fd34dd462deef295f6f6266e9b75457c341ed717",
+        "fingerprint": "sha256:cde63badd4db3790b024633df8e12559ebc82f62ef35b17e9a3b4562514f9c38",
         "path": ".engine/tools/demo_coordination_two_sessions.py"
       },
       "status": "active",
@@ -12640,7 +12640,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:dee3bea9b76ed2c9c4daef17575bee3796abf02486ee9fdfaa83ce29da1e7e40",
+        "fingerprint": "sha256:9287d4228ac4a1094f88bc24214f9c00860b574a97d2101f2f62db0caa136a61",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -13726,7 +13726,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:d37e6fefb5bf7825567a652f0cf44fd0d8cc9d7093768df18c2604429b3aa337",
+        "fingerprint": "sha256:a5afd7dd0d5fd51d850d74a6472617550cac3975c18d3282c17e10879022a054",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -14221,7 +14221,7 @@
       },
       "slug": "render_safety",
       "source": {
-        "fingerprint": "sha256:429730013281de2aa2ae0b54587be21eeb126ed3b4b8b16372f5b73e82d706fa",
+        "fingerprint": "sha256:a8ed7a0948ecfac8b823f39c6d7fbb2387379573be10670f674b6ac61d030643",
         "path": ".engine/tools/render_safety.py"
       },
       "status": "active",
@@ -16072,7 +16072,7 @@
       },
       "slug": "test_coordination_board",
       "source": {
-        "fingerprint": "sha256:8805873a726f80bcfe09d27316f81dbadaec18323d7d6dea6986a21285208c59",
+        "fingerprint": "sha256:ad3f1d00187e7e3678c8d12a7f2c51946f34137bb7374100aba2de2a0504ba2e",
         "path": ".engine/tools/test_coordination_board.py"
       },
       "status": "active",
@@ -16096,7 +16096,7 @@
       },
       "slug": "test_coordination_boot_relay",
       "source": {
-        "fingerprint": "sha256:0b618144e74cee2ae5819bc118e4b6e2a3c2136a93b223d1ca510c206f8c511c",
+        "fingerprint": "sha256:2e84777feffaab0a190d15174f4bffabeb595a04cdbfea870c2b3cacd84c1360",
         "path": ".engine/tools/test_coordination_boot_relay.py"
       },
       "status": "active",
@@ -16194,7 +16194,7 @@
       },
       "slug": "test_coordination_emitters",
       "source": {
-        "fingerprint": "sha256:0db876fe36e66101798f8adad1e0bf16577f3df302bea20da79903b42192cba6",
+        "fingerprint": "sha256:5f350bdf0ec7db0079738ac5b9b330b3f1c4c8d86f6406feea08b820bd36ed59",
         "path": ".engine/tools/test_coordination_emitters.py"
       },
       "status": "active",
@@ -16240,7 +16240,7 @@
       },
       "slug": "test_coordination_notice",
       "source": {
-        "fingerprint": "sha256:e7eed773e65ad9d0e357a613c9089e37969e6657cdda76d7e6c735568bc022b5",
+        "fingerprint": "sha256:e07aa00bdfdbc4f8cfa354046f8dd9f5a5c0573612cece9c7592d32930d96c75",
         "path": ".engine/tools/test_coordination_notice.py"
       },
       "status": "active",

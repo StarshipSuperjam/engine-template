@@ -96,9 +96,9 @@ _OPERATOR_LINE = {
     ("dependency-update", "reopened"): "A pull request this work depends on was reopened.",
     ("dependency-update", "head-moved"): "The head of a pull request this work depends on moved.",
     ("dependency-update", "plan-revised"): "The build plan of related work was revised.",
-    ("handoff", "ready-for-review"): "A prerequisite pull request is ready for review.",
+    ("handoff", "ready-for-review"): "This pull request is ready for review.",
     ("handoff", "slot-released"): "An integration slot was released.",
-    ("handoff", "node-abandoned"): "A work node was abandoned.",
+    ("handoff", "node-abandoned"): "A unit of this build's work was abandoned.",
     ("handoff", "work-abandoned"): "A unit of work was abandoned.",
     ("bounded-status", "work-declared"): "A peer session declared the work it is starting.",
     ("bounded-status", "work-completed"): "A peer session reported work complete.",
@@ -253,8 +253,17 @@ def render_operator_line(notice: dict) -> str:
     phrase, and an integer count. It never interpolates a branch or path string (those live in the fenced
     JSON below, render-constrained); so this line cannot carry a crafted identifier into the operator's view."""
     base = _OPERATOR_LINE[(notice["kind"], notice["event"])]
-    line = f"{base} {_VERIFY_PHRASE[notice['verify']['action']]}"
-    paths = notice.get("subject", {}).get("paths")
+    subject = notice.get("subject", {})
+    # Name the referenced work item as a safe integer (never a branch/path string), so two notices about
+    # different peer pull requests are distinguishable in the human-readable line, not byte-identical noise.
+    if subject.get("pr"):
+        ref = f" (PR #{subject['pr']})"
+    elif subject.get("issue"):
+        ref = f" (issue #{subject['issue']})"
+    else:
+        ref = ""
+    line = f"{base}{ref} {_VERIFY_PHRASE[notice['verify']['action']]}"
+    paths = subject.get("paths")
     if paths:
         line += f" ({len(paths)} file(s) named in the notice below.)"
     return line

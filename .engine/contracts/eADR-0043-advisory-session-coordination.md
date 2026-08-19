@@ -40,10 +40,14 @@ Seven properties bind every part of this capability:
    it may never *be* that fact. It can never satisfy or stand in for operator approval, a permission prompt,
    `guardrail-ack`, a review or QA attestation, merge eligibility, exact integration-candidate freshness
    (eADR-0021 / StarshipSuperjam/engine-template#915), canon or specification authority, credentials, or deployment authority. The receiver
-   verifies the authoritative surface. This is enforced mechanically by a **fail-closed whitelist**:
-   coordination code may reach GitHub only through one named comment post/patch transport and read-only
-   reads — any other mutating call, or any import of an authority-writing module (the merge path,
-   `ack_status`, a label or issue-body writer), fails a hard check.
+   verifies the authoritative surface. This is enforced mechanically in **two layers**: a **runtime
+   comment-only transport guard** (`coordination_board.comment_only`) wraps every transport coordination
+   holds so it can issue only reads and the two comment-write shapes, raising on anything else — the
+   mechanical guarantee, which holds even against an indirected or future-added write; and a **fail-closed
+   static check** (a hard CI gate) that additionally trips on a merge/label/status/body call or an
+   authority-writer import written directly in a coordination file. The runtime guard is the guarantee; the
+   static scan is the early tripwire on top of it (it does not follow the import graph, and does not claim
+   to).
 
 4. **Bounded emission, no broadcast.** Notices are emitted only at semantically meaningful lifecycle points,
    never per file edit and never on a timer. Emission is deduplicated on the structured condition; a live

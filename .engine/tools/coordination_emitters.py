@@ -58,6 +58,9 @@ def _emit(transport, repo: str, pr: int, *, kind: str, event: str, verify_action
         raise RuntimeError("forced failure (test): the caller must be unaffected")
     if transport is None or not repo:
         return None
+    # Confine the transport to reads + comment writes at the coordination boundary, so no coordination code
+    # path (now or after a future edit) can reach a merge/label/status/body endpoint (eADR-0043 law 3).
+    transport = board.comment_only(transport)
     if require_peer and not _peer_present(transport, repo):
         return None
     notice = cn.render(kind=kind, event=event, emitter_work_ref=work_ref, audience={"pr": pr},
@@ -163,6 +166,34 @@ def emit_overlap_scan(transport, repo: str, pr: int, declared_paths: "list | Non
             theirs = cdz.domain(reader, repo, opr)
             if cdz.overlaps(mine, theirs):
                 if emit_overlap(transport, repo, pr, opr, paths=mine.get("actual") or declared_paths):
+                    posted += 1
+        return posted
+    return _safe(_run) or 0
+
+
+def emit_dependency_merged_scan(transport, repo: str, merged_pr: int, *, base_sha: str) -> int:
+    """After `merged_pr` merged, tell every OTHER open pull request whose change domain overlaps the merged
+    one that a dependency landed — a domain-filtered signal to re-check the canonical files that moved (use
+    case 5). Distinct from the revalidation fan-out: revalidation says "the base moved" to everyone;
+    dependency-update says "the merge touched YOUR surface" only to overlapping peers. `base_sha` is the new
+    protected head (the observed change the receiver re-checks against). Returns the count posted; never
+    raises."""
+    def _run():
+        import coordination_domains as cdz
+        reader = lambda m, p: transport(m, p, None)  # noqa: E731 — domains wants (method, path)
+        merged_dom = cdz.domain(reader, repo, merged_pr)
+        posted = 0
+        for other in _open_prs(transport, repo):
+            opr = other.get("number")
+            if not isinstance(opr, int) or opr == merged_pr:
+                continue
+            theirs = cdz.domain(reader, repo, opr)
+            if cdz.overlaps(merged_dom, theirs):
+                out = _safe(lambda o=opr: _emit(
+                    transport, repo, o, kind="dependency-update", event="merged",
+                    verify_action="recheck-base", subject={"pr": merged_pr}, work_ref={"pr": merged_pr},
+                    observed={"base_sha": base_sha}))
+                if out:
                     posted += 1
         return posted
     return _safe(_run) or 0

@@ -35,7 +35,7 @@ notice is emitted, carried, read, and acted on, and why every step is advisory.
    doorbell); an already-active Codex peer may receive a bounded `turn/steer`. The Engine drives no peer
    runtime — the doorbell is a skill the sending session's own agent performs.
 5. **A session reads the board at bounded points, never by polling.** Session start relays the unseen count
-   from local state; the integration-queue status/prepare steps and the pre-submission preflight read the
+   from local state; the integration-queue status/prepare steps read the
    live board for the current pull request. There is no background poll.
 
 ## Done when
