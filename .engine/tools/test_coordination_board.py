@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Tests for coordination_board — the maintained-comment read-modify-write, fingerprint dedupe, priority-aware
+cap eviction, skip-malformed read, and the confinement property that only comment endpoints are touched
+(StarshipSuperjam/engine-template#939)."""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import coordination_board as cb  # noqa: E402
+import coordination_notice as cn  # noqa: E402
+
+
+class FakeGitHub:
+    """An in-memory GitHub comments backend. Records every (method, path) so a test can assert the board only
+    ever reaches the comments endpoints (the confinement property)."""
+
+    def __init__(self):
+        self.comments = {}   # id -> {"id","body","user":{"type":"Bot"}}
+        self._next = 1
+        self.paths = []      # every path touched, for the confinement assertion
+
+    def transport(self, method, path, body):
+        self.paths.append((method, path))
+        if method == "GET" and "/comments" in path:
+            number = int(path.split("/issues/")[1].split("/")[0])
+            return 200, [c for c in self.comments.values() if c["number"] == number]
+        if method == "POST" and path.endswith("/comments"):
+            number = int(path.split("/issues/")[1].split("/")[0])
+            cid = self._next
+            self._next += 1
+            self.comments[cid] = {"id": cid, "number": number, "body": body["body"],
+                                  "user": {"type": "Bot"}}
+            return 201, self.comments[cid]
+        if method == "PATCH" and "/issues/comments/" in path:
+            cid = int(path.rstrip("/").split("/")[-1])
+            self.comments[cid]["body"] = body["body"]
+            return 200, self.comments[cid]
+        raise AssertionError(f"unexpected call {method} {path}")
+
+
+def _notice(**over):
+    kw = dict(kind="integration-notice", event="admitted", emitter_work_ref={"pr": 5},
+              audience={"pr": 5}, subject={"pr": 5}, verify_action="recheck-queue",
+              now="2026-08-18T00:00:00Z", id_source=lambda: "a" * 32)
+    kw.update(over)
+    return cn.render(**kw)
+
+
+class TestBoardRMW(unittest.TestCase):
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.client = cb._Comments("o/r", "tok", transport=self.gh.transport)
+
+    def test_first_notice_posts_a_board(self):
+        outcome = cb.post_notice(self.client, 5, _notice())
+        self.assertEqual(outcome, "posted")
+        self.assertEqual(len(self.gh.comments), 1)
+        board = list(self.gh.comments.values())[0]
+        self.assertIn(cb.BOARD_MARKER, board["body"])
+
+    def test_identical_condition_is_deduped(self):
+        cb.post_notice(self.client, 5, _notice(id_source=lambda: "a" * 32))
+        outcome = cb.post_notice(self.client, 5, _notice(id_source=lambda: "b" * 32))
+        # same condition (kind/event/subject/observed), different id -> same fingerprint -> deduped
+        self.assertEqual(outcome, "deduped")
+        self.assertEqual(len(cb.read_board(self.client, 5)), 1)
+
+    def test_distinct_notice_edits_in_place(self):
+        cb.post_notice(self.client, 5, _notice(event="admitted", id_source=lambda: "a" * 32))
+        outcome = cb.post_notice(self.client, 5, _notice(event="next-in-queue", id_source=lambda: "c" * 32))
+        self.assertEqual(outcome, "edited")
+        self.assertEqual(len(self.gh.comments), 1)  # still ONE comment, edited not appended
+        self.assertEqual(len(cb.read_board(self.client, 5)), 2)
+
+    def test_read_board_skips_malformed(self):
+        cb.post_notice(self.client, 5, _notice())
+        board = list(self.gh.comments.values())[0]
+        board["body"] = board["body"].replace('"admitted"', '"blocked"')  # tamper -> digest fails
+        self.assertEqual(cb.read_board(self.client, 5), [])
+
+    def test_only_comment_endpoints_touched(self):
+        cb.post_notice(self.client, 5, _notice())
+        cb.read_board(self.client, 5)
+        for method, path in self.gh.paths:
+            self.assertIn("/comments", path,
+                          f"coordination touched a non-comment endpoint: {method} {path}")
+            self.assertNotIn("/merge", path)
+            self.assertNotIn("/labels", path)
+            self.assertNotIn("/statuses", path)
+
+
+class TestCommentOnlyGuard(unittest.TestCase):
+    def test_reads_and_comment_writes_pass(self):
+        seen = []
+        raw = lambda m, p, b=None: (seen.append((m, p)) or (200, []))  # noqa: E731
+        g = cb.comment_only(raw)
+        g("GET", "/repos/o/r/pulls?state=open", None)
+        g("POST", "/repos/o/r/issues/5/comments", {"body": "x"})
+        g("PATCH", "/repos/o/r/issues/comments/9", {"body": "x"})
+        self.assertEqual(len(seen), 3)  # all three permitted shapes reached the raw transport
+
+    def test_refuses_a_merge(self):
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        with self.assertRaises(cb.BoardError):
+            g("POST", "/repos/o/r/pulls/5/merge", {})
+
+    def test_refuses_label_status_and_body_edits(self):
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        for method, path in [("POST", "/repos/o/r/issues/5/labels"),
+                             ("POST", "/repos/o/r/statuses/abc"),
+                             ("PATCH", "/repos/o/r/issues/5")]:  # issue-body edit (not a comment)
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
+    def test_refuses_a_decoy_query_or_fragment_bypass(self):
+        # A caller building its own path cannot smuggle a non-comment write past the guard by appending a
+        # comment-shaped decoy in the query string or fragment: GitHub routes on the path component only, so
+        # the guard must too. Both of these route to a LABEL / ISSUE-BODY write, never a comment.
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        decoys = [
+            ("POST", "/repos/o/r/issues/1/labels?x=/repos/o/r/issues/1/comments"),   # ?-decoy -> labels
+            ("POST", "/repos/o/r/issues/1/labels#/repos/o/r/issues/1/comments"),     # #-decoy -> labels
+            ("PATCH", "/repos/o/r/issues/1?x=/repos/o/r/issues/comments/9"),         # ?-decoy -> issue body
+            ("PATCH", "/repos/o/r/issues/1#/repos/o/r/issues/comments/9"),           # #-decoy -> issue body
+        ]
+        for method, path in decoys:
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
+    def test_refuses_an_off_host_target(self):
+        # The guard confines the HOST, not just the path shape: a comment-shaped path aimed at a foreign host
+        # (absolute or protocol-relative) is refused for writes AND reads (a read could exfiltrate the token).
+        raw = lambda m, p, b=None: (200, {})  # noqa: E731
+        g = cb.comment_only(raw)
+        off_host = [
+            ("POST", "http://evil.example.com/repos/o/r/issues/1/comments"),
+            ("POST", "//evil.example.com/repos/o/r/issues/1/comments"),
+            ("GET", "https://evil.example.com/repos/o/r/pulls?state=open"),
+            # userinfo trick: urlsplit sees no scheme/netloc, but the transport concatenates onto
+            # "https://api.github.com" -> "https://api.github.com@evil.com/..." whose real host is evil.com.
+            ("GET", "@evil.com/repos/o/r/issues/1/comments"),
+            ("POST", "@evil.com/repos/o/r/issues/1/comments"),
+            # a path not rooted at "/" is not a host-relative path we can trust
+            ("GET", "repos/o/r/pulls?state=open"),
+        ]
+        for method, path in off_host:
+            with self.assertRaises(cb.BoardError):
+                g(method, path, {})
+
+    def test_comment_writes_with_a_benign_query_still_pass(self):
+        # The path component is what matters: a real comment write carrying a harmless query (e.g. pagination
+        # on the collection) is still a comment endpoint and must pass.
+        seen = []
+        raw = lambda m, p, b=None: (seen.append((m, p)) or (200, []))  # noqa: E731
+        g = cb.comment_only(raw)
+        g("POST", "/repos/o/r/issues/5/comments?per_page=1", {"body": "x"})
+        self.assertEqual(len(seen), 1)
+
+    def test_board_client_is_confined_even_with_a_raw_transport(self):
+        # a client handed a fully-generic transport can still only reach comment endpoints
+        seen = []
+
+        def raw(method, path, body=None):
+            seen.append((method, path))
+            if method == "GET":
+                return 200, []
+            return 201, {"id": 1, "number": 5, "body": body["body"], "user": {"type": "Bot"}}
+
+        client = cb._Comments("o/r", "tok", transport=raw)
+        cb.post_notice(client, 5, _notice())
+        self.assertTrue(all("/comments" in p or "/pulls" not in p for _m, p in seen))
+
+
+class TestEviction(unittest.TestCase):
+    def test_cap_and_priority(self):
+        gh = FakeGitHub()
+        client = cb._Comments("o/r", "tok", transport=gh.transport)
+        # Post one high-priority integration notice first (oldest timestamp), then flood with low-priority
+        # bounded-status notices that would evict it if priority were ignored.
+        cb.post_notice(client, 5, _notice(kind="integration-notice", event="blocked",
+                                          verify_action="recheck-queue",
+                                          now="2026-08-18T00:00:00Z", id_source=lambda: "0" * 32))
+        for i in range(1, 15):
+            cb.post_notice(client, 5, _notice(
+                kind="bounded-status", event="work-declared", verify_action="none",
+                subject={"pr": 5, "issue": i}, emitter_work_ref={"issue": i},
+                now=f"2026-08-18T00:00:{i:02d}Z", id_source=lambda i=i: f"{i:032d}"))
+        board = cb.read_board(client, 5)
+        self.assertLessEqual(len(board), cb.BOARD_CAP)
+        kinds = [n["kind"] for n in board]
+        # the high-priority integration notice survived the flood of low-priority ones
+        self.assertIn("integration-notice", kinds)
+
+
+if __name__ == "__main__":
+    unittest.main()

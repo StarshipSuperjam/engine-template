@@ -222,6 +222,41 @@ def _live_context():
     return transport, repo, base, tier, be, why
 
 
+def _coordinate(fn) -> None:
+    """Run a best-effort advisory coordination emit (StarshipSuperjam/engine-template#939), swallowing everything. Coordination is
+    advisory (eADR-0043) and must NEVER affect the queue action it rides — the emitters are themselves
+    no-harm, and this lazy-import-plus-swallow is belt and braces. `fn` receives the coordination_emitters
+    module; it is imported lazily so the queue never loads coordination at module time."""
+    try:
+        import coordination_emitters
+        fn(coordination_emitters)
+        # Surface any live-poke line to STDERR (never stdout) so this session's agent can relay it via the
+        # doorbell skill — a pointer to the durable notice, never authority (StarshipSuperjam/engine-template#939, eADR-0043).
+        for _line in coordination_emitters.drain_pokes():
+            print(_line, file=sys.stderr)
+    except Exception:  # noqa: BLE001 — an advisory emit never propagates into the queue
+        pass
+
+
+def _coordination_sync(transport, repo: str, pr: int) -> None:
+    """A bounded coordination read point (StarshipSuperjam/engine-template#939): read the pull request's advisory board from
+    GitHub, refresh the local ledger snapshot (so boot can relay the unread count with no network), print any
+    unread notices, and mark them seen. Best-effort — never raises, never affects the queue command."""
+    try:
+        import coordination_board
+        import coordination_ledger
+        client = coordination_board._Comments(repo, "", transport=transport)
+        notices = coordination_board.read_board(client, pr)
+        unseen = coordination_ledger.sync_board(pr, notices)
+        if unseen:
+            kinds = ", ".join(sorted({n["kind"] for n in unseen}))
+            print(f"Coordination: {len(unseen)} unread advisory notice(s) on PR #{pr} ({kinds}) — "
+                  "re-verify the canonical state each names before acting.")
+            coordination_ledger.mark_seen(pr, [n["notice_id"] for n in unseen])
+    except Exception:  # noqa: BLE001 — advisory read, never breaks the queue
+        pass
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
@@ -244,8 +279,25 @@ def main(argv: list) -> int:
             return 0
         held = be.admitted()
         be.release(this)
+        # NOTE: the merge-reaction coordination fan-out (next-in-queue, base-advanced revalidation, and the
+        # dependency-merged scan) does NOT ride this verb. `advance` is a human afterthought to a merge —
+        # relying on someone running it would make those signals non-deterministic, and by the documented
+        # "merge, then advance" flow the merged pull request is already closed here, so a merge could never be
+        # observed from this branch. Those signals fire deterministically from the post-merge workflow
+        # (engine-coordination-postmerge.yml -> coordination_postmerge.py) on the merge event itself
+        # (StarshipSuperjam/engine-template#939, eADR-0043). `advance` keeps only its slot-release duty.
         if held == this:
             print(f"Released the integration slot held by PR #{this}; the next candidate can be admitted.")
+            # Advisory (StarshipSuperjam/engine-template#939): releasing the slot is a handoff — tell the next reviewed candidate the
+            # slot opened. This rides the deliberate release ACTION (unlike the merge-reactions above): the
+            # merge path is covered by the deterministic post-merge next-in-queue notice, and this is its
+            # session-action twin for a voluntary/abandon release. Never a lock — the receiver re-checks the
+            # queue. Best-effort; any poke is surfaced by _coordinate. EXCLUDE `this`: releasing the slot does
+            # not close/unlabel this PR, so it can still be the earliest ready candidate — without this filter
+            # the notice would address the releaser itself and the real waiting peer would never hear.
+            _nextc = [c for c in reviewed_candidates(transport, repo, base, tier=tier) if c.pr != this]
+            if _nextc:
+                _coordinate(lambda ce: ce.emit_handoff(transport, repo, _nextc[0].pr, "slot-released"))
         else:
             where = f"PR #{held} holds it" if held else "no pull request holds it right now"
             print(f"PR #{this} wasn't holding the integration slot ({where}); nothing changed. To free a slot "
@@ -257,13 +309,26 @@ def main(argv: list) -> int:
         this = _current_pr(transport, repo, base)
         result = surface_next(transport, repo, base, tier=tier, be=be, this_pr=this,
                               prepare_fn=lambda **kw: pr_reconcile.prepare(**kw))
+        # Advisory: surface the admission / block to the candidate's owner (best-effort, never gates).
+        if result.get("status") == "blocked" and result.get("next"):
+            _coordinate(lambda ce: ce.emit_integration_blocked(transport, repo, result["next"]))
+        elif result.get("admitted"):
+            _coordinate(lambda ce: ce.emit_integration_admitted(transport, repo, result["admitted"]))
         print(result["detail"])
+        if this is not None:
+            _coordination_sync(transport, repo, this)
         return 0 if result["status"] in ("ready", "empty", "busy") else 1
     # default: status
     st = status(transport, repo, base, tier=tier, be=be)
     print(f"backend: {st['backend']}; admitted: {st['admitted']}")
     for c in st["candidates"]:
         print(f"  candidate PR #{c['pr']}: {c['title']}")
+    try:  # the coordination read is advisory — a GitHub hiccup must never crash `status`
+        _this = _current_pr(transport, repo, base)
+        if _this is not None:
+            _coordination_sync(transport, repo, _this)
+    except Exception:  # noqa: BLE001
+        pass
     return 0
 
 
