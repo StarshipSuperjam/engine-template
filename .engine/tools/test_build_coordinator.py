@@ -1294,6 +1294,20 @@ status: locked
         self.assertEqual(json.loads(out.getvalue())["spec"], canonical)
 
 
+def _installed_module_ids() -> set:
+    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py."""
+    import module_coherence
+    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
+
+
+def _needs_modules(case, *ids) -> None:
+    """Skip when a named module is not installed here. These cases read files the module DELIVERS, so in a
+    deployment that declined it there is no subject to assert over — the absence is the module's contract."""
+    missing = sorted(set(ids) - _installed_module_ids())
+    if missing:
+        case.skipTest(f"reads a surface delivered by the declined module(s): {', '.join(missing)}")
+
+
 class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_consumed_review_lenses_remain_connected(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
@@ -1307,6 +1321,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
+        _needs_modules(self, "external-contribution")
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
         external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
         evidence = (bc.ROOT / ".engine/operations/build-submission-evidence.md").read_text()
@@ -1385,7 +1400,11 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_every_reviewer_receives_the_exact_approved_plan(self):
         agents = list((bc.ROOT / ".claude" / "agents").glob("engine-design-review-*.md"))
         agents += list((bc.ROOT / ".claude" / "agents").glob("engine-qa-review-*.md"))
-        self.assertEqual(len(agents), 9)
+        # The full set of 9 ships only where BOTH reviewer modules are installed; a deployment that declined
+        # one carries fewer. Pin the count only where the set is complete, and assert the contract over every
+        # reviewer actually present either way — so a deployment still proves what it does carry.
+        if {"design-review", "qa-review"} <= _installed_module_ids():
+            self.assertEqual(len(agents), 9)
         for agent in agents:
             self.assertIn("exact operator-approved Build plan", agent.read_text(), agent.name)
 
@@ -1399,6 +1418,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn("orchestrator", text, agent.name)
 
     def test_no_spec_keeps_both_plan_derived_conformance_lenses(self):
+        _needs_modules(self, "qa-review")
         for name in ("engine-qa-review-spec-conformance.md", "engine-qa-review-divergence-hunter.md"):
             text = (bc.ROOT / ".claude" / "agents" / name).read_text()
             self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)

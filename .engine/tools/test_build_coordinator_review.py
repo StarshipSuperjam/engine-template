@@ -20,6 +20,15 @@ import build_coordinator_review as review  # noqa: E402
 from test_build_coordinator import BASE, HEAD_A, CoordinatorCase, plan  # noqa: E402
 
 
+def _needs_design_review(case) -> None:
+    """Skip when design-review is not installed: this case reads a reviewer prompt that module DELIVERS, so a
+    deployment that declined it has no subject to assert over — the absence is the module's contract."""
+    import module_coherence
+    ids = {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
+    if "design-review" not in ids:
+        case.skipTest("reads a reviewer prompt delivered by the declined design-review module")
+
+
 class TestPlanReviewOrdering(CoordinatorCase):
     def setUp(self):
         super().setUp()
@@ -128,6 +137,7 @@ class TestReviewerContractFreshness(unittest.TestCase):
         self.assertEqual(line, "- Reviewer disagreement `SEC-2`: [no operator-safe summary recorded]")
 
     def test_product_intent_challenges_no_spec_and_selected_document_judgment(self):
+        _needs_design_review(self)
         prompt = (bc.ROOT / ".claude/agents/engine-design-review-product-intent.md").read_text()
         self.assertIn("For a `no-spec` plan", prompt)
         self.assertIn("every semantically affected document", prompt)

@@ -49,6 +49,7 @@ class TestPresence(unittest.TestCase):
     def test_present_requires_a_resolvable_generator_not_just_a_file(self):
         # F-risk-3: a present file with an ABSENT generator must NOT count as present, so it stays out of
         # the reconcile set (needs-manual/refuse) instead of being append-merged then skipped.
+        _needs_product_design(self)
         matrix = ".engine/product-spec-matrix.json"
         root = ds.validate.ROOT
         # with the real resolver the matrix is present on this tree
@@ -92,6 +93,7 @@ class TestRegenerate(unittest.TestCase):
         self.assertTrue(all(not r.changed for r in results))
 
     def test_optional_module_absent_is_skipped_no_generator(self):
+        _needs_product_design(self)
         matrix = ".engine/product-spec-matrix.json"
         with mock.patch.object(ds, "_resolve_generate",
                                side_effect=lambda m: None if m.path == matrix else _real_resolve(m)):
@@ -141,6 +143,20 @@ class TestRepair(unittest.TestCase):
 
 
 _REAL_RESOLVE = ds._resolve_generate
+
+
+def _installed_module_ids() -> set:
+    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py."""
+    import module_coherence
+    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
+
+
+def _needs_product_design(case) -> None:
+    """The product-spec matrix is delivered by the OPTIONAL product-design module. A deployment that declined
+    it has no matrix and no generator behind it, so a case keyed on that member has no subject there — the
+    member's absence is the module's contract, not a derived-state defect."""
+    if "product-design" not in _installed_module_ids():
+        case.skipTest("the product-spec matrix is provided by the declined product-design module")
 
 
 def _real_resolve(member):
