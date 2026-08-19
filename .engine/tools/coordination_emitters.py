@@ -83,13 +83,14 @@ def _emit(transport, repo: str, pr: int, *, kind: str, event: str, verify_action
     client = board._Comments(repo, "", transport=transport)
     outcome = board.post_notice(client, pr, notice)
     if outcome in ("posted", "edited"):
-        ledger.record_event("posted", at=notice["emitted_at"], pr=pr, kind=kind)
         # Surface the fixed pointer poke for the durable notice we just changed, so a session-facing caller can
-        # relay it live (the doorbell). Best-effort — a render hiccup never affects the emit.
+        # relay it live (the doorbell). Done BEFORE the ledger write so doorbell delivery does not depend on
+        # ledger health — a ledger failure must not silently drop the poke for a notice that genuinely posted.
         try:
             _PENDING_POKES.append(cn.render_poke_line(notice, repo))
         except Exception:  # noqa: BLE001 — poke surfacing is advisory; never break the emit
             pass
+        ledger.record_event("posted", at=notice["emitted_at"], pr=pr, kind=kind)
     return outcome
 
 

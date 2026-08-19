@@ -140,6 +140,12 @@ class TestCommentOnlyGuard(unittest.TestCase):
             ("POST", "http://evil.example.com/repos/o/r/issues/1/comments"),
             ("POST", "//evil.example.com/repos/o/r/issues/1/comments"),
             ("GET", "https://evil.example.com/repos/o/r/pulls?state=open"),
+            # userinfo trick: urlsplit sees no scheme/netloc, but the transport concatenates onto
+            # "https://api.github.com" -> "https://api.github.com@evil.com/..." whose real host is evil.com.
+            ("GET", "@evil.com/repos/o/r/issues/1/comments"),
+            ("POST", "@evil.com/repos/o/r/issues/1/comments"),
+            # a path not rooted at "/" is not a host-relative path we can trust
+            ("GET", "repos/o/r/pulls?state=open"),
         ]
         for method, path in off_host:
             with self.assertRaises(cb.BoardError):

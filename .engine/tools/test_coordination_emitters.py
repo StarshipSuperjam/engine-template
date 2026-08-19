@@ -12,6 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import coordination_emitters as ce  # noqa: E402
 
 
+class _EmitCase(unittest.TestCase):
+    """Base for emitter tests. The live-poke buffer is a module global drained by PRODUCTION callers, not by
+    tests, so drain it around every test here — a poke a test posts can never leak into the next one."""
+
+    def tearDown(self):
+        ce.drain_pokes()
+
+
 class FakeGitHub:
     """In-memory GitHub: models the open-PR count (for the peer gate) and the comments (for the board)."""
 
@@ -58,7 +66,7 @@ def _all(transport):
     ]
 
 
-class TestPokeSurfacing(unittest.TestCase):
+class TestPokeSurfacing(_EmitCase):
     """The live-poke half of the doorbell: an emit that actually posts a durable notice surfaces exactly one
     fixed pointer line, drainable by the session-facing caller; a skipped/deduped emit surfaces none."""
 
@@ -87,7 +95,7 @@ class TestPokeSurfacing(unittest.TestCase):
         self.assertEqual(ce.drain_pokes(), [])
 
 
-class TestNoHarm(unittest.TestCase):
+class TestNoHarm(_EmitCase):
     def test_forced_raise_is_swallowed_for_every_emitter(self):
         gh = FakeGitHub()
         with mock.patch.object(ce, "_FORCE_RAISE", True):
@@ -99,14 +107,14 @@ class TestNoHarm(unittest.TestCase):
             self.assertIsNone(emit())
 
 
-class TestSoloInert(unittest.TestCase):
+class TestSoloInert(_EmitCase):
     def test_no_peer_writes_nothing(self):
         gh = FakeGitHub(open_prs=1)  # only this session's PR -> no peer
         self.assertIsNone(ce.emit_integration_admitted(gh.transport, "o/r", 5))
         self.assertEqual(gh.comments, {})  # the board write short-circuited, not just the doorbell
 
 
-class TestHappyPath(unittest.TestCase):
+class TestHappyPath(_EmitCase):
     def setUp(self):
         self.cache = tempfile.mkdtemp()
         env = mock.patch.dict(os.environ, {"ENGINE_COORDINATION_CACHE_DIR": self.cache})
@@ -139,7 +147,7 @@ class TestHappyPath(unittest.TestCase):
             self.assertNotIn("/statuses", path)
 
 
-class TestScans(unittest.TestCase):
+class TestScans(_EmitCase):
     def setUp(self):
         self.cache = tempfile.mkdtemp()
         env = mock.patch.dict(os.environ, {"ENGINE_COORDINATION_CACHE_DIR": self.cache})

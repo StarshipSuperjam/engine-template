@@ -292,8 +292,10 @@ def main(argv: list) -> int:
             # slot opened. This rides the deliberate release ACTION (unlike the merge-reactions above): the
             # merge path is covered by the deterministic post-merge next-in-queue notice, and this is its
             # session-action twin for a voluntary/abandon release. Never a lock — the receiver re-checks the
-            # queue. Best-effort; any poke is surfaced by _coordinate.
-            _nextc = reviewed_candidates(transport, repo, base, tier=tier)
+            # queue. Best-effort; any poke is surfaced by _coordinate. EXCLUDE `this`: releasing the slot does
+            # not close/unlabel this PR, so it can still be the earliest ready candidate — without this filter
+            # the notice would address the releaser itself and the real waiting peer would never hear.
+            _nextc = [c for c in reviewed_candidates(transport, repo, base, tier=tier) if c.pr != this]
             if _nextc:
                 _coordinate(lambda ce: ce.emit_handoff(transport, repo, _nextc[0].pr, "slot-released"))
         else:

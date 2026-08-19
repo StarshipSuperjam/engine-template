@@ -56,12 +56,17 @@ def comment_only(transport):
     harmless."""
     def _guarded(method, path, body=None):
         m = (method or "").upper()
-        parts = urllib.parse.urlsplit(path or "")
-        # Confine the HOST too, not just the path shape: a request must be relative (no scheme, no netloc), so
-        # coordination can never be aimed at an off-host endpoint that happens to carry a comment-shaped path
-        # (e.g. `http://evil/repos/o/r/issues/1/comments`). This holds for GETs as well — a read to a foreign
-        # host could still exfiltrate the bearer token. Real callers always pass `/repos/...` relative paths.
-        if parts.scheme or parts.netloc:
+        raw = path or ""
+        parts = urllib.parse.urlsplit(raw)
+        # Confine the HOST too, not just the path shape: a request must be a host-relative path ROOTED at a
+        # single "/", so coordination can never be aimed off-host. Rejected: a scheme or netloc
+        # (`http://evil/...`); a protocol-relative `//evil/...` (netloc follows); and — critically — a path
+        # that does not start with "/", e.g. a userinfo trick `@evil.com/repos/.../comments`. The transport
+        # this wraps builds the URL by concatenation (`"https://" + host + path`), so `@evil.com/...` becomes
+        # `https://api.github.com@evil.com/...` whose REAL host is `evil.com` — a bearer-token exfiltration.
+        # This holds for GETs as well as writes (a read off-host leaks the token too). Real callers always pass
+        # a literal `/repos/...` path, so nothing legitimate is refused.
+        if parts.scheme or parts.netloc or not raw.startswith("/") or raw.startswith("//"):
             raise BoardError(
                 f"coordination may reach only the current GitHub host (eADR-0043 law 3); refused {m} {path}")
         if m == "GET":

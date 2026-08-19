@@ -68,6 +68,15 @@ class TestConfinementPerCategory(unittest.TestCase):
         # case-insensitive: a lowercase literal to a non-comment endpoint must not slip the catch-all
         self.assertTrue(self._bites('def f(t, r, n): t("post", f"/repos/{r}/issues/{n}/subscription", {})\n'))
 
+    def test_single_quoted_delete_to_a_comment_bites(self):
+        # the naive-in-file case must be caught in EITHER quote style — a single-quoted DELETE to a comments
+        # path is not a sanctioned comment write (only POST/PATCH are) and must still bite.
+        self.assertTrue(self._bites("def f(t, r, n): t('DELETE', f'/repos/{r}/issues/comments/{n}', None)\n"))
+
+    def test_single_quoted_comment_post_is_allowed(self):
+        # a legitimate single-quoted POST to a comments endpoint is still a sanctioned comment write
+        self.assertFalse(self._bites("def f(t, r, n): t('POST', f'/repos/{r}/issues/{n}/comments', {'body': 'x'})\n"))
+
 
 class TestRealTreeConfined(unittest.TestCase):
     def test_real_coordination_library_is_confined(self):

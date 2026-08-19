@@ -57,8 +57,8 @@ _DENY = [
 # POST (create a comment) and PATCH (edit one). DELETE and PUT are never sanctioned, even against a comments
 # path, so they are flagged wherever they appear on an API line. Case-insensitive so a lowercase literal
 # cannot slip the catch-all.
-_MUTATING_METHOD = re.compile(r"\"(POST|PUT|PATCH|DELETE)\"", re.IGNORECASE)
-_COMMENT_WRITE_METHOD = re.compile(r"\"(POST|PATCH)\"", re.IGNORECASE)
+_MUTATING_METHOD = re.compile(r"['\"](POST|PUT|PATCH|DELETE)['\"]", re.IGNORECASE)
+_COMMENT_WRITE_METHOD = re.compile(r"['\"](POST|PATCH)['\"]", re.IGNORECASE)
 _API_PATH = re.compile(r"/repos/|issues/|pulls/")
 
 

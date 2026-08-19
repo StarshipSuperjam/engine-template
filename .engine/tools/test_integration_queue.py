@@ -214,6 +214,54 @@ class TestAdvanceCoordination(unittest.TestCase):
             iq.main(["advance"])
         m_handoff.assert_not_called()
 
+    def test_slot_released_excludes_the_releasing_pr(self):
+        # Releasing the slot does not close/unlabel `this`, so it can still be the earliest ready candidate.
+        # The handoff must skip `this` and address the real next peer — not notify the releaser itself.
+        import contextlib
+        import io
+
+        class _BE:
+            def admitted(self):
+                return 5
+
+            def release(self, n):
+                pass
+
+        this_c = iq.Candidate(pr=5, head_sha="h", base_sha="b", reviewed=True, order_key=(1, 5), title="self")
+        next_c = iq.Candidate(pr=6, head_sha="h", base_sha="b", reviewed=True, order_key=(1, 6), title="peer")
+        import coordination_emitters as ce
+        with mock.patch.object(iq, "_live_context",
+                               return_value=(lambda *a, **k: (200, []), "you/proj", "main", "solo", _BE(), "")), \
+                mock.patch.object(iq, "_current_pr", return_value=5), \
+                mock.patch.object(iq, "reviewed_candidates", return_value=[this_c, next_c]), \
+                mock.patch.object(ce, "emit_handoff") as m_handoff, \
+                contextlib.redirect_stdout(io.StringIO()):
+            iq.main(["advance"])
+        m_handoff.assert_called_once()
+        self.assertEqual(m_handoff.call_args[0][2], 6)        # the peer, NOT the releaser (#5)
+
+    def test_slot_released_silent_when_only_the_releaser_is_ready(self):
+        import contextlib
+        import io
+
+        class _BE:
+            def admitted(self):
+                return 5
+
+            def release(self, n):
+                pass
+
+        this_c = iq.Candidate(pr=5, head_sha="h", base_sha="b", reviewed=True, order_key=(1, 5), title="self")
+        import coordination_emitters as ce
+        with mock.patch.object(iq, "_live_context",
+                               return_value=(lambda *a, **k: (200, []), "you/proj", "main", "solo", _BE(), "")), \
+                mock.patch.object(iq, "_current_pr", return_value=5), \
+                mock.patch.object(iq, "reviewed_candidates", return_value=[this_c]), \
+                mock.patch.object(ce, "emit_handoff") as m_handoff, \
+                contextlib.redirect_stdout(io.StringIO()):
+            iq.main(["advance"])
+        m_handoff.assert_not_called()                         # only the releaser is ready -> nobody to hand off to
+
 
 if __name__ == "__main__":
     unittest.main()
