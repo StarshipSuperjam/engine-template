@@ -13717,6 +13717,7 @@
           "tool:local_references",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:module_surfaces",
           "tool:release_impact",
           "tool:release_source",
           "tool:shipped_local_references_check",
@@ -13728,7 +13729,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:9d428540163c220527fb2921523ab06161e5d7c5836e1e16db85e489f3a25b93",
+        "fingerprint": "sha256:6f7cc38667522e88b095ddb8b1fad282d317c226b13eb688a9fad0e0c9d9af08",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -13774,7 +13775,7 @@
       },
       "slug": "release_impact",
       "source": {
-        "fingerprint": "sha256:9ab9a652eda754bd7bfb22eba8d37bc81a3589def1335f8aac7d8f6f646f901f",
+        "fingerprint": "sha256:59534091343be1f71493c07b9506175297beff8bfc03696e50a0d1d94f3af3d5",
         "path": ".engine/tools/release_impact.py"
       },
       "status": "active",
@@ -13798,7 +13799,7 @@
       },
       "slug": "release_impact_check",
       "source": {
-        "fingerprint": "sha256:44203276d014ff4896632d6099c33e1eb6d35217e3e7c080d84251c32e969643",
+        "fingerprint": "sha256:f8f1071d31d1dd7b1c643915ab6fc6ebf3e5e778705b6f489c1dcb22415f3412",
         "path": ".engine/tools/release_impact_check.py"
       },
       "status": "active",
@@ -17748,7 +17749,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:45dd27e642fa3b8ca57d8c250b6bdb9e9be6497146569227528f501203c33eeb",
+        "fingerprint": "sha256:5c4df4555150b3c50364156c90df7756d7fea165f38c275144b92ccc1996faae",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

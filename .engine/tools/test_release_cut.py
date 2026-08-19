@@ -383,7 +383,8 @@ class DeclaredImpactFold(unittest.TestCase):
         self.assertIsNotNone(res["refusal"])
         # the recovery must point at the responsible PR + forbid relabelling unrelated ones; it must NOT list
         # every under-floor PR as a violation to raise.
-        self.assertIn("do NOT relabel unrelated", res["refusal"]["recovery"])
+        self.assertIn("NOT relabel unrelated", res["refusal"]["recovery"])
+        self.assertIn("hidden marker", res["refusal"]["recovery"])          # US-2: names the marker, not just "raise impact"
         self.assertNotIn("#1", " ".join(res["refusal"]["violations"]))     # honest patch not ordered to major
         self.assertNotIn("#3", " ".join(res["refusal"]["violations"]))     # honest none not ordered to major
 
@@ -415,11 +416,14 @@ class DeclaredImpactFold(unittest.TestCase):
         lines = ["Feature: add a thing (#11)", "Fix: correct it (#12)"]
         bodies = {11: {"body": "x\n" + rc.release_impact.impact_trailer("minor"), "author": "human"},
                   12: {"body": "y\n" + rc.release_impact.impact_trailer("patch"), "author": "human"}}
+        files = {11: [".engine/modules/qa-review/x.py"], 12: ["README.md"]}
         out = rc.merged_pr_impacts("v0.4.0", "HEAD", repo="acme/x",
                                    _fetch_lines=lambda *a, **k: lines,
-                                   _fetch_meta=lambda slug, n, tok: bodies[n])
+                                   _fetch_meta=lambda slug, n, tok: bodies[n],
+                                   _fetch_files=lambda slug, n, tok: files[n])
         self.assertIsNone(out["error"])
         self.assertEqual({p["number"]: p["impact"] for p in out["per_pr"]}, {11: "minor", 12: "patch"})
+        self.assertEqual({p["number"]: p["files"] for p in out["per_pr"]}, files)   # per-PR files carried for L10
 
     def test_merged_pr_impacts_fails_closed_on_unreadable_body(self):
         def boom(slug, n, tok):
@@ -2059,6 +2063,191 @@ class RenderPRBodyDeploymentCheck(unittest.TestCase):
         # exercise the actual plumbing once. Best-effort: a real sha in a git checkout, or None on git failure.
         sha = rc._working_tree_sha()
         self.assertTrue(sha is None or (len(sha) == 40 and all(c in "0123456789abcdef" for c in sha)))
+
+
+class PerPackageImpactFold(unittest.TestCase):
+    """StarshipSuperjam/engine-template#942 L10: each PACKAGE reflects ONLY the pull requests that touched it (max-folded),
+    scoping WHERE a declared impact lands without inventing a level. `fold_package_impacts` is pure."""
+
+    def test_attributes_declared_impact_to_the_touched_package_only(self):
+        surfaces = {"a.py": ["m1"], "root.md": []}
+        present = {"m1": "0.1.0", "other": "0.2.0"}
+        per_pr = [{"number": 1, "impact": "minor", "author": "h", "files": ["a.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "0.2.0")          # minor bump of 0.1.0
+        self.assertNotIn("other", out["package_floor"])               # an untouched module is not bumped
+
+    def test_never_over_bumps_an_unrelated_package_to_the_aggregate(self):
+        surfaces = {"a.py": ["m1"], "b.py": ["m2"]}
+        present = {"m1": "1.0.0", "m2": "1.0.0"}
+        per_pr = [{"number": 1, "impact": "major", "author": "h", "files": ["a.py"]},
+                  {"number": 2, "impact": "patch", "author": "h", "files": ["b.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "2.0.0")          # major (its own change)
+        self.assertEqual(out["package_floor"]["m2"], "1.0.1")          # patch — NOT dragged to the release major
+
+    def test_max_folds_across_prs_touching_the_same_package(self):
+        surfaces = {"a.py": ["m1"]}
+        present = {"m1": "1.0.0"}
+        per_pr = [{"number": 1, "impact": "patch", "author": "h", "files": ["a.py"]},
+                  {"number": 2, "impact": "minor", "author": "h", "files": ["a.py"]}]
+        out = rc.fold_package_impacts({}, present, per_pr, surfaces)
+        self.assertEqual(out["package_floor"]["m1"], "1.1.0")          # minor wins over patch
+
+    def test_none_declaration_never_bumps_a_package(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "none", "author": "h", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertNotIn("m1", out["package_floor"])
+
+    def test_exempt_bot_markerless_pr_folds_its_package_as_patch(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": None, "author": "dependabot[bot]", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"]["m1"], "1.0.1")
+
+    def test_raise_only_never_lowers_an_existing_mechanical_floor(self):
+        # a migration already floored m1 minor (1.1.0); a patch declaration must not lower it back to a patch.
+        out = rc.fold_package_impacts({"m1": "1.1.0"}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "patch", "author": "h", "files": ["a.py"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"]["m1"], "1.1.0")
+
+    def test_a_file_no_module_owns_touches_no_package(self):
+        out = rc.fold_package_impacts({}, {"m1": "1.0.0"}, [
+            {"number": 1, "impact": "major", "author": "h", "files": ["README.md"]}], {"a.py": ["m1"]})
+        self.assertEqual(out["package_floor"], {})
+
+
+class ImpactFoldGlue(unittest.TestCase):
+    """SC-3 / TI-2: `_apply_impact_fold` is the glue that wires the fold into the real `propose` command for both
+    modes — previously exercised only through `--baseline-tree`, which SHORT-CIRCUITS it. These drive it directly
+    with an injected `merged_pr_impacts` so the assembly (fields, refusal stamping, package fold) actually runs."""
+
+    def _patch(self, name, fn):
+        saved = getattr(rc, name)
+        setattr(rc, name, fn)
+        self.addCleanup(lambda: setattr(rc, name, saved))
+
+    def test_success_sets_the_fold_fields_and_folds_packages(self):
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 1, "title": "t", "impact": "minor", "author": "h", "files": ["a.py"]}]})
+        self._patch("_present_modules", lambda: {"m1": {"version": "1.0.0"}})
+        saved = rc.module_surfaces.load
+        rc.module_surfaces.load = lambda *a, **k: {"a.py": ["m1"]}
+        self.addCleanup(lambda: setattr(rc.module_surfaces, "load", saved))
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "none", None, fold_packages=True)
+        self.assertIsNone(ref)
+        self.assertEqual(proposal["declared_impact"], "minor")
+        self.assertEqual(proposal["effective_impact"], "minor")
+        self.assertEqual(proposal["package_floor"]["m1"], "1.1.0")     # package fold ran through the glue
+
+    def test_mismatch_refusal_is_stamped_on_the_proposal_for_the_renderer(self):
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 1, "title": "t", "impact": "patch", "author": "h", "files": []}]})
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "major", None, fold_packages=True)
+        self.assertIsNotNone(ref)
+        self.assertIs(proposal["impact_refusal"], ref)                 # so _render_proposal withholds, not contradicts
+        self.assertNotIn("m1", proposal["package_floor"])              # no package fold on a refusal
+
+    def test_fetch_error_fails_closed_and_is_stamped(self):
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": "GitHub 503", "per_pr": []})
+        proposal = {"current_engine": "0.5.0", "package_floor": {}}
+        ref = rc._apply_impact_fold(proposal, "v0.4.0", "HEAD", None, "none", None)
+        self.assertIsNotNone(ref)
+        self.assertIn("503", " ".join(ref["violations"]))
+        self.assertIs(proposal["impact_refusal"], ref)
+
+    def test_cmd_propose_engine_refusal_exits_non_zero_through_the_glue(self):
+        # End-to-end through the CLI with NO --baseline-tree: mock the baseline + tree + fold so the real
+        # _cmd_propose fold branch runs and a legacy refusal reaches exit code 2 (the contract TI-2 flagged).
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        self._patch("resolve_baseline", lambda slug=None: rc.Baseline("v0.4.0", False, "prior"))
+        self._patch("_baseline_tree_for", lambda baseline, arg: ("/nonexistent-tree", None))
+        self._patch("classify", lambda baseline, tree: {
+            "mode": "diff", "baseline_note": "n", "current_engine": "0.5.0", "engine_floor_level": "none",
+            "engine_floor_version": None, "package_floor": {}, "change_inventory": ["work"], "impacts": [],
+            "compatibility_unknown": [], "migration_violations": [], "retired_capability_violations": [],
+            "removed_capability_violations": [], "dependency_violations": [],
+            "default_on_dependency_violations": [], "local_reference_violations": [], "removed_modules": []})
+        self._patch("merged_pr_titles", lambda *a, **k: [])
+        self._patch("_current_sha", lambda: "deadbeef")
+        self._patch("merged_pr_impacts", lambda *a, **k: {"error": None, "per_pr": [
+            {"number": 9, "title": "legacy", "impact": None, "author": "human", "files": []}]})
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = rc.main(["propose"])
+        self.assertEqual(code, 2)                                      # legacy/undeclared -> fail closed
+        self.assertIn("WITHHELD", out.getvalue())                     # renderer did not print a contradictory version
+        self.assertIn("legacy", err.getvalue().lower() + out.getvalue().lower())
+
+
+class RenderProposalRefusal(unittest.TestCase):
+    """US-1: `_render_proposal` printed self-contradictory 'Version decision' text in the two refusal cases it
+    exists to make legible (inferring the state from engine_floor_version truthiness). It must now WITHHOLD."""
+
+    def _base(self, **over):
+        p = {"mode": "diff", "baseline_note": "n", "change_inventory": ["removed the 'x' capability"],
+             "impacts": [], "current_engine": "0.5.0", "engine_floor_level": "none", "declared_impact": None,
+             "effective_impact": None, "engine_floor_version": None, "package_floor": {},
+             "compatibility_unknown": [], "impact_defaulted": []}
+        p.update(over)
+        return p
+
+    def test_mismatch_withholds_the_version_instead_of_saying_none_declared(self):
+        p = self._base(engine_floor_level="major", declared_impact="patch",
+                       impact_refusal={"reason": "the diff PROVES at least a major change but the highest declared "
+                                       "is patch", "violations": [], "recovery": "raise it"})
+        text = rc._render_proposal(p)
+        self.assertIn("WITHHELD", text)
+        self.assertIn("major", text)
+        self.assertNotIn("no impact declared and none proven", text)   # the OLD contradictory line is gone
+
+    def test_legacy_refusal_is_not_rendered_as_a_clean_proposal(self):
+        p = self._base(impact_refusal={"reason": "2 merged pull requests declare no release impact",
+                                       "violations": [], "recovery": "use --legacy-impact"})
+        text = rc._render_proposal(p)
+        self.assertIn("WITHHELD", text)
+        self.assertNotIn("follows what the merged pull requests declared", text)   # the OLD clean line is gone
+
+    def test_clean_success_still_renders_the_version_decision(self):
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0")
+        text = rc._render_proposal(p)
+        self.assertNotIn("WITHHELD", text)
+        self.assertIn("0.6.0", text)
+
+    def test_package_attribution_note_surfaces_when_surfaces_missing(self):
+        p = self._base(declared_impact="minor", effective_impact="minor", engine_floor_version="0.6.0",
+                       package_floor={"m1": "1.1.0"},
+                       package_attribution_note="per-package impact attribution was SKIPPED — the registry is empty")
+        text = rc._render_proposal(p)
+        self.assertIn("SKIPPED", text)
+        self.assertIn("only the pull requests that touched it", text)
+
+
+class EnumeratorPartialDropGuard(unittest.TestCase):
+    """TI-1: a line that names a merged pull request (…/pull/N) but does not parse into the list is undisclosed
+    format drift — it must FAIL CLOSED, not silently drop a line that could carry a major marker."""
+
+    def _patch_notes(self, body):
+        saved = rc._generate_notes_body
+        rc._generate_notes_body = lambda *a, **k: body
+        self.addCleanup(lambda: setattr(rc, "_generate_notes_body", saved))
+
+    def test_a_pr_line_that_does_not_parse_raises(self):
+        self._patch_notes("## What's Changed\n"
+                          "* Feature: a by @u in acme/x/pull/11\n"
+                          "* a drifted line with no author but acme/x/pull/12 in it\n"
+                          "* Fix: b by @u in acme/x/pull/13\n")
+        with self.assertRaises(RuntimeError):
+            rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+
+    def test_the_release_pr_line_and_changelog_footer_do_not_trip_it(self):
+        self._patch_notes("* Feature: a by @u in acme/x/pull/11\n"
+                          "* Release 1.2.0 by @github-actions[bot] in acme/x/pull/99\n"
+                          "**Full Changelog**: https://github.com/acme/x/compare/v1.0.0...v1.1.0\n")
+        out = rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
+        self.assertEqual(out, ["Feature: a (#11)"])                    # release PR dropped, changelog ignored, no raise
 
 
 if __name__ == "__main__":

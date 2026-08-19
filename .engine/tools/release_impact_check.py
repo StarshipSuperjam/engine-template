@@ -72,9 +72,12 @@ def findings() -> list:
         return [{"severity": TIER, "location": None,
                  "message": f"This pull request declares {len(markers)} release-impact markers "
                             f"({', '.join(markers)}) — there must be exactly one, so the recorded impact is "
-                            f"unambiguous. Keep a single marker. " + _HOWTO}]
+                            f"unambiguous. Remove the extra marker(s) so a single valid one remains "
+                            f"(VALUE is one of {_VALUES})."}]
     value = markers[0]
-    if value.strip().lower() not in release_impact._CANONICAL_BY_LOWER:
+    try:
+        release_impact.canonical_impact(value)             # the module's public, fail-closed gate (not its private dict)
+    except ValueError:
         return [{"severity": TIER, "location": None,
                  "message": f"The release-impact marker value '{value}' is not one of {_VALUES}. " + _HOWTO}]
     return []

@@ -29,9 +29,12 @@ THE MARKER (mirrors telemetry's severity trailer and issue_kind's). `impact_trai
 `<!-- engine-release-impact: … -->` is built; it validates against RELEASE_IMPACTS and raises otherwise, so the
 value is marker-safe by construction (an enum member carries no `<`, `>`, or `--`). `parse_impact` takes the
 LAST marker so body prose forged before the genuine trailer cannot hijack it. HONEST RESIDUAL: last-match does
-not defend a marker appended AFTER the genuine one by someone who can edit the pull-request body; that is bounded
-because the value is enum-closed and, being version metadata, is re-checked at the cut against the mechanical
-floor — a body edited to UNDER-declare is caught by refuse-until-corrected when the diff proves a higher floor.
+not defend a marker appended AFTER the genuine one by someone who can edit the pull-request body. That is only
+PARTLY bounded: a body edited to UNDER-declare is caught by refuse-until-corrected ONLY where the diff proves a
+higher STRUCTURAL floor (a contract surface added/removed, a module added/removed) — a behaviour-only break that
+touches no such surface has NO mechanical backstop, so a post-merge downgrade of its marker would pass unnoticed.
+The residual is disclosed and tracked (a StarshipSuperjam/engine-template#710-style head-bound impact status is the durable fix); the human merge
+gate on the release pull request bounds it today.
 
 EXEMPT AUTHORS. Automated pull requests (dependabot, github-actions) do not run the coordinator and cannot
 render a marker. They are exempt from the hard CI check (the same authors the PR-body-completeness check
@@ -62,11 +65,6 @@ RELEASE_IMPACTS = ("none", "patch", "minor", "major")
 _RANK = {impact: i for i, impact in enumerate(RELEASE_IMPACTS)}
 _CANONICAL_BY_LOWER = {impact.lower(): impact for impact in RELEASE_IMPACTS}
 
-# The concrete SemVer bump each impact implies from a current version — the level names release_cut's version
-# math keys on. `none` implies no automatic bump (an all-none release does not silently become a patch: it has
-# no floor, so the cut requires an explicit operator version rather than inventing one).
-BUMP_NONE = "none"
-
 # Automated authors that cannot self-render a marker. The ONE Python home; pr-release-impact.json's
 # `ci_author_exempt` is bound equal to this by test (test_release_impact) so the CI check and the cut cannot
 # drift. Kept as a tuple of the GitHub login spellings GitHub reports for these bots.
@@ -77,9 +75,9 @@ EXEMPT_AUTHORS = ("dependabot[bot]", "github-actions[bot]")
 # still overrides upward if such a change provably breaks something.
 DEFAULT_EXEMPT_IMPACT = "patch"
 
-# The release at which a declared impact became mandatory. Informational for the operator-facing evidence; the
-# cut detects a pre-boundary/non-compliant pull request by MARKER ABSENCE (robust — no merge-date bookkeeping),
-# and routes it through the explicit --legacy-impact aggregate.
+# The release at which a declared impact became mandatory — named in the cut's legacy-tranche refusal so the
+# operator sees WHICH boundary a markerless pull request predates. The cut detects a pre-boundary/non-compliant
+# pull request by MARKER ABSENCE (robust — no merge-date bookkeeping), and routes it through --legacy-impact.
 MANDATORY_SINCE = "StarshipSuperjam/engine-template#942"
 
 _IMPACT_TEMPLATE = "<!-- engine-release-impact: {impact} -->"

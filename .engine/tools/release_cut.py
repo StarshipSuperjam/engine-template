@@ -81,6 +81,7 @@ import engine_write  # the engine-owned write boundary — the cut's stage/swap 
 import local_references  # the declared local-reference vocabulary (StarshipSuperjam/engine-template#639)
 import shipped_local_references_check  # the shipped-surface scan this cut reuses as its backstop (StarshipSuperjam/engine-template#943)
 import release_impact  # the declared-impact vocabulary + ordering + marker (StarshipSuperjam/engine-template#942)
+import module_surfaces  # the file -> owning-module registry, for per-package impact attribution (StarshipSuperjam/engine-template#942 L10)
 
 SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
@@ -268,6 +269,10 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
 # (merge / squash / rebase), so it holds in a generated repo too. This is a derived view of the pull requests
 # themselves (the one history store, eADR-0014), never a second store.
 _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
+# A looser signature: ANY line that carries a `…/pull/N` link plainly names a merged pull request. The
+# version-authority enumerator uses it to detect a line that names a PR but does NOT match the strict shape above
+# (undisclosed generate-notes format drift), so a drifted line carrying a marker fails closed instead of vanishing.
+_PR_PULL_URL_RE = re.compile(r"/pull/\d+\b")
 # The engine's OWN release pull request (title "Release X.Y.Z", authored by release.yml). At publish the notes
 # are generated over previous_tag..merge_sha, which spans the release PR's own merge — so without this it would
 # list itself and the count would be one high. Past release PRs sit before previous_tag, out of range.
@@ -440,25 +445,70 @@ def _fetch_pr_meta(slug: str, number: int, token: str | None) -> dict:
     return {"body": data.get("body") or "", "author": (data.get("user") or {}).get("login")}
 
 
+def _fetch_pr_files(slug: str, number: int, token: str | None) -> list:
+    """GET /repos/{slug}/pulls/{number}/files -> the repo-relative paths the pull request changed. RAISES on any
+    failure, like _fetch_pr_meta: the touched-file set drives which PACKAGE a declared impact lands on (StarshipSuperjam/engine-template#942
+    L10), so an unreadable file list must fail closed rather than silently attribute a change to no package (which
+    would under-bump it). Paginated (100/page, follow until a short page); the GitHub cap is 3000 files/PR, past
+    which the list is truncated — a short page always terminates within it. Builds its own request like the peers."""
+    import urllib.request, json as _json, boot   # local: only the real fetch needs these
+    tok = token if token is not None else boot.gh_token()
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "engine-release-cut"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    paths: list[str] = []
+    page = 1
+    while True:
+        url = f"https://api.github.com/repos/{slug}/pulls/{number}/files?per_page=100&page={page}"
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            batch = _json.loads(resp.read()) or []
+        paths.extend(f.get("filename") for f in batch if f.get("filename"))
+        if len(batch) < 100:                               # a short (or empty) page is the last one
+            break
+        page += 1
+    return paths
+
+
 def _enumerate_merged_pr_lines(previous_tag: str, target: str, repo: str | None = None,
                                token: str | None = None) -> list:
     """The merged-pull-request 'Title (#N)' lines since `previous_tag`, RAISING on a fetch/transport failure.
     This is the version-authority enumerator merged_pr_impacts folds — deliberately NOT merged_pr_titles, which
     swallows every failure and returns [] for the cosmetic notes list. A swallowed connectivity/auth/HTTP failure
     would read as 'zero pull requests merged' and silently under-version a breaking release (a QA blocking
-    finding); propagating the exception makes the fold fail CLOSED on that class. HONEST LIMIT (QA): this covers
-    RAISED failures, not a 200 response that parses to zero lines — an empty parse is read as an empty range (no
-    merges since the tag), the same as a legitimately-empty range, so severe generate-notes FORMAT DRIFT could
-    still read as zero. That residual is pre-existing (it fed the old default too) and undistinguishable from a
-    real empty range without a second source; the reachable failure class (network/auth/status) is closed here."""
-    return _parse_pr_lines(_generate_notes_body(repo, previous_tag, target, token))
+    finding); propagating the exception makes the fold fail CLOSED on that class. It ALSO fails closed on a
+    PARTIAL drop: a line that plainly names a merged pull request (`…/pull/N`) but does not parse into the list is
+    undisclosed FORMAT DRIFT — a single such line could carry a `major` marker and vanish silently, so rather than
+    under-count we raise and name it (a QA blocking finding: total-parse-failure was already closed, a partial one
+    was not). HONEST LIMIT: a 200 response that parses to zero lines with NO `…/pull/N` line at all is still read
+    as an empty range (no merges since the tag) — indistinguishable from a legitimately-empty range without a
+    second source; the reachable classes (network/auth/status, and a recognisable-but-unparsable PR line) close."""
+    body = _generate_notes_body(repo, previous_tag, target, token)
+    parsed = _parse_pr_lines(body)
+    for line in body.splitlines():
+        s = line.strip()
+        if not _PR_PULL_URL_RE.search(s):
+            continue                                       # not a pull-request line at all (header/changelog/blank)
+        m = _PR_LINE_RE.match(s)
+        if m and not _RELEASE_PR_RE.match(m.group(1).strip()):
+            continue                                       # parsed into the list — accounted for
+        if m and _RELEASE_PR_RE.match(m.group(1).strip()):
+            continue                                       # the engine's OWN release pull request — dropped by design
+        raise RuntimeError(
+            f"a line naming a merged pull request could not be parsed from GitHub's generated notes (format "
+            f"drift) — refusing to under-count the release rather than silently drop it: {s!r}")
+    return parsed
 
 
 def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = None,
-                      token: str | None = None, *, _fetch_lines=None, _fetch_meta=None) -> dict:
+                      token: str | None = None, *, _fetch_lines=None, _fetch_meta=None, _fetch_files=None) -> dict:
     """The declared release impact of every pull request merged since the last release — FAIL-CLOSED, because
     this drives the version number. Returns
-        {'per_pr': [{'number','title','impact'(canonical|None),'author'}], 'error': <reason|None>}.
+        {'per_pr': [{'number','title','impact'(canonical|None),'author','files'[paths]}], 'error': <reason|None>}.
+    Each entry also carries the repo-relative paths the pull request changed (`files`), so a later PURE fold can
+    attribute the declared impact to the specific PACKAGE(s) it touched (StarshipSuperjam/engine-template#942 L10) — that per-PR file read is
+    version authority too, so it fails closed alongside the body read.
     `error` is non-None when the read could not be PROVEN complete — the enumeration failed, or a non-exempt pull
     request's body could not be read — and the caller then refuses to auto-derive rather than emit a version it
     cannot stand behind (a skipped body would silently drop a `major` PR to a lower release). A pull request's
@@ -466,6 +516,7 @@ def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = 
     markerless PR is legacy/undeclared, handled by resolve_release_impact). Injectable for offline tests."""
     fetch_lines = _fetch_lines or _enumerate_merged_pr_lines   # RAISING default (never the swallowing titles list)
     fetch_meta = _fetch_meta or _fetch_pr_meta
+    fetch_files = _fetch_files or _fetch_pr_files
     slug = repo if repo is not None else release_source._home_repository()
     if not slug or not previous_tag or not target:
         # No prior tag (first cut) or no target: no pull-request set to fold — not an error, just empty.
@@ -473,7 +524,7 @@ def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = 
     # Resolve the token ONCE for the whole fold (avoid re-shelling `gh auth token` per pull request off-CI); only
     # for the REAL fetchers — an injected (test) fetcher path never touches the network, so it stays offline.
     tok = token
-    if tok is None and _fetch_lines is None and _fetch_meta is None:
+    if tok is None and _fetch_lines is None and _fetch_meta is None and _fetch_files is None:
         import boot
         tok = boot.gh_token()
     try:
@@ -490,9 +541,13 @@ def merged_pr_impacts(previous_tag: str | None, target: str, repo: str | None = 
             meta = fetch_meta(slug, number, tok)
         except Exception as exc:  # noqa: BLE001 — a version-authority read; an unreadable body fails CLOSED
             return {"per_pr": [], "error": f"could not read pull request #{number}'s body: {exc}"}
+        try:
+            files = fetch_files(slug, number, tok)
+        except Exception as exc:  # noqa: BLE001 — the touched-package attribution read; also fails CLOSED
+            return {"per_pr": [], "error": f"could not read pull request #{number}'s changed files: {exc}"}
         per_pr.append({"number": number, "title": title,
                        "impact": release_impact.parse_impact(meta.get("body")),
-                       "author": meta.get("author")})
+                       "author": meta.get("author"), "files": list(files or [])})
     return {"per_pr": per_pr, "error": None}
 
 
@@ -530,13 +585,16 @@ def resolve_release_impact(mechanical_level: str, current_engine: str, per_pr: l
                 "defaulted": defaulted,
                 "refusal": {
                     "reason": f"{len(legacy)} merged pull request(s) declare no release impact and predate the "
-                              f"impact marker (or were merged past the check); the cut cannot auto-derive across "
-                              f"an undeclared pull request",
+                              f"impact marker (mandatory since {release_impact.MANDATORY_SINCE}) or were merged past "
+                              f"the check; the cut cannot auto-derive across an undeclared pull request",
                     "violations": legacy,
                     "recovery": "Give the pre-marker tranche one explicit aggregate impact with "
                                 "--legacy-impact <none|patch|minor|major> (choose the highest true impact across "
-                                "them), or add a valid Release-Impact marker to each listed pull request's body "
-                                "and re-run. Going forward every pull request carries its own marker."}}
+                                "them), or add the hidden marker "
+                                f"'{release_impact.impact_trailer('patch')}' (with the true value) to each listed "
+                                "pull request's body and re-run — the visible '*Release-Impact: …*' line is "
+                                "cosmetic; only the hidden marker counts. Going forward every pull request carries "
+                                "its own marker."}}
     if legacy_impact is not None and legacy:
         declared_candidates.append(release_impact.canonical_impact(legacy_impact))
 
@@ -559,15 +617,69 @@ def resolve_release_impact(mechanical_level: str, current_engine: str, per_pr: l
                     "violations": [f"proven mechanical floor: {mechanical_level}; highest declared impact: "
                                    f"{declared}"],
                     "recovery": f"Find the pull request responsible for the {mechanical_level}-level change named "
-                                f"in the inventory above and raise ITS Release-Impact to {mechanical_level} — do "
-                                f"NOT relabel unrelated pull requests (an honest patch stays a patch). Then re-run. "
-                                f"Or supply an explicit version at or above the {mechanical_level} floor."}}
+                                f"in the inventory above and raise ITS Release-Impact to {mechanical_level} by "
+                                f"editing the HIDDEN marker in its body to '{release_impact.impact_trailer(mechanical_level)}' "
+                                f"(the visible '*Release-Impact: …*' line is cosmetic — editing it alone has no "
+                                f"effect; the cut and the CI check read only the hidden marker). Do NOT relabel "
+                                f"unrelated pull requests (an honest patch stays a patch). Then re-run. Or supply an "
+                                f"explicit version at or above the {mechanical_level} floor."}}
 
     effective = release_impact.max_impact([declared, mechanical_level])
     floor_version = (_bump_at_least(current_engine, effective)
                      if effective in ("patch", "minor", "major") else None)
     return {"declared": declared, "effective": effective, "engine_floor_version": floor_version,
             "per_pr": per_pr, "defaulted": defaulted, "refusal": None}
+
+
+def _modules_for_paths(paths, surfaces: dict) -> list:
+    """The set of owning MODULE ids for a list of repo-relative paths, via the module-surfaces registry
+    ({path: [module_id, …]}). A path no module owns (a root file, engine core plumbing, a test) contributes
+    nothing. Sorted for a deterministic fold/evidence order."""
+    owners: set[str] = set()
+    for p in paths or []:
+        owners.update(surfaces.get(p) or [])
+    return sorted(owners)
+
+
+def fold_package_impacts(package_floor: dict, present_versions: dict, per_pr: list, surfaces: dict) -> dict:
+    """PURE per-package attribution (StarshipSuperjam/engine-template#942 L10): raise each PACKAGE's floor to reflect ONLY the pull requests
+    that actually touched it — never the release aggregate. For every merged pull request, its DECLARED impact
+    (an exempt bot's markerless PR folds as DEFAULT_EXEMPT_IMPACT; a `none` declaration asserts no compatibility
+    impact and never bumps) is folded, max-per-package, into the version of every present module whose surface it
+    changed (mapped through `surfaces`). Raise-only: the result is the higher of any existing mechanical floor
+    (a migration/retirement already set) and the declared-impact floor, so a second writer never lowers the first.
+    Scoping WHERE an impact lands (the touched packages) never INVENTS a level — an unrelated module that only took
+    a patch stays a patch even in a minor/major release. Returns {'package_floor': {…}, 'attributions': [note,…]}.
+
+    Pure and offline: `surfaces` and `present_versions` are passed in, `per_pr` carries each PR's `files`, so the
+    fold is fully unit-testable without a network or a checkout."""
+    floor = dict(package_floor)
+    attributions: list[str] = []
+    # Highest declared level each present package received, and the PRs that drove it (for the evidence line).
+    per_module: dict[str, str] = {}
+    drivers: dict[str, list] = {}
+    for pr in per_pr:
+        if pr.get("impact"):
+            level = pr["impact"]
+        elif release_impact.is_author_exempt(pr.get("author")):
+            level = release_impact.DEFAULT_EXEMPT_IMPACT
+        else:
+            continue                                       # legacy/undeclared: the whole cut already refused
+        if level not in ("patch", "minor", "major"):
+            continue                                       # `none` asserts no compatibility impact — never a bump
+        for mid in _modules_for_paths(pr.get("files"), surfaces):
+            if mid not in present_versions:
+                continue                                   # a surface whose module is not a present package
+            if mid not in per_module or release_impact.rank(level) > release_impact.rank(per_module[mid]):
+                per_module[mid] = level
+            drivers.setdefault(mid, []).append(f"#{pr['number']} ({level})")
+    for mid, level in sorted(per_module.items()):
+        candidate = _bump_at_least(present_versions[mid], level)
+        prior = floor.get(mid)
+        floor[mid] = (candidate if not prior
+                      or validate._ver_tuple(candidate) >= validate._ver_tuple(prior) else prior)
+        attributions.append(f"'{mid}' -> at least {floor[mid]} (declared {level} by {', '.join(drivers[mid])})")
+    return {"package_floor": floor, "attributions": attributions}
 
 
 # --------------------------------------------------------------------------- present / baseline sets
@@ -1447,7 +1559,18 @@ def _render_proposal(p: dict) -> str:
     else:
         floor = p["engine_floor_level"]
         declared = p.get("declared_impact")
-        if declared is not None:                         # the declared-impact fold ran (StarshipSuperjam/engine-template#942)
+        refusal = p.get("impact_refusal")
+        if refusal:
+            # A fold refusal (mismatch, legacy/undeclared, or an unreadable body) — WITHHOLD the version rather
+            # than print a floor line that contradicts it. The full reason + recovery print as the refusal below.
+            lines.append(f"Version decision (current {p['current_engine']}): WITHHELD — this release is refused.")
+            if declared is not None:
+                lines.append(f"  - highest declared pull-request impact: {declared}")
+            if floor and floor != "none":
+                lines.append(f"  - mechanical compatibility floor the diff could prove: {floor}")
+            lines.append(f"  - {refusal['reason']}")
+            lines.append("  - no version is derived until this is resolved (see the refusal below).")
+        elif declared is not None:                       # the declared-impact fold ran and did NOT refuse (StarshipSuperjam/engine-template#942)
             lines.append(f"Version decision (current {p['current_engine']}):")
             lines.append(f"  - highest declared pull-request impact: {declared}")
             lines.append(f"  - mechanical compatibility floor the diff could prove: "
@@ -1457,7 +1580,8 @@ def _render_proposal(p: dict) -> str:
                 lines.append(f"  - so the least this release can be is {p['engine_floor_version']} "
                              f"(you may raise it, never lower it).")
             else:
-                lines.append("  - no impact declared and none proven — no automatic version; name one to publish.")
+                lines.append("  - every merged pull request declared 'none' and the diff proved no floor — no "
+                             "automatic version; name one explicitly to publish.")
             for d in p.get("impact_defaulted") or []:
                 lines.append(f"  - defaulted: {d}")
         elif floor == "none":
@@ -1470,8 +1594,10 @@ def _render_proposal(p: dict) -> str:
         if p.get("compatibility_unknown"):
             lines.append(f"  ! {len(p['compatibility_unknown'])} contract/interface change(s) have UNKNOWN "
                          f"compatibility — review required (the declared impact governs; see the Risk section).")
+        if p.get("package_attribution_note"):
+            lines.append(f"  ! {p['package_attribution_note']}")
         if p["package_floor"]:
-            lines.append("Per-package floors:")
+            lines.append("Per-package floors (each reflects only the pull requests that touched it):")
             for mid, ver in p["package_floor"].items():
                 lines.append(f"  - {mid}: at least {ver}")
     return "\n".join(lines)
@@ -1966,21 +2092,28 @@ def _current_sha() -> "str | None":
 
 
 def _apply_impact_fold(proposal: dict, previous_tag: str | None, target: str, slug: str | None,
-                       mechanical_level: str, legacy_impact: str | None):
+                       mechanical_level: str, legacy_impact: str | None, *, fold_packages: bool = False):
     """Run the declared-impact fold (fetch each merged pull request's marker, FAIL-CLOSED) and fold it into
     `proposal`: set declared_impact / mechanical_floor_level / effective_impact / impact_defaulted /
     declared_per_pr and, on success, engine_floor_version = the effective floor. Returns a refusal dict (an
     unreadable body, a legacy/undeclared pull request, or a declaration below the proven floor) or None. The ONE
-    fold entry both the engine and product cut paths share, so their posture cannot drift (StarshipSuperjam/engine-template#942)."""
+    fold entry both the engine and product cut paths share, so their posture cannot drift (StarshipSuperjam/engine-template#942).
+
+    `fold_packages` (engine cut only) additionally attributes each pull request's declared impact to the PACKAGE(s)
+    it touched, raising `proposal['package_floor']` per package (StarshipSuperjam/engine-template#942 L10). Product cuts pass False — a deployed
+    product has no engine module tree to attribute against."""
     imp = merged_pr_impacts(previous_tag, target, repo=slug)
     if imp["error"]:
-        return {"reason": "the release could not read the declared impact of every merged pull request, so it "
-                          "refuses to auto-derive a version it cannot stand behind (a skipped body could hide a "
-                          "breaking change)",
-                "violations": [imp["error"]],
-                "recovery": "This is a fail-closed guard for a version-authority read — a network/token failure, "
-                            "not your change. Re-run the release; if it persists, check the release job's "
-                            "GITHUB_TOKEN and GitHub availability."}
+        fetch_refusal = {
+            "reason": "the release could not read the declared impact of every merged pull request, so it "
+                      "refuses to auto-derive a version it cannot stand behind (a skipped body could hide a "
+                      "breaking change)",
+            "violations": [imp["error"]],
+            "recovery": "This is a fail-closed guard for a version-authority read — a network/token failure, "
+                        "not your change. Re-run the release; if it persists, check the release job's "
+                        "GITHUB_TOKEN and GitHub availability."}
+        proposal["impact_refusal"] = fetch_refusal          # so the renderer withholds the version, not contradicts
+        return fetch_refusal
     res = resolve_release_impact(mechanical_level, proposal["current_engine"], imp["per_pr"], legacy_impact)
     proposal["declared_impact"] = res["declared"]
     proposal["mechanical_floor_level"] = mechanical_level
@@ -1989,8 +2122,27 @@ def _apply_impact_fold(proposal: dict, previous_tag: str | None, target: str, sl
     proposal["declared_per_pr"] = [{"number": pr["number"], "title": pr["title"], "impact": pr["impact"]}
                                    for pr in imp["per_pr"]]
     if res["refusal"]:
+        # Stamp the refusal onto the proposal so `_render_proposal` WITHHOLDS the version decision honestly instead
+        # of inferring "nothing declared" from a falsy engine_floor_version (a QA finding: the renderer printed
+        # self-contradictory text in exactly the mismatch/legacy cases the feature exists to make legible).
+        proposal["impact_refusal"] = res["refusal"]
         return res["refusal"]
     proposal["engine_floor_version"] = res["engine_floor_version"]
+    if fold_packages:
+        # L10: raise each PACKAGE only for the pull requests that touched IT. `surfaces` maps a changed path to its
+        # owning module; an empty registry (unreadable catalog) can attribute nothing, so DISCLOSE it rather than
+        # silently under-bump packages — the engine version (folded fail-closed above) is unaffected, and package
+        # floors are raise-only + guarded by the untouched package validity checks, so this is a note, not a refusal.
+        surfaces = module_surfaces.load()
+        present_versions = {mid: man.get("version", "0.0.0") for mid, man in _present_modules().items()}
+        folded = fold_package_impacts(proposal.get("package_floor") or {}, present_versions, imp["per_pr"], surfaces)
+        proposal["package_floor"] = folded["package_floor"]
+        proposal["package_impact_attributions"] = folded["attributions"]
+        if not surfaces:
+            proposal["package_attribution_note"] = (
+                "per-package impact attribution was SKIPPED — the module-surfaces registry "
+                "(.engine/provisioning/module-surfaces.json) is empty or unreadable, so each package kept only its "
+                "mechanical floor. The engine version still reflects the declared impact.")
     return None
 
 
@@ -2036,7 +2188,8 @@ def _cmd_propose(args) -> int:
     # enforces "not below what was declared". FAIL-CLOSED (see _apply_impact_fold). Skipped on the offline path.
     impact_refusal = (None if args.baseline_tree else
                       _apply_impact_fold(proposal, baseline.ref, _current_sha(), None,
-                                         proposal["engine_floor_level"], getattr(args, "legacy_impact", None)))
+                                         proposal["engine_floor_level"], getattr(args, "legacy_impact", None),
+                                         fold_packages=True))
     print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
     # DISCLOSED-not-silent: if no local-reference vocabulary is declared, the shipped local-reference floor did
     # not run. Never a refusal (an absent declaration is a legitimate steady state), but never silent either at an
