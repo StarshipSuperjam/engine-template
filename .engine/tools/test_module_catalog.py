@@ -86,14 +86,28 @@ class TestEntries(unittest.TestCase):
         self.assertNotIn("verb", board[0], "no per-module verb")
 
 
+def _seed_module(root: str, mid: str = "seeded-addon") -> str:
+    """Seed one offerable module in `root` so these cases derive from a module set they OWN. They once named a
+    real optional module, which made them fail wherever that module is not installed — including the release
+    gate's declined projection, the very shape the catalog's declined-memory exists for."""
+    d = os.path.join(root, ".engine", "modules", mid)
+    os.makedirs(d, exist_ok=True)
+    _write(os.path.join(d, "manifest.json"), json.dumps(
+        {"id": mid, "status": "optional",
+         "presentation": {"description": "A seeded add-on.", "category": "Product Management",
+                          "setup_trigger": "the operator asks to set up the seeded add-on"}}))
+    return mid
+
+
 class TestDeriveAndGenerate(unittest.TestCase):
     def test_derive_produces_offerable_modules_from_manifests(self):
         # derive() reads the present offerable manifests' `presentation`; every offerable module with a
         # presentation appears, keyed and sorted by id, with the canonical fields and no verb.
         with tempfile.TemporaryDirectory() as d:
-            got = mc.derive(os.path.join(d, "no-prior.json"))   # no prior catalog → pure from-manifests
+            mid = _seed_module(d)
+            got = mc.derive(os.path.join(d, "no-prior.json"), d)  # no prior catalog → pure from-manifests
             ids = [e["id"] for e in got]
-            self.assertIn("github-projects-sync", ids, "an offerable module with a presentation is derived")
+            self.assertIn(mid, ids, "an offerable module with a presentation is derived")
             self.assertEqual(ids, sorted(ids), "sorted by id")
             for e in got:
                 self.assertEqual(set(e), _FIELDS, "canonical fields only; no verb")
@@ -107,10 +121,11 @@ class TestDeriveAndGenerate(unittest.TestCase):
             p = os.path.join(d, "module-catalog.json")
             _write(p, json.dumps([{"id": "ghost-declined", "description": "A declined module.",
                                    "category": "Product Management", "status": "optional"}]))
-            result = mc.generate(p)
+            mid = _seed_module(d)
+            result = mc.generate(p, d)
             ids = [e["id"] for e in result]
             self.assertIn("ghost-declined", ids, "a declined module with no present manifest is retained")
-            self.assertIn("github-projects-sync", ids, "present offerable modules are (re)derived")
+            self.assertIn(mid, ids, "present offerable modules are (re)derived")
             self.assertEqual(json.load(open(p)), result, "the derived catalog is written to disk")
 
 
@@ -121,19 +136,21 @@ class TestDriftCheck(unittest.TestCase):
     def test_freshly_generated_catalog_is_in_sync(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "module-catalog.json")
-            mc.generate(p)
-            self.assertEqual(mc.check("hard", path=p), [])
+            _seed_module(d)
+            mc.generate(p, d)
+            self.assertEqual(mc.check("hard", path=p, root=d), [])
 
     def test_hand_edited_present_entry_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "module-catalog.json")
-            mc.generate(p)
+            mid = _seed_module(d)
+            mc.generate(p, d)
             data = json.load(open(p, encoding="utf-8"))
             for e in data:
-                if e["id"] == "github-projects-sync":   # a PRESENT offerable module — derive rebuilds it
+                if e["id"] == mid:   # a PRESENT offerable module — derive rebuilds it
                     e["description"] = "HAND EDITED — the generator would never write this"
             _write(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-            fs = [f for f in mc.check("hard", path=p) if f["severity"] == "hard"]
+            fs = [f for f in mc.check("hard", path=p, root=d) if f["severity"] == "hard"]
             self.assertTrue(fs, "a hand-edited present-module entry must be flagged as drift")
             self.assertIn("out of date", fs[0]["message"])
 

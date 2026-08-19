@@ -123,12 +123,12 @@ def _serialize(catalog: list) -> str:
     return json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
 
 
-def generate(path: str | None = None) -> list:
+def generate(path: str | None = None, root: str | None = None) -> list:
     """Write the derived, merge-preserving catalog to `.engine/provisioning/module-catalog.json` and return it.
     Run in the SOURCE repo where every module is present (so it lists all offerable modules); shipped unchanged
     to deployments. Where it is regenerated with a module absent, the declined entry is preserved by `derive`."""
     target = path or CATALOG_PATH
-    catalog = derive(target)
+    catalog = derive(target, root)
     with open(target, "w", encoding="utf-8") as fh:
         fh.write(_serialize(catalog))
     return catalog

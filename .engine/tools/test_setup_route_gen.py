@@ -6,6 +6,7 @@ gone). These tests cover the rest: that derivation is deterministic, that the re
 sync, and that both a missing and a content-drifted committed route are flagged.
 """
 from __future__ import annotations
+import json
 import os
 import sys
 import tempfile
@@ -17,6 +18,20 @@ import setup_route_gen as sr  # noqa: E402
 
 def _hard(fs) -> list:
     return [f for f in fs if f["severity"] == "hard"]
+
+
+def _seed_module(root: str, mid: str = "fixture-addon") -> None:
+    """Seed one offerable module in `root` so the derivation has something to derive THERE. The check roots
+    both sides, so a bare tempdir derives nothing and no drift is expressible — and a deployment that declined
+    its add-ons has no offerable manifest either. Seeding keeps these cases hermetic and assertable in any
+    projection, rather than borrowing whichever module the ambient tree happens to carry."""
+    d = os.path.join(root, ".engine", "modules", mid)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "manifest.json"), "w", encoding="utf-8") as fh:
+        json.dump({"id": mid, "status": "optional",
+                   "presentation": {"description": "A seeded add-on for these tests.",
+                                    "category": "review",
+                                    "setup_trigger": "the operator asks to set up the seeded add-on"}}, fh)
 
 
 class SetupRouteGenTests(unittest.TestCase):
@@ -33,14 +48,16 @@ class SetupRouteGenTests(unittest.TestCase):
         self.assertEqual(sr.check("hard"), [], "the committed setup routes must match the derived text")
 
     def test_missing_committed_route_is_flagged(self):
-        with tempfile.TemporaryDirectory() as d:   # empty root → every derived route is missing
+        with tempfile.TemporaryDirectory() as d:   # a seeded module, no committed route → it is missing
+            _seed_module(d)
             fs = _hard(sr.check("hard", root=d))
             self.assertTrue(fs)
             self.assertTrue(any("is missing" in f["message"] for f in fs))
 
     def test_content_drifted_route_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:
-            rel, _text = sorted(sr.derive().items())[0]
+            _seed_module(d)
+            rel, _text = sorted(sr.derive(d).items())[0]
             p = os.path.join(d, rel)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w", encoding="utf-8") as fh:
