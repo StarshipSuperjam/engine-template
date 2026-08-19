@@ -74,10 +74,20 @@ class TestMissingOwnerTolerance(unittest.TestCase):
     def _drop(self, root, owner):
         (root / owner).unlink()
 
+    def _home_only_owner(self, root) -> str:
+        """The owner of the map's `home-only` obligation, read FROM the map rather than named here — the file
+        it points at is removed when a project is first set up, so a literal reference would break the very
+        first check in a new project (and would go stale if the scoped obligation ever changes)."""
+        import json as _json
+        for obligation in _json.loads((root / preservation.MAP_PATH).read_text(encoding="utf-8"))["obligations"]:
+            if obligation.get("scope") == "home-only":
+                return obligation["owner"]
+        self.skipTest("no home-only obligation in the map to exercise")
+
     def test_a_home_only_owner_is_tolerated_only_away_from_home(self):
         with tempfile.TemporaryDirectory() as d:
             root = self._tree(d)
-            self._drop(root, ".engine/operations/engine-development.md")   # BO-06, scope home-only
+            self._drop(root, self._home_only_owner(root))
             with mock.patch.object(preservation, "_away_from_home", return_value=True):
                 self.assertTrue(preservation.validate_map(root))
             with mock.patch.object(preservation, "_away_from_home", return_value=False):
@@ -107,7 +117,7 @@ class TestMissingOwnerTolerance(unittest.TestCase):
     def test_a_tolerated_owner_still_has_its_mechanical_anchor_checked(self):
         with tempfile.TemporaryDirectory() as d:
             root = self._tree(d)
-            self._drop(root, ".engine/operations/engine-development.md")
+            self._drop(root, self._home_only_owner(root))
             for p in (root / ".engine" / "tools").glob("test_build_coordinator*.py"):
                 p.write_text("", encoding="utf-8")   # every mechanical anchor now absent
             with mock.patch.object(preservation, "_away_from_home", return_value=True):

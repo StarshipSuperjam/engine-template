@@ -9733,7 +9733,8 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
-          "tool:module_surfaces"
+          "tool:module_surfaces",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -9741,7 +9742,7 @@
       },
       "slug": "build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:dc5f4d38b3513156a8b9445cf1499c33a7a598952de9b4f6ef8e5ee653120ae8",
+        "fingerprint": "sha256:38473f4115eff0e1bdcd4e189bffe05aeac9d918e32d433464f7bb436bbbb48f",
         "path": ".engine/tools/build_coordinator_preservation.py"
       },
       "status": "active",
@@ -13069,7 +13070,7 @@
       },
       "slug": "module_catalog",
       "source": {
-        "fingerprint": "sha256:56b7e2d7d45c4de5c31762650493d8255ea33fe53e324056788a4b2e472b8419",
+        "fingerprint": "sha256:a2316e4ea31ea3d2704ce4e98f1871807dd1278b6c1572e8e486a5a953020bc7",
         "path": ".engine/tools/module_catalog.py"
       },
       "status": "active",
@@ -13121,7 +13122,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:c0acff70827c79fd48b15606098611507abbd2c3858f943cb6d063f6db78a371",
+        "fingerprint": "sha256:2ef4ae6ec15c51ce360c8d634355dd6295e7fa55a18af6fc771197bae19975ba",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -14375,7 +14376,7 @@
       },
       "slug": "setup_route_gen",
       "source": {
-        "fingerprint": "sha256:5523de8453cff11b50394c2cae875d88124cbd550e2118200aafec2e493bf80b",
+        "fingerprint": "sha256:5f3850d6357207be768fcbc6babf7eef89ac7b1adfbce7c3f3d9cc96d90073ea",
         "path": ".engine/tools/setup_route_gen.py"
       },
       "status": "active",
@@ -15166,7 +15167,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:c85773dcb86f89c7bbe5aeb65593339fcf3217a7b1d082d5f7918fa9053421e4",
+        "fingerprint": "sha256:0efbf2ef4d15e0b791f72b111b8a1cf238035d65bcf51d9b7b241d39a84ab15c",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15286,12 +15287,13 @@
         ],
         "tests": [
           "tool:build_coordinator",
+          "tool:build_coordinator_core",
           "tool:build_coordinator_preservation"
         ]
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:2250333c18418a625450f8b47b6849a573919980dfd6f483107116518704c3a8",
+        "fingerprint": "sha256:87367f6e8e01ca812d4035d42b9993b91affab53b77e2f2573c04cb09d526ea1",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",
@@ -15317,7 +15319,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:7d558ce36e148ec72eca273ea94d9e489f2afae7e1b195f146c095bdc39adf23",
+        "fingerprint": "sha256:b3cc26ff5e2dbf47abbb73fe0afc5ba994e97ce353f627c6d2e46551db643f0e",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -18596,7 +18598,7 @@
       },
       "slug": "test_setup_route_gen",
       "source": {
-        "fingerprint": "sha256:cee5872796f740e63887c2aa94be157c56874d578dcb4eed8b854920cad202bd",
+        "fingerprint": "sha256:d70daf9df25affc429d2d7b5a8c29d78c8970a2ef88a0200751ca056df043429",
         "path": ".engine/tools/test_setup_route_gen.py"
       },
       "status": "active",
