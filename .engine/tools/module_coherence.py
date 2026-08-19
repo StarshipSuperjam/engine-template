@@ -271,12 +271,16 @@ def _untracked_surface_paths() -> set | None:
     return set(lines) if lines is not None else None
 
 
-def discover_manifests() -> list:
+def discover_manifests(root: str | None = None) -> list:
     """The present module manifests as (relpath, manifest) pairs — installed-means-present,
-    read from the .engine/modules/ directory listing. Sorted by path for stable output."""
+    read from the .engine/modules/ directory listing. Sorted by path for stable output.
+    `root` overrides the tree read (default validate.ROOT) — the seam a derived-committed artifact's
+    negative fixture uses to seed its own module set, so its check stays witnessable in a deployment
+    whose real manifest set is reduced. Every live caller passes nothing and reads the real tree."""
+    base = root or validate.ROOT
     out = []
-    for abs_path in sorted(_glob.glob(os.path.join(validate.ROOT, MODULES_GLOB))):
-        out.append((_rel(abs_path), validate.load_json(abs_path)))
+    for abs_path in sorted(_glob.glob(os.path.join(base, MODULES_GLOB))):
+        out.append((os.path.relpath(abs_path, base), validate.load_json(abs_path)))
     return out
 
 

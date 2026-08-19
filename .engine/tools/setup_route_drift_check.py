@@ -20,8 +20,9 @@ import validate  # noqa: E402  (env-override seam for the negative-fixture meta-
 
 
 def main() -> int:
-    # SETUP_ROUTE_FIXTURE_ROOT (unset in production) roots the COMMITTED-side reads at a seeded tree while the
-    # derivation still reads the real manifests — so the gate is witnessed biting a tree whose routes are gone.
+    # SETUP_ROUTE_FIXTURE_ROOT (unset in production) roots BOTH sides at a seeded tree — the committed routes
+    # and the module set the derivation reads — so the gate is witnessed biting a tree whose routes are gone
+    # even in a deployment that declined its add-ons, where a real-tree derivation is empty and cannot bite.
     root = validate.env_override_path("SETUP_ROUTE_FIXTURE_ROOT")
     print(json.dumps(setup_route_gen.check("hard", root=root)))
     return 0

@@ -79,7 +79,7 @@ def _raw_prior(path: str) -> list:
     return data if isinstance(data, list) else []
 
 
-def derive(path: str | None = None) -> list:
+def derive(path: str | None = None, root: str | None = None) -> list:
     """The catalog derived from the PRESENT offerable module manifests' `presentation` records, MERGE-PRESERVING
     declined entries from the prior committed catalog. An offerable module (status optional / default-on /
     experimental) that carries a `presentation` produces one entry {id, description, category, status}; the
@@ -91,7 +91,7 @@ def derive(path: str | None = None) -> list:
     target = path or CATALOG_PATH
     present_ids: set = set()
     derived: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in module_coherence.discover_manifests(root):
         if not isinstance(manifest, dict):
             continue
         mid = manifest.get("id")
@@ -134,7 +134,7 @@ def generate(path: str | None = None) -> list:
     return catalog
 
 
-def check(tier: str = "hard", path: str | None = None) -> list:
+def check(tier: str = "hard", path: str | None = None, root: str | None = None) -> list:
     """Drift gate: the committed catalog must equal the canonical serialization of the derived catalog, so a
     hand-edit to a present module's entry — or a stale catalog left after a manifest `presentation` change —
     turns the check red until it is regenerated. A DECLINED-module entry (no present manifest) is preserved by
@@ -143,7 +143,7 @@ def check(tier: str = "hard", path: str | None = None) -> list:
     overrides only the committed-side read (the derivation still reads the real manifests), which is the seam
     the negative-fixture meta-check uses to witness the gate biting a stale catalog."""
     target = path or CATALOG_PATH
-    canonical = _serialize(derive(target))
+    canonical = _serialize(derive(target, root))
     try:
         with open(target, encoding="utf-8") as fh:
             committed = fh.read()

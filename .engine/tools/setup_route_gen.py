@@ -83,13 +83,15 @@ def _render(module_id: str, presentation: dict) -> str:
     return "\n".join(lines)
 
 
-def derive() -> dict:
+def derive(root: str | None = None) -> dict:
     """{relative SKILL.md path: rendered text} for every offerable module carrying a presentation, keyed by the
     route's committed path. Pure over the discovered manifests — the single source is each manifest's
-    `presentation`, never a hand-authored route."""
+    `presentation`, never a hand-authored route. `root` overrides which tree the manifests are read from
+    (default validate.ROOT): the negative fixture seeds its own module there, so this gate stays witnessable
+    in a deployment whose real offerable set is reduced or empty. Every live caller reads the real tree."""
     import module_coherence  # lazy: imports validate; keep out of import time
     out: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in module_coherence.discover_manifests(root):
         if not isinstance(manifest, dict):
             continue
         mid = manifest.get("id")
@@ -134,12 +136,14 @@ def declined_route_owner(route_name: str, root: str | None = None) -> "str | Non
 def check(tier: str = "hard", root: str | None = None) -> list:
     """Findings when a committed setup route is missing or diverges from its derived text, or a stray
     `engine-setup-*` route exists with no offerable module behind it. The drift gate for the derived-committed
-    routes (mirrors codex_gen's render-equality contract). The DERIVATION always reads the real manifests; only
-    the COMMITTED-side reads are rooted at `root` (default validate.ROOT) — the seam the negative-fixture
-    meta-check uses to point the committed routes at a seeded tree while the derivation stays real."""
+    routes (mirrors codex_gen's render-equality contract). BOTH sides are rooted at `root` (default
+    validate.ROOT) — the seam the negative-fixture meta-check uses to point the check at a seeded tree. The
+    derivation is rooted too (it once always read the real manifests): a deployment that declined its add-ons
+    has NO offerable manifests, so a real-tree derivation there is empty and the fixture's aimed bite could
+    never be witnessed — the gate would report itself unproven in exactly the shape it must protect."""
     base = root or validate.ROOT
     findings = []
-    expected = derive()
+    expected = derive(base)
     for rel, text in sorted(expected.items()):
         path = os.path.join(base, rel)
         if not os.path.isfile(path):
