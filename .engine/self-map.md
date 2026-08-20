@@ -9,7 +9,7 @@
 > It does not show whether each part *works* or is well designed — that is your review and each
 > module's own checks, never something this map attests.
 
-Engine release `0.5.0` · identity `solo`
+Engine release `0.6.0` · identity `solo`
 
 ## Surfaces
 
@@ -51,7 +51,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `validators-core` → `core`
 - `audit-library` → `validators-core`
 
-### `core` — version `0.5.0` (required)
+### `core` — version `0.6.0` (required)
 
 - depends on: nothing
 - provides:
@@ -101,7 +101,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/external_contribution/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `github-projects-sync` — version `0.2.0` (optional)
+### `github-projects-sync` — version `0.3.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -160,7 +160,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - codex-agent: `.codex/agents/engine-qa-review-divergence-hunter.toml`, `.codex/agents/engine-qa-review-security-governance.toml`, `.codex/agents/engine-qa-review-spec-conformance.toml`, `.codex/agents/engine-qa-review-technical-integrity.toml`, `.codex/agents/engine-qa-review-usability.toml`
 - wires: none (this module adds no shared-state edits)
 
-### `routine-mode` — version `0.1.0` (required)
+### `routine-mode` — version `0.2.0` (required)
 
 - depends on: `core`
 - provides:
@@ -169,7 +169,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - skill: `.claude/skills/engine-routine/SKILL.md`
 - wires: none (this module adds no shared-state edits)
 
-### `validators-core` — version `0.2.0` (required)
+### `validators-core` — version `0.3.0` (required)
 
 - depends on: `core`
 - provides:
@@ -177,7 +177,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - policy: `.engine/policies/provider-exceptions.json`
 - wires: none (this module adds no shared-state edits)
 
-### `audit-library` — version `0.2.0` (required)
+### `audit-library` — version `0.3.0` (required)
 
 - depends on: `validators-core`
 - provides:
