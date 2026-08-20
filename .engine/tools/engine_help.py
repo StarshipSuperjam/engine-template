@@ -74,7 +74,7 @@ def installed_verbs(root: str | None = None) -> list:
     # so reading the Codex frontmatter would default every route to model-auto and silently re-admit the whole
     # model-only surface to the operator's menu. So the hidden set is computed once from the Claude tree and
     # applied to BOTH trees below — a route the Claude source marks non-operator-invocable is hidden on every
-    # runtime, matching the ADR-0336 rule that engine-help never exposes automatic routes.
+    # runtime, matching the rule that engine-help never exposes automatic routes.
     hidden = set()
     for rec in skill_discovery.records("claude", root=root, include_commands=True):
         inv = rec["frontmatter"].get("invocation") or "model-auto"

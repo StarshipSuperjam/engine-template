@@ -271,9 +271,15 @@ def _excluded(rel: str) -> bool:
     return rel in _EXCLUDED_EXACT or any(rel.startswith(p) for p in _EXCLUDED_PREFIXES)
 
 
-def _scan_targets(root: str, retire_files: set, retire_dirs: tuple) -> list:
+def _scan_targets(root: str, retire_files: set, retire_dirs: tuple, *, include_test_demo: bool = False) -> list:
     """Every shipped, scannable, repo-relative file: `.engine/**` minus retire minus excluded, plus the
-    foundation files outside `.engine/`."""
+    foundation files outside `.engine/`.
+
+    The bare-issue floor keeps test/demo prose out because synthetic ``#N`` tokens are endemic there. A
+    declaration-driven local-reference floor can opt in: its vocabulary is meaningful in every shipped prose
+    surface, including a test's explanatory comments and docstrings, while the shared Python extractor still
+    excludes fixture string literals. First-run-retired files remain excluded in either mode.
+    """
     targets = []
     engine_dir = os.path.join(root, _ENGINE_REL)
     for cur, dirs, names in os.walk(engine_dir):
@@ -282,7 +288,7 @@ def _scan_targets(root: str, retire_files: set, retire_dirs: tuple) -> list:
             rel = os.path.relpath(os.path.join(cur, name), root).replace(os.sep, "/")
             if os.path.splitext(name)[1] not in _SCAN_EXTS:
                 continue
-            if name.startswith(("test_", "demo_")):
+            if not include_test_demo and name.startswith(("test_", "demo_")):
                 continue  # test/demo prose is dominated by synthetic scenario numbers — see docstring
             if rel in retire_files or (retire_dirs and rel.startswith(retire_dirs)):
                 continue

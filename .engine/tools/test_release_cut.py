@@ -969,6 +969,31 @@ class ShippedLocalReferenceGuard(unittest.TestCase):
             rc.resolve_baseline = saved
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_proposal_generation_refuses_a_seeded_adr_in_shipped_test_prose(self):
+        # The release-cut backstop uses the same scanner as CI.  An ADR token in a shipped test docstring is
+        # prose a generated repository receives, while fixture string literals remain outside the scanner.
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core")})
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree({"core": _module("core")}) as t:
+                self._seed(t.root, declare=False, bad=False)
+                _write(os.path.join(t.root, ".engine", "operator-local-references.json"),
+                       {"id_prefixes": ["ADR-"]})
+                _write_text(os.path.join(t.root, ".engine", "tools", "test_seeded.py"),
+                            '"""Names ADR-0336 in shipped explanatory prose."""\n')
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 2)
+            self.assertIn("ADR-0336", err.getvalue())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
     def test_propose_discloses_the_note_without_refusing_when_undeclared(self):
         # a seeded bad token but NO declaration: the scan does not run, so the cut is NOT refused (exit 0) — but
         # the disclosed note appears, so a removed/emptied declaration is never silent.

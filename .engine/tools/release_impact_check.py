@@ -49,21 +49,14 @@ def _read_pr_body() -> "str | None":
     return (validate.load_json(event).get("pull_request") or {}).get("body") or ""
 
 
-def findings() -> list:
-    try:
-        body = _read_pr_body()
-    except Exception as exc:  # noqa: BLE001
-        # Surface the diagnostic (type + message) rather than masking it — a bare, fixed no-op message would let
-        # a real future bug in _read_pr_body silently downgrade this gate to "not applicable" forever, with
-        # nothing in the CI log to tell an operator the check is broken rather than legitimately skipping (QA).
-        return [{"severity": "soft", "not_applicable": True,
-                 "message": f"Could not read the pull-request body ({type(exc).__name__}: {exc}); the "
-                            "release-impact declaration was not evaluated. In CI the body is present, so if this "
-                            "persists there the check may be BROKEN (not merely skipping) — investigate."}]
-    if body is None:
-        return [{"severity": "soft", "not_applicable": True,
-                 "message": "PR body not available (no event context); the release-impact declaration was not "
-                            "evaluated. In CI the body is present and the check runs."}]
+def findings_for_body(body: str) -> list:
+    """Run the real release-impact rule against an already-rendered pull-request body.
+
+    The normal script entrypoint obtains its body from GitHub's trusted event context. The engine updater
+    has the rendered body before a pull request exists, so it calls this pure sibling rather than pretending
+    an absent event is a pass. Keeping the marker parsing and all failure messages here means the pre-open
+    and CI paths are one rule, not two look-alikes.
+    """
     markers = release_impact.find_impact_markers(body)
     if not markers:
         return [{"severity": TIER, "location": None,
@@ -81,6 +74,24 @@ def findings() -> list:
         return [{"severity": TIER, "location": None,
                  "message": f"The release-impact marker value '{value}' is not one of {_VALUES}. " + _HOWTO}]
     return []
+
+
+def findings() -> list:
+    try:
+        body = _read_pr_body()
+    except Exception as exc:  # noqa: BLE001
+        # Surface the diagnostic (type + message) rather than masking it — a bare, fixed no-op message would let
+        # a real future bug in _read_pr_body silently downgrade this gate to "not applicable" forever, with
+        # nothing in the CI log to tell an operator the check is broken rather than legitimately skipping (QA).
+        return [{"severity": "soft", "not_applicable": True,
+                 "message": f"Could not read the pull-request body ({type(exc).__name__}: {exc}); the "
+                            "release-impact declaration was not evaluated. In CI the body is present, so if this "
+                            "persists there the check may be BROKEN (not merely skipping) — investigate."}]
+    if body is None:
+        return [{"severity": "soft", "not_applicable": True,
+                 "message": "PR body not available (no event context); the release-impact declaration was not "
+                            "evaluated. In CI the body is present and the check runs."}]
+    return findings_for_body(body)
 
 
 def main() -> int:

@@ -197,6 +197,32 @@ class TestUpgradeArmReporting(unittest.TestCase):
 
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestControlPlaneLegReporting(unittest.TestCase):
+    """The release matrix's injected GitHub leg accepts only a verified, exact owned-rule transition."""
+
+    def _drive(self, result, writes, *, rc=0, stdout=None):
+        out = stdout if stdout is not None else "CONTROL_PLANE_RESULT:" + json.dumps(
+            {"result": result, "writes": writes})
+        with mock.patch.object(rg, "_run", return_value=_proc(rc, out, "")):
+            return rg._control_plane_leg("/tmp/proj", "v9.9.9", {"rules": []})
+
+    def test_verified_repair_with_the_exact_put_passes(self):
+        result = self._drive({"status": "repaired"},
+                             [{"method": "PUT", "path": "/repos/gate/repo/rulesets/1"}])
+        self.assertTrue(result["passed"])
+
+    def test_unverified_or_misdirected_repair_blocks_the_transition(self):
+        for result, writes in (({"status": "unverified"}, []),
+                               ({"status": "already"}, [{"method": "PUT", "path": "/repos/gate/repo/rulesets/1"}]),
+                               ({"status": "repaired"}, [{"method": "POST", "path": "/repos/gate/repo/rulesets"}])):
+            with self.subTest(status=result["status"], writes=writes):
+                self.assertFalse(self._drive(result, writes)["passed"])
+
+    def test_missing_baseline_floor_fails_closed(self):
+        self.assertFalse(rg._control_plane_leg("/tmp/proj", "v9.9.9", None)["passed"])
+
+
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestRollbackLegReporting(unittest.TestCase):
     """The ROLLBACK leg (`_rollback_leg`) undoes the staged practice upgrade and asserts the PARSED result — a
     real staged undo with a recovery point — never the exit code. It blocks a vacuous `state:"none"` (nothing
@@ -265,54 +291,76 @@ class TestRollbackLegReporting(unittest.TestCase):
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestTransitionComposition(unittest.TestCase):
-    """`_upgrade_from` composes the two legs into one transition record. The rollback leg runs ONLY if the
-    upgrade leg passed (a rollback on a half-applied tree would obscure the real upgrade failure), and the
-    rollback child is spawned AFTER the upgrade child (ordering is load-bearing — the overlay must land before
-    the candidate's rollback code is imported)."""
+    """`_upgrade_from` composes the upgrade, owned-rule repair, and rollback legs into one transition record.
+    The rollback leg runs ONLY after both prior legs pass; a rollback on a half-applied tree would obscure the
+    real failure. The rollback child is spawned after the candidate-owned rule repair is verified."""
 
-    def _compose(self, upgrade_leg, rollback_leg):
+    def _compose(self, upgrade_leg, rollback_leg, control_plane_leg=None):
         with mock.patch.object(rg, "_archive_baseline", return_value="/tmp/proj"), \
              mock.patch.object(rg, "_project_to_deployed", return_value=[]), \
              mock.patch.object(rg, "_assert_isolated", return_value=None), \
              mock.patch.object(rg, "_upgrade_leg", side_effect=upgrade_leg) as u, \
+             mock.patch.object(rg, "_control_plane_leg",
+                               side_effect=control_plane_leg or [{"passed": True, "detail": ""}]) as c, \
              mock.patch.object(rg, "_rollback_leg", side_effect=rollback_leg) as r:
             res = rg._upgrade_from("v9.9.9", "/tmp/candidate")
-        return res, u, r
+        return res, u, c, r
 
     def test_both_pass_is_a_passing_transition(self):
-        res, u, r = self._compose([{"passed": True, "detail": ""}], [{"passed": True, "detail": ""}])
+        res, u, c, r = self._compose([{"passed": True, "detail": ""}], [{"passed": True, "detail": ""}])
         self.assertTrue(res["passed"])
         self.assertEqual(res["baseline"], "v9.9.9")
+        self.assertTrue(res["control_plane"]["passed"])
         self.assertTrue(res["rollback"]["passed"])
         self.assertEqual(u.call_count, 1)
+        self.assertEqual(c.call_count, 1)
         self.assertEqual(r.call_count, 1)                       # rollback ran because the upgrade passed
 
     def test_upgrade_failure_skips_the_rollback_leg(self):
         def _boom(*a, **k):
             raise AssertionError("the rollback leg must not run when the upgrade failed")
-        res, u, r = self._compose([{"passed": False, "detail": "upgrade/v9.9.9: red"}], _boom)
+        res, u, c, r = self._compose([{"passed": False, "detail": "upgrade/v9.9.9: red"}], _boom)
         self.assertFalse(res["passed"])
+        self.assertIsNone(res["control_plane"]["passed"])
         self.assertIsNone(res["rollback"]["passed"])           # recorded as not-run, not as a failure
         self.assertIn("not run", res["rollback"]["detail"])
+        self.assertEqual(c.call_count, 0)
         self.assertEqual(r.call_count, 0)                      # the rollback leg was never called
 
+    def test_control_plane_failure_blocks_before_rollback(self):
+        def _boom(*a, **k):
+            raise AssertionError("the rollback leg must not run when repair failed")
+        res, _u, c, r = self._compose([{"passed": True, "detail": "", "baseline_floor": {"rules": []}}],
+                                      _boom,
+                                      control_plane_leg=[{"passed": False,
+                                                          "detail": "control-plane/v9.9.9: repair red"}])
+        self.assertFalse(res["passed"])
+        self.assertFalse(res["control_plane"]["passed"])
+        self.assertIsNone(res["rollback"]["passed"])
+        self.assertEqual(c.call_count, 1)
+        self.assertEqual(r.call_count, 0)
+
     def test_rollback_failure_fails_the_transition(self):
-        res, _u, _r = self._compose([{"passed": True, "detail": ""}],
-                                    [{"passed": False, "detail": "rollback/v9.9.9: partial"}])
+        res, _u, _c, _r = self._compose([{"passed": True, "detail": ""}],
+                                        [{"passed": False, "detail": "rollback/v9.9.9: partial"}])
         self.assertFalse(res["passed"])
         self.assertFalse(res["rollback"]["passed"])
 
-    def test_the_second_spawn_is_the_rollback_child(self):
-        # Prove ordering through the REAL legs (not stubs): the first `_run` argv carries the upgrade driver
-        # (module_manager.upgrade(...)), the second carries the rollback driver (module_manager.rollback(...)).
+    def test_the_second_spawn_is_the_control_plane_then_the_rollback_child(self):
+        # Prove ordering through the REAL legs (not stubs): the first `_run` argv carries the upgrade driver,
+        # the second repairs the Engine-owned rule through the fake transport, then rollback runs last.
         calls = []
 
         def _record(cmd, *a, **k):
             calls.append(cmd)
             if "module_manager.upgrade(" in " ".join(cmd):
                 return _proc(0, "GATE_RESULT:" + json.dumps(
-                    {"refused": False, "applied": True, "reason": None, "findings": [],
-                     "notes": [mm.PRACTICE_RUN_NOTE]}), "")
+                    {"upgrade": {"refused": False, "applied": True, "reason": None, "findings": [],
+                                 "notes": [mm.PRACTICE_RUN_NOTE]}, "baseline_floor": {"rules": []}}), "")
+            if "cp.repair_owned" in " ".join(cmd):
+                return _proc(0, "CONTROL_PLANE_RESULT:" + json.dumps(
+                    {"result": {"status": "repaired"},
+                     "writes": [{"method": "PUT", "path": "/repos/gate/repo/rulesets/1"}]}), "")
             if "module_manager.rollback(" in " ".join(cmd):
                 return _proc(0, "ROLLBACK_RESULT:" + json.dumps(
                     {"state": "staged", "undone": True, "recovery_point": "engine-rescue/x",
@@ -326,7 +374,8 @@ class TestTransitionComposition(unittest.TestCase):
         self.assertTrue(res["passed"])
         drivers = [" ".join(c) for c in calls if "-c" in c]
         self.assertIn("module_manager.upgrade(", drivers[0])   # first driver spawn = the upgrade
-        self.assertIn("module_manager.rollback(", drivers[1])  # second driver spawn = the rollback
+        self.assertIn("cp.repair_owned", drivers[1])            # second driver spawn = owned-only repair
+        self.assertIn("module_manager.rollback(", drivers[2])  # rollback runs only after repair verifies
 
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
@@ -358,6 +407,7 @@ class TestArmUpgradesShape(unittest.TestCase):
              mock.patch.object(rg, "_upgrade_from",
                                side_effect=lambda tag, cand: {"baseline": tag,
                                                               "upgrade": {"passed": True, "detail": ""},
+                                                              "control_plane": {"passed": True, "detail": ""},
                                                               "rollback": {"passed": True, "detail": ""},
                                                               "passed": True}):
             arm = rg._arm_upgrades("/tmp/candidate")
@@ -374,6 +424,7 @@ class TestArmUpgradesShape(unittest.TestCase):
              mock.patch.object(rg, "_upgrade_from",
                                side_effect=lambda tag, cand: {"baseline": tag,
                                                               "upgrade": {"passed": True, "detail": ""},
+                                                              "control_plane": {"passed": True, "detail": ""},
                                                               "rollback": {"passed": False,
                                                                            "detail": "rollback/v0.3.2: partial"},
                                                               "passed": False}):
@@ -390,6 +441,8 @@ class TestArmUpgradesShape(unittest.TestCase):
                                side_effect=lambda tag, cand: {"baseline": tag,
                                                               "upgrade": {"passed": False,
                                                                           "detail": "upgrade/v0.3.2: red"},
+                                                              "control_plane": {"passed": None,
+                                                                                "detail": "not run — the upgrade did not complete"},
                                                               "rollback": {"passed": None,
                                                                            "detail": "not run — the upgrade "
                                                                                      "did not complete"},
@@ -428,8 +481,9 @@ class TestSummaryMarkdown(unittest.TestCase):
     def test_renders_rows_floor_and_count(self):
         md = rg._summary_md(self._result([
             {"baseline": "v0.3.2", "upgrade": {"passed": True, "detail": "x"},
+             "control_plane": {"passed": True, "detail": "y"},
              "rollback": {"passed": True, "detail": "y"}, "passed": True}]))
-        self.assertIn("| `v0.3.2` | pass | pass |", md)
+        self.assertIn("| `v0.3.2` | pass | pass | pass |", md)
         self.assertIn("floor `0.3.2`", md)
         self.assertIn("1 transition", md)
         self.assertNotIn("qualification", md.lower())
@@ -438,6 +492,7 @@ class TestSummaryMarkdown(unittest.TestCase):
         secret = "/Users/someone/secret/path/traceback"
         md = rg._summary_md(self._result([
             {"baseline": "v0.3.2", "upgrade": {"passed": False, "detail": secret},
+             "control_plane": {"passed": None, "detail": secret},
              "rollback": {"passed": None, "detail": secret}, "passed": False}], passed=False))
         self.assertNotIn(secret, md)                           # detail strings never reach the summary
         self.assertIn("FAIL", md)

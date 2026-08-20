@@ -23,16 +23,16 @@ declaration-driven rather than home-gated.
 
 WHAT IT SCANS — reuses the sibling floor's ONE definition of the shipped surface and its prose extraction, so
 the two floors never drift: `.engine/**` minus the first-run retire set minus the excluded paths, plus the
-foundation files outside `.engine/`, EXCLUDING `test_*`/`demo_*` (synthetic scenario tokens), and only the
-PROSE of each file (comments + docstrings for `.py`, whole text for `.md`/`.yml`/…, prose-key values for
-`.json`) — never a string literal, which holds fixture data and behaviour-bearing messages. The declared
+foundation files outside `.engine/`, INCLUDING shipped `test_*`/`demo_*` comments and docstrings. It reads
+only the PROSE of each file (comments + docstrings for `.py`, whole text for `.md`/`.yml`/…, prose-key values
+for `.json`) — never a string literal, which holds fixture data and behaviour-bearing messages. The declared
 vocabulary is matched by `local_references.scan`, the same matcher the contribution scan uses.
 
 HONEST BOUNDS. A literal token match narrows risk, it never proves absence: a split token or a Unicode-hyphen
 form passes, and paraphrase passes trivially. It catches only what is DECLARED and shaped as an id-prefix /
-phrase / section-ref; a source-owned `ADR-####` or an undeclared vocabulary is unpoliced here. Blocking with
-no per-token exemption is deliberate — the remedy is always available (name the capability), which is the
-rule itself. The review at merge stays the real wall.
+phrase / section-ref; an identifier whose source does not declare it is unpoliced here. Blocking with no
+per-token exemption is deliberate — the remedy is always available (name the capability), which is the rule
+itself. The review at merge stays the real wall.
 
 FAIL DIRECTIONS. An unreadable/unusable/empty/absent DECLARATION yields no vocabulary and this floor stays
 silent — the fail-CLOSED teeth for a malformed declaration are the shape gate
@@ -78,7 +78,7 @@ def hits(root: str, vocabulary: list) -> list | None:
         return None
     retire_files, retire_dirs = retire
     lines = []
-    for rel in shipped_surface.scan_targets(root, retire_files, retire_dirs):
+    for rel in shipped_surface.scan_targets(root, retire_files, retire_dirs, include_test_demo=True):
         try:
             with open(os.path.join(root, rel), encoding="utf-8") as fh:
                 text = fh.read()

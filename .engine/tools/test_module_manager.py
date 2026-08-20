@@ -20,9 +20,12 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_manager  # noqa: E402
+import release_impact  # noqa: E402  (the canonical marker formatter/parser)
+import release_impact_check  # noqa: E402  (the same pure pre-open marker rule the updater invokes)
 import release_source  # noqa: E402  (StarshipSuperjam/engine-template#925 Part 5: release primitives' home)
 import module_coherence  # noqa: E402
 import validate  # noqa: E402
@@ -1246,6 +1249,51 @@ class TestUpgradeEndToEnd(unittest.TestCase):
                 self.assertEqual(ledger.ledger_dir(), expected)
             self.assertEqual(os.environ.get("ENGINE_MEMORY_DIR"), previous)
 
+    def _upgrade_with_control_plane(self, outcome, *, body_override=None):
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                patcher = (mock.patch.object(module_manager, "render_upgrade_pr_body", return_value=body_override)
+                           if body_override is not None else contextlib.nullcontext())
+                with patcher:
+                    result = module_manager.upgrade(
+                        ref="v0.2.0", release_tree=release,
+                        opener=lambda **kwargs: opened.append(kwargs) or {"number": 1},
+                        backup=lambda *args, **kwargs: {"ok": 1},
+                        control_plane_repair=lambda: outcome)
+        return result, opened
+
+    def test_confirmed_upgrade_repairs_or_verifies_before_opening_the_pr(self):
+        for outcome in ({"status": "repaired", "ruleset_id": 42},
+                        {"status": "already", "ruleset_id": 42}):
+            with self.subTest(status=outcome["status"]):
+                result, opened = self._upgrade_with_control_plane(outcome)
+                self.assertEqual(result["control_plane"], outcome)
+                self.assertTrue(opened, result.get("reason"))
+                self.assertIn("Safety rule confirmed", opened[0]["body"])
+
+    def test_operator_owned_or_unverified_control_plane_refuses_before_opening(self):
+        for outcome in ({"status": "operator-action-required", "reason": "operator-owned rule"},
+                        {"status": "unverified", "reason": "could not reach GitHub"}):
+            with self.subTest(status=outcome["status"]):
+                result, opened = self._upgrade_with_control_plane(outcome)
+                self.assertEqual(result["control_plane"], outcome)
+                self.assertFalse(opened)
+                self.assertIn("NOT open a pull request", result["reason"])
+
+    def test_bad_generated_marker_refuses_before_the_opener_boundary(self):
+        good = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
+        broken = good.replace(release_impact.impact_trailer("none"), "")
+        result, opened = self._upgrade_with_control_plane({"status": "already", "ruleset_id": 42},
+                                                          body_override=broken)
+        self.assertFalse(opened)
+        self.assertTrue(any(f.get("severity") == "hard" for f in result["findings"]))
+        self.assertIn("NOT opened for review", result["reason"])
+
 
 class TestUpgradeSafety(unittest.TestCase):
     """Upgrade's defense-in-depth: degrade on an unreachable release, the data-migration pre-flight refusal
@@ -1828,6 +1876,27 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
         passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
         self.assertTrue(passed, f"minimal update PR body failed the completeness gate: {findings}")
+
+    def test_rendered_update_body_has_exactly_one_none_impact_marker(self):
+        body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
+        self.assertEqual(release_impact.find_impact_markers(body), ["none"])
+        self.assertEqual(release_impact_check.findings_for_body(body), [])
+
+    def test_pre_open_gate_refuses_missing_duplicate_or_invalid_impact_markers(self):
+        # Keep tree-dependent structural pieces empty so every hard finding below is attributable to the real
+        # rendered-body rule that runs before the opener boundary.
+        good = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
+        bodies = {
+            "missing": good.replace(release_impact.impact_trailer("none"), ""),
+            "duplicate": good + "\n" + release_impact.impact_trailer("none"),
+            "invalid": good.replace("engine-release-impact: none", "engine-release-impact: enormous"),
+        }
+        for name, body in bodies.items():
+            with self.subTest(name=name), \
+                 mock.patch.object(module_manager.module_coherence, "check_coherence", return_value=[]), \
+                 mock.patch.object(module_manager.validate, "collect", return_value=[]):
+                findings = module_manager._reconcile_gate(body)
+            self.assertTrue(any(f.get("severity") == "hard" for f in findings), findings)
 
     def test_validation_section_claims_only_the_consistency_check_not_ci(self):
         # Consent honesty: this body is authored before the update PR opens, so the PR's CI has not run yet —
