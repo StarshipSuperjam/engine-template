@@ -17,6 +17,15 @@ or undo fails is blocked and opens no pull request. The per-transition outcomes 
 pull request's Validation section, and the same matrix can be run between cuts on demand via the
 `release-gate` workflow.
 
+**Executed coverage.** The gate tests the candidate's deployed operation separately in both its default and optional-modules-declined
+profiles: each profile receives the structural validator and the complete self-test suite. Every supported
+source-version row receives the projected overlay, rendered pull-request-body validation, simulated
+Engine-owned safety-rule repair and verification, structural validator, and exact staged-update undo. The
+mechanically oldest supported source — selected from the sorted matrix at the recorded floor, never hard-coded
+— additionally receives the complete self-test suite after upgrade. Later rows do not repeat that full suite;
+they retain all of the transition-specific upgrade, control-plane, validation, and rollback checks. This is the
+actual release-cut coverage, not a claim that every historical source gets an identical post-upgrade suite.
+
 ## Scope
 
 This governs engine releases cut from the engine's home repository. The gate is home-repo-only and inert on a

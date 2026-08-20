@@ -197,7 +197,7 @@ jobs:
       # signal) yet the gate reported it did not run, that is an origin-signal misdetection and the cut fails
       # closed rather than shipping the engine ungated.
       - name: Verify the release operates, upgrades, and rolls back when deployed
-        timeout-minutes: 60
+        timeout-minutes: 120
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |

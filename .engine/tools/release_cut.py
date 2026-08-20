@@ -1883,6 +1883,11 @@ def _deployment_check_lines(gate: "dict | None") -> list:
     if floor:
         lines.append(f"  - Supported source versions: every released version at or above the clean-upgrade "
                      f"floor {floor} ({n} transition{'' if n == 1 else 's'} this cut{excl_note}).")
+    oldest = transitions[0].get("baseline")
+    if oldest:
+        lines.append(f"  - Complete deployed self-tests ran for the default and module-declined candidate "
+                     f"profiles, and once after upgrade from the oldest supported source {oldest}. Every "
+                     "other source row retained the upgrade, safety-rule, structural-validator, and undo checks.")
     lines.append("  - This is a mechanical deploy-and-undo check on a projected deployed copy, not the "
                  "readiness judgment referred to under Risk. It proves a stalled/staged update from each "
                  "version above can be undone; it does not exercise reverting an already-merged upgrade "
