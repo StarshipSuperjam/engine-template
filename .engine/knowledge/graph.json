@@ -5995,12 +5995,12 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:d2b195d5ce894bc8cb7df96113f2283deaec1b26e046d296b2c9012b1248a47e",
+        "fingerprint": "sha256:1690ce1050bca51d1e17e2056249a68912eaa06ffb7a82f607217f0ea0016d57",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "module:core",
@@ -6020,12 +6020,12 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:6f59a5c9daa5a6bbdca4ff566d9734b5dc2109507aab191de8d0fad7e3c06a2c",
+        "fingerprint": "sha256:e63681a011d1aa4157a063e779b67f107f83deb5b0492d00291bda989b0c19ee",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.5.0"
+      "version": "0.6.0"
     },
     {
       "id": "module:dependency-discipline",
@@ -6095,12 +6095,12 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:aaee48fb8e1f6a02f2824735d75d2ef4a298536da9cf23b552d35abace1f203f",
+        "fingerprint": "sha256:d9c151b63c1c4816eeaf1c18063f37af8f8f2d189d747bbfd0e78ced3bceb596",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "module:memory-semantic-recall",
@@ -6212,12 +6212,12 @@
       },
       "slug": "routine-mode",
       "source": {
-        "fingerprint": "sha256:d0b87106abd744deb2183e0f22f6ff41648c4f27bd5a59198568298fcc42e78b",
+        "fingerprint": "sha256:e943834b82875daf94703c8f902f2aa8c379f38338f886e4639762098cd16ffe",
         "path": ".engine/modules/routine-mode/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:validators-core",
@@ -6230,12 +6230,12 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:3f7316d2c9ac513dbbc44841d38b36411a5023b7bae73953179ef151708a2958",
+        "fingerprint": "sha256:0e064e84d4d21b232bf9bddba9e402ef2195b3d4e3fd00d4cfec1a94ef8fc384",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "operation:boot-session-start",
