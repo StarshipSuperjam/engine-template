@@ -68,6 +68,7 @@ CLI:
 from __future__ import annotations
 import contextlib
 import glob
+import hashlib
 import json
 import os
 import re
@@ -570,6 +571,14 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _ROOT_AGENTS_REL = "AGENTS.md"                     # the Codex floor — same keyed-merge/block-reverse posture
 _FLOOR_FENCE = "floor"
+# v0.3.2's first-run projection left the construction repository's two Engine-owned guides unfenced. A
+# normal fence merge must not seize an adopter's fence-less file, so the supported-baseline repair is
+# deliberately narrower: only these complete, byte-identical legacy Engine artifacts authorize replacement.
+# Any operator edit changes the digest and keeps the existing skip-without-writing behavior.
+_LEGACY_ENGINE_FLOOR_DIGESTS = {
+    _ROOT_CLAUDE_REL: frozenset({"55163e330d4a5ca60e0466a2ae61aee4dd016ffef4808752c888785e0d6f9f8b"}),
+    _ROOT_AGENTS_REL: frozenset({"3daa5231f15038bcde9f4d543a2ced40f2d9ace25ec49fedd231c0eae08284f5"}),
+}
 _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (StarshipSuperjam/engine-template#409) — a shared keyed
 #                                         file, so it is block-reversed like CODEOWNERS/CLAUDE.md, never
 #                                         overlay-replaced (FOUNDATION_CODE) or wholesale-deleted (remove_engine)
@@ -1610,7 +1619,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         shared.append("- Could not refresh the engine-file review list (no account handle on record); your "
                       "existing CODEOWNERS file was left unchanged.")
     cf = result.get("claude_floor")
-    if cf == "merged":
+    if cf in ("merged", "migrated"):
         shared.append("- Updated your project's working guide (the engine's marked block in CLAUDE.md) to this "
                       "version. Anything you wrote outside that block is untouched.")
     elif cf == "degraded":
@@ -1623,7 +1632,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         shared.append("- Created your project's working guide (the engine's marked block in CLAUDE.md) — this "
                       "version needs it and your repo did not have it yet.")
     af = result.get("agents_floor")
-    if af == "merged":
+    if af in ("merged", "migrated"):
         shared.append("- Updated the engine's Codex guide (the marked block in AGENTS.md) to this version. "
                       "Anything you wrote outside that block is untouched.")
     elif af == "degraded":
@@ -2361,10 +2370,11 @@ def _merge_claude_floor(release_tree: str) -> str:
     Returns: 'merged' (the engine block was replaced); 'created' (the floor file was ABSENT and is created
     from the release floor source — the AGENTS.md-never-created case, StarshipSuperjam/engine-template#599 class 2); 'skipped' (the release
     ships no floor source — its root file is absent or carries no/ malformed `floor` fence, e.g. a pre-promotion
-    release); 'skipped-no-section' (the local CLAUDE.md EXISTS but carries no engine `floor` fence — leave it
-    untouched, NEVER append a duplicate floor: the pre-keyed-merge raw-floor case); 'degraded' (a malformed
-    LOCAL fence — leave it untouched, never a mid-upgrade crash). Structural sibling of `_refresh_codeowners`,
-    but with no handle dependency."""
+    release); 'migrated' (the local guide is a byte-identical known Engine-owned legacy artifact and was
+    replaced with the fenced current floor); 'skipped-no-section' (the local CLAUDE.md EXISTS but carries no
+    engine `floor` fence and is not that known artifact — leave it untouched, NEVER append a duplicate floor);
+    'degraded' (a malformed LOCAL fence — leave it untouched, never a mid-upgrade crash). Structural sibling
+    of `_refresh_codeowners`, but with no handle dependency."""
     return _merge_floor(release_tree, _ROOT_CLAUDE_REL)
 
 
@@ -2393,7 +2403,13 @@ def _merge_floor(release_tree: str, root_rel: str) -> str:
                 fh.write(created)
             return "created"
         if not wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
-            return "skipped-no-section"
+            digest = hashlib.sha256(local.encode("utf-8")).hexdigest()
+            if digest not in _LEGACY_ENGINE_FLOOR_DIGESTS.get(root_rel, frozenset()):
+                return "skipped-no-section"
+            migrated = wiring.fence_apply("", _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
+            with open(local_path, "w", encoding="utf-8") as fh:
+                fh.write(migrated)
+            return "migrated"
         merged = wiring.fence_apply(local, _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
     except wiring.WiringError:
         return "degraded"
@@ -3951,7 +3967,7 @@ def _render_upgrade(result: dict) -> None:
         print("  - could not refresh the engine-file review list (no account handle on record); "
               "left it unchanged")
     cf = result.get("claude_floor")
-    if cf == "merged":
+    if cf in ("merged", "migrated"):
         print("  - updated your project's working guide (the engine's marked block in CLAUDE.md; "
               "your own content kept)")
     elif cf == "degraded":

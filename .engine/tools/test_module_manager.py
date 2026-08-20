@@ -14,6 +14,7 @@ matches its name.
 """
 from __future__ import annotations
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -1708,6 +1709,39 @@ class TestMergeClaudeFloor(unittest.TestCase):
         self.assertEqual(after, raw)                           # untouched, no append
         self.assertNotIn("Project status v2.", after)
 
+    def test_known_byte_identical_legacy_engine_floor_is_migrated(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d)
+            legacy = "# Engine-owned legacy floor\n\nProject status (unfenced).\n"
+            digest = hashlib.sha256(legacy.encode("utf-8")).hexdigest()
+            with module_manager._redirect_root(live), \
+                 mock.patch.dict(module_manager._LEGACY_ENGINE_FLOOR_DIGESTS,
+                                 {"CLAUDE.md": frozenset({digest})}, clear=True):
+                self._write_local(live, legacy)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "migrated")
+        self.assertIn("Project status v2.", after)
+        self.assertEqual(after.count("BEGIN engine-managed block: floor"), 1)
+        self.assertNotIn("Engine-owned legacy floor", after)
+
+    def test_a_one_byte_changed_legacy_floor_is_left_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d)
+            legacy = "# Engine-owned legacy floor\n"
+            digest = hashlib.sha256(legacy.encode("utf-8")).hexdigest()
+            changed = legacy + "operator edit\n"
+            with module_manager._redirect_root(live), \
+                 mock.patch.dict(module_manager._LEGACY_ENGINE_FLOOR_DIGESTS,
+                                 {"CLAUDE.md": frozenset({digest})}, clear=True):
+                self._write_local(live, changed)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "skipped-no-section")
+        self.assertEqual(after, changed)
+
     def test_release_without_a_floor_source_is_skipped(self):
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live"); os.makedirs(live)
@@ -2119,6 +2153,9 @@ class TestFoundationInfra(unittest.TestCase):
         # identical to the historical literal — no membership change to the ownership-walk carve-out
         self.assertEqual(module_coherence.NAMED_INFRA,
                          {".engine/engine.json", ".engine/pyproject.toml", ".engine/uv.lock"})
+
+    def test_acknowledgment_status_workflow_is_delivered_by_upgrade(self):
+        self.assertIn(".github/workflows/engine-ack-status.yml", module_manager.FOUNDATION_CODE)
 
     def test_foundation_code_is_foundation_infra_minus_manifest_codeowners_claude_and_gitignore(self):
         expected = tuple(p for p in module_coherence.FOUNDATION_INFRA

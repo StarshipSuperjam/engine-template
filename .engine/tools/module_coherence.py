@@ -75,7 +75,8 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 
 # FOUNDATION_INFRA — the wholly-engine-owned files that belong to no module's `provides`: the engine
 # manifest, the root CLAUDE.md, the tool-runtime lockfiles, and the engine-owned .github/ control-plane
-# artifacts (the two required-check workflows; the advisory secret-scan workflow + dependabot.yml that
+# artifacts (the two required-check workflows and the head-bound acknowledgment-status workflow; the
+# advisory secret-scan workflow + dependabot.yml that
 # form the git-native security floor; the advisory actionlint
 # workflow that grammar-checks every workflow file; the scheduled audit-prep workflow that runs the
 # engine's self-review; the PR template, the issue templates, and CODEOWNERS
@@ -102,6 +103,7 @@ FOUNDATION_INFRA = (
     #                        in remove_engine (never overlay-replaced / wholesale-deleted — StarshipSuperjam/engine-template#409).
     ".github/workflows/engine-ci.yml",
     ".github/workflows/engine-guard.yml",
+    ".github/workflows/engine-ack-status.yml",
     ".github/workflows/secret-scan.yml",
     ".github/workflows/actionlint.yml",
     ".github/workflows/audit-prep.yml",

@@ -67,6 +67,7 @@ _DEPLOYED_ORIGIN = "https://github.com/acme/deployed-product.git"
 # (the ROOT-isolation guard), and (2) find the candidate release tree to inject.
 _DRIVER_EXPECT_ROOT = "ENGINE_GATE_EXPECT_ROOT"
 _DRIVER_CANDIDATE = "ENGINE_GATE_CANDIDATE"
+_DRIVER_TARGET_REF = "ENGINE_GATE_TARGET_REF"
 _DRIVER_BASELINE_FLOOR = "ENGINE_GATE_BASELINE_FLOOR"
 
 
@@ -328,9 +329,25 @@ def _driver_source() -> str:
         "here = os.path.realpath(validate.ROOT)\n"
         "assert here == expect, 'ROOT isolation breach: %%r != %%r' %% (here, expect)\n"
         "baseline_floor = bootstrap.floor_ruleset(tier=bootstrap.protection_guard.resolve_tier())\n"
-        "res = module_manager.upgrade(release_tree=os.environ['%s'])\n"
+        "res = module_manager.upgrade(ref=os.environ['%s'], release_tree=os.environ['%s'])\n"
         "sys.stdout.write('GATE_RESULT:' + json.dumps({'upgrade': res, 'baseline_floor': baseline_floor}))\n"
-    ) % (_DRIVER_EXPECT_ROOT, _DRIVER_CANDIDATE)
+    ) % (_DRIVER_EXPECT_ROOT, _DRIVER_TARGET_REF, _DRIVER_CANDIDATE)
+
+
+def _candidate_ref(candidate: str) -> str:
+    """Return the candidate's concrete release ref for an injected practice upgrade.
+
+    Injecting a release tree bypasses the normal network resolver, so omitting `ref` would stamp the literal
+    moving word `latest` into the projected manifest. The cut has already written the candidate version before
+    this gate runs; read that same manifest and fail closed unless it is a concrete stable version.
+    """
+    try:
+        version = validate.load_json(os.path.join(candidate, ".engine", "engine.json")).get("engine_release")
+    except Exception as exc:  # noqa: BLE001 — malformed candidate is a clean gate refusal
+        raise GateError(f"could not read the candidate engine version ({exc})") from exc
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise GateError(f"candidate engine version is not a concrete release ({version!r})")
+    return f"v{version}"
 
 
 def _rollback_driver_source() -> str:
@@ -364,11 +381,17 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
     shipped code, exactly as a real deployment would; the tail runs as the overlaid candidate code). Assert
     the upgrade completed with NO refusal reason (a reconcile/migration refusal sets `reason` and leaves an
     early `applied=True` with empty findings — it must NOT read as a pass), no hard structural finding, and
-    that it took the practice child path (not a silent network fetch). Returns {passed, detail}. Leaves the
-    projection STAGED (the practice tail `git add -A`s but never commits/opens) so the rollback leg can undo
-    it."""
+    that it took the practice child path (not a silent network fetch). A structurally clean upgrade is then
+    qualified with the upgraded projection's real CI validator and complete self-test suite — the same shipped
+    surfaces its eventual pull request will run. Returns {passed, detail}. Leaves the projection STAGED (the
+    practice tail `git add -A`s but never commits/opens) so the rollback leg can undo it."""
+    try:
+        target_ref = _candidate_ref(candidate)
+    except GateError as exc:
+        return {"passed": False, "detail": f"upgrade/{baseline_tag}: {exc}"}
     env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj),
-                         _DRIVER_CANDIDATE: os.path.abspath(candidate)})
+                         _DRIVER_CANDIDATE: os.path.abspath(candidate),
+                         _DRIVER_TARGET_REF: target_ref})
     env.pop("GITHUB_TOKEN", None)                    # already stripped by _nested_env; kept in place so the
                                                      # "practice mode opens no PR, deny the token outright"
                                                      # property stays legible at this sensitive spawn
@@ -400,6 +423,11 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
         if module_manager.PRACTICE_RUN_NOTE not in (result.get("notes") or []):
             problems.append("the upgrade did not take the expected practice path (it may have fetched a real "
                             "release instead of testing the candidate)")
+    if not problems:
+        label = f"upgrade/{baseline_tag}"
+        for qualification in (_validate_in(proj, label), _suite_in(proj, label)):
+            if not qualification["passed"]:
+                problems.append(qualification["detail"])
     return {"passed": not problems, "detail": "" if not problems
             else f"upgrade/{baseline_tag}: " + "; ".join(problems),
             "baseline_floor": baseline_floor}
