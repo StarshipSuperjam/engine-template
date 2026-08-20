@@ -6020,12 +6020,12 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:e63681a011d1aa4157a063e779b67f107f83deb5b0492d00291bda989b0c19ee",
+        "fingerprint": "sha256:96560dfe6fefcf376c6d186cd9979936cc9565ecf61896de2247f4fd8d2c9810",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.6.0"
+      "version": "0.6.1"
     },
     {
       "id": "module:dependency-discipline",
