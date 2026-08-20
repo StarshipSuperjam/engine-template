@@ -1,5 +1,6 @@
 {
   "env": {
-    "ENGINE_MODULE_CATALOG_PATH": ".engine/_fixtures/module-catalog-drift/stale-catalog.json"
+    "ENGINE_MODULE_CATALOG_PATH": ".engine/_fixtures/module-catalog-drift/stale-catalog.json",
+    "MODULE_CATALOG_FIXTURE_ROOT": ".engine/_fixtures/module-catalog-drift/root"
   }
 }

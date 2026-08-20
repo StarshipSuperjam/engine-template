@@ -83,13 +83,15 @@ def _render(module_id: str, presentation: dict) -> str:
     return "\n".join(lines)
 
 
-def derive() -> dict:
+def derive(root: str | None = None) -> dict:
     """{relative SKILL.md path: rendered text} for every offerable module carrying a presentation, keyed by the
     route's committed path. Pure over the discovered manifests — the single source is each manifest's
-    `presentation`, never a hand-authored route."""
+    `presentation`, never a hand-authored route. `root` overrides which tree the manifests are read from
+    (default validate.ROOT): the negative fixture seeds its own module there, so this gate stays witnessable
+    in a deployment whose real offerable set is reduced or empty. Every live caller reads the real tree."""
     import module_coherence  # lazy: imports validate; keep out of import time
     out: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in module_coherence.discover_manifests(root):
         if not isinstance(manifest, dict):
             continue
         mid = manifest.get("id")
@@ -103,15 +105,52 @@ def derive() -> dict:
     return out
 
 
+def declined_route_owner(route_name: str, root: str | None = None) -> "str | None":
+    """The owning module id when `route_name` (an `engine-setup-<mid>` directory) belongs to a REAL module NOT
+    installed in this checkout — so its surviving route is a legitimate decline, not orphan generation — else
+    None. Mirrors `module_surfaces.declined_surface_owner`, and reads the same two authorities: the committed
+    module-surfaces registry for what modules REALLY exist (it ships complete, while a deployment carries only
+    a subset of manifests — StarshipSuperjam/engine-template#646), and `engine.json`'s `packages` for what is
+    installed here. Delegates to `module_surfaces.declined_surface_owner` — the engine's ONE authority for
+    "this path belongs to a module that is not installed" — so this gate and the link-integrity check can
+    never disagree, and the fail-closed rule (an unreadable roster tolerates nothing) has a single home. A
+    name the registry does not know — renamed, retired from source, hand-created — is never tolerated.
+    Deliberately NOT keyed on the module catalog: `module_catalog.derive` merge-preserves a prior entry for any
+    manifest-less module, so a module RETIRED from source keeps its entry forever and is indistinguishable
+    there from one declined in a deployment — the discriminator this gate needs."""
+    root = root or validate.ROOT
+    mid = route_name[len(_NAME_PREFIX):]
+    if not mid:
+        return None
+    import module_surfaces  # lazy: keep the import cost off the generate/derive path
+    owner = module_surfaces.declined_surface_owner(os.path.join(root, ".engine", "modules", mid), root)
+    return owner if owner == mid else None
+
+
+def declined_route_names(root: str | None = None) -> set:
+    """The `engine-setup-*` route directory names this checkout SHOULD carry for its declined modules. The
+    committed module-surfaces registry ships complete (a deployment carries the full registry but a subset of
+    manifests), so it names every real module — which is what lets `check` assert a declined module's route is
+    still PRESENT rather than only tolerating it when it happens to be. Empty when the registry or the
+    installed roster cannot be read: undecidable means assert nothing, never invent a missing-route finding."""
+    root = root or validate.ROOT
+    import module_surfaces
+    registry = module_surfaces.load(root)
+    known = {owner for owners in registry.values() for owner in owners}
+    return {_route_name(mid) for mid in known if declined_route_owner(_route_name(mid), root)}
+
+
 def check(tier: str = "hard", root: str | None = None) -> list:
     """Findings when a committed setup route is missing or diverges from its derived text, or a stray
     `engine-setup-*` route exists with no offerable module behind it. The drift gate for the derived-committed
-    routes (mirrors codex_gen's render-equality contract). The DERIVATION always reads the real manifests; only
-    the COMMITTED-side reads are rooted at `root` (default validate.ROOT) — the seam the negative-fixture
-    meta-check uses to point the committed routes at a seeded tree while the derivation stays real."""
+    routes (mirrors codex_gen's render-equality contract). BOTH sides are rooted at `root` (default
+    validate.ROOT) — the seam the negative-fixture meta-check uses to point the check at a seeded tree. The
+    derivation is rooted too (it once always read the real manifests): a deployment that declined its add-ons
+    has NO offerable manifests, so a real-tree derivation there is empty and the fixture's aimed bite could
+    never be witnessed — the gate would report itself unproven in exactly the shape it must protect."""
     base = root or validate.ROOT
     findings = []
-    expected = derive()
+    expected = derive(base)
     for rel, text in sorted(expected.items()):
         path = os.path.join(base, rel)
         if not os.path.isfile(path):
@@ -123,14 +162,43 @@ def check(tier: str = "hard", root: str | None = None) -> list:
                 findings.append(validate.finding(tier, f"The setup route {rel} is out of date — it no longer "
                                 f"matches its module's presentation. Regenerate with "
                                 f"`setup_route_gen.py generate`."))
-    # A stray engine-setup-<id> route whose module is not an offerable present module is orphan generation.
+    # A stray engine-setup-<id> route whose module is not an offerable present module is orphan generation —
+    # EXCEPT where the module is real but DECLINED here. The routes are core-owned and survive a decline on
+    # purpose (see this module's docstring; ADR 0336: the derived-committed surfaces "travel with a deployment,
+    # including its declined-module memory"), so in a deployment that declined a module its route is expected,
+    # not stale. The tolerance reads `declined_route_owner`, which fails CLOSED: an unreadable installed roster
+    # tolerates nothing, and a module the registry does not know (renamed, retired from source, a typo) is never
+    # tolerated — that leftover route stays a hard finding, which is this branch's whole purpose at home.
+    # The tolerance is DISCLOSED, not silent (the same shape validate.py uses for a declined module's link),
+    # and it is two-way: a declined module's route must still be PRESENT. Its absence was invited by this
+    # check's own former advice ("Remove it"), and once removed the operator can no longer be offered the
+    # add-on back, which is exactly what these core-owned routes exist to keep possible.
+    # RESIDUAL, stated plainly: a declined module's route cannot be content-verified — its text is derived
+    # from a manifest this checkout no longer has — so this gate proves such a route EXISTS, never that it is
+    # unaltered. An installed module's route is still content-verified above.
     expected_names = {os.path.basename(os.path.dirname(rel)) for rel in expected}
     skills_dir = os.path.join(base, ".claude", "skills")
+    present = set()
     if os.path.isdir(skills_dir):
         for name in sorted(os.listdir(skills_dir)):
-            if name.startswith(_NAME_PREFIX) and name not in expected_names:
-                findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
-                                f"behind it — a stale generated route. Remove it or restore its module."))
+            if not name.startswith(_NAME_PREFIX) or name in expected_names:
+                continue
+            present.add(name)
+            owner = declined_route_owner(name, base)
+            if owner:
+                findings.append(validate.finding("soft", f"The setup route '{name}' is kept for the declined "
+                                f"module '{owner}' (present here because declining an add-on removes the "
+                                f"module's own files but never its offer route, so it can be added back) — "
+                                f"not a stale route. Its text is not verified here: the manifest it derives "
+                                f"from is absent while the module is declined."))
+                continue
+            findings.append(validate.finding(tier, f"The setup route '{name}' has no offerable module "
+                            f"behind it — a stale generated route. Remove it or restore its module."))
+    for name in sorted(declined_route_names(base) - present):
+        findings.append(validate.finding(tier, f"The setup route '{name}' is missing for the declined module "
+                        f"'{name[len(_NAME_PREFIX):]}'. These routes are core-owned and survive a decline so "
+                        f"the add-on can be offered back; restore it from the engine (a re-run of "
+                        f"`engine-upgrade` overlays it) rather than leaving the offer unreachable."))
     return findings
 
 

@@ -79,7 +79,7 @@ def _raw_prior(path: str) -> list:
     return data if isinstance(data, list) else []
 
 
-def derive(path: str | None = None) -> list:
+def derive(path: str | None = None, root: str | None = None) -> list:
     """The catalog derived from the PRESENT offerable module manifests' `presentation` records, MERGE-PRESERVING
     declined entries from the prior committed catalog. An offerable module (status optional / default-on /
     experimental) that carries a `presentation` produces one entry {id, description, category, status}; the
@@ -91,7 +91,7 @@ def derive(path: str | None = None) -> list:
     target = path or CATALOG_PATH
     present_ids: set = set()
     derived: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in module_coherence.discover_manifests(root):
         if not isinstance(manifest, dict):
             continue
         mid = manifest.get("id")
@@ -123,27 +123,29 @@ def _serialize(catalog: list) -> str:
     return json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
 
 
-def generate(path: str | None = None) -> list:
+def generate(path: str | None = None, root: str | None = None) -> list:
     """Write the derived, merge-preserving catalog to `.engine/provisioning/module-catalog.json` and return it.
     Run in the SOURCE repo where every module is present (so it lists all offerable modules); shipped unchanged
     to deployments. Where it is regenerated with a module absent, the declined entry is preserved by `derive`."""
     target = path or CATALOG_PATH
-    catalog = derive(target)
+    catalog = derive(target, root)
     with open(target, "w", encoding="utf-8") as fh:
         fh.write(_serialize(catalog))
     return catalog
 
 
-def check(tier: str = "hard", path: str | None = None) -> list:
+def check(tier: str = "hard", path: str | None = None, root: str | None = None) -> list:
     """Drift gate: the committed catalog must equal the canonical serialization of the derived catalog, so a
     hand-edit to a present module's entry — or a stale catalog left after a manifest `presentation` change —
     turns the check red until it is regenerated. A DECLINED-module entry (no present manifest) is preserved by
     `derive` and so is legitimately not flagged; it has no manifest source of truth. Returns [] when in sync,
     one hard finding (carrying the plain-language regenerate guidance) on drift or an absent catalog. `path`
-    overrides only the committed-side read (the derivation still reads the real manifests), which is the seam
-    the negative-fixture meta-check uses to witness the gate biting a stale catalog."""
+    overrides the committed-side read and `root` the tree the derivation reads — together the seam the
+    negative-fixture meta-check uses to witness the gate biting a stale catalog. The derivation is rooted
+    because a deployment that declined its add-ons has no offerable manifests, so a real-tree derivation there
+    merge-preserves the seeded stale catalog unchanged and the aimed bite could never be witnessed."""
     target = path or CATALOG_PATH
-    canonical = _serialize(derive(target))
+    canonical = _serialize(derive(target, root))
     try:
         with open(target, encoding="utf-8") as fh:
             committed = fh.read()

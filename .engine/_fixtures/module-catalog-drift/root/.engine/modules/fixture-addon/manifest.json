@@ -1,0 +1,9 @@
+{
+  "id": "fixture-addon",
+  "status": "optional",
+  "presentation": {
+    "description": "A fixture-only add-on that exists so this gate's negative example can be witnessed.",
+    "category": "review",
+    "setup_trigger": "the operator asks to set up the fixture add-on"
+  }
+}

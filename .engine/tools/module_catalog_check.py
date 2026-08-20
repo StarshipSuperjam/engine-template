@@ -20,10 +20,13 @@ import validate  # noqa: E402  (env-override seam for the negative-fixture meta-
 
 
 def main() -> int:
-    # ENGINE_MODULE_CATALOG_PATH (unset in production) points the COMMITTED-side read at a seeded stale catalog
-    # while the derivation still reads the real manifests — so the gate is witnessed biting a real bad input.
+    # ENGINE_MODULE_CATALOG_PATH (unset in production) points the COMMITTED-side read at a seeded stale
+    # catalog, and MODULE_CATALOG_FIXTURE_ROOT roots the DERIVATION at the fixture's own seeded module set —
+    # so the gate is witnessed biting a real bad input even in a deployment that declined its add-ons, where
+    # a real-tree derivation would merge-preserve the stale catalog unchanged and never bite.
     path = validate.env_override_path("ENGINE_MODULE_CATALOG_PATH")
-    print(json.dumps(module_catalog.check("hard", path=path)))
+    root = validate.env_override_path("MODULE_CATALOG_FIXTURE_ROOT")
+    print(json.dumps(module_catalog.check("hard", path=path, root=root)))
     return 0
 
 

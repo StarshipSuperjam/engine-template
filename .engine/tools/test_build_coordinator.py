@@ -88,6 +88,18 @@ class CoordinatorCase(unittest.TestCase):
         )
         stable.start()
         self.addCleanup(stable.stop)
+        # These cases exercise the v1 plan surface, which `cmd_plan_bind` refuses for a session-sourced bind
+        # OUTSIDE the engine's own home (build_coordinator._confidently_home). Pinning the predicate keeps
+        # them asserting their real subject in every shape — including a projected deployment, where the
+        # ambient answer is False — rather than being skipped there. The refusal itself keeps its own
+        # coverage, driven deliberately rather than inherited from this pin: TestPlanV2Ingest parameterizes
+        # the predicate over both arms, and test_confidently_home_requires_a_readable_matching_origin pins
+        # its fail-away-from-home direction.
+        # The UNPINNED function stays reachable for the cases whose subject IS the predicate.
+        self.real_confidently_home = bc._confidently_home
+        home = mock.patch.object(bc, "_confidently_home", return_value=True)
+        home.start()
+        self.addCleanup(home.stop)
         self.state_path = str(Path(self.temp.name) / "build.json")
         self.store = bc.StateStore(self.state_path)
         self.plan_path = Path(self.temp.name) / "plan.json"
@@ -159,8 +171,10 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertTrue(Path(self.state_path).exists())
 
     def test_snapshot_outside_os_temp_is_refused(self):
+        # The filesystem root is outside the OS temp dir in every environment. bc.ROOT is NOT: a projected
+        # deployment is itself created under the temp dir, where the refusal correctly does not fire.
         with self.assertRaisesRegex(bc.CoordinatorError, "OS temporary"):
-            bc.StateStore(str(bc.ROOT / "state.json"))
+            bc.StateStore(str(Path(os.sep) / "state.json"))
 
     def test_plan_revision_invalidates_approval_and_reviews_but_not_build_identity(self):
         self.seed(); self.approve()
@@ -1280,6 +1294,21 @@ status: locked
         self.assertEqual(json.loads(out.getvalue())["spec"], canonical)
 
 
+def _installed_module_ids() -> set:
+    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py."""
+    import module_coherence
+    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
+
+
+def _needs_modules(case, *ids) -> None:
+    """Skip when a named module is not installed here. These cases read files the module DELIVERS, so in a
+    deployment that declined it there is no subject to assert over — the absence is the module's contract."""
+    missing = sorted(set(ids) - _installed_module_ids())
+    if missing:
+        case.skipTest(f"{', '.join(missing)} is not installed in this repository, so the file this case reads "
+                      f"is legitimately absent here")
+
+
 class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_consumed_review_lenses_remain_connected(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
@@ -1293,14 +1322,17 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
+        # The two core-owned runbooks are present in EVERY projection, so they are asserted unconditionally;
+        # only the external-contribution line is conditional on that optional module being installed.
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
-        external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
         evidence = (bc.ROOT / ".engine/operations/build-submission-evidence.md").read_text()
         for phrase in ("mechanic_build.py worktree", "tools/local_references.py scan", "unpushed commits", "worker fails"):
             self.assertIn(phrase, owned)
-        self.assertIn("no draft PR is", external)
         for phrase in ("recognized automation", "fail-open", "mcp_availability_check", "unresolved-conversation", "operator-runnable demonstration"):
             self.assertIn(phrase, evidence)
+        if "external-contribution" in _installed_module_ids():
+            external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
+            self.assertIn("no draft PR is", external)
 
     def test_runbook_stays_within_the_250_line_cap(self):
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
@@ -1371,7 +1403,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_every_reviewer_receives_the_exact_approved_plan(self):
         agents = list((bc.ROOT / ".claude" / "agents").glob("engine-design-review-*.md"))
         agents += list((bc.ROOT / ".claude" / "agents").glob("engine-qa-review-*.md"))
-        self.assertEqual(len(agents), 9)
+        # Each reviewer module delivers a fixed set, so pin the count PER MODULE against what is installed —
+        # a deployment that declined one still proves the other's set is complete, which a single all-or-
+        # nothing count would drop entirely.
+        ids = _installed_module_ids()
+        expected = (4 if "design-review" in ids else 0) + (5 if "qa-review" in ids else 0)
+        self.assertEqual(len(agents), expected)
         for agent in agents:
             self.assertIn("exact operator-approved Build plan", agent.read_text(), agent.name)
 
@@ -1385,6 +1422,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn("orchestrator", text, agent.name)
 
     def test_no_spec_keeps_both_plan_derived_conformance_lenses(self):
+        _needs_modules(self, "qa-review")
         for name in ("engine-qa-review-spec-conformance.md", "engine-qa-review-divergence-hunter.md"):
             text = (bc.ROOT / ".claude" / "agents" / name).read_text()
             self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)
@@ -1468,16 +1506,16 @@ class TestPlanV2Ingest(CoordinatorCase):
         # The governance polarity fix: an unreadable/mismatched origin is NOT confidently home, so the
         # v1-bind refusal fails toward ENFORCING rather than being silently skipped in a deployed repo.
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value=None):
-            self.assertFalse(bc._confidently_home())
+            self.assertFalse(self.real_confidently_home())
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="other/repo"):
-            self.assertFalse(bc._confidently_home())
+            self.assertFalse(self.real_confidently_home())
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", side_effect=ValueError("malformed manifest")):
-            self.assertFalse(bc._confidently_home())   # a malformed manifest is not confidently home
+            self.assertFalse(self.real_confidently_home())   # a malformed manifest is not confidently home
         with mock.patch.object(bc.repo_identity, "origin_slug", return_value="o/r"), \
                 mock.patch.object(bc.repo_identity, "home_repository", return_value="o/r"):
-            self.assertTrue(bc._confidently_home())
+            self.assertTrue(self.real_confidently_home())
 
     def test_issue_sourced_v1_rebind_with_published_handoff_is_not_walled(self):
         # The exempt continuation path in a deployed repo demands real pre-existing continuation

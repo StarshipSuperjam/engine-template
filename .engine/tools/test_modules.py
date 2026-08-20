@@ -54,6 +54,14 @@ def _run_kind(kind_fn, rule, files):
         validate.target_files = orig
 
 
+def _installed_module_ids() -> set:
+    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py, and the
+    same presence-conditional discipline `optional_owner` documents below: an optional module can be
+    declined, so a case keyed on one it DELIVERS has no subject in a deployment that declined it."""
+    import module_coherence
+    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
+
+
 class TestModuleSchema(unittest.TestCase):
     def test_schema_is_well_formed(self):
         validate.Draft202012Validator.check_schema(MODULE_SCHEMA)
@@ -153,6 +161,8 @@ class TestRetiredVerbUpgradeNotices(unittest.TestCase):
         self.assertIn("engine-setup", text)
 
     def test_github_projects_sync_notice_names_board_setup_pointing_at_engine_setup(self):
+        if "github-projects-sync" not in _installed_module_ids():
+            self.skipTest("the retired-verb notice is carried by the declined github-projects-sync module")
         text = self._notices("github-projects-sync")
         self.assertIn("engine-board-setup", text)
         self.assertIn("engine-setup", text)
