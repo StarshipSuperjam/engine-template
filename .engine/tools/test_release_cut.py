@@ -2062,6 +2062,8 @@ class RenderPRBodyDeploymentCheck(unittest.TestCase):
         self.assertIn("Deployed upgrade and rollback check", val)
         self.assertIn("from v0.3.2: practice upgrade completed, then the undo restored the copy", val)
         self.assertIn("clean-upgrade floor 0.3.2", val)
+        self.assertIn("Complete deployed self-tests ran for the default and module-declined candidate profiles", val)
+        self.assertIn("oldest supported source v0.3.2", val)
         self.assertIn("not the readiness judgment referred to under Risk", val)
         # the reserved word 'qualification' must never appear — the engine never qualifies itself
         for banned in ("qualification", "qualified", "certified"):

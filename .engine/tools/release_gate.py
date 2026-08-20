@@ -70,6 +70,11 @@ _DRIVER_CANDIDATE = "ENGINE_GATE_CANDIDATE"
 _DRIVER_TARGET_REF = "ENGINE_GATE_TARGET_REF"
 _DRIVER_BASELINE_FLOOR = "ENGINE_GATE_BASELINE_FLOOR"
 
+# A complete projected-deployment suite has grown beyond the historical 15-minute allowance.  This is a
+# release-cut-only budget (ordinary PR CI does not invoke this gate); keep the workflow's 120-minute envelope
+# comfortably above a candidate's two profile suites plus the one oldest-baseline migration-chain suite.
+_COMPLETE_SUITE_TIMEOUT_SECONDS = 1_800
+
 
 def _nested_env(**extra) -> dict:
     """The environment for every process this gate spawns INSIDE a projection — the in-projection validator and
@@ -97,8 +102,28 @@ class GateError(RuntimeError):
     block) only in the message; both stop the cut."""
 
 
-def _run(cmd: list, cwd: str | None = None, env: dict | None = None, timeout: int = 600):
-    return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+def _phase(label: str, phase: str) -> None:
+    """Emit the active projection and phase before a potentially long child process.
+
+    Write progress to stderr so `--json` remains machine-readable on stdout.  Explicit flushing matters on
+    GitHub Actions: when a child reaches its limit, the last visible line identifies the exact profile or
+    baseline that was active rather than leaving a context-free `TimeoutExpired` traceback.
+    """
+    sys.stderr.write(f"release-gate: {label}: {phase}\n")
+    sys.stderr.flush()
+
+
+def _run(cmd: list, cwd: str | None = None, env: dict | None = None, timeout: int = 600,
+         phase: tuple[str, str] | None = None):
+    if phase is not None:
+        _phase(*phase)
+    try:
+        return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        if phase is None:
+            raise
+        label, operation = phase
+        raise GateError(f"{label}: {operation} timed out after {timeout} seconds") from exc
 
 
 def _tail(text: str | None, n: int = 600) -> str:
@@ -107,7 +132,7 @@ def _tail(text: str | None, n: int = 600) -> str:
 
 # --------------------------------------------------------------------------- projection
 
-def _archive_candidate(dest: str) -> str:
+def _archive_candidate(dest: str, *, label: str = "candidate") -> str:
     """Capture the current working tree as the release candidate — EXACTLY the bytes the cut will commit —
     through a THROWAWAY git index, so the real index is never touched. At the `release.yml` insertion point the
     candidate (version bumps + regenerated maps) is written but not yet committed; staging it into a temp index
@@ -116,7 +141,8 @@ def _archive_candidate(dest: str) -> str:
     os.makedirs(dest, exist_ok=True)
     with tempfile.TemporaryDirectory() as idx_dir:
         env = {**os.environ, "GIT_INDEX_FILE": os.path.join(idx_dir, "index")}
-        staged = _run(["git", "-C", validate.ROOT, "add", "-A"], env=env, timeout=120)
+        staged = _run(["git", "-C", validate.ROOT, "add", "-A"], env=env, timeout=120,
+                      phase=(label, "capture the candidate tree"))
         if staged.returncode != 0:
             raise GateError(f"could not stage the candidate working tree ({_tail(staged.stderr)})")
         tree = _run(["git", "-C", validate.ROOT, "write-tree"], env=env, timeout=60)
@@ -150,13 +176,14 @@ def _candidate_tree_sha() -> "str | None":
 def _archive_baseline(tag: str, dest: str) -> str:
     """Materialize a released tag's committed tree offline (`git archive`). Raises GateError if the tag's tree
     object is absent — a shallow checkout with no tags fails the cut rather than silently skipping a baseline."""
+    _phase(f"upgrade/{tag}", "archive the released baseline")
     try:
         return release_source._archive_tree(tag, dest)
     except Exception as exc:                              # noqa: BLE001
         raise GateError(f"could not archive baseline {tag} offline ({exc}) — is the checkout shallow / tag-less?")
 
 
-def _decline_optional_modules(tree: str) -> list:
+def _decline_optional_modules(tree: str, label: str) -> list:
     """Model a deployment that DECLINED every declinable add-on — both `default-on` and `optional` status —
     using the engine's OWN per-module removal run inside the tree (`module_manager.py remove`), so the files,
     the `engine.json` packages entry, the tool-runtime dependency groups, the wiring, and coherence are all
@@ -190,13 +217,14 @@ def _decline_optional_modules(tree: str) -> list:
     env = _nested_env()
     for mid in declinable:
         r = _run([sys.executable, os.path.join("tools", "module_manager.py"), "remove", mid, "--json"],
-                 cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
+                 cwd=os.path.join(tree, ".engine"), env=env, timeout=300,
+                 phase=(label, f"project the declined module state ({mid})"))
         if r.returncode != 0:
             raise GateError(f"could not project a declined shape (removing {mid}: {_tail(r.stderr or r.stdout)})")
     return declinable
 
 
-def _project_to_deployed(dest: str, *, decline_optional: bool = False) -> list:
+def _project_to_deployed(dest: str, *, decline_optional: bool = False, label: str = "candidate") -> list:
     """Turn an archived home-repo tree at `dest` into the shape a deployed repo actually runs — the same
     projection first-run provisioning applies: RETIRE the first-run-only assets (through `retire_set`, the
     fail-loud safe reader — NOT a naive re-read), optionally DECLINE the optional modules, git-init with a
@@ -213,18 +241,20 @@ def _project_to_deployed(dest: str, *, decline_optional: bool = False) -> list:
             os.remove(p)
         elif os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
-    declined = _decline_optional_modules(dest) if decline_optional else []
+    declined = _decline_optional_modules(dest, label) if decline_optional else []
     env = _nested_env()
     for cmd in (["init", "-b", "main"],
                 ["remote", "add", "origin", _DEPLOYED_ORIGIN],
                 ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"],
                 ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "deployed"]):
-        r = _run(["git", "-C", dest, *cmd], timeout=120)
+        r = _run(["git", "-C", dest, *cmd], timeout=120,
+                 phase=(label, f"build the deployed projection ({cmd[0]})"))
         if r.returncode != 0:
             raise GateError(f"could not build the deployed projection (git {cmd[0]}: {_tail(r.stderr)})")
     for gen in ("self_map.py", "knowledge_gen.py"):
         r = _run([sys.executable, os.path.join("tools", gen), "generate"],
-                 cwd=os.path.join(dest, ".engine"), env=env, timeout=300)
+                 cwd=os.path.join(dest, ".engine"), env=env, timeout=300,
+                 phase=(label, f"regenerate deployed wiring ({gen})"))
         if r.returncode != 0:
             # On a declined projection this regen IS the StarshipSuperjam/engine-template#663 operation — a failure here is the real defect.
             raise GateError(f"the deployed projection could not regenerate its wiring map "
@@ -261,7 +291,8 @@ def _validate_in(tree: str, label: str) -> dict:
     """Run the CI validator suite inside a projected tree. Returns {passed, detail}."""
     env = _nested_env()
     r = _run([sys.executable, os.path.join("tools", "validate.py"), "--suite", "CI"],
-             cwd=os.path.join(tree, ".engine"), env=env, timeout=300)
+             cwd=os.path.join(tree, ".engine"), env=env, timeout=300,
+             phase=(label, "run the structural validator"))
     # report() prints the verbose (disclosed-no-op) "notes (…)" section FIRST, then the "FAIL (…)" hard-finding
     # section — so keep the FAIL section (the actual reason) and drop the notes preamble that precedes it. A red
     # WITHOUT that exact section — a CONFIG ERROR (returncode 2), a traceback, or the non-gating advisory render
@@ -277,8 +308,19 @@ def _validate_in(tree: str, label: str) -> dict:
 def _suite_in(tree: str, label: str) -> dict:
     """Run the whole self-test suite inside a projected tree. Returns {passed, detail}."""
     env = _nested_env()
-    r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
-             cwd=os.path.join(tree, ".engine"), env=env, timeout=900)
+    try:
+        r = _run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-b"],
+                 cwd=os.path.join(tree, ".engine"), env=env, timeout=_COMPLETE_SUITE_TIMEOUT_SECONDS,
+                 phase=(label, "run the complete self-test suite"))
+    except subprocess.TimeoutExpired:
+        return {"passed": False,
+                "detail": (f"{label}: complete self-tests timed out after "
+                           f"{_COMPLETE_SUITE_TIMEOUT_SECONDS} seconds")}
+    except GateError as exc:
+        # `_run` turns a real subprocess timeout into a leg-labelled GateError before it can leak a raw,
+        # context-free traceback.  Keep it in Arm A/B's structured failure list rather than escalating it to a
+        # generic top-level exception.
+        return {"passed": False, "detail": str(exc)}
     if r.returncode == 0:
         return {"passed": True, "detail": ""}
     # Surface the FULL FAIL/ERROR roster up front: several declined-shape tests can break together, and the
@@ -299,15 +341,17 @@ def _arm_operates() -> dict:
     archive from the (unchanged) working tree rather than sharing one."""
     failures: list = []
     with tempfile.TemporaryDirectory() as d:
-        default_tree = _archive_candidate(os.path.join(d, "default"))
-        _project_to_deployed(default_tree, decline_optional=False)
+        default_label = "operate/default"
+        default_tree = _archive_candidate(os.path.join(d, "default"), label=default_label)
+        _project_to_deployed(default_tree, decline_optional=False, label=default_label)
         for res in (_validate_in(default_tree, "operate/default"),
                     _suite_in(default_tree, "operate/default")):
             if not res["passed"]:
                 failures.append(res["detail"])
     with tempfile.TemporaryDirectory() as d:
-        declined_tree = _archive_candidate(os.path.join(d, "declined"))
-        declined = _project_to_deployed(declined_tree, decline_optional=True)
+        declined_label = "operate/declined"
+        declined_tree = _archive_candidate(os.path.join(d, "declined"), label=declined_label)
+        declined = _project_to_deployed(declined_tree, decline_optional=True, label=declined_label)
         label = f"operate/declined({','.join(declined) or 'none'})"
         for res in (_validate_in(declined_tree, label), _suite_in(declined_tree, label)):
             if not res["passed"]:
@@ -375,15 +419,16 @@ def _rollback_driver_source() -> str:
     ) % (_DRIVER_EXPECT_ROOT,)
 
 
-def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
+def _upgrade_leg(proj: str, baseline_tag: str, candidate: str, *, run_complete_suite: bool = True) -> dict:
     """Arm B, one baseline — the UPGRADE leg. Run a REAL practice upgrade of the already-projected baseline
     `proj` to the candidate, driven by the PROJECTION's own module_manager (phase-1 runs as the baseline's
     shipped code, exactly as a real deployment would; the tail runs as the overlaid candidate code). Assert
     the upgrade completed with NO refusal reason (a reconcile/migration refusal sets `reason` and leaves an
     early `applied=True` with empty findings — it must NOT read as a pass), no hard structural finding, and
     that it took the practice child path (not a silent network fetch). A structurally clean upgrade is then
-    qualified with the upgraded projection's real CI validator and complete self-test suite — the same shipped
-    surfaces its eventual pull request will run. Returns {passed, detail}. Leaves the projection STAGED (the
+    qualified with the upgraded projection's real CI validator.  The oldest supported baseline also receives
+    the complete self-test suite, exercising the whole migration chain without serially repeating that same
+    expensive suite for every later source version. Returns {passed, detail}. Leaves the projection STAGED (the
     practice tail `git add -A`s but never commits/opens) so the rollback leg can undo it."""
     try:
         target_ref = _candidate_ref(candidate)
@@ -396,7 +441,8 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
                                                      # "practice mode opens no PR, deny the token outright"
                                                      # property stays legible at this sensitive spawn
     run = _run([sys.executable, "-c", _driver_source()],
-               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600,
+               phase=(f"upgrade/{baseline_tag}", "run the practice upgrade"))
     if run.returncode != 0 or "GATE_RESULT:" not in run.stdout:
         return {"passed": False,
                 "detail": f"upgrade/{baseline_tag}: the practice upgrade did not complete\n"
@@ -425,7 +471,10 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
                             "release instead of testing the candidate)")
     if not problems:
         label = f"upgrade/{baseline_tag}"
-        for qualification in (_validate_in(proj, label), _suite_in(proj, label)):
+        qualifications = [_validate_in(proj, label)]
+        if run_complete_suite:
+            qualifications.append(_suite_in(proj, label))
+        for qualification in qualifications:
             if not qualification["passed"]:
                 problems.append(qualification["detail"])
     return {"passed": not problems, "detail": "" if not problems
@@ -483,7 +532,8 @@ def _control_plane_leg(proj: str, baseline_tag: str, baseline_floor: dict | None
                          _DRIVER_BASELINE_FLOOR: json.dumps(baseline_floor)})
     env.pop("GITHUB_TOKEN", None)
     run = _run([sys.executable, "-c", _control_plane_driver_source()],
-               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600,
+               phase=(f"control-plane/{baseline_tag}", "repair and verify the Engine-owned safety rule"))
     if run.returncode != 0 or "CONTROL_PLANE_RESULT:" not in run.stdout:
         return {"passed": False,
                 "detail": f"control-plane/{baseline_tag}: the simulated repair did not complete\n"
@@ -517,7 +567,8 @@ def _rollback_leg(proj: str, baseline_tag: str) -> dict:
     env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj)})
     env.pop("GITHUB_TOKEN", None)                    # rollback opens no PR and reaches no network — deny outright
     run = _run([sys.executable, "-c", _rollback_driver_source()],
-               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600,
+               phase=(f"rollback/{baseline_tag}", "undo the staged upgrade"))
     if run.returncode != 0 or "ROLLBACK_RESULT:" not in run.stdout:
         return {"passed": False,
                 "detail": f"rollback/{baseline_tag}: the undo did not complete\n"
@@ -556,7 +607,7 @@ def _rollback_leg(proj: str, baseline_tag: str) -> dict:
             else f"rollback/{baseline_tag}: " + "; ".join(problems)}
 
 
-def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
+def _upgrade_from(baseline_tag: str, candidate: str, *, run_complete_suite: bool = True) -> dict:
     """Arm B, one baseline — one supported-version transition. Project the baseline release to its deployed
     shape, run the practice UPGRADE leg, then (only if it passed) the ROLLBACK leg against the same staged
     projection. If the upgrade did not complete the rollback leg is NOT run — a rollback attempt on a half-
@@ -566,9 +617,9 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
     `passed: None`. The whole transition happens inside one tempdir so the projection lives across both legs."""
     with tempfile.TemporaryDirectory() as d:
         proj = _archive_baseline(baseline_tag, os.path.join(d, "old"))
-        _project_to_deployed(proj, decline_optional=False)
+        _project_to_deployed(proj, decline_optional=False, label=f"upgrade/{baseline_tag}")
         _assert_isolated(proj)
-        upgrade = _upgrade_leg(proj, baseline_tag, candidate)
+        upgrade = _upgrade_leg(proj, baseline_tag, candidate, run_complete_suite=run_complete_suite)
         if not upgrade["passed"]:
             return {"baseline": baseline_tag, "upgrade": upgrade,
                     "control_plane": {"passed": None, "detail": "not run — the upgrade did not complete"},
@@ -621,6 +672,40 @@ def _upgrade_baselines() -> list:
     return _baseline_selection()["baselines"]
 
 
+def _transition_matrix_problems(baselines: list[str], transitions: list[object]) -> list[str]:
+    """Return any malformed/missing/duplicate transition evidence as fail-closed matrix problems.
+
+    `_arm_upgrades` creates one record per baseline itself, but validating that shape is still load-bearing: a
+    future fan-out, early-return, or helper regression must not render a partial matrix as full coverage.
+    """
+    problems = []
+    if len(transitions) != len(baselines):
+        problems.append(f"expected {len(baselines)} transition results but received {len(transitions)}")
+    returned = []
+    for expected, transition in zip(baselines, transitions):
+        if not isinstance(transition, dict):
+            problems.append(f"{expected} returned a malformed transition result")
+            continue
+        actual = transition.get("baseline")
+        returned.append(actual)
+        if actual != expected:
+            problems.append(f"expected a result for {expected}, received {actual!r}")
+        if not isinstance(transition.get("passed"), bool):
+            problems.append(f"{expected} returned a transition without a boolean pass result")
+        for leg in ("upgrade", "control_plane", "rollback"):
+            value = transition.get(leg)
+            if not isinstance(value, dict) or value.get("passed") not in (True, False, None) or \
+                    not isinstance(value.get("detail"), str):
+                problems.append(f"{expected} returned a malformed {leg} leg")
+    # A malformed `baseline` value can itself be unhashable; represent it safely so matrix validation remains a
+    # clean block instead of turning into the very unexpected error it is meant to diagnose.
+    returned_keys = [tag if isinstance(tag, str) else repr(tag) for tag in returned]
+    duplicates = sorted({tag for tag in returned_keys if returned_keys.count(tag) > 1})
+    if duplicates:
+        problems.append("duplicate transition result(s): " + ", ".join(repr(tag) for tag in duplicates))
+    return problems
+
+
 def _arm_upgrades(candidate: str) -> dict:
     """Arm B. Run the upgrade+rollback transition for each in-range released baseline and record the matrix.
     `transitions` is the per-baseline record (the executable supported-version matrix); `floor`/`baselines`/
@@ -630,10 +715,14 @@ def _arm_upgrades(candidate: str) -> dict:
     baselines = sel["baselines"]
     if not baselines:
         raise GateError("found no released baseline at or above the clean-upgrade floor to test upgrades from")
-    transitions = [_upgrade_from(tag, candidate) for tag in baselines]
-    failures = []
+    # `baselines` is semver-sorted, so index zero is dynamically the oldest source still covered by
+    # min_upgradeable_from.  Every row keeps the real upgrade/control-plane/validator/rollback proof; only this
+    # one row repeats the complete suite after upgrade to cover the full migration chain once.
+    transitions = [_upgrade_from(tag, candidate, run_complete_suite=(index == 0))
+                   for index, tag in enumerate(baselines)]
+    failures = ["upgrade matrix: " + problem for problem in _transition_matrix_problems(baselines, transitions)]
     for t in transitions:
-        if t["passed"]:
+        if not isinstance(t, dict) or t.get("passed") is not False:
             continue
         for leg in ("upgrade", "control_plane", "rollback"):
             detail = (t.get(leg) or {}).get("detail")
