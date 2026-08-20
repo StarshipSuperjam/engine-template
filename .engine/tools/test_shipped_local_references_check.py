@@ -3,8 +3,9 @@
 
 The floor reuses the sibling shipped-issue-references machinery for the shipped surface and prose extraction
 (exhaustively tested there), so these tests pin the DELTA: it is declaration-driven (no-ops when nothing is
-declared, scans against the declared vocabulary), prose-only, test/demo-excluded, and fails closed on an
-unreadable retire census. A synthetic `ZZ-` vocabulary is used so no real decision-record token is seeded.
+declared, scans against the declared vocabulary), prose-only including shipped test/demo comments and
+docstrings, and fails closed on an unreadable retire census. A synthetic `ZZ-` vocabulary is used so no real
+decision-record token is seeded.
 """
 from __future__ import annotations
 import json
@@ -79,9 +80,21 @@ class DeclarationDriven(_Rooted):
         f = self._check({".engine/tools/probe.py": 'def g():\n    msg = "ZZ-1 in a string"\n    return msg\n'})
         self.assertEqual(f, [])
 
-    def test_a_test_file_is_not_scanned(self):
-        # test_/demo_ prose is dominated by synthetic tokens; excluded like the sibling floor
-        f = self._check({".engine/tools/test_probe.py": '"""cites ZZ-1."""\n'})
+    def test_a_shipped_test_comment_and_docstring_are_scanned(self):
+        source = '"""cites ZZ-1 in a docstring."""' + chr(10) + '# and ZZ-2 in a comment' + chr(10)
+        f = self._check({".engine/tools/test_probe.py": source})
+        self.assertEqual(len(f), 2)
+        self.assertIn("ZZ-1", f[0]["message"] + f[1]["message"])
+        self.assertIn("ZZ-2", f[0]["message"] + f[1]["message"])
+
+    def test_a_shipped_test_fixture_string_is_not_scanned(self):
+        f = self._check({".engine/tools/test_probe.py": 'fixture = "ZZ-1 in a fixture string"' + chr(10)})
+        self.assertEqual(f, [])
+
+    def test_a_retired_test_file_remains_excluded(self):
+        f = self._check({".engine/tools/test_probe.py": '"""cites ZZ-1."""',
+                         ".engine/provisioning/first-run-assets.json":
+                         '{"files": [".engine/tools/test_probe.py"], "dirs": []}'})
         self.assertEqual(f, [])
 
     def test_a_markdown_reference_is_flagged(self):

@@ -276,7 +276,7 @@ def budget_records(now: str, *, claims: dict | None = None, repo: str | None = N
         manifests = module_coherence.discover_manifests()
         claims = module_coherence.provides_claims(manifests)
     home = _is_home_repo(repo)
-    # The recorded home slug the deployed-machinery lane names (StarshipSuperjam/engine-template#643, ADR-0281 reader (b) —
+    # The recorded home slug the deployed-machinery lane names —
     # "the escalate-upstream path reads the same home"). A read distinct from `_is_home_repo`'s bool so the lane
     # can tell "home recorded but this is a copy" (name it) from "no home recorded" (today's prose); the extra
     # manifest read is a tiny load in this weekly audit. A malformed manifest degrades to the un-named prose.

@@ -145,7 +145,7 @@ class TestModuleSchema(unittest.TestCase):
 
 
 class TestRetiredVerbUpgradeNotices(unittest.TestCase):
-    """ADR-0336 S3: the three retired verbs each carry a version-keyed upgrade notice on their owning module,
+    """The three retired verbs each carry a version-keyed upgrade notice on their owning module,
     naming the `engine-setup` replacement — so an operator upgrading across the removal is told where the
     capability went, rather than a stale name silently failing."""
 

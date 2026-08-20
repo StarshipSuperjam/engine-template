@@ -734,6 +734,90 @@ class ControlPlane:
                 return r
         return None
 
+    def repair_owned(self, branch: str | None = None) -> dict:
+        """Repair only the one ruleset the Engine owns, and verify the live floor afterward.
+
+        This is deliberately narrower than apply(). An upgrade has already changed the local engine files
+        when it reaches this step, so it must never turn a missing or uncertain control-plane state into a
+        new ruleset or an edit to an operator rule. It may issue one PUT only for exactly one listed rule named
+        ENGINE_RULESET_NAME. Every other state returns a machine-readable refusal for the updater's separate
+        consent route, with no POST, augment, label operation, or authorization refresh.
+        """
+        branch = branch or repo_identity.resolve_default_branch()
+        try:
+            status, data, _ = self._transport("GET", f"/repos/{self.repo}/rulesets", None)
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"could not read the Engine-owned safety rule: {exc}"}
+        if status >= 400 or not isinstance(data, list):
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"could not list the Engine-owned safety rule (status {status})"}
+        owned = [r for r in data if r.get("name") == ENGINE_RULESET_NAME]
+        if len(owned) != 1 or not owned[0].get("id"):
+            why = ("no exactly named Engine-owned safety rule exists"
+                   if not owned else "more than one safety rule claims the Engine-owned name")
+            return {"status": "operator-action-required", "branch": branch, "missing": [],
+                    "reason": why}
+        rid = owned[0]["id"]
+        # Assess the named Engine rule itself, not only the aggregate branch result.  An operator-owned rule
+        # can coincidentally make the whole branch look protected while this exact Engine rule remains stale;
+        # an update must repair its own rule in that case and must never infer the operator rule is ours.
+        try:
+            full = self.ruleset_detail(rid)
+            missing = protection_guard.missing_floor(full["rules"], self.required_checks, tier=self.tier)
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"could not read the Engine-owned safety rule in full: {exc}", "ruleset_id": rid}
+        # The evaluated endpoint is a separate live-reachability proof.  Read it before deciding whether the
+        # named rule is already current, and once more immediately before any PUT, so an outage stays no-write.
+        try:
+            self.floor_missing(branch)
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"could not read the live branch protection: {exc}", "ruleset_id": rid}
+        if not missing:
+            return {"status": "already", "branch": branch, "missing": [], "reason": None,
+                    "ruleset_id": rid}
+
+        try:
+            full = self.ruleset_detail(rid)
+            missing = protection_guard.missing_floor(full["rules"], self.required_checks, tier=self.tier)
+            self.floor_missing(branch)
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"could not re-check the live branch protection before strengthening it: {exc}",
+                    "ruleset_id": rid}
+        if not missing:
+            return {"status": "already", "branch": branch, "missing": [], "reason": None,
+                    "ruleset_id": rid}
+
+        # The exact id obtained above is the only writable target. _write_floor with a present rule uses PUT;
+        # it cannot create a rule or route into apply()'s operator-owned augmentation path.
+        try:
+            write_status, _body = self._write_floor(owned[0])
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": missing,
+                    "reason": f"could not strengthen the Engine-owned safety rule: {exc}",
+                    "ruleset_id": rid}
+        if write_status >= 400:
+            return {"status": "operator-action-required", "branch": branch, "missing": missing,
+                    "reason": f"GitHub did not allow the Engine-owned safety rule to be strengthened (status {write_status})",
+                    "ruleset_id": rid}
+        try:
+            post = self.ruleset_detail(rid)
+            still_missing = protection_guard.missing_floor(post["rules"], self.required_checks, tier=self.tier)
+            live_missing = self.floor_missing(branch)
+        except BootstrapError as exc:
+            return {"status": "unverified", "branch": branch, "missing": [],
+                    "reason": f"the strengthened Engine-owned safety rule could not be verified: {exc}",
+                    "ruleset_id": rid}
+        if still_missing or live_missing:
+            return {"status": "unverified", "branch": branch, "missing": still_missing or live_missing,
+                    "reason": "the strengthened Engine-owned safety rule did not meet the live protection floor",
+                    "ruleset_id": rid}
+        return {"status": "repaired", "branch": branch, "missing": [], "reason": None,
+                "ruleset_id": rid}
+
     def product_rulesets(self, branch: str, own_id="__resolve__") -> list:
         """The ids of the repository's OWN branch rulesets that ACTUALLY apply to the branch (and bite),
         excluding the engine's own. Resolved from the evaluated per-branch endpoint — each evaluated rule

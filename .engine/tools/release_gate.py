@@ -11,14 +11,15 @@ gate catches both at CONSTRUCTION cut time, before a release pull request is eve
   validator + the whole self-test suite against it, in two configurations: the default install (every shipped
   module) and an optional-modules-declined install (each `default-on` module and the files it owns removed —
   the exact shape StarshipSuperjam/engine-template#663 broke on). A red here means the release would not operate on a real deployment.
-- **Arm B — upgrades AND rolls back when deployed.** For each released baseline at or above the clean-upgrade
-  floor, project that past release to its deployed shape and run a REAL practice upgrade to the candidate — the
-  same child tail, the same seven-check structural gate (including the wiring-map coverage check
-  StarshipSuperjam/engine-template#663 failed), no pull request opened — and then a REAL undo of that staged
-  update (the operator's `rollback`), asserting the projected copy is cleanly restored to the baseline. A red
-  means a deployed engine could not reconcile cleanly onto this release, or could not cleanly undo a stalled
-  update from it (the StarshipSuperjam/engine-template#599 rollback-refusal class). The per-baseline outcomes
-  are recorded as the supported-version transition matrix (StarshipSuperjam/engine-template#703).
+- **Arm B — upgrades, proves its owned safety rule, AND rolls back when deployed.** For each released baseline
+  at or above the clean-upgrade floor, project that past release to its deployed shape and run a REAL practice
+  upgrade to the candidate — the same child tail, the same structural gate (including the wiring-map coverage
+  check StarshipSuperjam/engine-template#663 failed), no pull request opened. Candidate bootstrap then repairs the exact
+  Engine-owned rule against an injected GitHub transport seeded from that baseline's floor; it never contacts a
+  repository. Finally it runs a REAL undo of the staged update (the operator's `rollback`), asserting the
+  projected copy is cleanly restored to the baseline. A red means a deployed engine could not reconcile, prove
+  its owned safety rule, or undo cleanly. The per-baseline outcomes are the supported-version transition matrix
+  (StarshipSuperjam/engine-template#703).
 
 **Where deployed-shape protection now lives.** This gate REPLACES the inline `test_deployed_selftests.py` belt,
 which ran Arm A's default configuration on every home-repo pull request (~44% of the suite's wall time). That
@@ -66,6 +67,7 @@ _DEPLOYED_ORIGIN = "https://github.com/acme/deployed-product.git"
 # (the ROOT-isolation guard), and (2) find the candidate release tree to inject.
 _DRIVER_EXPECT_ROOT = "ENGINE_GATE_EXPECT_ROOT"
 _DRIVER_CANDIDATE = "ENGINE_GATE_CANDIDATE"
+_DRIVER_BASELINE_FLOOR = "ENGINE_GATE_BASELINE_FLOOR"
 
 
 def _nested_env(**extra) -> dict:
@@ -321,12 +323,13 @@ def _driver_source() -> str:
     return (
         "import json, os, sys\n"
         "sys.path.insert(0, os.getcwd())\n"
-        "import validate, module_manager\n"
+        "import validate, module_manager, bootstrap\n"
         "expect = os.path.realpath(os.environ['%s'])\n"
         "here = os.path.realpath(validate.ROOT)\n"
         "assert here == expect, 'ROOT isolation breach: %%r != %%r' %% (here, expect)\n"
+        "baseline_floor = bootstrap.floor_ruleset(tier=bootstrap.protection_guard.resolve_tier())\n"
         "res = module_manager.upgrade(release_tree=os.environ['%s'])\n"
-        "sys.stdout.write('GATE_RESULT:' + json.dumps(res))\n"
+        "sys.stdout.write('GATE_RESULT:' + json.dumps({'upgrade': res, 'baseline_floor': baseline_floor}))\n"
     ) % (_DRIVER_EXPECT_ROOT, _DRIVER_CANDIDATE)
 
 
@@ -375,7 +378,11 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
         return {"passed": False,
                 "detail": f"upgrade/{baseline_tag}: the practice upgrade did not complete\n"
                           f"{_tail(run.stderr or run.stdout, 3000)}"}
-    result = json.loads(run.stdout.split("GATE_RESULT:", 1)[1])
+    payload = json.loads(run.stdout.split("GATE_RESULT:", 1)[1])
+    # Unit-level orchestration tests use the historical raw result shape; the real driver wraps it with the
+    # baseline floor captured before the upgrade overlays candidate bootstrap code.
+    result = payload.get("upgrade", payload) if isinstance(payload, dict) else {}
+    baseline_floor = payload.get("baseline_floor") if isinstance(payload, dict) else None
     problems = []
     # A refusal at ANY step — phase-1 (`refused`) OR the tail (a `reason` with an early `applied=True` and no
     # findings) — means the deployed upgrade did not reconcile cleanly. Reading `reason` catches the tail case.
@@ -394,7 +401,78 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str) -> dict:
             problems.append("the upgrade did not take the expected practice path (it may have fetched a real "
                             "release instead of testing the candidate)")
     return {"passed": not problems, "detail": "" if not problems
-            else f"upgrade/{baseline_tag}: " + "; ".join(problems)}
+            else f"upgrade/{baseline_tag}: " + "; ".join(problems),
+            "baseline_floor": baseline_floor}
+
+
+def _control_plane_driver_source() -> str:
+    """Run candidate bootstrap's owned-only repair through an in-memory GitHub transport.
+
+    The simulated repository starts at the baseline release's ruleset floor. Candidate code must strengthen
+    that exact Engine-owned rule, read the result back, and never POST or touch an operator rule. No token,
+    network, or live repository reaches this child.
+    """
+    return (
+        "import json, os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import bootstrap, validate\n"
+        "expect = os.path.realpath(os.environ['%s'])\n"
+        "here = os.path.realpath(validate.ROOT)\n"
+        "assert here == expect, 'ROOT isolation breach: %%r != %%r' %% (here, expect)\n"
+        "floor = json.loads(os.environ['%s'])\n"
+        "state = {'rules': floor['rules'], 'writes': []}\n"
+        "def transport(method, path, body=None):\n"
+        "    if method == 'GET' and path == '/repos/gate/repo/rulesets':\n"
+        "        return 200, [{'id': 1, 'name': bootstrap.ENGINE_RULESET_NAME}], {}\n"
+        "    if method == 'GET' and path == '/repos/gate/repo/rulesets/1':\n"
+        "        return 200, {'id': 1, 'name': bootstrap.ENGINE_RULESET_NAME, 'rules': state['rules']}, {}\n"
+        "    if method == 'GET' and path == '/repos/gate/repo/rules/branches/main':\n"
+        "        return 200, state['rules'], {}\n"
+        "    if method == 'PUT' and path == '/repos/gate/repo/rulesets/1':\n"
+        "        state['writes'].append({'method': method, 'path': path})\n"
+        "        state['rules'] = body['rules']\n"
+        "        return 200, {'id': 1}, {}\n"
+        "    if method in ('POST', 'PUT'):\n"
+        "        state['writes'].append({'method': method, 'path': path})\n"
+        "    return 404, None, {}\n"
+        "cp = bootstrap.ControlPlane('gate/repo', 'no-token', transport=transport, "
+        "tier=bootstrap.protection_guard.resolve_tier())\n"
+        "res = cp.repair_owned('main')\n"
+        "sys.stdout.write('CONTROL_PLANE_RESULT:' + json.dumps({'result': res, 'writes': state['writes']}))\n"
+    ) % (_DRIVER_EXPECT_ROOT, _DRIVER_BASELINE_FLOOR)
+
+
+def _control_plane_leg(proj: str, baseline_tag: str, baseline_floor: dict | None) -> dict:
+    """Arm B's simulated control-plane transition for one baseline.
+
+    The baseline floor is captured by baseline code before the practice upgrade, then candidate bootstrap runs
+    against the fake transport above. This proves the target floor actually repairs an Engine-owned stale rule
+    and verifies it without relying on a release workflow credential or a live repository.
+    """
+    if not isinstance(baseline_floor, dict) or not isinstance(baseline_floor.get("rules"), list):
+        return {"passed": False, "detail": f"control-plane/{baseline_tag}: the baseline ruleset floor was not captured"}
+    env = _nested_env(**{_DRIVER_EXPECT_ROOT: os.path.abspath(proj),
+                         _DRIVER_BASELINE_FLOOR: json.dumps(baseline_floor)})
+    env.pop("GITHUB_TOKEN", None)
+    run = _run([sys.executable, "-c", _control_plane_driver_source()],
+               cwd=os.path.join(proj, ".engine", "tools"), env=env, timeout=600)
+    if run.returncode != 0 or "CONTROL_PLANE_RESULT:" not in run.stdout:
+        return {"passed": False,
+                "detail": f"control-plane/{baseline_tag}: the simulated repair did not complete\n"
+                          f"{_tail(run.stderr or run.stdout, 3000)}"}
+    payload = json.loads(run.stdout.split("CONTROL_PLANE_RESULT:", 1)[1])
+    result = payload.get("result") or {}
+    writes = payload.get("writes") or []
+    problems = []
+    if result.get("status") not in {"already", "repaired"}:
+        problems.append(f"candidate did not verify the Engine-owned safety rule ({result.get('status')!r})")
+    if result.get("status") == "already" and writes:
+        problems.append("an already-current Engine-owned rule was written")
+    if result.get("status") == "repaired":
+        if writes != [{"method": "PUT", "path": "/repos/gate/repo/rulesets/1"}]:
+            problems.append("repair wrote something other than the exact Engine-owned ruleset")
+    return {"passed": not problems, "detail": "" if not problems
+            else f"control-plane/{baseline_tag}: " + "; ".join(problems)}
 
 
 def _rollback_leg(proj: str, baseline_tag: str) -> dict:
@@ -465,11 +543,18 @@ def _upgrade_from(baseline_tag: str, candidate: str) -> dict:
         upgrade = _upgrade_leg(proj, baseline_tag, candidate)
         if not upgrade["passed"]:
             return {"baseline": baseline_tag, "upgrade": upgrade,
+                    "control_plane": {"passed": None, "detail": "not run — the upgrade did not complete"},
                     "rollback": {"passed": None, "detail": "not run — the upgrade did not complete"},
                     "passed": False}
+        control_plane = _control_plane_leg(proj, baseline_tag, upgrade.get("baseline_floor"))
+        if not control_plane["passed"]:
+            return {"baseline": baseline_tag, "upgrade": upgrade, "control_plane": control_plane,
+                    "rollback": {"passed": None, "detail": "not run — the control-plane repair did not complete"},
+                    "passed": False}
         rollback = _rollback_leg(proj, baseline_tag)
-        return {"baseline": baseline_tag, "upgrade": upgrade, "rollback": rollback,
-                "passed": bool(upgrade["passed"] and rollback["passed"])}
+        return {"baseline": baseline_tag, "upgrade": upgrade, "control_plane": control_plane,
+                "rollback": rollback,
+                "passed": bool(upgrade["passed"] and control_plane["passed"] and rollback["passed"])}
 
 
 def _baseline_selection() -> dict:
@@ -522,7 +607,7 @@ def _arm_upgrades(candidate: str) -> dict:
     for t in transitions:
         if t["passed"]:
             continue
-        for leg in ("upgrade", "rollback"):
+        for leg in ("upgrade", "control_plane", "rollback"):
             detail = (t.get(leg) or {}).get("detail")
             if (t.get(leg) or {}).get("passed") is False and detail:
                 failures.append(detail)
@@ -566,7 +651,7 @@ def _render(result: dict) -> str:
         return "The deployment gate is inert here (this is not the engine's home repo); nothing to check."
     if result.get("passed"):
         n = len((result.get("upgrades") or {}).get("transitions") or [])
-        matrix = (f" (upgrade and rollback verified from {n} supported source version"
+        matrix = (f" (upgrade, Engine-owned safety-rule repair, and rollback verified from {n} supported source version"
                   f"{'' if n == 1 else 's'})") if n else ""
         return ("The deployment gate passed: this release operates when deployed, and upgrades then cleanly "
                 f"rolls back{matrix}.")
@@ -609,12 +694,14 @@ def _summary_md(result: dict) -> str:
                      f"`{up['floor']}` ({n} transition{'' if n == 1 else 's'}{extra}).")
         lines.append("")
     if transitions:
-        lines += ["| from version | practice upgrade | undo (rollback) |", "| --- | --- | --- |"]
+        lines += ["| from version | practice upgrade | safety-rule repair | undo (rollback) |",
+                  "| --- | --- | --- | --- |"]
         mark = {True: "pass", False: "FAIL", None: "not run"}
         for t in transitions:
             up_state = mark.get((t.get("upgrade") or {}).get("passed"), "unknown")
+            cp_state = mark.get((t.get("control_plane") or {}).get("passed"), "unknown")
             rb_state = mark.get((t.get("rollback") or {}).get("passed"), "unknown")
-            lines.append(f"| `{t.get('baseline')}` | {up_state} | {rb_state} |")
+            lines.append(f"| `{t.get('baseline')}` | {up_state} | {cp_state} | {rb_state} |")
         lines.append("")
     lines.append("_A mechanical deploy-and-undo check on a projected deployed copy — not a readiness judgment._")
     return "\n".join(lines) + "\n"

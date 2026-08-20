@@ -1645,6 +1645,15 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
                       "damaged, so I left the file unchanged. Check the marker lines, then update again.")
     if shared:
         scope += ["", "What this update did to the engine's marked blocks in shared files:"] + shared
+    control_plane = result.get("control_plane") or {}
+    if control_plane.get("status") == "repaired":
+        scope += ["", "Safety rule confirmed before this update was opened:",
+                  "- Strengthened and verified the Engine-owned main-branch safety rule for this version. "
+                  "No rule you created was changed."]
+    elif control_plane.get("status") == "already":
+        scope += ["", "Safety rule confirmed before this update was opened:",
+                  "- Verified the Engine-owned main-branch safety rule already met this version's floor; "
+                  "nothing was written."]
 
     # Reconcile outcomes (StarshipSuperjam/engine-template#599): files this version DELIVERED (fixtures an older update would have missed) and
     # files it REMOVED (renamed/dropped engine files, so stale copies don't linger). Removals are BUCKETED so a
@@ -1862,6 +1871,10 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "engine's consistency check.",
          "- I did not decide to merge it; that decision is yours."],
         "the update was assembled by the engine; your merge is the decision.")
+    # Engine updates change the engine itself, not the deployed product's public interface. The generated
+    # declaration is explicitly none; it is built by the release-impact formatter and appended once, after
+    # all prose, so the normal CI rule and the release fold see the exact same body.
+    out += ["", release_cut.release_impact.impact_trailer("none")]
     return "\n".join(out)
 
 
@@ -2609,6 +2622,7 @@ _STRUCTURAL_GATE_CHECK_IDS = frozenset({
     "engine/check/codex-provider-parity",   # an orphaned .claude/agents/* with no .codex twin (the StarshipSuperjam/engine-template#599 class)
     "engine/check/codex-agent-coherence",   # the Codex agent renders matching their .claude sources
     "engine/check/uv-group-drift",          # the committed default-groups matching the deployed module set (StarshipSuperjam/engine-template#757)
+    "engine/check/pr-body-completeness",    # the generated review body must clear the same contract before opening
 })
 # NOT in the gate: `hard-check-bite` — it is a release-cut META-check that every hard check bites its
 # negative fixture, a property of the CHECK CORPUS (verified where releases are cut), not of the reconciled
@@ -2629,10 +2643,15 @@ def _reconcile_gate(body: str) -> list:
     structural CI subset, run against the reconciled tree before opening the update PR. Returns the findings;
     the tail refuses cleanly on any `hard` one. Scoped by a rule filter so `suites.json` is untouched (no
     guardrail change) and no PR/event/network check runs."""
+    import release_impact_check  # noqa: E402 — the pure rendered-body rule; no event context exists pre-open
+
     findings = list(module_coherence.check_coherence())
     findings += validate.collect("CI", {"pr_body": body, "pr_author": None, "pr_labels": []},
                                  with_source=True,
                                  rule_filter=lambda r: r.get("id") in _STRUCTURAL_GATE_CHECK_IDS)
+    # The normal release-impact script reads GitHub's event payload. Before opening there is intentionally no
+    # event, so invoke its public body-level rule directly instead of accepting its normal local no-op.
+    findings += release_impact_check.findings_for_body(body)
     return findings
 
 
@@ -2643,8 +2662,11 @@ def _coherence_only_gate(body: str) -> list:
     deployed upgrade (`in_process` ⇒ an injected release tree + injected callables — a real upgrade fetches a
     release and spawns a child), so the full gate on the child path is the one that matters, and it is proven
     against a real reconciled tree by `demo_599` and by the cut-time deployment gate's practice upgrades from
-    real past releases (StarshipSuperjam/engine-template#664). `body` is accepted for signature parity with `_reconcile_gate`."""
-    return list(module_coherence.check_coherence())
+    real past releases (StarshipSuperjam/engine-template#664). The pure release-impact rule has no tree-path
+    dependency, so it runs here too: an injected upgrade demo must not open a fake PR with a malformed marker.
+    `body` is otherwise accepted for signature parity with `_reconcile_gate`."""
+    import release_impact_check  # noqa: E402 — same pure rendered-body contract as the real pre-open gate
+    return list(module_coherence.check_coherence()) + release_impact_check.findings_for_body(body)
 
 
 def _reconcile_refuse_reason(findings: list | None = None) -> str:
@@ -2665,6 +2687,34 @@ def _reconcile_refuse_reason(findings: list | None = None) -> str:
     return ("The update was applied to your working copy, but a consistency check on the rebuilt engine found "
             "a problem, so it was NOT opened for review and nothing was merged. Run the update again to retry, "
             "or ask me to undo the update's changes.")
+
+
+def _repair_upgrade_control_plane() -> dict:
+    """The real upgrade's narrow control-plane leg: repair and verify only an existing Engine-owned rule."""
+    import boot  # noqa: E402 — resolve the target repository/credential through the shared seams
+    import repo_identity  # noqa: E402 — the branch control-plane operations are allowed to protect
+
+    repo, token = boot.repo_slug(), boot.gh_token()
+    branch = repo_identity.resolve_default_branch()
+    if not repo or not token:
+        return {"status": "operator-action-required", "branch": branch, "missing": [],
+                "reason": "could not determine repository administration credentials for the Engine-owned safety rule"}
+    return bootstrap.ControlPlane(repo, token).repair_owned(branch)
+
+
+def _control_plane_refuse_reason(result: dict) -> str:
+    """Plain refusal for an upgrade whose Engine-owned safety rule could not be confirmed safe."""
+    status = (result or {}).get("status")
+    detail = (result or {}).get("reason") or "its state could not be confirmed"
+    if status == "operator-action-required":
+        return ("The update was applied to your working copy but the Engine could not safely strengthen its "
+                f"own main-branch safety rule ({detail}). It did not change any operator-owned rule and did "
+                "NOT open a pull request. Ask me to repair the safety gate through the separate setup flow, "
+                "then update again, or ask me to undo this update's changes.")
+    return ("The update was applied to your working copy but the Engine could not verify its own main-branch "
+            f"safety rule ({detail}), so it did NOT open a pull request. Nothing was merged. Ask me to check "
+            "the safety gate through the separate setup flow, then update again, or ask me to undo this "
+            "update's changes.")
 
 
 def _stage_worktree() -> None:
@@ -2706,7 +2756,8 @@ def _regen_indexes() -> list:
 
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
                   candidates, handle, selected, seam, practice, opener, groups_before=None, gate=None,
-                  dropped_ids=(), pre_overlay_known=(), catalog_trusted=True) -> dict:
+                  dropped_ids=(), pre_overlay_known=(), catalog_trusted=True,
+                  control_plane_repair=None, require_control_plane=False) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the StarshipSuperjam/engine-template#594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
     seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
@@ -2725,7 +2776,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             "removed_capabilities": [],
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
             "groups_before": groups_before, "groups_after": None, "groups_changed": False,
-            "modules_installed": [], "modules_offered": []}
+            "modules_installed": [], "modules_offered": [], "control_plane": None}
     # (a0) RETIRED-CAPABILITY ANNOUNCEMENTS — derived from the FULL present-manifest set (`candidates`), NEVER
     # from `selected`: a version that retires a capability but ships no migration must still announce it, so this
     # is independent of migration selection (design-review). Announcement-only, so it is computed once up front
@@ -2903,9 +2954,27 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # Regenerate the deployed-state-dependent indexes (self-map + knowledge graph) from the reconciled tree,
     # so they describe the DEPLOYED shape rather than the construction shape the release shipped (StarshipSuperjam/engine-template#599).
     _regen_indexes()
+    # (d2) CONTROL PLANE — confirmation permits this narrow, target-version repair only after the new engine
+    # code is overlaid. It never calls bootstrap.apply(): a missing, ambiguous, operator-owned, unreachable, or
+    # unverified rule stays untouched and stops the update before any PR can be opened. Practice upgrades have
+    # no GitHub token and deliberately record no live result; the release gate exercises this same operation
+    # separately through an injected fake transport.
+    if require_control_plane or control_plane_repair is not None:
+        try:
+            repair = control_plane_repair or _repair_upgrade_control_plane
+            tail["control_plane"] = repair()
+        except Exception as exc:  # noqa: BLE001 — a control-plane outage is an unverified refusal, never a crash
+            tail["control_plane"] = {"status": "unverified", "missing": [],
+                                     "reason": f"the Engine-owned safety rule could not be checked: {exc}"}
+        if (tail["control_plane"] or {}).get("status") not in {"already", "repaired"}:
+            tail["reason"] = _control_plane_refuse_reason(tail["control_plane"] or {})
+            return tail
+    elif practice:
+        tail["control_plane"] = {"status": "not-run",
+                                 "reason": "practice upgrades do not contact a live repository"}
     # Author the review-PR body FIRST — it carries the reconcile facts (fixtures, removals) into the pull
-    # request, and rendering it early catches a template-read failure before staging (the structural gate does
-    # NOT check body completeness — the release's own CI does, on the opened PR). Guarded: render reads the PR
+    # request, and rendering it early catches a template-read failure before staging (the structural gate checks
+    # its completeness and release-impact declaration before the PR exists). Guarded: render reads the PR
     # template (I/O) and can raise, so a failure degrades to a clean refusal (staged, not opened), never a
     # traceback (the surfaced-never-a-crash rule).
     try:
@@ -2970,7 +3039,8 @@ def _run_upgrade_tail(state: dict) -> None:
         handle=state.get("handle"), selected=selected, seam=seam, practice=practice, opener=opener,
         groups_before=state.get("groups_before") or [], dropped_ids=dropped_ids,
         pre_overlay_known=set(state.get("pre_overlay_known") or []),
-        catalog_trusted=state.get("catalog_trusted", True))
+        catalog_trusted=state.get("catalog_trusted", True),
+        require_control_plane=not practice)
     _upgrade_state_dump(tail, state["result_path"])
 
 
@@ -3332,6 +3402,9 @@ def _render_upgrade_preview(p: dict) -> None:
         what = ("stored data" if m.get("kind") == "data"
                 else "a setting" if m.get("kind") == "config" else "an engine record")
         print(f"  Changes {what}: {m.get('description') or m.get('module_id')}")
+    print("  After you confirm, the Engine may strengthen and verify its own main-branch safety rule for "
+          "this version. It never creates, augments, or rewrites a rule you made; if the exact Engine-owned "
+          "rule cannot be verified, the update stops before opening a pull request and routes you to setup.")
     retired = p.get("retired_capabilities") or []
     removed_caps = p.get("removed_capabilities") or []
     # A within-module retirement and a whole-module removal read identically to the operator ("a capability is
@@ -3372,7 +3445,8 @@ _UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--json]\n
                   "  [ref] optionally names a version; the default is the latest published release.")
 
 
-def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None) -> dict:
+def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None,
+            control_plane_repair=None) -> dict:
     """Upgrade the whole engine vX -> vY. Steps: fetch the tagged
     release, overlay engine code and re-render the CODEOWNERS ownership wall for the new release's engine
     files (operator config + gitignored data preserved), re-sync the tool-runtime, run migrations in
@@ -3397,7 +3471,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     manifest bump runs AFTER migrations (in the tail) so an early abort leaves nothing half-recorded, and a
     re-run with --confirm completes it. The engine does not attempt in-place rollback."""
     injected_release = release_tree is not None                       # captured before the fetch reassigns it
-    in_process = injected_release and (opener is not None or backup is not None)   # test/demo full-injection
+    in_process = injected_release and (opener is not None or backup is not None
+                                       or control_plane_repair is not None)         # test/demo full-injection
     practice = injected_release and not in_process                    # local release, no callables ⇒ child, no resync/PR
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
@@ -3560,7 +3635,9 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 candidates=candidates, handle=engine.get("handle"), selected=selected, seam=seam,
                 practice=practice, opener=opener, groups_before=pre_overlay_groups,
                 gate=_coherence_only_gate, dropped_ids=dropped_ids,
-                pre_overlay_known=pre_overlay_known, catalog_trusted=catalog_trusted)
+                pre_overlay_known=pre_overlay_known, catalog_trusted=catalog_trusted,
+                control_plane_repair=control_plane_repair,
+                require_control_plane=control_plane_repair is not None)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,

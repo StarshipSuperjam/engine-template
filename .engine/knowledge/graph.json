@@ -9382,7 +9382,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:80d3a45b1d7b7ef3ccd4a170c7947deeb674060a124db8eee1d73bafe5af7a67",
+        "fingerprint": "sha256:e252c512829dbfdb3198794825c2c89cbce172f0ffc15da881bba3c8feb7a627",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -9591,7 +9591,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:e3a2a4687feb90d422a4ccb5c9a276e001093f58ce0c837bb9931a208ba74cfb",
+        "fingerprint": "sha256:19322f04928edac870e85f3dc0601d55336eb078c315ab4f19eaf0737f28a700",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -11723,7 +11723,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:6fbcb9bf538675ce217b138b8baf13ac12714ab02fd0fe16b9d875e4cfdef858",
+        "fingerprint": "sha256:3de508a315ec1c02d2cf5f8ad2ba7e1c83292461300a94c9caa2bf05b3128e58",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -13150,6 +13150,7 @@
           "tool:module_catalog",
           "tool:module_coherence",
           "tool:release_cut",
+          "tool:release_impact_check",
           "tool:release_source",
           "tool:repo_identity",
           "tool:restore_vault",
@@ -13163,7 +13164,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:6b5bd897a271b5fa56c911a73f1d7c544134decc62f11a87cab05a44201098af",
+        "fingerprint": "sha256:495de3738b4d274e67c0c4a1441658adff279deeefaf1b98ecdae2bbee0aa2e7",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13759,7 +13760,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:15f4f39728cf41b35b96bc97634d39df4b3f5be1e1342df1faaf1b7343ab7674",
+        "fingerprint": "sha256:1e74217b8c50c6269108cec6daf2790977d505ab75d02367cad367bfa05c8f12",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -13803,7 +13804,7 @@
       },
       "slug": "release_impact_check",
       "source": {
-        "fingerprint": "sha256:f8f1071d31d1dd7b1c643915ab6fc6ebf3e5e778705b6f489c1dcb22415f3412",
+        "fingerprint": "sha256:1c2d5be82700fdf49ac74bfe913eb992fc580fce7badb55fe9eafbbcaf485a25",
         "path": ".engine/tools/release_impact_check.py"
       },
       "status": "active",
@@ -14401,7 +14402,7 @@
       },
       "slug": "shipped_issue_references_check",
       "source": {
-        "fingerprint": "sha256:0683ee53cb3e2d95450fec4c3fd0c2e1be134dd85fa3a83b98394ef47b242150",
+        "fingerprint": "sha256:1cac8073ebf15d6718580f97182f33fcae95ca415d5cc1e265596f799a7d15c5",
         "path": ".engine/tools/shipped_issue_references_check.py"
       },
       "status": "active",
@@ -14426,7 +14427,7 @@
       },
       "slug": "shipped_local_references_check",
       "source": {
-        "fingerprint": "sha256:3ad2a8adf584d98093e9fc9bbb989e302de05809f532c21d0a1e9a7f4aef10c2",
+        "fingerprint": "sha256:4028742ed31e6b8da24e35fafbdc851e0a59f4ac9409699394d8fc99e3d73bcd",
         "path": ".engine/tools/shipped_local_references_check.py"
       },
       "status": "active",
@@ -15141,7 +15142,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:b2e76f973261f0d56d9a506197c4c76beef8207b5d8b92e707a0e985f8805f51",
+        "fingerprint": "sha256:254ec03040b093015c1c13a72a075e14f3fcd45ddc2509880bce398fd1143404",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -17168,6 +17169,8 @@
           "tool:module_manager",
           "tool:protection_guard",
           "tool:quiet_call",
+          "tool:release_impact",
+          "tool:release_impact_check",
           "tool:release_source",
           "tool:restore_vault",
           "tool:telemetry",
@@ -17177,7 +17180,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:abe971ce174b49c4a1032a2346c8aa2a381b6842d3c80e8eb6c95dd6d2fde4a8",
+        "fingerprint": "sha256:e6e4351e33c2539f8e479729c3423fdb2a17fc9dfa31a82e4116ae4e483249f9",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -17231,7 +17234,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:63d8ab0429411afd517c05cc6bc846b938c93cb3efc3e7f3e9908f558fb3258f",
+        "fingerprint": "sha256:f9c9cd5cd50446915743a3c40686cbaf1762d0a285782a4326fab2ece1baedb4",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17779,7 +17782,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:0e254c15d6b53d23b1b6a5e79bab1706bd2abc0710057570856b0c3ffe82a4ad",
+        "fingerprint": "sha256:b4885eda90f1d146a5123c121636059e14b1f06a897845f1e73713f5c64b71a0",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -17804,7 +17807,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:924b2ba21176b3e77e8df262694f6ab1df276124808ef7227f743d29ff4ebe2e",
+        "fingerprint": "sha256:f2718a39c47bbca13bf9772f752e16d531bd7e1bb0288794bf1a8e96ccf7d705",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -18474,7 +18477,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:6329756f9d0eab111c4b650896c76ebf9300ce86814d2fd26417d527fdbdfda9",
+        "fingerprint": "sha256:c09a7d615333c0f076ad0bab9e88aa00545585f62f722ec687646b73bfdc04ce",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
@@ -18598,7 +18601,7 @@
       },
       "slug": "test_setup_route_gen",
       "source": {
-        "fingerprint": "sha256:f526bed67236ca260879029eb57e23ece09d1ed5d6f9c4ad0a12bed4b60810c9",
+        "fingerprint": "sha256:3bc66bd6939ab50fee44e13fed019e9222cbbda6ffa056740bef971b56ecc9ed",
         "path": ".engine/tools/test_setup_route_gen.py"
       },
       "status": "active",
@@ -18646,7 +18649,7 @@
       },
       "slug": "test_shipped_local_references_check",
       "source": {
-        "fingerprint": "sha256:624622d0739c04039898bbd0d28eef0376fe10a9ae1bb4c06acb7a2db00f92d4",
+        "fingerprint": "sha256:4d3265a37faf95ed4bcb2949688623d79b4bef9b36bf7e20c9ed43e33289e42e",
         "path": ".engine/tools/test_shipped_local_references_check.py"
       },
       "status": "active",

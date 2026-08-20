@@ -80,6 +80,12 @@ class FakeGitHub:
             if self.rulesets_read_raises:
                 raise bootstrap.BootstrapError("rulesets unreachable")
             return 200, self.rulesets, headers
+        if method == "GET" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            rid = int(path.rsplit("/", 1)[1])
+            listed = next((r for r in self.rulesets if r.get("id") == rid), None)
+            if listed is None:
+                return 404, None, headers
+            return 200, {"id": rid, "name": listed.get("name"), "rules": self._evaluated_rules()}, headers
         if method in ("POST", "PUT") and self.deny_writes > 0:
             self.deny_writes -= 1
             return 403, (self.deny_body or {"message": "Resource not accessible"}), headers
@@ -517,6 +523,52 @@ class TestDeBootstrap(unittest.TestCase):
         before = list(protection_guard.REQUIRED_CHECKS)
         self._cp(_RulesetFake(present=True)).de_bootstrap(choice="keep", announce=quiet)
         self.assertEqual(protection_guard.REQUIRED_CHECKS, before)
+
+
+class TestUpgradeOwnedRulesetRepair(unittest.TestCase):
+    """The updater's narrow repair may touch only the exact Engine-owned rule it can read and verify."""
+
+    def test_repairs_and_verifies_a_stale_engine_rule_with_one_put(self):
+        owned = _engine_ruleset(rid=42, checkless=False)
+        checks = next(r for r in owned["rules"] if r["type"] == "required_status_checks")
+        checks["parameters"]["strict_required_status_checks_policy"] = False
+        fake = AugmentGitHub(products=[owned])
+        result = cp(fake).repair_owned("main")
+        self.assertEqual(result["status"], "repaired")
+        self.assertEqual(result["ruleset_id"], 42)
+        self.assertEqual([call[0] for call in fake.writes()], ["PUT"])
+        self.assertEqual(fake.writes()[0][1], f"/repos/{REPO}/rulesets/42")
+        repaired = next(r for r in fake.detail(42)["rules"] if r["type"] == "required_status_checks")
+        self.assertTrue(repaired["parameters"]["strict_required_status_checks_policy"])
+
+    def test_an_already_current_engine_rule_is_never_written(self):
+        fake = FakeGitHub(floor_met=True,
+                          rulesets=[{"id": 42, "name": bootstrap.ENGINE_RULESET_NAME}])
+        result = cp(fake).repair_owned("main")
+        self.assertEqual(result["status"], "already")
+        self.assertEqual(fake.writes(), [])
+
+    def test_an_operator_or_ambiguous_rule_is_left_untouched(self):
+        for rulesets in (
+            [{"id": 13, "name": "operator: protected main"}],
+            [{"id": 42, "name": bootstrap.ENGINE_RULESET_NAME},
+             {"id": 43, "name": bootstrap.ENGINE_RULESET_NAME}],
+        ):
+            with self.subTest(rulesets=rulesets):
+                fake = FakeGitHub(floor_met=False, rulesets=rulesets)
+                result = cp(fake).repair_owned("main")
+                self.assertEqual(result["status"], "operator-action-required")
+                self.assertEqual(fake.writes(), [])
+
+    def test_an_unverifiable_rule_is_never_written(self):
+        # FakeGitHub makes its second evaluated read fail.  The pre-write re-check must catch that outage
+        # before it can PUT the Engine rule; a post-write-only check would already have changed it.
+        fake = FakeGitHub(floor_met=False,
+                          rulesets=[{"id": 42, "name": bootstrap.ENGINE_RULESET_NAME}],
+                          verify_raises=True)
+        result = cp(fake).repair_owned("main")
+        self.assertEqual(result["status"], "unverified")
+        self.assertEqual(fake.writes(), [])
 
 
 # ====================================================================================================

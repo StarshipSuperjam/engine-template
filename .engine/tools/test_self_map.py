@@ -540,7 +540,7 @@ class TestRetiredAssetFilter(unittest.TestCase):
         self.assertTrue(doomed,
                         "the retired operation assets advertised in core's provides must be filtered out of "
                         "the deployed shape")
-        if retired_dirs:  # only a real subject when the census retires by directory (none do post-ADR-0336)
+        if retired_dirs:  # only a real subject when the census retires by directory (none do after file-level retirement)
             self.assertTrue(any(any(p == d or p.startswith(d + "/") for d in retired_dirs) for p in doomed),
                             "at least one doomed entry must come from the directories leg")
         self.assertTrue(survivors)

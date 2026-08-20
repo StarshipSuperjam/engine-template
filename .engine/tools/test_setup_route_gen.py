@@ -39,7 +39,7 @@ class SetupRouteGenTests(unittest.TestCase):
         self.assertEqual(sr.derive(), sr.derive())
 
     def test_every_setup_route_carries_the_engine_setup_target(self):
-        # ADR-0336: every route has structured targets; a setup route funnels into the engine-setup dispatcher.
+        # Every route has structured targets; a setup route funnels into the engine-setup dispatcher.
         for rel, text in sr.derive().items():
             self.assertIn("kind: skill", text, f"{rel} must name a skill target")
             self.assertIn("ref: engine-setup", text, f"{rel} must target the engine-setup dispatcher")
