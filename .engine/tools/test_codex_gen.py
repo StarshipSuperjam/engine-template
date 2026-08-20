@@ -13,6 +13,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import codex_gen   # noqa: E402
@@ -116,27 +117,32 @@ class TestWorkerRenders(unittest.TestCase):
 class TestWorkerFloorScoping(unittest.TestCase):
     """The role-scoped Codex coherence floor: worker renders must carry a matching model and a
     write sandbox; review/audit renders (and any render whose canonical role can't be placed) still
-    forbid a pinned model. Uses the fixture seam over a seeded agents dir; role is resolved from the
-    real committed .claude source (engine-worker-builder is a role:worker persona)."""
+    forbid a pinned model. Each worker case supplies its own canonical source and binding policy, so
+    the shipped test keeps exercising the production resolution seam in a deployed repository."""
     def _seed(self, d, name, body):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
             fh.write(body)
 
+    def _worker_findings(self, body):
+        with tempfile.TemporaryDirectory() as root:
+            agents = os.path.join(root, ".codex", "agents")
+            self._seed(agents, "engine-worker-builder.toml", body)
+            _write(os.path.join(root, ".claude", "agents", "engine-worker-builder.md"), WORKER_SRC)
+            _write(os.path.join(root, ".engine", "policies", "model-bindings.json"), WORKER_BINDINGS)
+            with mock.patch.object(validate, "ROOT", root):
+                return cac.findings("hard", agents_dir=agents)
+
     def test_worker_render_model_drift_is_a_finding(self):
-        with tempfile.TemporaryDirectory() as d:
-            self._seed(d, "engine-worker-builder.toml",
-                       'name = "engine-worker-builder"\nsandbox_mode = "workspace-write"\n'
-                       'model = "wrong-model"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
-            found = cac.findings("hard", agents_dir=d)
+        found = self._worker_findings(
+            'name = "engine-worker-builder"\nsandbox_mode = "workspace-write"\n'
+            'model = "wrong-model"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
         self.assertTrue(any("does not match its implementation_classes binding" in f["message"] for f in found))
 
     def test_worker_render_with_a_read_only_sandbox_is_a_finding(self):
-        with tempfile.TemporaryDirectory() as d:
-            self._seed(d, "engine-worker-builder.toml",
-                       'name = "engine-worker-builder"\nsandbox_mode = "read-only"\n'
-                       'model = "gpt-5.6-terra"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
-            found = cac.findings("hard", agents_dir=d)
+        found = self._worker_findings(
+            'name = "engine-worker-builder"\nsandbox_mode = "read-only"\n'
+            'model = "gpt-5.6-terra"\nmodel_reasoning_effort = "medium"\ndeveloper_instructions = "x"\n')
         self.assertTrue(any("read-only sandbox" in f["message"] for f in found))
 
     def test_a_render_with_no_canonical_worker_source_still_forbids_a_model(self):

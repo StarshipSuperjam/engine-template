@@ -152,9 +152,14 @@ class TestUpgradeArmReporting(unittest.TestCase):
     a real release). It is exercised directly (not through `_upgrade_from`) so the rollback leg stays out of
     scope here; the composed transition is `TestTransitionComposition`."""
 
-    def _drive(self, result_obj=None, rc=0, stdout=None, stderr=""):
+    def _drive(self, result_obj=None, rc=0, stdout=None, stderr="", *, validator=None, suite=None):
         out = stdout if stdout is not None else ("GATE_RESULT:" + json.dumps(result_obj))
-        with mock.patch.object(rg, "_run", return_value=_proc(rc, out, stderr)):
+        validator = validator or {"passed": True, "detail": ""}
+        suite = suite or {"passed": True, "detail": ""}
+        with mock.patch.object(rg, "_run", return_value=_proc(rc, out, stderr)), \
+             mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
+             mock.patch.object(rg, "_validate_in", return_value=validator), \
+             mock.patch.object(rg, "_suite_in", return_value=suite):
             return rg._upgrade_leg("/tmp/proj", "v9.9.9", "/tmp/candidate")
 
     def _clean(self, **over):
@@ -165,6 +170,16 @@ class TestUpgradeArmReporting(unittest.TestCase):
 
     def test_clean_upgrade_passes(self):
         self.assertTrue(self._drive(self._clean())["passed"])
+
+    def test_structurally_clean_upgrade_with_a_red_validator_blocks(self):
+        res = self._drive(self._clean(), validator={"passed": False, "detail": "validator witness"})
+        self.assertFalse(res["passed"])
+        self.assertIn("validator witness", res["detail"])
+
+    def test_structurally_clean_upgrade_with_red_self_tests_blocks(self):
+        res = self._drive(self._clean(), suite={"passed": False, "detail": "suite witness"})
+        self.assertFalse(res["passed"])
+        self.assertIn("suite witness", res["detail"])
 
     def test_hard_finding_blocks(self):
         res = self._drive(self._clean(findings=[{"severity": "hard", "id": "engine/check/knowledge-coverage"}]))
@@ -194,6 +209,17 @@ class TestUpgradeArmReporting(unittest.TestCase):
 
     def test_no_gate_result_marker_blocks(self):
         self.assertFalse(self._drive(stdout="garbage with no marker")["passed"])
+
+    def test_candidate_ref_is_concrete_and_never_the_latest_sentinel(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine"))
+            with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump({"engine_release": "0.6.3"}, fh)
+            self.assertEqual(rg._candidate_ref(d), "v0.6.3")
+            with open(os.path.join(d, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+                json.dump({"engine_release": "latest"}, fh)
+            with self.assertRaises(rg.GateError):
+                rg._candidate_ref(d)
 
 
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
@@ -369,6 +395,7 @@ class TestTransitionComposition(unittest.TestCase):
         with mock.patch.object(rg, "_archive_baseline", return_value="/tmp/proj"), \
              mock.patch.object(rg, "_project_to_deployed", return_value=[]), \
              mock.patch.object(rg, "_assert_isolated", return_value=None), \
+             mock.patch.object(rg, "_candidate_ref", return_value="v9.9.9"), \
              mock.patch.object(rg, "_run", side_effect=_record):
             res = rg._upgrade_from("v9.9.9", "/tmp/candidate")
         self.assertTrue(res["passed"])
