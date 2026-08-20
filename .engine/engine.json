@@ -1,5 +1,5 @@
 {
-  "engine_release": "0.6.1",
+  "engine_release": "0.6.2",
   "packages": {
     "audit-library": "0.3.0",
     "core": "0.6.1",
