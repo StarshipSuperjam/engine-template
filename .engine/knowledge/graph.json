@@ -17782,7 +17782,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:b4885eda90f1d146a5123c121636059e14b1f06a897845f1e73713f5c64b71a0",
+        "fingerprint": "sha256:b82b48be5dcde6722ce08161013b30359dd811a09f9cbd04e5cd813d5ae1c84e",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
