@@ -981,6 +981,8 @@ class ShippedLocalReferenceGuard(unittest.TestCase):
         try:
             with _Tree({"core": _module("core")}) as t:
                 self._seed(t.root, declare=False, bad=False)
+                # Keep the fixture token constructed: a complete local identifier in this shipped source would
+                # itself be a containment leak into every deployed repository.
                 seeded_reference = "ADR-" + "0336"
                 _write(os.path.join(t.root, ".engine", "operator-local-references.json"),
                        {"id_prefixes": ["ADR-"]})
