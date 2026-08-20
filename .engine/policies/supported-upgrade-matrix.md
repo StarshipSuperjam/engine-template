@@ -17,9 +17,7 @@ or undo fails is blocked and opens no pull request. The per-transition outcomes 
 pull request's Validation section, and the same matrix can be run between cuts on demand via the
 `release-gate` workflow.
 
-## Executed coverage
-
-The gate tests the candidate's deployed operation separately in both its default and optional-modules-declined
+**Executed coverage.** The gate tests the candidate's deployed operation separately in both its default and optional-modules-declined
 profiles: each profile receives the structural validator and the complete self-test suite. Every supported
 source-version row receives the projected overlay, rendered pull-request-body validation, simulated
 Engine-owned safety-rule repair and verification, structural validator, and exact staged-update undo. The

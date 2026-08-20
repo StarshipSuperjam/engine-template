@@ -7161,7 +7161,7 @@
       },
       "slug": "supported-upgrade-matrix",
       "source": {
-        "fingerprint": "sha256:486d5e1ec25abfb2162ae68de4fab185e497ca7680048cc337b7be98b31542f6",
+        "fingerprint": "sha256:780ef9698811fca53ffaa621dc810c32810da707644806c6f86d9e370138e9a1",
         "path": ".engine/policies/supported-upgrade-matrix.md"
       },
       "status": "active",
