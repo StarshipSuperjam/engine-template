@@ -29,6 +29,15 @@ import tune  # noqa: E402  (reviewed configuration PR transport)
 CONFIG_REL = os.path.join(".engine", "operator-checkout.json")
 _KEY = "automatic_catch_up"
 
+_PREFERENCE_PROBLEMS = {
+    "checkout-unresolved": "the project folder could not be found",
+    "invalid-json": "the file is not valid JSON",
+    "unreadable": "the file cannot be read",
+    "not-an-object": "the file must contain one settings object",
+    "unexpected-shape": "the setting must contain only `automatic_catch_up: true` or `automatic_catch_up: false`",
+    "not-a-boolean": "`automatic_catch_up` must be `true` or `false`",
+}
+
 
 def preference_path(cwd: str | None = None) -> str | None:
     """The operator main checkout's preference path, never this session worktree's copy."""
@@ -58,6 +67,11 @@ def load_preference(cwd: str | None = None, *, path: str | None = None) -> dict:
     if type(value) is not bool:  # bool is intentionally exact; truthy JSON values never opt in/out.
         return {"state": "invalid", "reason": "not-a-boolean", "path": path}
     return {"state": "enabled" if value else "disabled", "source": "configured", "path": path}
+
+
+def preference_problem(reason: str | None) -> str:
+    """Render a strict-parser result as an actionable operator explanation, never an internal code."""
+    return _PREFERENCE_PROBLEMS.get(reason or "", "the setting could not be checked safely")
 
 
 def _atomic_write(path: str, enabled: bool) -> None:
@@ -204,8 +218,8 @@ def _show(preference: dict) -> str:
         return ("Automatic project-folder updates are off. The Engine still tells you when shared work is "
                 "available and offers the usual **bring it up to date** action.")
     path = preference.get("path") or CONFIG_REL
-    return (f"Automatic project-folder updates are paused because `{path}` could not be read safely "
-            f"({preference.get('reason')}). Use `/engine-setup` to save a new on/off choice; nothing updates "
+    return (f"Automatic project-folder updates are paused because `{path}` could not be read safely: "
+            f"{preference_problem(preference.get('reason'))}. Use `/engine-setup` to save a new on/off choice; nothing updates "
             "automatically until then.")
 
 

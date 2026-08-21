@@ -2881,10 +2881,10 @@ def _automatic_checkout_relay(s: dict) -> list[str]:
         ]
     if status == "invalid-config":
         preference = automatic.get("preference") or {}
-        reason = preference.get("reason", "invalid setting")
+        reason = checkout_auto_update.preference_problem(preference.get("reason"))
         return [
             f"{RELAY_MARKER} automatic project-folder updates are paused because `.engine/operator-checkout.json` "
-            f"could not be read safely ({reason}). Nothing was updated; use `/engine-setup` to save a new on/off "
+            f"could not be read safely: {reason}. Nothing was updated; use `/engine-setup` to save a new on/off "
             "choice. The usual **bring it up to date** action is still available."
         ]
     if status == "disabled":

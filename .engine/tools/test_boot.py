@@ -3034,6 +3034,8 @@ class TestStanceLine(unittest.TestCase):
             "status": "blocked", "reason": "local-work"}})
         self.assertIn("paused", invalid[0].lower())
         self.assertIn("/engine-setup", invalid[0])
+        self.assertIn("not valid json", invalid[0].lower())
+        self.assertNotIn("invalid-json", invalid[0])
         self.assertIn("left the project folder alone", blocked[0].lower())
         self.assertNotIn("updated the project folder", blocked[0].lower())
 

@@ -620,6 +620,49 @@ class TestCatchUp(unittest.TestCase):
             with open(os.path.join(work, "topic-only.txt")) as fh:
                 self.assertEqual(fh.read(), "topic work\n")
 
+    def test_boot_existing_head_lock_leaves_ref_head_index_and_worktree_unchanged(self):
+        # A pre-existing HEAD.lock means a Git operation already owns the branch-transition seam.  The automatic
+        # arm must decline before its named-ref CAS, preserving all four layers of the checkout exactly.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before_ref = (checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip()
+            before_head = _head(work)
+            before_index = (checkout_health._run(["git", "-C", work, "write-tree"]) or "").strip()
+            with open(os.path.join(work, "shared.txt")) as fh:
+                before_file = fh.read()
+            lock = checkout_health._acquire_head_lock(work)
+            self.assertTrue(lock)
+            try:
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            finally:
+                checkout_health._release_head_lock(lock)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual((checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip(),
+                             before_ref)
+            self.assertEqual(_head(work), before_head)
+            self.assertEqual((checkout_health._run(["git", "-C", work, "write-tree"]) or "").strip(), before_index)
+            with open(os.path.join(work, "shared.txt")) as fh:
+                self.assertEqual(fh.read(), before_file)
+
+    def test_boot_head_lock_collision_after_advance_rolls_the_named_ref_back(self):
+        # A lock collision in the narrow post-CAS window must take the rollback path, never leave main ahead
+        # with its old files.  (The pre-existing-lock test above covers the normal no-mutation refusal.)
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before = _head(work)
+            before_ref = (checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip()
+            with mock.patch.object(checkout_health, "_acquire_head_lock", return_value=None):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual(_head(work), before)
+            self.assertEqual((checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip(),
+                             before_ref)
+            self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
+
     def test_unreadable_status_is_not_treated_as_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])

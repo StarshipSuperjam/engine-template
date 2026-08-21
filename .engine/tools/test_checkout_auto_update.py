@@ -50,6 +50,11 @@ class TestPreference(unittest.TestCase):
             result = cau.load_preference(path=tmp)
         self.assertEqual((result["state"], result["reason"]), ("invalid", "unreadable"))
 
+    def test_invalid_preference_reason_has_a_plain_recovery_explanation(self):
+        self.assertEqual(cau.preference_problem("invalid-json"), "the file is not valid JSON")
+        self.assertIn("automatic_catch_up", cau.preference_problem("unexpected-shape"))
+        self.assertNotIn("not-a-boolean", cau.preference_problem("not-a-boolean"))
+
     def test_atomic_writer_preserves_previous_file_when_replace_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, ".engine", "operator-checkout.json")
