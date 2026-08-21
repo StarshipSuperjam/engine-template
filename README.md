@@ -9,6 +9,7 @@
     <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue" /></a>
     <a href="https://github.com/StarshipSuperjam/engine-template/releases"><img alt="Latest release version" src="https://img.shields.io/github/v/release/StarshipSuperjam/engine-template?label=version&color=0969da" /></a>
     <a href="https://github.com/StarshipSuperjam/engine-template/actions/workflows/engine-ci.yml"><img alt="Engine CI status" src="https://github.com/StarshipSuperjam/engine-template/actions/workflows/engine-ci.yml/badge.svg" /></a>
+    <a href="https://github.com/StarshipSuperjam/engine-template"><img alt="Repository size" src="https://img.shields.io/github/repo-size/StarshipSuperjam/engine-template" /></a>
     <a href="#runtime-support"><img alt="Runtime: Claude | Codex" src="https://img.shields.io/badge/runtime-Claude%20%7C%20Codex-6f42c1" /></a>
   </p>
 
