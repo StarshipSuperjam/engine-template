@@ -551,6 +551,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/catalog-completeness.json",
             ".engine/check/catalog-coverage.json",
             ".engine/check/census-completeness.json",
+            ".engine/check/ci-assurance-drift.json",
             ".engine/check/codex-agent-coherence.json",
             ".engine/check/codex-agent-schema.json",
             ".engine/check/codex-hooks-schema.json",
@@ -814,7 +815,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         for rel, owners in doc_owner.items():
             self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
-                         [".engine/docs/getting-started.md"], "core owns exactly the getting-started doc")
+                         [".engine/docs/ci-assurance.md", ".engine/docs/getting-started.md"],
+                         "core owns exactly the generated CI assurance and getting-started docs")
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.

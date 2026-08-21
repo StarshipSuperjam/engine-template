@@ -61,10 +61,11 @@ class DerivedMember:
 MEMBERS: tuple[DerivedMember, ...] = (
     DerivedMember(".engine/self-map.md", "self_map.py",
                   "engine/check/self-map-drift", reconcile=True, release=True),
-    DerivedMember(".engine/knowledge/graph.json", "knowledge_gen.py",
-                  "engine/check/knowledge-coverage", reconcile=True, release=True),
     DerivedMember(".engine/docs/ci-assurance.md", "ci_assurance.py",
                   "engine/check/ci-assurance-drift", reconcile=True, release=True),
+    # The graph fingerprints the assurance page, so assurance MUST regenerate before the graph.
+    DerivedMember(".engine/knowledge/graph.json", "knowledge_gen.py",
+                  "engine/check/knowledge-coverage", reconcile=True, release=True),
     DerivedMember(".engine/product-spec-matrix.json", "product_design/obligation_matrix.py",
                   "engine/check/product-spec-matrix", reconcile=True, release=False,
                   optional_module="product-design"),
