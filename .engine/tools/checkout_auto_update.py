@@ -123,13 +123,33 @@ def _staging_worktree(root: str) -> tuple[str | None, str | None]:
         return None, str(exc)
 
 
-def _remove_staging_worktree(root: str, worktree: str) -> None:
-    """Remove the disposable, clean review worktree; a cleanup failure never changes live preference state."""
+def _remove_staging_worktree(root: str, worktree: str) -> tuple[bool, str | None]:
+    """Force-remove and verify the Engine-created disposable review worktree.
+
+    A PR-opener failure happens after this temporary tree has received the proposed JSON, so it is necessarily
+    dirty.  It is safe to force-remove only this known ``mkdtemp`` worktree: it is never the live checkout and
+    has never become a user-selected worktree.  A failed cleanup stays visible to the setup caller instead of
+    silently accumulating registered worktrees in the shared Git directory.
+    """
     try:
-        subprocess.run(["git", "-C", root, "worktree", "remove", worktree],
-                       capture_output=True, text=True, check=False)
-    except OSError:
-        pass
+        removed = subprocess.run(["git", "-C", root, "worktree", "remove", "--force", worktree],
+                                 capture_output=True, text=True, check=False)
+    except OSError as exc:
+        return False, str(exc)
+    if removed.returncode:
+        return False, removed.stderr.strip() or "Git could not remove the temporary review worktree"
+    try:
+        listed = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"],
+                                capture_output=True, text=True, check=False)
+    except OSError as exc:
+        return False, str(exc)
+    if listed.returncode:
+        return False, listed.stderr.strip() or "Git could not verify temporary review-worktree cleanup"
+    registered = {line.removeprefix("worktree ") for line in listed.stdout.splitlines()
+                  if line.startswith("worktree ")}
+    if worktree in registered:
+        return False, "Git still lists the temporary review worktree"
+    return True, None
 
 
 def set_preference(enabled: bool, cwd: str | None = None, *, path: str | None = None,
@@ -148,15 +168,25 @@ def set_preference(enabled: bool, cwd: str | None = None, *, path: str | None = 
     if not review_root:
         return {"ok": False, "message": f"I couldn't prepare the reviewed preference change ({reason}). Nothing changed.",
                 "pr": None}
+    pr = None
+    opener_error = None
     try:
         _atomic_write(os.path.join(review_root, CONFIG_REL), enabled)
         pr = opener(branch="engine-checkout-auto-update", title="Maintenance: set automatic checkout updates",
                     body=_pr_body(enabled), paths=[relpath], cwd=review_root)
     except Exception as exc:  # noqa: BLE001 — only the disposable review worktree was written.
-        return {"ok": False, "message": f"The preference pull request could not be opened: {exc}. Nothing changed.",
-                "pr": None}
+        opener_error = exc
     finally:
-        _remove_staging_worktree(root, review_root)
+        cleaned, cleanup_reason = _remove_staging_worktree(root, review_root)
+    if not cleaned:
+        return {"ok": False,
+                "message": ("The reviewed preference change was not activated, but its temporary review copy "
+                            f"could not be cleaned up ({cleanup_reason}). The live preference is unchanged; "
+                            "please use `/engine-setup` again after the Git cleanup is resolved."),
+                "pr": pr}
+    if opener_error:
+        return {"ok": False, "message": f"The preference pull request could not be opened: {opener_error}. Nothing changed.",
+                "pr": None}
     return {"ok": True,
             "message": ("I've prepared your choice as a pull request — merge it to make it take effect. "
                         "Nothing changes until you do."), "pr": pr}

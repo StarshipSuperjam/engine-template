@@ -79,7 +79,7 @@ class TestPreference(unittest.TestCase):
                     seen["preference"] = json.load(fh)
                 return {"number": 1, "html_url": "https://example.invalid/pr/1"}
             with mock.patch.object(cau, "_staging_worktree", return_value=(review, None)), \
-                 mock.patch.object(cau, "_remove_staging_worktree") as remove:
+                 mock.patch.object(cau, "_remove_staging_worktree", return_value=(True, None)) as remove:
                 result = cau.set_preference(False, path=path, opener=opener)
             self.assertTrue(result["ok"])
             self.assertEqual(seen["paths"], [".engine/operator-checkout.json"])
@@ -94,11 +94,31 @@ class TestPreference(unittest.TestCase):
             review = os.path.join(tmp, "review")
             os.makedirs(os.path.join(review, ".engine"))
             with mock.patch.object(cau, "_staging_worktree", return_value=(review, None)), \
-                 mock.patch.object(cau, "_remove_staging_worktree"):
+                 mock.patch.object(cau, "_remove_staging_worktree", return_value=(True, None)):
                 result = cau.set_preference(False, path=path,
                                             opener=mock.Mock(side_effect=RuntimeError("network down")))
             self.assertFalse(result["ok"])
             self.assertFalse(os.path.exists(path))
+
+    def test_failed_preference_pr_force_removes_the_actual_dirty_staging_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            def git(*args):
+                return subprocess.run(["git", "-C", live, *args], capture_output=True, text=True, check=True)
+            subprocess.run(["git", "init", "-q", "--initial-branch=main", live], check=True)
+            git("config", "user.email", "test@example.invalid")
+            git("config", "user.name", "Preference cleanup test")
+            os.makedirs(os.path.join(live, ".engine"))
+            with open(os.path.join(live, ".engine", "marker"), "w", encoding="utf-8") as fh:
+                fh.write("fixture\n")
+            git("add", ".engine")
+            git("commit", "-qm", "initial")
+            result = cau.set_preference(False, path=os.path.join(live, cau.CONFIG_REL),
+                                        opener=mock.Mock(side_effect=RuntimeError("network down")))
+            self.assertFalse(result["ok"])
+            self.assertFalse(os.path.exists(os.path.join(live, cau.CONFIG_REL)))
+            registered = git("worktree", "list", "--porcelain").stdout
+            self.assertNotIn("engine-checkout-preference-", registered)
 
     def test_real_review_worktree_keeps_the_live_checkout_and_preference_unchanged_until_merge(self):
         with tempfile.TemporaryDirectory() as tmp:
