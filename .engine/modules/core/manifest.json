@@ -23,6 +23,7 @@
       ".engine/operations/build-product-grounding.md",
       ".engine/operations/build-submission-evidence.md",
       ".engine/operations/build-work-dispatch.md",
+      ".engine/operations/checkout-auto-update.md",
       ".engine/operations/close-turn.md",
       ".engine/operations/codex-incident-replay.md",
       ".engine/operations/codex-settings.md",

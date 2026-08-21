@@ -157,6 +157,10 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # StarshipSuperjam/engine-template#639 ships-ABSENT steady state holds for every downstream repo; only the engine's own home carries it.
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-paths.json",
                    ".engine/operator-local-references.json",
+                   # Session-start automatic checkout preference. It is deliberately outside every module's
+                   # provides and survives overlays: an explicit opt-out is the operator's durable choice, and
+                   # a malformed file fails closed in checkout_auto_update rather than falling back to enabled.
+                   ".engine/operator-checkout.json",
                    # Per-deployment review-depth EFFORT retune (.engine/operator-review-effort.json, read by
                    # operator_review_effort.py — StarshipSuperjam/engine-template#677). Preserved by being outside
                    # every module's `provides`, so a deployment's depth-effort tuning survives an engine update

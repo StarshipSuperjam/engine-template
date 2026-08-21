@@ -1179,6 +1179,44 @@ def _rescue_then_reconcile(snapshot: dict, *, original_branch: str) -> dict:
             "main": main, "branch": default, "after": after, "applied": True}
 
 
+def _advance_clean_default_snapshot(snapshot: dict) -> dict:
+    """Apply an already-assessed default-branch snapshot without rescuing work or switching branches.
+
+    This is the narrow mutation seam shared by consented ``catch_up`` and automatic session-start catch-up.
+    Callers keep their own eligibility policy; this primitive owns the common identity recheck, clean
+    lossless gate, named-ref compare-and-swap, index-locked materialization, rollback, and postcondition.
+    It deliberately never calls ``_dirty_subsumed`` or ``_rescue_then_reconcile``.
+    """
+    main, default = snapshot["main"], snapshot["branch"]
+    if not _snapshot_unchanged(snapshot):
+        return {**snapshot, "status": "blocked", "reason": "checkout-changed", "applied": False}
+    if not _succeeds(["git", "-C", main, "merge-base", "--is-ancestor",
+                      snapshot["head_oid"], snapshot["target_oid"]]):
+        return {**snapshot, "status": "blocked", "reason": "diverged", "applied": False}
+    lossless, reasons = _is_lossless(main)
+    if not lossless:
+        return {**snapshot, "status": "blocked", "reason": "local-work", "reasons": reasons,
+                "applied": False}
+    advanced = _advance_named_default(main, default, snapshot["head_oid"], snapshot["target_oid"])
+    still_default = ((_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+                     == default)
+    materialized = (advanced and still_default and
+                    _materialize_target(main, snapshot["head_oid"], snapshot["target_oid"]))
+    if advanced and not materialized:
+        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}",
+             snapshot["head_oid"], snapshot["target_oid"]])
+    after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+    after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    if materialized and after == snapshot["target_oid"] and after_branch == default:
+        return {"status": "fixed", "main": main, "branch": default,
+                "brought_in": snapshot["behind_commits"], "before": snapshot["head_oid"], "after": after,
+                "target_oid": snapshot["target_oid"], "applied": True}
+    changed = after != snapshot["head_oid"] or after_branch != default
+    return {"status": "blocked", "main": main, "branch": default,
+            "reason": "postcondition-failed" if changed else "clash",
+            "before": snapshot["head_oid"], "after": after, "applied": changed}
+
+
 def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,
              expected_target: str | None = None) -> dict:
     """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. Two cases, each
@@ -1224,26 +1262,7 @@ def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = Tr
         if reasons == ["uncommitted"] and _dirty_subsumed(main, behind["target_oid"]):
             return _rescue_then_reconcile(behind, original_branch=default)
         return {**behind, "status": "blocked", "reason": "local-work", "reasons": reasons, "applied": False}
-    advanced = _advance_named_default(main, default, behind["head_oid"], behind["target_oid"])
-    still_default = ((_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
-                     == default)
-    materialized = (advanced and still_default and
-                    _materialize_target(main, behind["head_oid"], behind["target_oid"]))
-    if advanced and not materialized:
-        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}",
-             behind["head_oid"], behind["target_oid"]])
-    after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
-    after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
-    if materialized and after == behind["target_oid"] and after_branch == default:
-        return {"status": "fixed", "main": main, "branch": default, "brought_in": missing,
-                "before": behind["head_oid"], "after": after, "target_oid": behind["target_oid"],
-                "applied": True}
-    # If materialization fails or an external process races the tiny named-ref-to-materialization window, never
-    # call the result fixed: report whether HEAD moved so the operator knows inspection is required.
-    changed = after != behind["head_oid"] or after_branch != default
-    return {"status": "blocked", "main": main, "branch": default,
-            "reason": "postcondition-failed" if changed else "clash",
-            "before": behind["head_oid"], "after": after, "applied": changed}
+    return _advance_clean_default_snapshot(behind)
 
 
 def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True,

@@ -203,6 +203,28 @@ class TestOpenTunePrPushRetry(unittest.TestCase):
         self.assertEqual(seen["checkout"], 1)                 # checkout is NOT retried
         slept.assert_called_once()
 
+    def test_explicit_operator_root_controls_both_git_steps_and_default_branch(self):
+        calls = []
+
+        def succeeds(args, **kwargs):
+            calls.append((args, kwargs))
+            return None
+
+        response = mock.MagicMock()
+        response.read.return_value = json.dumps({"number": 9}).encode()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        with mock.patch("subprocess.run", side_effect=succeeds), \
+             mock.patch("repo_identity.resolve_default_branch", return_value="trunk") as default, \
+             mock.patch("urllib.request.urlopen", return_value=response):
+            result = tune._open_tune_pr(branch="engine-checkout-auto-update", title="t", body="b",
+                                        paths=[".engine/operator-checkout.json"], repo="acme/widget",
+                                        token="secret-token-xyz", cwd="/operator-folder")
+        self.assertEqual(result["number"], 9)
+        default.assert_called_once_with("/operator-folder")
+        self.assertTrue(calls)
+        self.assertTrue(all(kwargs.get("cwd") == "/operator-folder" for _args, kwargs in calls))
+
     def test_a_persistent_push_failure_is_diagnosable_and_keeps_the_branch(self):
         # #874: a persistent push failure exhausts the bound and raises a DIAGNOSABLE RuntimeError — names the
         # step, surfaces git's stderr, tells the operator the branch holds their saved change (in effect, as a
