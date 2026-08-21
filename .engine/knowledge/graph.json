@@ -15670,7 +15670,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:3723a8c59c2d5d15d6fee3358084b6c1f3dee8bb7dd3664573c8bff34c6359bd",
+        "fingerprint": "sha256:c77630062a9e815417352d1d422fe4fdabb5ab2b77ffa36284f4fdeff7abe9b3",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
