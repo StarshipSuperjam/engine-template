@@ -74,6 +74,14 @@ names every stage's state, and the cut is recorded in memory.
 
 ## Notes
 
+**Required disclosure for this Engine release.** The Release preview, Release pull request, and published
+description must prominently say: **automatic project-folder catch-up is now on by default** for a clean folder
+already on the verified remote default branch at session start. They must name `/engine-setup` as the opt-out,
+say the choice is preserved across upgrades, and make the boundary clear: this is only a local fast-forward —
+never a push, merge, GitHub change, branch switch, divergence repair, or dirty-work reconciliation. The release
+description also tells deployments still on an older checkout that they may need one final consented catch-up to
+receive the new behavior.
+
 - **The four blocks are the presentation contract:** *Release preview* (step 2), *Release pull request*
   (step 4), *Published* (step 6), *Release recap* (step 9). A cut that skips a block is an improvised cut.
 - The operator's merge is the sole, binding publish gate; the dispatch is freely reversible.

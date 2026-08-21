@@ -106,6 +106,9 @@ def _offline():
         # dict, and this shape resolves behind_origin/off_main cleanly to None. A surfacing test re-patches it.
         mock.patch.object(boot.checkout_health, "checkout_snapshot",
                           return_value={"state": "current", "on_default": True}),
+        # The real SessionStart handler invokes the bounded automatic controller before gathering this ordinary
+        # snapshot. Keep generic boot rendering tests hermetic; dedicated cases below exercise that handoff.
+        mock.patch.object(boot.checkout_auto_update, "automatic_catch_up", return_value={"status": "current"}),
         # The generic offline harness models an ordinary deployed repository, independent of the repository
         # that happens to run the shipped self-tests. A mechanic has its own explicit grounding and budget
         # cases below; letting ambient mechanic state leak into every generic pack case double-counts that
@@ -2988,6 +2991,60 @@ class TestStanceLine(unittest.TestCase):
             for p in patchers:
                 p.stop()
         clear.assert_called_once_with("sess-xyz")
+
+    def test_handler_runs_automatic_controller_after_stance_reset_and_threads_one_result_to_boot(self):
+        order = []
+        outcome = {"status": "updated", "snapshot": {"state": "current", "on_default": True},
+                   "update": {"branch": "main"}}
+        with mock.patch.object(boot.modes, "clear_stance", side_effect=lambda session: order.append("clear")), \
+             mock.patch.object(boot.checkout_auto_update, "automatic_catch_up",
+                               side_effect=lambda: order.append("auto") or outcome), \
+             mock.patch.object(boot.providers, "write_live_session"), \
+             mock.patch.object(boot, "assemble_pack", side_effect=lambda *args, **kwargs: order.append("pack") or "brief") as pack:
+            decision = boot.handler({"session_id": "startup-case"})
+        self.assertEqual(order, ["clear", "auto", "pack"])
+        self.assertEqual(pack.call_args.kwargs["payload"]["_automatic_checkout"], outcome)
+        self.assertEqual(decision.get("action"), "inject")
+
+    def test_each_session_start_source_uses_the_same_automatic_controller(self):
+        for source in boot.SESSION_START_SOURCES:
+            with self.subTest(source=source), \
+                 mock.patch.object(boot.modes, "clear_stance"), \
+                 mock.patch.object(boot.checkout_auto_update, "automatic_catch_up",
+                                   return_value={"status": "current"}) as automatic, \
+                 mock.patch.object(boot.providers, "write_live_session"), \
+                 mock.patch.object(boot, "assemble_pack", return_value="brief"):
+                boot.handler({"session_id": source, "source": source})
+            automatic.assert_called_once_with()
+
+    def test_automatic_update_notice_is_one_boot_result_and_current_is_silent(self):
+        updated = boot.must_push({**_signals(), "automatic_checkout": {
+            "status": "updated", "update": {"branch": "main"}}})
+        current = boot.must_push({**_signals(), "automatic_checkout": {"status": "current"}})
+        self.assertEqual(len(updated), 1)
+        self.assertIn("updated the project folder", updated[0].lower())
+        self.assertIn("/engine-setup", updated[0])
+        self.assertEqual(current, [])
+
+    def test_invalid_opt_out_and_safe_skip_outcomes_are_explained_without_claiming_an_update(self):
+        invalid = boot.must_push({**_signals(), "automatic_checkout": {
+            "status": "invalid-config", "preference": {"path": ".engine/operator-checkout.json",
+                                                          "reason": "invalid-json"}}})
+        blocked = boot.must_push({**_signals(), "automatic_checkout": {
+            "status": "blocked", "reason": "local-work"}})
+        self.assertIn("paused", invalid[0].lower())
+        self.assertIn("/engine-setup", invalid[0])
+        self.assertIn("not valid json", invalid[0].lower())
+        self.assertNotIn("invalid-json", invalid[0])
+        self.assertIn("left the project folder alone", blocked[0].lower())
+        self.assertNotIn("updated the project folder", blocked[0].lower())
+
+    def test_failed_automatic_rollback_is_never_described_as_a_no_op(self):
+        rollback = boot.must_push({**_signals(), "automatic_checkout": {
+            "status": "blocked", "reason": "rollback-failed"}})
+        self.assertIn("could not safely finish returning", rollback[0].lower())
+        self.assertIn("did not call it current", rollback[0].lower())
+        self.assertNotIn("left the project folder alone", rollback[0].lower())
 
 
 class TestAntiHabituationCollapse(unittest.TestCase):

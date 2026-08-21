@@ -1120,6 +1120,10 @@ class TestSeededRootFileOwnership(unittest.TestCase):
     def test_security_seed_source_is_carved_out_in_operator_config(self):
         self.assertIn(".engine/provisioning/security-seed.md", module_coherence.OPERATOR_CONFIG)
 
+    def test_automatic_checkout_preference_is_preserved_operator_config(self):
+        self.assertIn(".engine/operator-checkout.json", module_coherence.OPERATOR_CONFIG)
+        self.assertFalse(module_coherence.travels_to_engine_home(".engine/operator-checkout.json"))
+
 
 class TestTopologicalOrder(unittest.TestCase):
     """The pure validate.topological_order — dependency-first, deterministic, input-order-independent,

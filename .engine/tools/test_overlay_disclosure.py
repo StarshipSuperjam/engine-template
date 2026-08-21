@@ -193,6 +193,7 @@ class TestDisclosureRegisters(unittest.TestCase):
 
     def test_config_and_pure_add_are_in_no_register(self):
         r = self._reg([{"filename": ".engine/operator-overrides.json", "status": "modified"},
+                       {"filename": ".engine/operator-checkout.json", "status": "modified"},
                        {"filename": ".engine/tools/boot.py", "status": "added"}])
         self.assertEqual((r["overwrite"], r["derived"], r["preserved"]), ([], [], []))
 

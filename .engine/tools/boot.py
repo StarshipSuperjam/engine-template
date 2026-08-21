@@ -14,12 +14,15 @@ Boot's laws, all load-bearing here:
     The one durable FINDING boot emits — a refused state cursor — is handed to
     telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
     (NEVER a GitHub write), and the StarshipSuperjam/engine-template#412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
+    Its one bounded operator-checkout exception is the clean-default automatic controller, run after stance
+    reset and before orientation; it may only exact-fast-forward a clean, verified default checkout and never
+    performs a rescue, branch switch, dirty reconciliation, or remote/GitHub write.
   - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION. A standing governance alarm renders every
     session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
     to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
     decision is deterministic in the hook path (_relay_lines -> boot_alarm_ledger.decide), fail-toward-full,
     never the model. The present-marker line and the all-clear render NEVER collapse.
-  - RELAY, NOT DETECT. Boot reuses the substrates' own detection — attention's ranking
+  - RELAY, NOT DETECT. Apart from that one bounded checkout controller, boot reuses the substrates' own detection — attention's ranking
     (attention.rank_live, consumed in its given precedence order and NEVER re-ranked), telemetry's
     debt readout, protection_guard's protected-branch evaluation — and renders them. It computes none.
   - NEVER a SessionStart halt. The hooks harness (hooks.run_hook) fail-opens on any exception, and
@@ -87,6 +90,7 @@ import github_client     # noqa: E402  (the neutral GitHub reader the generic in
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
+import checkout_auto_update  # noqa: E402  (the one boot-only bounded checkout mutation controller)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
 import hooks_path_health  # noqa: E402  (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708: the broken-core.hooksPath detector + repair; boot relays its detection)
 import first_run_health  # noqa: E402  (StarshipSuperjam/engine-template#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
@@ -1414,6 +1418,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     Returns a flat dict consumed by render_dashboard / present_marker_line / must_push — the single place
     boot reaches the substrates, so the status verb re-gathers and renders the same way."""
     state, refused = read_state()
+    automatic_checkout = (payload or {}).get("_automatic_checkout") if isinstance(payload, dict) else None
     repo, token = repo_slug(), gh_token()
     # Resolve the authoritative default branch ONCE and thread it into both the gate probe and the operator
     # copy, so the safety-gate line names the branch the gate actually checked (not the display fallback).
@@ -1514,7 +1519,8 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     try:
         # ONE authoritative remote-default snapshot feeds both drift and off-main routing. Keeping these as two
         # independent detectors let a persisted old default disagree with a freshly renamed remote default.
-        checkout_snapshot = checkout_health.checkout_snapshot()
+        supplied_snapshot = (automatic_checkout or {}).get("snapshot") if isinstance(automatic_checkout, dict) else None
+        checkout_snapshot = supplied_snapshot if isinstance(supplied_snapshot, dict) else checkout_health.checkout_snapshot()
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this signal, never the pack
         checkout_snapshot = {"state": "unavailable", "main": None,
                              "reason": "detector-failed", "fresh": False}
@@ -1826,6 +1832,9 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # an explicit unavailable state, or None only when freshly current. The firm presentation is the
         # Stage-2 escalation of the off-main signal below.
         "behind_origin": behind_origin,
+        # A one-boot-only outcome from the controller. It is never persisted, so an already-current checkout is
+        # silent on later sessions; ordinary status collection remains a read-only snapshot for every other caller.
+        "automatic_checkout": automatic_checkout,
         # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
@@ -2095,6 +2104,10 @@ def render_dashboard(s: dict) -> str:
     behind_notice = bool(behind_live and behind.get("presentation") == "notice")
     behind_unavailable = bool(behind and behind.get("state") == "unavailable")
     when = (f"most recently on {behind.get('latest')}" if behind_live and behind.get("latest") else "recently")
+    # Automatic-catch-up outcomes are deliberately relayed through must_push/_relay_lines rather than added to
+    # the grounding dashboard. That makes a successful update a required, exactly-once operator disclosure — not
+    # a detail the model can omit while summarising the dashboard — while the next current boot has no outcome to
+    # repeat. The ordinary dashboard below still gives the established manual catch-up guidance for any drift.
     if behind_warning and behind.get("on_default"):
         # Stage-2 on the DEFAULT branch (StarshipSuperjam/engine-template#335): behind your own merged main line — the original consequence copy.
         if behind.get("collapsed"):
@@ -2848,12 +2861,73 @@ def _pushed_alarms(s: dict) -> list:
     return alarms
 
 
+def _automatic_checkout_relay(s: dict) -> list[str]:
+    """The one-boot operator relay for a bounded automatic-checkout attempt.
+
+    This is not an Engine alarm and has no durable ledger entry: a successful update is represented only by the
+    controller result threaded through this one boot.  Putting its consequence here makes the disclosure
+    mandatory, and keeping it out of ``render_dashboard`` prevents the briefing from presenting it twice.
+    """
+    automatic = s.get("automatic_checkout")
+    if not isinstance(automatic, dict):
+        return []
+    status = automatic.get("status")
+    if status == "updated":
+        update = automatic.get("update") or {}
+        branch = update.get("branch") or "the main branch"
+        return [
+            f"{RELAY_MARKER} I updated the project folder to the latest shared work on `{branch}`. Clean, safe "
+            "session-start updates are now on by default; use `/engine-setup` any time to turn them off."
+        ]
+    if status == "invalid-config":
+        preference = automatic.get("preference") or {}
+        reason = checkout_auto_update.preference_problem(preference.get("reason"))
+        return [
+            f"{RELAY_MARKER} automatic project-folder updates are paused because `.engine/operator-checkout.json` "
+            f"could not be read safely: {reason}. Nothing was updated; use `/engine-setup` to save a new on/off "
+            "choice. The usual **bring it up to date** action is still available."
+        ]
+    if status == "disabled":
+        behind = s.get("behind_origin") or {}
+        if behind.get("state") == "behind":
+            return [
+                f"{RELAY_MARKER} automatic project-folder updates are off, as chosen. Shared work is available; "
+                "say **bring it up to date** whenever the usual consented update is wanted."
+            ]
+        return []
+    if status == "unavailable":
+        return [
+            f"{RELAY_MARKER} I could not safely check whether the project folder can catch up, so I left it "
+            "unchanged. The ordinary status check will keep recovery manual until the shared remote is available."
+        ]
+    if status != "blocked":
+        return []
+    if automatic.get("reason") == "rollback-failed":
+        return [
+            f"{RELAY_MARKER} Git changed the project folder while I was protecting it, and I could not safely "
+            "finish returning it to its earlier state. I did not call it current or overwrite anything; please "
+            "inspect the folder's Git state before choosing a manual recovery."
+        ]
+    why = {
+        "off-main": "the folder is on a side line of work",
+        "diverged": "the folder and shared main line no longer have a safe fast-forward path",
+        "local-work": "there is local work, a stash, or a paused Git operation to protect",
+        "checkout-changed": "the folder changed while I was checking it",
+        "clash": "another session changed the folder while I was checking it",
+        "postcondition-failed": "the final safety check did not hold",
+    }.get(automatic.get("reason"), "a safety check could not confirm a clean fast-forward")
+    return [
+        f"{RELAY_MARKER} I left the project folder alone because {why}. Say **bring it up to date** when ready "
+        "for the existing consented recovery path; it will recheck and preserve anything in the way."
+    ]
+
+
 def must_push(s: dict) -> list:
     """The INFORM-marked items the AI MUST relay to the operator in plain words — the FULL (uncollapsed)
     governance-critical alarms and the grounding-failure tell (the must-push set). This is the fresh
     render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
     collapse via _relay_lines instead. A fixed relay over detected signals."""
-    return [a["full"] for a in _pushed_alarms(s)]
+    return _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
 
 
 def _off_main_value(s: dict):
@@ -3052,7 +3126,7 @@ def _relay_lines(s: dict) -> list:
             lines.append(a["worse"])
         else:
             lines.append(a["full"])
-    return lines
+    return _automatic_checkout_relay(s) + lines
 
 
 # The set-aside ladder's pin-block name (briefing-budget / eADR-0033) — named once so the two-pass loud
@@ -3267,6 +3341,15 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
+    # The sole automatic checkout mutation lives at this boot-only seam: stance has reset, but no orientation
+    # signal has been gathered or rendered. Its structured, in-memory result is threaded into this one pack so a
+    # successful update is disclosed exactly now and is silent once the next boot sees the folder current.
+    try:
+        automatic_checkout = checkout_auto_update.automatic_catch_up()
+    except Exception:  # noqa: BLE001 — SessionStart remains fail-open; ordinary snapshot rendering still runs.
+        automatic_checkout = {"status": "unavailable", "reason": "controller-failed"}
+    payload = dict(payload) if isinstance(payload, dict) else {}
+    payload["_automatic_checkout"] = automatic_checkout
     # The live-session heartbeat (dual-purpose, best-effort): records {session, provider, time} to the
     # per-user marker. It is (a) the typed-verb session resolver's last resort on a runtime with no
     # session env var (providers.resolve_session), and (b) the hooks-ran evidence the status readout's

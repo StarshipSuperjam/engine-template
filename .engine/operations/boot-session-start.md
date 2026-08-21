@@ -9,7 +9,9 @@ committed state and the substrates that exist, and inject it before the first pr
 starts grounded instead of blind. This is the heaviest member of the orientation family and runs
 automatically — there is no manual "start the engine" step. Enter it whenever a session begins
 (`startup`, `resume`, or `clear`); it is **read-only of canonical state** (its one local write is the
-gitignored standing-alarm presentation ledger — see Notes) and never blocks. Beneath it, and independent of it,
+gitignored standing-alarm presentation ledger — see Notes) and never blocks. Its sole bounded local-checkout
+exception is the clean-default automatic catch-up described below; it never changes canonical state, GitHub,
+or a session worktree. Beneath it, and independent of it,
 sits the floor: the root `CLAUDE.md` the platform always loads, which grounds the session even if this
 pack does not run.
 
@@ -19,10 +21,20 @@ The mechanism is `.engine/tools/boot.py`, wired as a `SessionStart` hook in `.cl
 runs these steps in order and degrades over any source that is absent — one failure costs that line
 only, never the whole pack, and the session never halts.
 
-1. Read the committed state cursor (`.engine/state/state.json`). If it is unreadable or not a
+1. Reset the session stance to Explore, then run the boot-only automatic checkout controller before gathering
+   orientation. Missing `.engine/operator-checkout.json` enables this shipped default; an explicit
+   `automatic_catch_up: false` opts out, while malformed or unreadable preference data disables mutation and
+   earns a repair notice. The controller may advance only the operator's main checkout when it is already on
+   the freshly verified remote default branch, has a strict fast-forward to the exact assessed target, passes
+   the no-stash/no-paused-operation/no-local-work lossless gate, and still matches its assessed origin, branch,
+   HEAD, default ref, and target at apply time. It reuses checkout health's named-ref compare-and-swap,
+   index-locked update, rollback, and postcondition verification. It never switches branches, creates a rescue
+   branch, reconciles dirty-but-subsumed work, repairs a strand, or resolves divergence. A peer session that
+   wins the same update normalizes to current; a late edit or moved target leaves the folder untouched.
+2. Read the committed state cursor (`.engine/state/state.json`). If it is unreadable or not a
    schema-version-1 cursor, say so plainly ("I couldn't read where the project stands") and treat
    project status as unknown — never halt.
-2. Detect the governance-critical alarms to pin at the top of the status dashboard: the protected-branch signal
+3. Detect the governance-critical alarms to pin at the top of the status dashboard: the protected-branch signal
    (relayed from `protection_guard`; off → a nag, unverifiable → an honest "don't assume it's on", on
    → silent). "On" includes freshness — the gate requires the merge candidate to be up to date with the base, so
    the signal reads as *off* if a stale green could still merge; an advance of the base then means a routine
@@ -32,11 +44,11 @@ only, never the whole pack, and the session never halts.
    folder stuck off its branch or missing the engine's files — read-only at the open-findings tier, BELOW the
    governance alarms (a stranded local checkout cannot reach the protected branch), and **offer to repair it**.
    Boot only surfaces and offers; it never repairs.
-3. Consume the attention ranking (`attention.rank_live`) in its given precedence order — never re-rank —
+4. Consume the attention ranking (`attention.rank_live`) in its given precedence order — never re-rank —
    and resolve each ranked item to a plain-language line under "Needs your attention".
-4. Read the integration-debt readout (offline count from state, rendered loud-if-stale) and the
+5. Read the integration-debt readout (offline count from state, rendered loud-if-stale) and the
    recently-shipped digest (from merged pull requests — there is no changelog).
-5. Assemble the AI-facing **briefing** and inject it as `additionalContext`. The briefing reaches the
+6. Assemble the AI-facing **briefing** and inject it as `additionalContext`. The briefing reaches the
    model, never the operator's screen, so it instructs the assistant to render a short titled `Project
    status` block first (all-clear, or a `⚠` line when something fired), relay the governance-critical
    alarms to the operator in plain words, and surface a brief needs-attention headline; the operator-toned
@@ -62,7 +74,10 @@ The assistant opens its first reply with a short titled `Project status` block (
 grounded session always renders; its absence is how the floor tells the operator the engine did not
 ground) and relays any governance alarm in plain words. Any degraded or unverifiable source is named in
 plain language rather than silently dropped, and no canonical state was regenerated — boot reads and
-surfaces, its sole local write the gitignored standing-alarm presentation ledger.
+surfaces, its routine local write the gitignored standing-alarm presentation ledger. A successful clean
+automatic catch-up is named once in that same boot with `/engine-setup` as the opt-out; an already-current
+checkout stays silent, and an unsafe, opted-out, unavailable, or invalid-preference checkout stays on the
+existing visible consented recovery path.
 
 ## Notes
 
@@ -73,7 +88,7 @@ it carries is a reminder to consult saved memory, not orientation content, so it
 looking rather than the picture itself. The memory set-aside readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.
 
-**The standing-alarm presentation ledger is boot's one local write.** It is a small, local,
+**The standing-alarm presentation ledger is boot's routine local write.** It is a small, local,
 gitignored, non-canonical marker at `.engine/boot/.cache/standing-alarms.json` (`boot_alarm_ledger`),
 recording each surfaced standing alarm's structured condition and that it was shown in full, so the next
 session can collapse an unchanged one. It is read and written by boot's own `SessionStart` hook, lives at
@@ -122,10 +137,15 @@ and never forces. What differs is *what* each protects and *how* it declines:
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
   If it cannot safely tell where to re-attach the folder, it refuses rather than guess.
-- **A folder with newer shared work — catch-up (`checkout_health.catch_up`, StarshipSuperjam/engine-template#335).** One fresh remote snapshot
+- **A folder with newer shared work — automatic catch-up or consented catch-up (`checkout_auto_update`, `checkout_health.catch_up`, StarshipSuperjam/engine-template#335).** One fresh remote snapshot
   reports any upstream commit the default branch lacks, including direct or squash/rebase-shaped work. Ordinary
   drift gets a calm, count-free notice; missing merges beyond the project-relative velocity bar get the existing
-  firm warning. If refresh, remote identity, or the remote default cannot be confirmed, boot says the check is
+  firm warning. At `startup`, `resume`, and `clear`, a clean operator folder already on the verified default
+  branch fast-forwards automatically to the exact assessed target. The success notice appears once and names
+  `/engine-setup` as the way to opt out. If it is current, boot says nothing about automation; if it is dirty,
+  stashed, paused, off-main, diverged, stranded, unavailable, or preference-disabled/invalid, boot changes
+  nothing automatically and explains the existing consented recovery. An opt-out does not suppress drift
+  detection. If refresh, remote identity, or the remote default cannot be confirmed, boot says the check is
   unavailable and never calls a cached view current. On consent, catch-up revalidates the pinned repository,
   branch, HEAD, and exact target, then advances only along a safe fast-forward. Movement visible at revalidation,
   divergence, or clashing work blocks before mutation; a final postcondition check prevents a racing external

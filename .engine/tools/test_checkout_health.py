@@ -15,11 +15,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
 
 import checkout_health
+import checkout_auto_update
 import license_seeds
 
 
@@ -353,6 +355,27 @@ class TestBehindOrigin(unittest.TestCase):
             self.assertEqual(r["reason"], "refresh-failed")
             self.assertFalse(r["fresh"])
 
+    def test_unrelated_fetch_failure_with_an_already_cached_target_stays_unavailable(self):
+        # Exact cached data is not proof that this refresh succeeded. Only a transition to the freshly
+        # advertised OID during the failed-fetch window may be normalized as a simultaneous peer winner.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            subprocess.run(["git", "-C", work, "fetch", "-q", "origin", "main"], check=True)
+            before = (checkout_health._run(["git", "-C", work, "rev-parse", "HEAD"]) or "").strip()
+            real_run = subprocess.run
+
+            def unrelated_failure(cmd, *args, **kwargs):
+                if len(cmd) > 3 and cmd[0] == "git" and cmd[3] == "fetch":
+                    return subprocess.CompletedProcess(cmd, 1, "", "injected unrelated failure")
+                return real_run(cmd, *args, **kwargs)
+
+            with mock.patch.object(checkout_health.subprocess, "run", side_effect=unrelated_failure):
+                result = checkout_auto_update.automatic_catch_up(cwd=work)
+            after = (checkout_health._run(["git", "-C", work, "rev-parse", "HEAD"]) or "").strip()
+            self.assertEqual((result["status"], result["snapshot"]["reason"]),
+                             ("unavailable", "refresh-failed"))
+            self.assertEqual(after, before)
+
     def test_remote_head_parse_failure_keeps_a_structured_cause(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])
@@ -588,6 +611,154 @@ class TestCatchUp(unittest.TestCase):
             self.assertEqual(_head(work), before)
             with open(os.path.join(work, "shared.txt")) as fh:
                 self.assertEqual(fh.read(), "LATE EDIT\n")
+
+    def test_boot_head_lock_refuses_an_interleaved_branch_switch_before_materializing(self):
+        # The automatic arm alone reserves HEAD.lock across its preflight + read-tree sequence. A concurrent
+        # `git checkout topic` in the former gap must fail, so the target can never be written into topic's
+        # index/worktree. The normal consented catch_up path deliberately keeps its historical timing.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            _git(work, "checkout", "-q", "-b", "topic")
+            with open(os.path.join(work, "topic-only.txt"), "w") as fh:
+                fh.write("topic work\n")
+            _commit(work, "topic work")
+            topic_before = _head(work)
+            _git(work, "checkout", "-q", "main")
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            real_materialize = checkout_health._materialize_target
+            switch = {}
+
+            def materialize_after_switch_attempt(main, before, target):
+                switch["returncode"] = subprocess.run(["git", "-C", main, "checkout", "-q", "topic"],
+                                                        capture_output=True, text=True, check=False).returncode
+                return real_materialize(main, before, target)
+
+            with mock.patch.object(checkout_health, "_materialize_target", side_effect=materialize_after_switch_attempt):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual(result["status"], "fixed")
+            self.assertNotEqual(switch["returncode"], 0, "HEAD.lock rejects the concurrent branch switch")
+            self.assertEqual(_head(work).strip(), snapshot["target_oid"])
+            _git(work, "checkout", "-q", "topic")
+            self.assertEqual(_head(work), topic_before)
+            with open(os.path.join(work, "topic-only.txt")) as fh:
+                self.assertEqual(fh.read(), "topic work\n")
+
+    def test_boot_existing_head_lock_leaves_ref_head_index_and_worktree_unchanged(self):
+        # A pre-existing HEAD.lock means a Git operation already owns the branch-transition seam.  The automatic
+        # arm must decline before its named-ref CAS, preserving all four layers of the checkout exactly.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before_ref = (checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip()
+            before_head = _head(work)
+            before_index = (checkout_health._run(["git", "-C", work, "write-tree"]) or "").strip()
+            with open(os.path.join(work, "shared.txt")) as fh:
+                before_file = fh.read()
+            lock = checkout_health._acquire_head_lock(work)
+            self.assertTrue(lock)
+            try:
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            finally:
+                checkout_health._release_head_lock(lock)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual((checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip(),
+                             before_ref)
+            self.assertEqual(_head(work), before_head)
+            self.assertEqual((checkout_health._run(["git", "-C", work, "write-tree"]) or "").strip(), before_index)
+            with open(os.path.join(work, "shared.txt")) as fh:
+                self.assertEqual(fh.read(), before_file)
+
+    def test_boot_head_lock_collision_after_advance_rolls_the_named_ref_back(self):
+        # A lock collision in the narrow post-CAS window must take the rollback path, never leave main ahead
+        # with its old files.  (The pre-existing-lock test above covers the normal no-mutation refusal.)
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before = _head(work)
+            before_ref = (checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip()
+            with mock.patch.object(checkout_health, "_acquire_head_lock", return_value=None):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual(_head(work), before)
+            self.assertEqual((checkout_health._run(["git", "-C", work, "rev-parse", "refs/heads/main"]) or "").strip(),
+                             before_ref)
+            self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
+
+    def test_boot_transient_head_lock_clash_rolls_back_and_preserves_late_edit(self):
+        # Even when the competing lock clears, the original losslessness proof is stale. The automatic arm
+        # must roll back instead of retrying materialisation, and an arbitrary edit made during the wait stays.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before = _head(work)
+            late_path = os.path.join(work, "late-untracked.txt")
+            lock_checks = 0
+
+            def transient_lock(_main, _name):
+                nonlocal lock_checks
+                lock_checks += 1
+                if lock_checks == 3:
+                    with open(late_path, "w", encoding="utf-8") as fh:
+                        fh.write("operator work\n")
+                    return True
+                return False
+
+            with mock.patch.object(checkout_health, "_acquire_head_lock", return_value=None) as acquire, \
+                 mock.patch.object(checkout_health, "_git_lock_is_present", side_effect=transient_lock):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual(acquire.call_count, 1, "a post-clash update must never retry materialisation")
+            self.assertEqual(_head(work), before)
+            with open(late_path, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "operator work\n")
+            self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
+
+    def test_peer_boot_waits_for_the_winner_to_materialize_before_reporting_current(self):
+        # Pause a winning automatic update immediately after its named-ref CAS.  A losing boot must wait over
+        # the Git lock, then normalize only after the winner has materialized the exact assessed target.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before = _head(work)
+            index_lock = checkout_health._acquire_index_lock(work)
+            self.assertTrue(index_lock)
+            loser = {"status": "blocked", "reason": "checkout-changed", "applied": False}
+            locks = {"index": index_lock, "head": None}
+            materialized = []
+
+            def finish_winner():
+                locks["head"] = checkout_health._acquire_head_lock(work)
+                self.assertTrue(locks["head"])
+                checkout_health._release_head_lock(locks["index"])
+                locks["index"] = None
+                materialized.append(checkout_health._materialize_target(work, snapshot["head_oid"],
+                                                                         snapshot["target_oid"]))
+                checkout_health._release_head_lock(locks["head"])
+                locks["head"] = None
+
+            timer = None
+            try:
+                self.assertTrue(checkout_health._advance_named_default(work, "main", snapshot["head_oid"],
+                                                                        snapshot["target_oid"]))
+                timer = threading.Timer(0.05, finish_winner)
+                timer.start()
+                peer = checkout_auto_update._normalise_peer_winner(work, loser)
+                self.assertEqual((peer["status"], peer.get("peer_updated")), ("current", True))
+                timer.join()
+                self.assertEqual(materialized, [True])
+            finally:
+                if timer:
+                    timer.cancel()
+                    timer.join()
+                if locks["head"]:
+                    checkout_health._release_head_lock(locks["head"])
+                if locks["index"]:
+                    checkout_health._release_head_lock(locks["index"])
+            self.assertNotEqual(_head(work), before)
+            self.assertEqual(_head(work).strip(), snapshot["target_oid"])
 
     def test_unreadable_status_is_not_treated_as_clean(self):
         with tempfile.TemporaryDirectory() as tmp:

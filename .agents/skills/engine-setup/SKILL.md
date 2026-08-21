@@ -23,6 +23,7 @@ description: Set up the Engine in a new project, and afterwards manage add-ons, 
      - add or remove an optional add-on — `.engine/operations/module-add.md` / `.engine/operations/module-remove.md`
      - change the codes of conduct (how the assistant works with them) — `.engine/operations/conduct-author.md`
      - adjust a tunable setting — `.engine/operations/tune-policy.md`
+     - show, disable, or re-enable automatic project-folder updates — `.engine/operations/checkout-auto-update.md`
      - switch the review team or reviewer mode — `.engine/operations/engine-team-switch.md`
      - turn on branch protection and the control-plane safeguards — `.engine/operations/control-plane-bootstrap.md`
      - set up or adjust the memory backup — `uv run --directory .engine -- python tools/memory/backup_vault.py setup`

@@ -207,7 +207,8 @@ def _redact_credentials(text: str) -> str:
     return re.sub(r"(https?://)[^/\s@]+@", r"\1***@", text)
 
 
-def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None) -> dict:
+def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None,
+                  cwd: str | None = None) -> dict:
     """THE GIT+PR BOUNDARY: stage the saved override on a new branch, commit, push, and open a pull request so
     the change is reviewed + reversible like any change. Mirrors the module-manager upgrade opener — git via
     subprocess (with the bounded StarshipSuperjam/engine-template#704 push retry), the PR via POST /pulls, slug/token via boot — INCLUDING its
@@ -223,11 +224,12 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
     import json as _json
     import boot  # local: only the real open needs boot's slug/token
     import repo_identity  # local: the shared default-branch resolver (dependency-light)
+    root = cwd or validate.ROOT
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     if not slug or not tok:
         raise RuntimeError("could not determine the engine repository / credentials to open the pull request.")
-    base = repo_identity.resolve_default_branch()
+    base = repo_identity.resolve_default_branch(root)
 
     def _github_reason(exc):
         # GitHub's own human-readable reason from a failed API response body — a 422 on /pulls carries the real
@@ -259,7 +261,7 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
         is_push = step[1] == "push"
         for attempt in range(_ORIGIN_RETRY_ATTEMPTS if is_push else 1):
             try:
-                subprocess.run(step, cwd=validate.ROOT, check=True, capture_output=True)
+                subprocess.run(step, cwd=root, check=True, capture_output=True)
                 return
             except subprocess.CalledProcessError:
                 if is_push and attempt < _ORIGIN_RETRY_ATTEMPTS - 1:
@@ -293,7 +295,7 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
                 recovery = (f" — so no pull request was opened and your saved setting is untouched. Fix the cause "
                             f"above, then re-run the setting.")
             elif args[1] == "commit" and subprocess.run(
-                    ["git", "diff", "--cached", "--quiet", "--", *paths], cwd=validate.ROOT,
+                    ["git", "diff", "--cached", "--quiet", "--", *paths], cwd=root,
                     capture_output=True).returncode == 0:
                 # `git commit` failed with nothing staged: the override already equals what is committed, so there
                 # is no change to open a pull request for. NOT a failure of saving — the value is in effect. Say so

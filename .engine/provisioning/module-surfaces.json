@@ -864,6 +864,9 @@
   ".engine/contracts/eADR-0042-multi-writer-integration.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md": [
+   "core"
+  ],
   ".engine/docs/getting-started.md": [
    "core"
   ],
@@ -934,6 +937,9 @@
    "core"
   ],
   ".engine/operations/build-work-dispatch.md": [
+   "core"
+  ],
+  ".engine/operations/checkout-auto-update.md": [
    "core"
   ],
   ".engine/operations/close-turn.md": [
@@ -1339,6 +1345,9 @@
    "core"
   ],
   ".engine/tools/census_completeness_check.py": [
+   "core"
+  ],
+  ".engine/tools/checkout_auto_update.py": [
    "core"
   ],
   ".engine/tools/checkout_health.py": [
@@ -2137,6 +2146,9 @@
    "core"
   ],
   ".engine/tools/test_census_completeness.py": [
+   "core"
+  ],
+  ".engine/tools/test_checkout_auto_update.py": [
    "core"
   ],
   ".engine/tools/test_checkout_health.py": [

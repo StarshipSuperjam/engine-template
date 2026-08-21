@@ -93,6 +93,13 @@ checks, and the templates that guide your pull request and issue descriptions �
 settings and saved data untouched. So if you've edited one of the engine's own templates, an update replaces
 it with the new version's wording; you can see and undo that in the update's pull request, like any other change.
 
+**Project-folder catch-up after this update.** This version makes a clean project folder that is already on the
+verified remote default branch catch up at the next session start (`startup`, `resume`, or `clear`). It is a
+bounded local fast-forward only: it never pushes, merges, changes GitHub, switches a branch, resolves
+divergence, or touches dirty work. Use `/engine-setup` to turn automatic project-folder updates off or back on;
+the saved choice is preserved through later Engine upgrades. A checkout still running an older Engine may need
+one final, consented **bring it up to date** before it contains this behavior.
+
 **Where updates come from — your engine's update home.** Your engine is detached from the repository it was
 created from, so updates don't arrive by an ordinary pull — they are fetched from the engine's **update home**,
 the repository whose published releases your engine updates from, recorded once as part of your engine's own
