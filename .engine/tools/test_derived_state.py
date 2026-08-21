@@ -9,18 +9,25 @@ import derived_state as ds
 
 
 class TestRoster(unittest.TestCase):
-    def test_roster_is_the_three_v1_members(self):
+    def test_roster_is_the_four_derived_members(self):
         self.assertEqual(ds.paths(), (
             ".engine/self-map.md",
+            ".engine/docs/ci-assurance.md",
             ".engine/knowledge/graph.json",
             ".engine/product-spec-matrix.json",
         ))
 
     def test_reconcile_and_release_filters(self):
-        # all three participate in reconcile; the optional matrix is NOT in the release subset
+        # all four participate in reconcile; the optional matrix is NOT in the release subset
         self.assertEqual(set(ds.paths(reconcile=True)), set(ds.paths()))
         self.assertEqual(ds.paths(release=True),
-                         (".engine/self-map.md", ".engine/knowledge/graph.json"))
+                         (".engine/self-map.md", ".engine/docs/ci-assurance.md",
+                          ".engine/knowledge/graph.json"))
+
+    def test_assurance_regenerates_before_the_graph_that_fingerprints_it(self):
+        paths = ds.paths()
+        self.assertLess(paths.index(".engine/docs/ci-assurance.md"),
+                        paths.index(".engine/knowledge/graph.json"))
 
     def test_verify_and_regenerate_share_one_roster(self):
         # F-arch-2: repair (verify -> regenerate drifted -> re-verify) can only converge if the two

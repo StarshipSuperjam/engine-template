@@ -523,6 +523,37 @@
       "type": "check"
     },
     {
+      "id": "check:ci-assurance-drift",
+      "kind": "custom/script",
+      "name": ".engine/check/ci-assurance-drift.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:ci_assurance_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "doc:ci-assurance"
+        ]
+      },
+      "slug": "ci-assurance-drift",
+      "source": {
+        "fingerprint": "sha256:60eec07f13225afffaa06e523b2ad35470d8ff695305fee0865d2b47563439df",
+        "path": ".engine/check/ci-assurance-drift.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:codex-agent-coherence",
       "kind": "custom/script",
       "name": ".engine/check/codex-agent-coherence.json",
@@ -1180,6 +1211,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
         ]
@@ -1209,6 +1241,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
         ]
@@ -5873,6 +5906,26 @@
       "type": "contract"
     },
     {
+      "id": "doc:ci-assurance",
+      "name": ".engine/docs/ci-assurance.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci-assurance",
+      "source": {
+        "fingerprint": "sha256:cb4198b76792affeae19085c1359a5aa77bba903612daa9e42a5cabc3c42cd12",
+        "path": ".engine/docs/ci-assurance.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -6045,7 +6098,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:4fb9e7f4f12541c3df56c31ee5fe065b2ab920d544e19315f9fb73f22c2310df",
+        "fingerprint": "sha256:2557d0abf48e492a4ba6dde4b38088496d65159c1d8768665bc7bb5dd8665527",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6255,7 +6308,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:0e064e84d4d21b232bf9bddba9e402ef2195b3d4e3fd00d4cfec1a94ef8fc384",
+        "fingerprint": "sha256:320e272d24fd7aa2709e972d608a465b9b4f74c736ce7500ec2c59288cd4403a",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -10030,6 +10083,56 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:ci_assurance",
+      "name": ".engine/tools/ci_assurance.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:engine_write",
+          "tool:hard_check_bite_check",
+          "tool:module_coherence",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci_assurance",
+      "source": {
+        "fingerprint": "sha256:2d02b86b46e716d45c3e928ad8fcff3e26c71d6d61282e41a65cbbfa89c79bee",
+        "path": ".engine/tools/ci_assurance.py"
+      },
+      "status": "active",
+      "summary": "Generate the committed, human-readable account of what engine-ci verifies.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:ci_assurance_check",
+      "name": ".engine/tools/ci_assurance_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:ci_assurance",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci_assurance_check",
+      "source": {
+        "fingerprint": "sha256:f453a82fa5d559aeae154e74feb82a718a7f9ee3c9bd9d8f23ea9552afedc71b",
+        "path": ".engine/tools/ci_assurance_check.py"
+      },
+      "status": "active",
+      "summary": "Thin finding.v1 adapter for engine/check/ci-assurance-drift.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": true,
       "id": "tool:close",
@@ -11689,6 +11792,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:ci_assurance",
           "tool:engine_write",
           "tool:knowledge_gen",
           "tool:obligation_matrix",
@@ -11701,7 +11805,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:d4f48ef5e181a7588a9033f055310c222d7eaa5cbf1b937d49cd2be37f245da2",
+        "fingerprint": "sha256:3cc4a95c683187a8634684f6643221fe234530e76af856976bad137123e0ee45",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -12158,7 +12262,7 @@
       },
       "slug": "hard_check_bite_check",
       "source": {
-        "fingerprint": "sha256:7b8d9e54cf56983f7544a6819eb46ee63bfe30211bb20bda2908bebc07e30e92",
+        "fingerprint": "sha256:e530ea3e061fda44214720f01200ee2e5c4c1837b952563088a8ddd63208cc16",
         "path": ".engine/tools/hard_check_bite_check.py"
       },
       "status": "active",
@@ -13549,7 +13653,7 @@
       },
       "slug": "pr_reconcile",
       "source": {
-        "fingerprint": "sha256:69d254993b4d2fee12c92a7a296c84b3a08903506992bbc68352c7960a3b2dc3",
+        "fingerprint": "sha256:3d6baa33f8a550cd216f2ee39f60cfb39583e084569ce9d7f37af6a7cfe48dbe",
         "path": ".engine/tools/pr_reconcile.py"
       },
       "status": "active",
@@ -15551,6 +15655,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_ci_assurance",
+      "name": ".engine/tools/test_ci_assurance.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:ci_assurance",
+          "tool:hard_check_bite_check",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_ci_assurance",
+      "source": {
+        "fingerprint": "sha256:c77630062a9e815417352d1d422fe4fdabb5ab2b77ffa36284f4fdeff7abe9b3",
+        "path": ".engine/tools/test_ci_assurance.py"
+      },
+      "status": "active",
+      "summary": "Tests for the generated Engine CI assurance catalogue and its fail-closed drift gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_close",
       "name": ".engine/tools/test_close.py",
       "owner": "core",
@@ -15877,7 +16006,7 @@
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:48e56bce182d9adc485bec9e583480389c59caf1d4111530b5f9b8efdab351ce",
+        "fingerprint": "sha256:69e357e66bbb002abbe979d8f78d3a254e4b24a7e03080ab07c8163443b6cef8",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -16508,7 +16637,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:fa386fc8de969126c097b27b39cbb0e7691c2e957ac8a34cdde4d72550dfa57f",
+        "fingerprint": "sha256:2a92d621b099b114b769da9ce34752f7bc0e49bb22476cd1129b0e486f9611e0",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17329,7 +17458,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:576d5f553d58256be2fb5e9c6018cba480581e832dca164c329f9b07728c1518",
+        "fingerprint": "sha256:d235b45ce7169291f058f30a6eae4b33e4b44d7014b4cdd3e2f01a84079976c1",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17670,7 +17799,7 @@
       },
       "slug": "test_pr_reconcile",
       "source": {
-        "fingerprint": "sha256:3efea446e75191f61a7c1d753c6da7cc87f895a95ee24f9a0828fa49f1ad7624",
+        "fingerprint": "sha256:26997e77a5d990b4a47dff671933d850dc619482ccd1ee8ee2fab935b605e98e",
         "path": ".engine/tools/test_pr_reconcile.py"
       },
       "status": "active",

@@ -2,7 +2,7 @@
 """Tests for pr_reconcile — the stranded-PR conflict detector + lossless-or-refuse recovery (#136).
 
 Lock the behaviours a non-engineer cannot read code to verify: a conflicting pull request is DETECTED (and an
-async-uncomputed merge state degrades QUIETLY, never a false "all clear"); a conflict confined to the two derived-committed
+async-uncomputed merge state degrades QUIETLY, never a false "all clear"); a conflict confined to derived-committed
 index files classifies FIXABLE while any authored conflict (or a tree with no engine files) classifies
 NEEDS-MANUAL; the recovery reconciles LOSSLESSLY (both pieces of work survive); and on ANY failure it RESTORES
 the branch to exactly where it was and refuses — never losing work, never side-picking, never claiming a
@@ -22,6 +22,7 @@ import pr_reconcile
 
 GRAPH = ".engine/knowledge/graph.json"
 SELFMAP = ".engine/self-map.md"
+ASSURANCE = ".engine/docs/ci-assurance.md"
 
 
 def _git(root: str, *args: str) -> subprocess.CompletedProcess:
@@ -41,7 +42,7 @@ def _write(root: str, rel: str, content: str) -> None:
 
 
 def _repo(holder: str, *, members: bool = True) -> tuple[str, str]:
-    """A bare 'origin' + a working clone on `main`, seeded with the two derived-committed member files (as plain text so they
+    """A bare 'origin' + a working clone on `main`, seeded with the core derived-committed member files (as plain text so they
     can be made to clash) plus an authored seed file. Returns (origin, work)."""
     origin, work = os.path.join(holder, "origin.git"), os.path.join(holder, "work")
     subprocess.run(["git", "init", "-q", "--bare", origin], check=False)
@@ -51,6 +52,7 @@ def _repo(holder: str, *, members: bool = True) -> tuple[str, str]:
     if members:
         _write(work, GRAPH, "base\n")
         _write(work, SELFMAP, "base\n")
+        _write(work, ASSURANCE, "base\n")
     _write(work, ".engine/tools/seed.py", '"""seed"""\n')
     _commit(work, "seed")
     _git(work, "push", "-q", "origin", "main")
@@ -186,10 +188,11 @@ class TestAssess(unittest.TestCase):
 # ---- reconcile: lossless-or-refuse (control flow over a fake regenerator) ---------------------
 
 def _fake_regen(root: str) -> bool:
-    """Stand in for the real generators: write clean, deterministic content into the two members (resolving any
+    """Stand in for the real generators: write clean, deterministic content into the core members (resolving any
     conflict markers the merge left). The REAL regenerators are exercised by demo_pr_reconcile.py."""
     _write(root, GRAPH, "reconciled-graph\n")
     _write(root, SELFMAP, "reconciled-self-map\n")
+    _write(root, ASSURANCE, "reconciled-assurance\n")
     return True
 
 

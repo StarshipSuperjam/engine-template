@@ -14,6 +14,7 @@
       ".engine/check/catalog-completeness.json",
       ".engine/check/catalog-coverage.json",
       ".engine/check/census-completeness.json",
+      ".engine/check/ci-assurance-drift.json",
       ".engine/check/codex-agent-coherence.json",
       ".engine/check/codex-agent-schema.json",
       ".engine/check/codex-hooks-schema.json",

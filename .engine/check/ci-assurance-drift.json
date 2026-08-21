@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/ci-assurance-drift",
+  "target": { "path": ".engine/docs/ci-assurance.md" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/ci_assurance_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The committed CI assurance catalogue must exactly match the engine-ci workflow, CI check declarations, hard-check proof roster, installed-module ownership, and statically discovered test-module descriptions. Regenerate it with `uv run --directory .engine --frozen -- python tools/ci_assurance.py generate` whenever one of those authorities changes."
+}

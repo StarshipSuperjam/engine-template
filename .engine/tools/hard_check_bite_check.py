@@ -52,6 +52,7 @@ returns non-zero, which the kind turns into a hard fail-closed finding (a guard 
 """
 from __future__ import annotations
 import glob as _glob
+import hashlib
 import json
 import os
 import sys
@@ -375,6 +376,64 @@ def _roster_kinds(registry, kinds) -> list:
     return sorted(registry)
 
 
+def proof_inventory(*, root: str | None = None, check_dir: str | None = None,
+                    fixture_root: str | None = None, registry=None, kinds=None) -> list[dict]:
+    """Return the read-only roster the checker-of-checkers enforces, with its static proof carriers.
+
+    This is the single machine seam for consumers that need to explain the bite posture without running
+    checks or re-implementing the roster. ``evaluate`` consumes this same inventory.  A record describes
+    either a check KIND (shared proof) or one hard ``custom/script`` INSTANCE (dedicated proof).  Presence of
+    fixture/declaration files is descriptive only; their validity and whether the fixture actually bites are
+    still decided by the existing ``_cover_*`` evaluators.
+    """
+    root = root or validate.ROOT
+    registry = registry if registry is not None else validate.resolved_registry()
+    check_dir = check_dir if check_dir is not None else validate.CHECK_DIR
+    fixture_root = fixture_root if fixture_root is not None else os.path.join(root, _FIXTURES_REL)
+
+    def record(scope: str, key: str, kind: str, fdir: str, rule: dict | None = None) -> dict:
+        declarations = [name for name in ("not-applicable.json", _HS_DECLARATION, "requires.json")
+                        if os.path.isfile(os.path.join(fdir, name))]
+        declaration_fingerprints = {}
+        for name in declarations:
+            with open(os.path.join(fdir, name), "rb") as declaration_file:
+                declaration_fingerprints[name] = "sha256:" + hashlib.sha256(
+                    declaration_file.read()
+                ).hexdigest()
+        if not os.path.isdir(fdir):
+            carrier = "missing"
+        elif "not-applicable.json" in declarations:
+            carrier = "declared-not-applicable"
+        else:
+            carrier = "negative-fixture"
+        return {
+            "scope": scope,
+            "key": key,
+            "kind": kind,
+            "fixture_dir": os.path.relpath(fdir, root).replace(os.sep, "/"),
+            "carrier": carrier,
+            "declarations": declarations,
+            "declaration_fingerprints": declaration_fingerprints,
+            **({"rule": rule} if rule is not None else {}),
+        }
+
+    out = []
+    for kind in _roster_kinds(registry, kinds):
+        fdir = os.path.join(fixture_root, "kind-custom-script" if kind == "custom/script" else f"kind-{kind}")
+        out.append(record("kind", kind, kind, fdir))
+    if os.path.isdir(check_dir):
+        for rule_path in sorted(_glob.glob(os.path.join(check_dir, "*.json"))):
+            try:
+                rule = _load(rule_path)
+            except Exception:
+                continue  # malformed rule ownership remains another check's job, matching evaluate's contract
+            if rule.get("kind") == "custom/script" and rule.get("tier") == "hard":
+                stem = (rule.get("id") or "").split("engine/check/")[-1]
+                out.append(record("check", rule.get("id") or stem, "custom/script",
+                                  os.path.join(fixture_root, stem), rule))
+    return out
+
+
 def evaluate(*, root: str | None = None, check_dir: str | None = None, fixture_root: str | None = None,
              registry=None, kinds=None, tier: str = "hard") -> list:
     """The core: prove every in-scope hard check bites its negative fixture, returned as a finding.v1 list (empty
@@ -389,25 +448,18 @@ def evaluate(*, root: str | None = None, check_dir: str | None = None, fixture_r
     check_dir = check_dir if check_dir is not None else validate.CHECK_DIR
     fixture_root = fixture_root if fixture_root is not None else os.path.join(root, _FIXTURES_REL)
     findings = []
-    for kind in _roster_kinds(registry, kinds):
+    for unit in proof_inventory(root=root, check_dir=check_dir, fixture_root=fixture_root,
+                                registry=registry, kinds=kinds):
+        if unit["scope"] == "check":
+            findings.extend(_cover_script_instance(unit["rule"], fixture_root, root, tier))
+            continue
+        kind = unit["kind"]
         if kind == "custom/script":
             findings.extend(_cover_custom_script_kind(fixture_root, root, tier))
         elif kind in validate._CLOSED_CORE_KINDS:  # a closed core kind — bespoke per-kind fixture driver
             findings.extend(_cover_closed_kind(kind, fixture_root, root, tier))
         else:  # a module-provided kind — the generic driver (its fixture declares its own target)
             findings.extend(_cover_module_kind(kind, fixture_root, root, tier))
-    if os.path.isdir(check_dir):
-        for rule_path in sorted(_glob.glob(os.path.join(check_dir, "*.json"))):
-            try:
-                rule = _load(rule_path)
-            except Exception:
-                continue  # a malformed check rule is another check's job, not this one's
-            # Scope is the in-scope HARD check: a soft
-            # custom/script is not a merge gate, so it is not required to carry a negative fixture
-            # — and emitting a hard "no fixture" finding for one would escalate a soft concern to a
-            # hard meta-finding. Only hard instances are in the roster.
-            if rule.get("kind") == "custom/script" and rule.get("tier") == "hard":
-                findings.extend(_cover_script_instance(rule, fixture_root, root, tier))
     return findings
 
 

@@ -9,8 +9,8 @@ for a derived file to be missed at one lifecycle boundary but not another. This 
 that set, so a new derived artifact registers in ONE place and reaches every boundary.
 
 Ownership boundary (honest scope): this registry owns the derived-committed files that the reconcile,
-upgrade, arrival, and release boundaries regenerate — self-map, knowledge graph, and the (optional)
-product-spec-matrix. It does NOT claim to be the only list of index files anywhere: sites that enumerate a
+upgrade, arrival, and release boundaries regenerate — self-map, knowledge graph, CI assurance catalogue,
+and the (optional) product-spec-matrix. It does NOT claim to be the only list of index files anywhere: sites that enumerate a
 DIFFERENT set for a different purpose (e.g. a CI-required-indexes gate, a PR-body copy) are left as-is; the
 single-source test in `test_derived_state.py` binds only the consumers this module migrates.
 
@@ -55,12 +55,15 @@ class DerivedMember:
     optional_module: Optional[str] = None  # importing module that must be present, else None (core)
 
 
-# The v1 roster. self-map and graph are core and always present; the product-spec-matrix is supplied by the
+# The roster. self-map, graph, and CI assurance are core and always present; the product-spec-matrix is supplied by the
 # OPTIONAL product-design module and derives from the deployment's own docs/spec, so it is present only where
 # both the module and a settled spec exist (see `_present`).
 MEMBERS: tuple[DerivedMember, ...] = (
     DerivedMember(".engine/self-map.md", "self_map.py",
                   "engine/check/self-map-drift", reconcile=True, release=True),
+    DerivedMember(".engine/docs/ci-assurance.md", "ci_assurance.py",
+                  "engine/check/ci-assurance-drift", reconcile=True, release=True),
+    # The graph fingerprints the assurance page, so assurance MUST regenerate before the graph.
     DerivedMember(".engine/knowledge/graph.json", "knowledge_gen.py",
                   "engine/check/knowledge-coverage", reconcile=True, release=True),
     DerivedMember(".engine/product-spec-matrix.json", "product_design/obligation_matrix.py",
@@ -115,6 +118,9 @@ def _resolve_generate(member: DerivedMember) -> Optional[Callable]:
     if member.path == ".engine/knowledge/graph.json":
         import knowledge_gen
         return knowledge_gen.generate
+    if member.path == ".engine/docs/ci-assurance.md":
+        import ci_assurance
+        return ci_assurance.generate
     if member.path == ".engine/product-spec-matrix.json":
         try:
             from product_design import obligation_matrix   # OPTIONAL: absent is EXPECTED → skip
@@ -132,6 +138,9 @@ def _resolve_check(member: DerivedMember) -> Optional[Callable]:
     if member.path == ".engine/knowledge/graph.json":
         import knowledge_gen
         return knowledge_gen.check
+    if member.path == ".engine/docs/ci-assurance.md":
+        import ci_assurance
+        return ci_assurance.check
     if member.path == ".engine/product-spec-matrix.json":
         try:
             from product_design import obligation_matrix

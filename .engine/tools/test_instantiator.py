@@ -1442,6 +1442,11 @@ class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
             "front at first run; a copy edit that displaced the marker would silently kill the front-door "
             "replace and the engine's marketing page would land as a generated repo's product README.")
 
+    def test_ci_badge_keeps_main_push_image_and_links_to_assurance_catalogue(self):
+        readme = inst._read_text_or(os.path.join(validate.ROOT, "README.md"), "")
+        self.assertIn('href=".engine/docs/ci-assurance.md"', readme)
+        self.assertIn('engine-ci.yml/badge.svg?branch=main&amp;event=push', readme)
+
 
 class TestSeedConduct(unittest.TestCase):
     """#409: the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md

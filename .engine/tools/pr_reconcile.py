@@ -56,7 +56,7 @@ import derived_state     # noqa: E402  (the derived-committed set + regeneration
 # (StarshipSuperjam/engine-template#925). The RUNTIME set that assess/_regen_members act on is present-AND-generator-resolvable
 # (`_reconcile_members`): a member whose OPTIONAL generator is absent stays OUT of the spurious set, so its
 # conflict classifies authored (needs-manual) and refuses — never append-merged and then discovered to be
-# un-regenerable. `_CORE_MEMBERS` is the always-present pair (self-map + graph) that marks a tree as an engine
+# un-regenerable. `_CORE_MEMBERS` is the always-present core set that marks a tree as an engine
 # tree at all — the fork-main / external-contribution guard.
 MEMBERS = derived_state.paths(reconcile=True)
 _CORE_MEMBERS = tuple(m.path for m in derived_state.members(reconcile=True) if m.optional_module is None)
