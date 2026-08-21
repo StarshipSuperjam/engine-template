@@ -952,7 +952,8 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration"
+          "contract:eADR-0042-multi-writer-integration",
+          "contract:eADR-0043-default-on-clean-checkout-catch-up"
         ]
       },
       "slug": "contract-frontmatter",
@@ -1020,7 +1021,8 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration"
+          "contract:eADR-0042-multi-writer-integration",
+          "contract:eADR-0043-default-on-clean-checkout-catch-up"
         ]
       },
       "slug": "contract-shape",
@@ -1089,7 +1091,8 @@
           "contract:eADR-0039-whole-module-removal-reconcile",
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration"
+          "contract:eADR-0042-multi-writer-integration",
+          "contract:eADR-0043-default-on-clean-checkout-catch-up"
         ]
       },
       "slug": "contract-threshold",
@@ -1828,6 +1831,7 @@
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
           "operation:build-work-dispatch",
+          "operation:checkout-auto-update",
           "operation:close-turn",
           "operation:codex-incident-replay",
           "operation:codex-settings",
@@ -1888,6 +1892,7 @@
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
           "operation:build-work-dispatch",
+          "operation:checkout-auto-update",
           "operation:close-turn",
           "operation:codex-incident-replay",
           "operation:codex-settings",
@@ -4221,7 +4226,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:c5872fb49eee0b5a1f86a0c6a04c0a154927a2094915759086f4b223e107b299",
+        "fingerprint": "sha256:375258f38a36c77e3f30137704579f351908e9195dca758660405bb726b63368",
         "path": ".agents/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -5848,6 +5853,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0043-default-on-clean-checkout-catch-up",
+      "name": ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0043-default-on-clean-checkout-catch-up",
+      "source": {
+        "fingerprint": "sha256:130e6a21f45e644985d154629aeb57f868750147e829ecbb069c583cbe755460",
+        "path": ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -6020,7 +6045,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a5d5af49bcb8215b35ba206ba29c7afcdabca74fc5e7b8c1e6ef4d5f6c4c24b1",
+        "fingerprint": "sha256:4fb9e7f4f12541c3df56c31ee5fe065b2ab920d544e19315f9fb73f22c2310df",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6251,7 +6276,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:ce3f7da86b842ce1f8f7307214a127cca6170d5929b20b58be97b0f4c2408482",
+        "fingerprint": "sha256:3c0fbe20d54121844b79d259547cf455fa6b278d5e4e8116225d7a532b116b40",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6333,6 +6358,26 @@
       "source": {
         "fingerprint": "sha256:1a4c6c78de9cf396d4528edefa3effe87f7b0846427bcdd314f11197d62e2ef1",
         "path": ".engine/operations/build-work-dispatch.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:checkout-auto-update",
+      "name": ".engine/operations/checkout-auto-update.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "checkout-auto-update",
+      "source": {
+        "fingerprint": "sha256:cd768e892424cf0987cb4fadc7fd08ceea3690586aea9d88939384457ccd5ef8",
+        "path": ".engine/operations/checkout-auto-update.md"
       },
       "status": "active",
       "type": "operation"
@@ -6511,7 +6556,7 @@
       },
       "slug": "engine-release",
       "source": {
-        "fingerprint": "sha256:10f316f95d4d304c7f5dace7cec12e9ec5fa25a5d34a70332e483801f370fea7",
+        "fingerprint": "sha256:5585f4077c0c03174333f883e533826bc2b7920f394a6e08e918ec474e406150",
         "path": ".engine/operations/engine-release.md"
       },
       "status": "active",
@@ -6571,7 +6616,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:6d84cfa292894e691bcc10a0e3e51b2dc48e979bb04c2bcf43b585148c4848bc",
+        "fingerprint": "sha256:4c9e48d7c405dc323a3ea03460fdd176c94d4d173a8237e38ee8fe17b118633d",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -8624,7 +8669,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:518f2e2465aafe79ac69d10c49614e31e1685816813b2b574b62974b25e83ddc",
+        "fingerprint": "sha256:ec536f55479badaa42581f0b2b117e2f2711a665501934c763b759de0920449c",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -9478,6 +9523,7 @@
           "tool:audit_digest",
           "tool:boot_alarm_ledger",
           "tool:boot_slice",
+          "tool:checkout_auto_update",
           "tool:checkout_health",
           "tool:execution_environment",
           "tool:first_run_health",
@@ -9511,7 +9557,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:7604b3f6867bab7d29599a8aae38c7b33d7756e48fef9f6f3cca7ec88c2fd09c",
+        "fingerprint": "sha256:cbb85d645d5f6870b727e692f63c0188a1d107868a9bb45c5b831c0b55640d85",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9919,6 +9965,30 @@
     {
       "entrypoint": "cli",
       "guarded": false,
+      "id": "tool:checkout_auto_update",
+      "name": ".engine/tools/checkout_auto_update.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:checkout_health",
+          "tool:tune"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "checkout_auto_update",
+      "source": {
+        "fingerprint": "sha256:e3d0cb6547d63b1fb640b544a430b2bcc438cde0d679ba0df13526606720e01f",
+        "path": ".engine/tools/checkout_auto_update.py"
+      },
+      "status": "active",
+      "summary": "Session-start automatic catch-up and its reviewed operator preference.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
       "id": "tool:checkout_health",
       "name": ".engine/tools/checkout_health.py",
       "owner": "core",
@@ -9933,7 +10003,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:583dbbeeb66d6466efbeb8861422fb34c4dfa2edc93e93a8c06bb13af5c63066",
+        "fingerprint": "sha256:86797927652bbc9433910fbe8fe58660cca0cf4993be814a8dbcda526d9c0606",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -13122,7 +13192,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:94d1dee4eb9d31156c158e52ba797844b9391a24270e303646a6118bf2308f38",
+        "fingerprint": "sha256:846fd9c92f3befff901674ccbb437df161a4e435ce62954d523fd828ff54a978",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -15060,7 +15130,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:45ad4db7323ad9eb496dbd88d82fdf20503ea3a715a2a1beaa745c17ce98f76a",
+        "fingerprint": "sha256:9d0aa5852a62dcf320cb712d2ea96e5cafc3cd6f830acb62722c7dd62872f9d2",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15426,6 +15496,29 @@
       },
       "status": "active",
       "summary": "test_census_completeness.py — the demo census-completeness recurrence guard (#424 U13c).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_checkout_auto_update",
+      "name": ".engine/tools/test_checkout_auto_update.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:checkout_auto_update"
+        ]
+      },
+      "slug": "test_checkout_auto_update",
+      "source": {
+        "fingerprint": "sha256:a92ad41dd9c6b048adbc378dec65ed955baffc4b6fa60d68314adef70d0e4c0c",
+        "path": ".engine/tools/test_checkout_auto_update.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for bounded, default-on session-start checkout catch-up.",
       "type": "tool"
     },
     {
@@ -17234,7 +17327,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f9c9cd5cd50446915743a3c40686cbaf1762d0a285782a4326fab2ece1baedb4",
+        "fingerprint": "sha256:576d5f553d58256be2fb5e9c6018cba480581e832dca164c329f9b07728c1518",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17453,7 +17546,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:85ea6b561ccc0f195159980f0d66abad372ac445f186b9464d073ca3eddc19be",
+        "fingerprint": "sha256:4077dd48eecd22cc61a6b89b233632219883c8ff0a8dae1b4e2fccd180b1eac1",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
@@ -18917,7 +19010,7 @@
       },
       "slug": "test_tune",
       "source": {
-        "fingerprint": "sha256:7bf672744369d8e95cb902dfcd3eb0e9e136188c9a566195a5d01695e409e7ff",
+        "fingerprint": "sha256:832644ea7cfc2103c946515a0d28ff9109d7f17eb07ddd3196fd9d24858af390",
         "path": ".engine/tools/test_tune.py"
       },
       "status": "active",
@@ -19115,7 +19208,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:b04ce6cf5bd7e23643d2606a98eb7a4f21c9b93d0b0c5574186366ba20b52592",
+        "fingerprint": "sha256:bb0ce2d09e7d23403750a73920a2140dd7850ae41e2dab9715d873e489186d0d",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",

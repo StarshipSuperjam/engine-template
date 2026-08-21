@@ -3,7 +3,6 @@ id: eADR-0043
 title: A clean default operator checkout catches up at session start by default
 status: accepted
 date: 2026-08-20
-supersedes: PR #619 consent-only checkout mutation decision
 ---
 
 ## Decision
@@ -37,9 +36,10 @@ manual recovery offer.
 
 ## Significance
 
-This deliberately supersedes PR #619's earlier rule that every operator-checkout update required consent.
-That decision correctly established the fresh-target, identity, losslessness, atomic advancement, and rollback
-safeguards; this decision keeps them and changes only the default authority for the strictly clean,
+This decision deliberately supersedes the consent-only default established in
+StarshipSuperjam/engine-template#619: every operator-checkout update formerly required consent. That work
+correctly established the fresh-target, identity, losslessness, atomic advancement, and rollback safeguards;
+this decision keeps them and changes only the default authority for the strictly clean,
 already-default-branch case. The broader repair authorities from that work remain consent-only.
 
 ## Rationale
