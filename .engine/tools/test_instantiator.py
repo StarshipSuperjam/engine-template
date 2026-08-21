@@ -153,7 +153,7 @@ class TestPresentGather(unittest.TestCase):
     def test_welcome_orients_to_what_is_already_running(self):
         # The first-run welcome briefs the new operator (post-adoption, not a prospect) on the always-present
         # essentials — DESCRIBED, never offered as a choice — in the operator-onboarding voice and consistent
-        # with the README's "What's inside" names. It must land AHEAD of the choices, and name capabilities,
+        # with the README's product-capability language. It must land AHEAD of the choices, and name capabilities,
         # never raw module ids. manifests=[] + a minimal catalog keep the assertion deterministic.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")

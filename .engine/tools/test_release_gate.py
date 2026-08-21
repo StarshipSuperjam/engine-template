@@ -741,11 +741,10 @@ class TestNestedEnvScrub(unittest.TestCase):
 
     def test_scrub_defeats_the_pr_context_leak_end_to_end(self):
         # The #676 incident proven through the REAL validate.get_pr_body in a spawned child, not just the
-        # helper in isolation: a workflow_dispatch event (no pull_request) leaked into the gate's parent env
-        # makes get_pr_body read "" — which pr-body-completeness evaluates as "sections missing" — but a child
-        # launched through _nested_env() sees the CI identity stripped, so get_pr_body reads None and the
-        # PR-context checks no-op. Guards the conjunction (leaked env -> wrong verdict; scrub -> fixed) against
-        # a future regression to _nested_env's prefix list OR get_pr_body's None-vs-"" behaviour.
+        # helper in isolation: a workflow_dispatch event carries no pull_request and therefore reads as None,
+        # while a child launched through _nested_env() also sees the ambient CI identity stripped. Guards both
+        # defenses together: event classification prevents a false empty-PR verdict at the source, and the
+        # release projection still cannot inherit credentials or GitHub Actions identity from its parent.
         tools_dir = os.path.dirname(os.path.abspath(validate.__file__))
         with tempfile.TemporaryDirectory() as d:
             event = os.path.join(d, "event.json")
@@ -753,7 +752,7 @@ class TestNestedEnvScrub(unittest.TestCase):
                 json.dump({"action": "workflow_dispatch"}, fh)         # a dispatch event carries no pull_request
             leak = {"GITHUB_EVENT_PATH": event, "GITHUB_ACTIONS": "true", "CI": "true", "GITHUB_TOKEN": "x"}
             with mock.patch.dict(os.environ, leak, clear=False):
-                self.assertEqual(validate.get_pr_body(None), "")       # the raw leak WOULD misfire ("" is not None)
+                self.assertIsNone(validate.get_pr_body(None))          # a non-PR event is not an empty PR
                 probe = ("import os, sys; sys.path.insert(0, os.getcwd()); import validate; "
                          "print(repr(validate.get_pr_body(None))); "
                          "print(any(k in os.environ for k in "

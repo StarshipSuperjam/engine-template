@@ -2004,7 +2004,10 @@ def get_pr_body(body_file: str | None) -> str | None:
         return read(body_file)
     event = os.environ.get("GITHUB_EVENT_PATH")
     if event and os.path.exists(event):
-        pr = (load_json(event).get("pull_request") or {})
+        payload = load_json(event)
+        if "pull_request" not in payload:
+            return None  # a real non-PR event (for example push) has no PR-body witness to evaluate
+        pr = (payload.get("pull_request") or {})
         return pr.get("body") or ""
     return None
 

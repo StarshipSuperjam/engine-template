@@ -134,9 +134,10 @@ _DESELECT_PREFACE = (
 # not a prospect being convinced (that is the README's job). Fuller and more concrete than the README on
 # purpose: it walks the new operator through what is ALREADY running, in plain "here is what this does for you"
 # terms — the always-present essentials, never a choice, so they are described, not offered. Named and framed to
-# match the README's "What's inside" so the two never tell the story two different ways, but authored at its own
-# onboarding depth, never copied. Capability-level (Memory, State, Knowledge, …), never module ids — so no raw
-# id leaks into operator copy, and the render is the same in every Engine because the spine is invariant.
+# stay consistent with the README's product capabilities so the two never tell the story two different ways,
+# but authored at its own onboarding depth, never copied. Capability-level (Memory, State, Knowledge, …),
+# never module ids — so no raw id leaks into operator copy, and the render is the same in every Engine because
+# the spine is invariant.
 _LIVE_ALREADY_RUNNING = (
     "What's already running. You didn't choose these and you don't set them up — they came with your Engine and\n"
     "are on from this first session:\n"
