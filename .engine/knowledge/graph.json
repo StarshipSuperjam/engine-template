@@ -4226,7 +4226,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:375258f38a36c77e3f30137704579f351908e9195dca758660405bb726b63368",
+        "fingerprint": "sha256:12a8eaf16350124724b7db843078ddb33b8149b7a568a2345aac3526e467016f",
         "path": ".agents/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -8669,7 +8669,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:ec536f55479badaa42581f0b2b117e2f2711a665501934c763b759de0920449c",
+        "fingerprint": "sha256:ac49cbdc801ffbbd43314ef70f88efa4d2d5758c2a297b26883d51a1b9470714",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -9980,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:f17482ce9d994dec66eceaa2d220216c2be952938e407505ff564bb3ba9b7949",
+        "fingerprint": "sha256:12dcda634d985d239818acea7b1cd8310ad335a6e3a8b0d3ed2e44454cbab321",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -15541,7 +15541,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:86d2d6120b7891e667bb8febf0468313c75757ac60fe5d182a95522376f58883",
+        "fingerprint": "sha256:e5f36a49b5dc2d839ee9aff14736cace77f2acdc7309af308f26b84c7812a60b",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
