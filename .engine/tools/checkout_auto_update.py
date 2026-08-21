@@ -85,6 +85,8 @@ def load_preference(cwd: str | None = None, *, path: str | None = None) -> dict:
             raw = json.load(fh)
     except json.JSONDecodeError:
         return {"state": "invalid", "reason": "invalid-json", "path": path}
+    except UnicodeError:
+        return {"state": "invalid", "reason": "unreadable", "path": path}
     except OSError:
         return {"state": "invalid", "reason": "unreadable", "path": path}
     finally:

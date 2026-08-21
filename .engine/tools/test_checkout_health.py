@@ -665,6 +665,36 @@ class TestCatchUp(unittest.TestCase):
                              before_ref)
             self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
 
+    def test_boot_transient_head_lock_clash_rolls_back_and_preserves_late_edit(self):
+        # Even when the competing lock clears, the original losslessness proof is stale. The automatic arm
+        # must roll back instead of retrying materialisation, and an arbitrary edit made during the wait stays.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            before = _head(work)
+            late_path = os.path.join(work, "late-untracked.txt")
+            lock_checks = 0
+
+            def transient_lock(_main, _name):
+                nonlocal lock_checks
+                lock_checks += 1
+                if lock_checks == 3:
+                    with open(late_path, "w", encoding="utf-8") as fh:
+                        fh.write("operator work\n")
+                    return True
+                return False
+
+            with mock.patch.object(checkout_health, "_acquire_head_lock", return_value=None) as acquire, \
+                 mock.patch.object(checkout_health, "_git_lock_is_present", side_effect=transient_lock):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual((result["status"], result["reason"], result["applied"]),
+                             ("blocked", "checkout-changed", False))
+            self.assertEqual(acquire.call_count, 1, "a post-clash update must never retry materialisation")
+            self.assertEqual(_head(work), before)
+            with open(late_path, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "operator work\n")
+            self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
+
     def test_peer_boot_waits_for_the_winner_to_materialize_before_reporting_current(self):
         # Pause a winning automatic update immediately after its named-ref CAS.  A losing boot must wait over
         # the Git lock, then normalize only after the winner has materialized the exact assessed target.

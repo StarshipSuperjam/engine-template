@@ -9980,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:cf9065c5f9c93859143ea42242960149f942ff9781de96ce949fa1ba3ff0f260",
+        "fingerprint": "sha256:b13d0ece0950696040cbcd1ea27887c7c1001f94750bd4510ae4c509b8d90929",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -10004,7 +10004,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:bf003618548187f12d7214167aba46269af3e760e31fbdf554c796a16e152220",
+        "fingerprint": "sha256:f4a2a4f0d429fa101472f63b656546289bf2e44dcb0b7c6bef3409e12cc05471",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -15515,7 +15515,7 @@
       },
       "slug": "test_checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:fb80fc2011af27ef4af967a7a57fb08cfdb52b2536aebfc2cd12eeff750de763",
+        "fingerprint": "sha256:faa9235c7b0a7b8fcf9ba61bf72e568e7bc5da220a5bf83f0fbbfcdbeab4da44",
         "path": ".engine/tools/test_checkout_auto_update.py"
       },
       "status": "active",
@@ -15541,7 +15541,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:e5f36a49b5dc2d839ee9aff14736cace77f2acdc7309af308f26b84c7812a60b",
+        "fingerprint": "sha256:b3e66c05fcca71aae0caa40af05bab4d68a713b0f2147fbfb17320ad66612a84",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",

@@ -50,6 +50,14 @@ class TestPreference(unittest.TestCase):
             result = cau.load_preference(path=tmp)
         self.assertEqual((result["state"], result["reason"]), ("invalid", "unreadable"))
 
+    def test_non_utf8_preference_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "operator-checkout.json")
+            with open(path, "wb") as fh:
+                fh.write(b'{"automatic_catch_up": \xff}')
+            result = cau.load_preference(path=path)
+        self.assertEqual((result["state"], result["reason"]), ("invalid", "unreadable"))
+
     def test_dangling_symlink_fails_closed_instead_of_becoming_the_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "operator-checkout.json")

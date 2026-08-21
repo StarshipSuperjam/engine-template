@@ -1291,8 +1291,9 @@ def _advance_clean_default_snapshot_head_interlocked(snapshot: dict) -> dict:
     Updating the currently checked-out branch itself requires Git's HEAD lock, so the named-ref CAS cannot
     hold that lock directly. The controller reserves ``index.lock`` first (which makes a normal branch switch
     refuse), advances the named default, then reserves ``HEAD.lock`` before letting ``read-tree`` take the
-    index lock. A transient competing HEAD lock is given the established bounded refresh window to clear before
-    the controller decides whether it can safely materialize or roll back the exact CAS.
+    index lock. A competing HEAD lock after the CAS is given the established bounded refresh window to clear
+    only so the controller can roll back the exact CAS. It never resumes materialisation after that clash:
+    the competing operation may have changed checkout identity or local work while it owned the lock.
     """
     main, default = snapshot["main"], snapshot["branch"]
     # Detect an in-progress (or stale) branch transition *before* the named ref can move.  A normal checkout
@@ -1324,8 +1325,10 @@ def _advance_clean_default_snapshot_head_interlocked(snapshot: dict) -> dict:
             return {**snapshot, "status": "blocked", "reason": "checkout-changed", "applied": False}
 
         # `index.lock` excludes normal branch switches until this exact lock is held. If a competing Git
-        # operation transiently owns HEAD after the CAS, wait only through the same bounded window used for
-        # fresh checkout discovery, then re-check before choosing materialization or exact rollback.
+        # operation owns HEAD after the CAS, release the index reservation so that operation can settle, then
+        # wait only so Git can perform the exact rollback. Never retry materialisation after the clash:
+        # arbitrary edits do not take Git locks, so the original full identity and losslessness proof no
+        # longer governs the checkout.
         lock = _acquire_head_lock(main)
         if not lock:
             _release_head_lock(index_lock)
@@ -1333,13 +1336,13 @@ def _advance_clean_default_snapshot_head_interlocked(snapshot: dict) -> dict:
             deadline = time.monotonic() + _FETCH_TIMEOUT
             while _git_lock_is_present(main, "HEAD.lock") and time.monotonic() < deadline:
                 time.sleep(0.05)
-            lock = _acquire_head_lock(main)
-        if not lock:
             restored = _advance_named_default(main, default, snapshot["target_oid"], snapshot["head_oid"])
             after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+            after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+            restored_exactly = restored and after == snapshot["head_oid"] and after_branch == default
             return {"status": "blocked", "main": main, "branch": default,
-                    "reason": "checkout-changed" if restored else "rollback-failed",
-                    "before": snapshot["head_oid"], "after": after, "applied": not restored}
+                    "reason": "checkout-changed" if restored_exactly else "rollback-failed",
+                    "before": snapshot["head_oid"], "after": after, "applied": not restored_exactly}
         # read-tree takes index.lock itself. Release our branch-switch reservation only after HEAD.lock now
         # excludes a checkout, and keep that HEAD lock through all remaining branch and tree checks.
         _release_head_lock(index_lock)
