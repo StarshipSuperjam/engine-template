@@ -22,6 +22,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checkout_health  # noqa: E402
+import repo_identity  # noqa: E402  (the shared default-branch reader for the temporary review worktree)
 import tune  # noqa: E402  (reviewed configuration PR transport)
 
 
@@ -88,27 +89,60 @@ def _pr_body(enabled: bool) -> str:
         "upgraded, and it only controls the local project folder; it never pushes, merges, or changes GitHub.\n")
 
 
+def _staging_worktree(root: str) -> tuple[str | None, str | None]:
+    """Create a detached default-branch worktree for a preference PR, never changing the live checkout."""
+    branch = repo_identity.resolve_default_branch(root)
+    base = (checkout_health._run(["git", "-C", root, "rev-parse", "--verify", f"refs/heads/{branch}"])
+            or checkout_health._run(["git", "-C", root, "rev-parse", "--verify",
+                                     f"refs/remotes/origin/{branch}"]))
+    if not base:
+        return None, "the verified default branch is not available locally"
+    worktree = tempfile.mkdtemp(prefix="engine-checkout-preference-")
+    try:
+        os.rmdir(worktree)  # Git worktree add requires a path it can create itself.
+        result = subprocess.run(["git", "-C", root, "worktree", "add", "--detach", worktree, base.strip()],
+                                capture_output=True, text=True, check=False)
+        if result.returncode:
+            return None, result.stderr.strip() or "Git could not create the review worktree"
+        return worktree, None
+    except OSError as exc:
+        return None, str(exc)
+
+
+def _remove_staging_worktree(root: str, worktree: str) -> None:
+    """Remove the disposable, clean review worktree; a cleanup failure never changes live preference state."""
+    try:
+        subprocess.run(["git", "-C", root, "worktree", "remove", worktree],
+                       capture_output=True, text=True, check=False)
+    except OSError:
+        pass
+
+
 def set_preference(enabled: bool, cwd: str | None = None, *, path: str | None = None,
                    opener=tune._open_tune_pr, open_pr: bool = True) -> dict:
-    """Atomically save an explicit choice and, by default, open its reviewed pull request."""
+    """Propose an explicit choice from a disposable worktree, so only a merged reviewed PR activates it."""
     path = path or preference_path(cwd)
     if not path:
         return {"ok": False, "message": "I couldn't find this project's main folder, so nothing was changed.",
                 "pr": None}
-    try:
-        _atomic_write(path, enabled)
-    except OSError as exc:
-        return {"ok": False, "message": f"I couldn't save the automatic-update choice ({exc}). Nothing changed.",
-                "pr": None}
     if not open_pr or opener is None:
-        return {"ok": True, "message": "Saved (no pull request opened — practice run).", "pr": None}
+        return {"ok": True, "message": "Practice run only — no preference was saved without a reviewed pull request.",
+                "pr": None}
     root = os.path.dirname(os.path.dirname(path))
     relpath = CONFIG_REL.replace(os.sep, "/")
+    review_root, reason = _staging_worktree(root)
+    if not review_root:
+        return {"ok": False, "message": f"I couldn't prepare the reviewed preference change ({reason}). Nothing changed.",
+                "pr": None}
     try:
+        _atomic_write(os.path.join(review_root, CONFIG_REL), enabled)
         pr = opener(branch="engine-checkout-auto-update", title="Maintenance: set automatic checkout updates",
-                    body=_pr_body(enabled), paths=[relpath], cwd=root)
-    except Exception as exc:  # noqa: BLE001 — the atomic write remains saved; give a handoff path.
-        return {"ok": True, "message": f"Saved, but the pull request could not be opened: {exc}", "pr": None}
+                    body=_pr_body(enabled), paths=[relpath], cwd=review_root)
+    except Exception as exc:  # noqa: BLE001 — only the disposable review worktree was written.
+        return {"ok": False, "message": f"The preference pull request could not be opened: {exc}. Nothing changed.",
+                "pr": None}
+    finally:
+        _remove_staging_worktree(root, review_root)
     return {"ok": True,
             "message": ("I've prepared your choice as a pull request — merge it to make it take effect. "
                         "Nothing changes until you do."), "pr": pr}
@@ -154,7 +188,7 @@ def automatic_catch_up(cwd: str | None = None) -> dict:
     if not safe:
         return {"status": "blocked", "reason": "local-work", "reasons": reasons, "snapshot": snapshot}
 
-    applied = checkout_health._advance_clean_default_snapshot(snapshot)
+    applied = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
     if applied.get("status") == "fixed":
         return {"status": "updated", "update": applied, "snapshot": _current_snapshot(snapshot)}
     normal = _normalise_peer_winner(cwd, {"status": "blocked", "reason": applied.get("reason"),

@@ -589,6 +589,37 @@ class TestCatchUp(unittest.TestCase):
             with open(os.path.join(work, "shared.txt")) as fh:
                 self.assertEqual(fh.read(), "LATE EDIT\n")
 
+    def test_boot_head_lock_refuses_an_interleaved_branch_switch_before_materializing(self):
+        # The automatic arm alone reserves HEAD.lock across its preflight + read-tree sequence. A concurrent
+        # `git checkout topic` in the former gap must fail, so the target can never be written into topic's
+        # index/worktree. The normal consented catch_up path deliberately keeps its historical timing.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            _git(work, "checkout", "-q", "-b", "topic")
+            with open(os.path.join(work, "topic-only.txt"), "w") as fh:
+                fh.write("topic work\n")
+            _commit(work, "topic work")
+            topic_before = _head(work)
+            _git(work, "checkout", "-q", "main")
+            snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
+            real_materialize = checkout_health._materialize_target
+            switch = {}
+
+            def materialize_after_switch_attempt(main, before, target):
+                switch["returncode"] = subprocess.run(["git", "-C", main, "checkout", "-q", "topic"],
+                                                        capture_output=True, text=True, check=False).returncode
+                return real_materialize(main, before, target)
+
+            with mock.patch.object(checkout_health, "_materialize_target", side_effect=materialize_after_switch_attempt):
+                result = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
+            self.assertEqual(result["status"], "fixed")
+            self.assertNotEqual(switch["returncode"], 0, "HEAD.lock rejects the concurrent branch switch")
+            self.assertEqual(_head(work).strip(), snapshot["target_oid"])
+            _git(work, "checkout", "-q", "topic")
+            self.assertEqual(_head(work), topic_before)
+            with open(os.path.join(work, "topic-only.txt")) as fh:
+                self.assertEqual(fh.read(), "topic work\n")
+
     def test_unreadable_status_is_not_treated_as_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])

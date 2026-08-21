@@ -1179,14 +1179,54 @@ def _rescue_then_reconcile(snapshot: dict, *, original_branch: str) -> dict:
             "main": main, "branch": default, "after": after, "applied": True}
 
 
-def _advance_clean_default_snapshot(snapshot: dict) -> dict:
+def _acquire_head_lock(main: str) -> str | None:
+    """Reserve this worktree's HEAD against a concurrent branch switch for one automatic mutation.
+
+    Git writes ``HEAD.lock`` before changing a worktree's checked-out branch.  Holding that exact per-worktree
+    lock closes the otherwise unavoidable gap between proving that HEAD names the default branch and
+    materialising the target tree: a concurrent ``git switch`` now refuses rather than leaving ``read-tree`` to
+    write the selected side branch's index/worktree.  The lock is deliberately opt-in for the boot controller;
+    existing consented public operations retain their established interface and timing.
+    """
+    raw = (_run(["git", "-C", main, "rev-parse", "--git-path", "HEAD.lock"]) or "").strip()
+    if not raw:
+        return None
+    path = raw if os.path.isabs(raw) else os.path.join(main, raw)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("Engine automatic checkout catch-up\n")
+        return path
+    except OSError:
+        return None
+
+
+def _release_head_lock(path: str) -> None:
+    """Release only the HEAD lock this controller successfully created; failure stays fail-safe."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _advance_clean_default_snapshot(snapshot: dict, *, protect_head: bool = False) -> dict:
     """Apply an already-assessed default-branch snapshot without rescuing work or switching branches.
 
     This is the narrow mutation seam shared by consented ``catch_up`` and automatic session-start catch-up.
     Callers keep their own eligibility policy; this primitive owns the common identity recheck, clean
     lossless gate, named-ref compare-and-swap, index-locked materialization, rollback, and postcondition.
-    It deliberately never calls ``_dirty_subsumed`` or ``_rescue_then_reconcile``.
+    It deliberately never calls ``_dirty_subsumed`` or ``_rescue_then_reconcile``. ``protect_head`` is the
+    boot-only branch-switch interlock: after the named-ref compare-and-swap, it holds Git's per-worktree
+    HEAD lock through the branch recheck and materialisation, so a concurrent branch change cannot redirect
+    the target tree into a side worktree.
     """
+    if not protect_head:
+        return _advance_clean_default_snapshot_locked(snapshot)
+    return _advance_clean_default_snapshot_head_interlocked(snapshot)
+
+
+def _advance_clean_default_snapshot_locked(snapshot: dict) -> dict:
+    """The established manual clean fast-forward sequence; its public timing and outcomes remain unchanged."""
     main, default = snapshot["main"], snapshot["branch"]
     if not _snapshot_unchanged(snapshot):
         return {**snapshot, "status": "blocked", "reason": "checkout-changed", "applied": False}
@@ -1211,6 +1251,67 @@ def _advance_clean_default_snapshot(snapshot: dict) -> dict:
         return {"status": "fixed", "main": main, "branch": default,
                 "brought_in": snapshot["behind_commits"], "before": snapshot["head_oid"], "after": after,
                 "target_oid": snapshot["target_oid"], "applied": True}
+    changed = after != snapshot["head_oid"] or after_branch != default
+    return {"status": "blocked", "main": main, "branch": default,
+            "reason": "postcondition-failed" if changed else "clash",
+            "before": snapshot["head_oid"], "after": after, "applied": changed}
+
+
+def _advance_clean_default_snapshot_head_interlocked(snapshot: dict) -> dict:
+    """Boot-only clean advancement whose materialisation cannot follow a concurrent branch switch.
+
+    Updating the currently checked-out branch itself requires Git's HEAD lock, so the named-ref CAS happens
+    first. If another process switches branches before this controller can reserve HEAD, it does *not*
+    materialise any tree; the successful CAS remains a safe advance of the assessed default ref. Once this
+    process owns HEAD.lock it rechecks that HEAD still resolves to that exact assessed target before
+    ``read-tree``. This is the narrow ordering that permits Git's own ref transaction and still prevents the
+    old check-then-materialise race from writing a topic branch's worktree.
+    """
+    main, default = snapshot["main"], snapshot["branch"]
+    if not _snapshot_unchanged(snapshot):
+        return {**snapshot, "status": "blocked", "reason": "checkout-changed", "applied": False}
+    if not _succeeds(["git", "-C", main, "merge-base", "--is-ancestor",
+                      snapshot["head_oid"], snapshot["target_oid"]]):
+        return {**snapshot, "status": "blocked", "reason": "diverged", "applied": False}
+    lossless, reasons = _is_lossless(main)
+    if not lossless:
+        return {**snapshot, "status": "blocked", "reason": "local-work", "reasons": reasons,
+                "applied": False}
+    if not _advance_named_default(main, default, snapshot["head_oid"], snapshot["target_oid"]):
+        return {**snapshot, "status": "blocked", "reason": "checkout-changed", "applied": False}
+
+    lock = _acquire_head_lock(main)
+    if not lock:
+        after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+        return {"status": "blocked", "main": main, "branch": default, "reason": "checkout-changed",
+                "before": snapshot["head_oid"], "after": after, "applied": after != snapshot["head_oid"]}
+    materialized = False
+    after = ""
+    after_branch = ""
+    try:
+        after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+        after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+        if after != snapshot["target_oid"] or after_branch != default:
+            return {"status": "blocked", "main": main, "branch": default, "reason": "checkout-changed",
+                    "before": snapshot["head_oid"], "after": after, "applied": after != snapshot["head_oid"]}
+        materialized = _materialize_target(main, snapshot["head_oid"], snapshot["target_oid"])
+        after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+        after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+        if materialized and after == snapshot["target_oid"] and after_branch == default:
+            return {"status": "fixed", "main": main, "branch": default,
+                    "brought_in": snapshot["behind_commits"], "before": snapshot["head_oid"], "after": after,
+                    "target_oid": snapshot["target_oid"], "applied": True}
+    finally:
+        _release_head_lock(lock)
+
+    # Materialisation failed while HEAD was reserved, so no branch switch can have redirected the tree. Roll
+    # the named default ref back by exact CAS after releasing HEAD.lock (Git itself needs that lock to update a
+    # checked-out ref); a late edit remains in the worktree and is never overwritten.
+    if not materialized:
+        _ok(["git", "-C", main, "update-ref", f"refs/heads/{default}",
+             snapshot["head_oid"], snapshot["target_oid"]])
+    after = (_run(["git", "-C", main, "rev-parse", "HEAD"]) or "").strip()
+    after_branch = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
     changed = after != snapshot["head_oid"] or after_branch != default
     return {"status": "blocked", "main": main, "branch": default,
             "reason": "postcondition-failed" if changed else "clash",

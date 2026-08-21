@@ -9971,6 +9971,7 @@
       "predicates": {
         "imports": [
           "tool:checkout_health",
+          "tool:repo_identity",
           "tool:tune"
         ],
         "provided_by": [
@@ -9979,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:e3d0cb6547d63b1fb640b544a430b2bcc438cde0d679ba0df13526606720e01f",
+        "fingerprint": "sha256:5f5766323b16a8decd98a636d68a86add3f870d2fd0773b6f94866d50d987269",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -10003,7 +10004,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:86797927652bbc9433910fbe8fe58660cca0cf4993be814a8dbcda526d9c0606",
+        "fingerprint": "sha256:7b970209f5ff69364b0e99129693e8803e448eb19821d3df769f74f16ad1516b",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -15514,7 +15515,7 @@
       },
       "slug": "test_checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:a92ad41dd9c6b048adbc378dec65ed955baffc4b6fa60d68314adef70d0e4c0c",
+        "fingerprint": "sha256:ca3e6751caff85d2421e363701112edbb91fbd5640e73c3e8d43bf5c62be76f8",
         "path": ".engine/tools/test_checkout_auto_update.py"
       },
       "status": "active",
@@ -15539,7 +15540,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:77053fe6c8a9ebe14d69ee476a6bd98ff8a4f91ae1e104439b8d632ecdb57502",
+        "fingerprint": "sha256:dcab72c595d851fac8cbae01304ccea1a94300d0b45153a6c303be1b4ee59087",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",

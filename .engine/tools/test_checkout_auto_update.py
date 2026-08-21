@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -56,24 +57,69 @@ class TestPreference(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump({"automatic_catch_up": False}, fh)
             with mock.patch.object(cau.os, "replace", side_effect=OSError("disk full")):
-                result = cau.set_preference(True, path=path, open_pr=False)
+                with self.assertRaises(OSError):
+                    cau._atomic_write(path, True)
             with open(path, encoding="utf-8") as fh:
                 self.assertEqual(json.load(fh), {"automatic_catch_up": False})
-            self.assertFalse(result["ok"])
 
-    def test_choice_is_saved_atomically_and_handed_to_a_reviewed_pr(self):
+    def test_choice_is_staged_atomically_only_in_the_review_worktree(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, ".engine", "operator-checkout.json")
+            path = os.path.join(tmp, "live", ".engine", "operator-checkout.json")
+            review = os.path.join(tmp, "review")
+            os.makedirs(os.path.join(review, ".engine"))
             seen = {}
             def opener(**kwargs):
                 seen.update(kwargs)
+                with open(os.path.join(kwargs["cwd"], ".engine", "operator-checkout.json"), encoding="utf-8") as fh:
+                    seen["preference"] = json.load(fh)
                 return {"number": 1, "html_url": "https://example.invalid/pr/1"}
-            result = cau.set_preference(False, path=path, opener=opener)
-            with open(path, encoding="utf-8") as fh:
-                self.assertEqual(json.load(fh), {"automatic_catch_up": False})
+            with mock.patch.object(cau, "_staging_worktree", return_value=(review, None)), \
+                 mock.patch.object(cau, "_remove_staging_worktree") as remove:
+                result = cau.set_preference(False, path=path, opener=opener)
             self.assertTrue(result["ok"])
             self.assertEqual(seen["paths"], [".engine/operator-checkout.json"])
-            self.assertEqual(seen["cwd"], tmp)
+            self.assertEqual(seen["cwd"], review)
+            self.assertEqual(seen["preference"], {"automatic_catch_up": False})
+            self.assertFalse(os.path.exists(path), "the live checkout cannot read an unmerged proposal")
+            remove.assert_called_once_with(os.path.join(tmp, "live"), review)
+
+    def test_failed_preference_pr_leaves_no_active_live_choice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live", ".engine", "operator-checkout.json")
+            review = os.path.join(tmp, "review")
+            os.makedirs(os.path.join(review, ".engine"))
+            with mock.patch.object(cau, "_staging_worktree", return_value=(review, None)), \
+                 mock.patch.object(cau, "_remove_staging_worktree"):
+                result = cau.set_preference(False, path=path,
+                                            opener=mock.Mock(side_effect=RuntimeError("network down")))
+            self.assertFalse(result["ok"])
+            self.assertFalse(os.path.exists(path))
+
+    def test_real_review_worktree_keeps_the_live_checkout_and_preference_unchanged_until_merge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            def git(*args):
+                return subprocess.run(["git", "-C", live, *args], capture_output=True, text=True, check=True)
+            subprocess.run(["git", "init", "-q", "--initial-branch=main", live], check=True)
+            git("config", "user.email", "test@example.invalid")
+            git("config", "user.name", "Preference test")
+            os.makedirs(os.path.join(live, ".engine"))
+            with open(os.path.join(live, ".engine", "marker"), "w", encoding="utf-8") as fh:
+                fh.write("fixture\n")
+            git("add", ".engine")
+            git("commit", "-qm", "initial")
+            seen = {}
+            def opener(**kwargs):
+                seen["cwd"] = kwargs["cwd"]
+                with open(os.path.join(kwargs["cwd"], ".engine", "operator-checkout.json"), encoding="utf-8") as fh:
+                    seen["value"] = json.load(fh)
+                return {"number": 1}
+            result = cau.set_preference(False, path=os.path.join(live, cau.CONFIG_REL), opener=opener)
+            self.assertTrue(result["ok"])
+            self.assertEqual(seen["value"], {"automatic_catch_up": False})
+            self.assertNotEqual(seen["cwd"], live)
+            self.assertFalse(os.path.exists(os.path.join(live, cau.CONFIG_REL)))
+            self.assertEqual(git("branch", "--show-current").stdout.strip(), "main")
 
 
 class TestAutomaticController(unittest.TestCase):
@@ -152,7 +198,7 @@ class TestAutomaticController(unittest.TestCase):
              mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
              mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot", return_value=fixed) as advance:
             result = cau.automatic_catch_up()
-        advance.assert_called_once_with(SNAPSHOT)
+        advance.assert_called_once_with(SNAPSHOT, protect_head=True)
         self.assertEqual((result["status"], result["snapshot"]["state"], result["snapshot"]["head_oid"]),
                          ("updated", "current", SNAPSHOT["target_oid"]))
 
