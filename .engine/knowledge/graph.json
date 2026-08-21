@@ -9557,7 +9557,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:cbb85d645d5f6870b727e692f63c0188a1d107868a9bb45c5b831c0b55640d85",
+        "fingerprint": "sha256:0f69330382802a3215a7b787766fbc7faf3c57126069825bf508161e9e3188ed",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9980,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:5f5766323b16a8decd98a636d68a86add3f870d2fd0773b6f94866d50d987269",
+        "fingerprint": "sha256:3a63fc507665852fbff26f934a5078c96e455330e3b854724a42337f46e14139",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -10004,7 +10004,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:7b970209f5ff69364b0e99129693e8803e448eb19821d3df769f74f16ad1516b",
+        "fingerprint": "sha256:4e821eb8a49d0bf2f9f2d9fb0cd5ba381ce1c36b252b2c7dc2da754fdee3ccef",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -15131,7 +15131,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:9d0aa5852a62dcf320cb712d2ea96e5cafc3cd6f830acb62722c7dd62872f9d2",
+        "fingerprint": "sha256:cf6cf29a6b2e40e139466af1533a6dbabcdec17d26a415c47f47aabb13802b9d",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15515,7 +15515,7 @@
       },
       "slug": "test_checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:ca3e6751caff85d2421e363701112edbb91fbd5640e73c3e8d43bf5c62be76f8",
+        "fingerprint": "sha256:217449e0f4ee02f3ec02367b53eb35edf85f3d7add89e3b9b47aeaec8ca02e62",
         "path": ".engine/tools/test_checkout_auto_update.py"
       },
       "status": "active",
@@ -15540,7 +15540,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:dcab72c595d851fac8cbae01304ccea1a94300d0b45153a6c303be1b4ee59087",
+        "fingerprint": "sha256:ed5f4fd8e6a103395b762ec82ce4f8fe965b95b6d1043a0c6479a3861f15c0de",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
