@@ -3,13 +3,13 @@
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 The scent is the per-prompt member of the orientation family: a UserPromptSubmit hook that injects one short
-constant cue asking whether this project has already settled the thing at hand. These pin its laws: it fires on
-EVERY prompt (the reflex is the deliverable — a sometimes-firing reflex teaches the model that silence means "no
-memory"); the payload is identical regardless of the prompt's words and of what memory holds; it is content-free
-and writes nothing; it stays under its tested character ceiling, because it is injected every turn and
-`additionalContext` persists in history; it names an operation that actually exists; and it stays genuinely
-near-zero — no subprocess, no store open, no path that grows with memory. Fail-open and the inert-seam
-(no memory module -> silent) cases are pinned too.
+constant cue saying that memory is available and leaving retrieval to the model's judgment. These pin its laws:
+it fires on EVERY prompt (a sometimes-firing cue teaches the model that silence means "no memory"); the payload
+is identical regardless of the prompt's words and of what memory holds; it is content-free and writes nothing;
+it stays under its tested character ceiling, because it is injected every turn and `additionalContext` persists
+in history; it names an operation that actually exists; and it stays genuinely near-zero — no subprocess, no
+store open, no path that grows with memory. Fail-open and the inert-seam (no memory module -> silent) cases are
+pinned too.
 """
 
 import inspect
@@ -95,6 +95,12 @@ class CueContentTests(unittest.TestCase):
     def test_the_cue_names_the_operation_that_carries_the_procedure(self):
         self.assertIn(scent._OPERATION, scent._CUE)
 
+    def test_the_cue_is_the_approved_advisory(self):
+        self.assertEqual(
+            scent._CUE,
+            "Engine memory is available for prior decisions, rejected approaches, and stated preferences. "
+            f"Use `{scent._OPERATION}` when recall would help.")
+
     def test_the_named_operation_actually_EXISTS(self):
         # The failure this catches is invisible otherwise: rename or move the runbook and the cue still fires
         # every turn, still reads correctly, and leads nowhere. No link check covers a string literal in a .py
@@ -106,13 +112,12 @@ class CueContentTests(unittest.TestCase):
             "the path in the cue and the path checked on disk must be the same one")
 
     def test_the_named_operation_CARRIES_what_the_cue_delegates_to_it(self):
-        """The cue is one line; everything it stands on lives in the runbook it names. Three properties were
-        deleted from this hook on the argument that the runbook already carries them — so they are pinned HERE,
-        where a rewrite of that file goes red instead of silently dropping a disclosure:
-          - the SAME widened trigger the cue leads with (a runbook that re-narrows to "leans on an earlier
-            session" would undo the cue's whole marginal value one file later);
-          - the verify-before-asserting property, which replaced this module's retired verify clause;
-          - the verbatim-recoverable property, which replaced its retired completeness disclosure.
+        """The cue is one line; everything it stands on lives in the runbook it names. Four properties are
+        pinned HERE, where a rewrite of that file goes red instead of silently changing the behavior:
+          - recall is advisory rather than a mandatory preflight;
+          - forward-looking collisions remain one useful recall shape;
+          - canonical artifacts still outrank memory;
+          - exact wording remains recoverable.
         """
         doc = validate.read(scent._OPERATION_FILE)
         # Scoped to the PURPOSE section, not the whole document. Whole-document matching is why the first
@@ -121,21 +126,17 @@ class CueContentTests(unittest.TestCase):
         # role list — so a rewrite that re-narrowed the entry condition while leaving a phrase in a footnote
         # would still pass. The entry condition is what the cue delegates, so that is what is pinned.
         purpose = doc.split("## Purpose", 1)[-1].split("\n## ", 1)[0]
+        self.assertIn("when recall would help", purpose)
         for shape in ("already", "tried and rejected", "preference"):
             self.assertIn(shape, purpose,
-                          f"the runbook's entry condition dropped the {shape!r} trigger the cue delegates")
-        self.assertIn("points forwards", purpose,
-                      "the runbook must be entered on a request that names no past, or the cue leads nowhere")
+                          f"the runbook dropped the {shape!r} recall shape the cue advertises")
         self.assertIn("outrank", doc, "the canonical-outranks-memory property (the retired verify clause)")
         self.assertIn("exact wording", doc, "the verbatim-recoverable property (the retired completeness note)")
         self.assertIn("never instruction", doc, "recalled conversation must be framed as data, not directions")
 
-    def test_the_cue_names_the_forward_looking_trigger_shapes(self):
-        # The trigger is "may this project have already settled this", not "does this prompt mention the past".
-        # Every backward-referencing shape already reaches recall through the engine-recall skill's own
-        # description on both runtimes; these three are what nothing else catches.
-        for shape in ("already decided", "already tried and rejected", "stated preference"):
-            self.assertIn(shape, scent._CUE, f"the cue dropped the {shape!r} trigger")
+    def test_the_cue_names_the_memory_shapes_it_makes_available(self):
+        for shape in ("prior decisions", "rejected approaches", "stated preferences"):
+            self.assertIn(shape, scent._CUE, f"the cue dropped the {shape!r} memory shape")
 
     def test_the_cue_carries_no_engine_or_governance_vocabulary(self):
         # It is AI-facing, but it is also the most-repeated string the engine emits; keep it plain.
