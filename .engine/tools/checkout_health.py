@@ -161,8 +161,10 @@ def _verified_remote_default(checkout_path: str) -> dict:
         remaining = _FETCH_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
             return {"ok": False, "reason": "refresh-timeout"}
+        tracking_ref = f"refs/remotes/origin/{default}"
+        before_fetch = (_run(["git", "-C", checkout_path, "rev-parse", "--verify", tracking_ref]) or "").strip()
         fetched = subprocess.run(["git", "-C", checkout_path, "fetch", "--quiet", "origin",
-                                  f"+refs/heads/{default}:refs/remotes/origin/{default}"],
+                                  f"+refs/heads/{default}:{tracking_ref}"],
                                  capture_output=True, text=True, timeout=remaining, check=False)
         if fetched.returncode != 0:
             # Two session starts can fetch the same advertised OID concurrently. Git's ref CAS lets one win
@@ -170,19 +172,21 @@ def _verified_remote_default(checkout_path: str) -> dict:
             # Wait only for that recognized ref lock to settle, then accept solely the just-advertised OID
             # with its commit object present. Every other fetch failure remains honestly unavailable.
             deadline = started + _FETCH_TIMEOUT
-            lock_name = f"refs/remotes/origin/{default}.lock"
+            lock_name = f"{tracking_ref}.lock"
             while _git_lock_is_present(checkout_path, lock_name) and time.monotonic() < deadline:
                 time.sleep(0.05)
             if _git_lock_is_present(checkout_path, lock_name):
                 return {"ok": False, "reason": "refresh-failed"}
             peer_actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
-                                 f"refs/remotes/origin/{default}"]) or "").strip()
+                                 tracking_ref]) or "").strip()
             peer_has_commit = _succeeds(["git", "-C", checkout_path, "cat-file", "-e",
                                          f"{advertised_oid}^{{commit}}"])
-            if peer_actual != advertised_oid or not peer_has_commit:
+            # A cached exact ref is not evidence that this failed refresh completed. Require the ref to have
+            # transitioned to the advertised OID during this fetch window; that is the peer-winner proof.
+            if before_fetch == advertised_oid or peer_actual != advertised_oid or not peer_has_commit:
                 return {"ok": False, "reason": "refresh-failed"}
         actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
-                        f"refs/remotes/origin/{default}"]) or "").strip()
+                        tracking_ref]) or "").strip()
         if actual != advertised_oid:
             return {"ok": False, "reason": "remote-moved"}
         return {"ok": True, "default": default, "oid": advertised_oid}

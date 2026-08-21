@@ -355,6 +355,27 @@ class TestBehindOrigin(unittest.TestCase):
             self.assertEqual(r["reason"], "refresh-failed")
             self.assertFalse(r["fresh"])
 
+    def test_unrelated_fetch_failure_with_an_already_cached_target_stays_unavailable(self):
+        # Exact cached data is not proof that this refresh succeeded. Only a transition to the freshly
+        # advertised OID during the failed-fetch window may be normalized as a simultaneous peer winner.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
+            subprocess.run(["git", "-C", work, "fetch", "-q", "origin", "main"], check=True)
+            before = (checkout_health._run(["git", "-C", work, "rev-parse", "HEAD"]) or "").strip()
+            real_run = subprocess.run
+
+            def unrelated_failure(cmd, *args, **kwargs):
+                if len(cmd) > 3 and cmd[0] == "git" and cmd[3] == "fetch":
+                    return subprocess.CompletedProcess(cmd, 1, "", "injected unrelated failure")
+                return real_run(cmd, *args, **kwargs)
+
+            with mock.patch.object(checkout_health.subprocess, "run", side_effect=unrelated_failure):
+                result = checkout_auto_update.automatic_catch_up(cwd=work)
+            after = (checkout_health._run(["git", "-C", work, "rev-parse", "HEAD"]) or "").strip()
+            self.assertEqual((result["status"], result["snapshot"]["reason"]),
+                             ("unavailable", "refresh-failed"))
+            self.assertEqual(after, before)
+
     def test_remote_head_parse_failure_keeps_a_structured_cause(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=[])
