@@ -3,7 +3,7 @@
 <div align="center">
   <img src="assets/engine_banner.jpg" width="700" alt="Engine — your engineering coworker for building and maintaining software" />
 
-  <p><strong>Direct the product. Engine carries the engineering work.</strong></p>
+  <p><strong>You direct the product. Engine carries the engineering work.</strong></p>
 
   <p>
     <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue" /></a>
