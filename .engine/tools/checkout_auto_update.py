@@ -29,8 +29,11 @@ import tune  # noqa: E402  (reviewed configuration PR transport)
 
 CONFIG_REL = os.path.join(".engine", "operator-checkout.json")
 _KEY = "automatic_catch_up"
-_PEER_SETTLE_ATTEMPTS = 20
-_PEER_SETTLE_DELAY_SECONDS = 0.025
+# Match checkout health's established six-second remote refresh bound, but spend this entirely on local Git
+# lock polling.  A large clean worktree can legitimately need longer than a fixture's few milliseconds to
+# materialize; no peer should report a false failure while the winner still owns the recognized mutation locks.
+_PEER_SETTLE_ATTEMPTS = 120
+_PEER_SETTLE_DELAY_SECONDS = 0.05
 
 _PREFERENCE_PROBLEMS = {
     "checkout-unresolved": "the project folder could not be found",
@@ -214,18 +217,23 @@ def _normalise_peer_winner(cwd: str | None, result: dict) -> dict:
     """
     if result.get("reason") not in {"checkout-changed", "clash"}:
         return result
+    assessed = result.get("snapshot") if isinstance(result.get("snapshot"), dict) else {}
+    main = assessed.get("main")
+    if not main:
+        return result
     for attempt in range(_PEER_SETTLE_ATTEMPTS):
-        observed = checkout_health.checkout_snapshot(cwd)
-        main = observed.get("main")
-        in_flight = bool(main and (checkout_health._git_lock_is_present(main, "index.lock")
-                                   or checkout_health._git_lock_is_present(main, "HEAD.lock")))
-        locks_clear = bool(main and not in_flight)
-        clean, _ = checkout_health._is_lossless(main) if main and locks_clear else (False, [])
-        if observed.get("state") == "current" and observed.get("on_default") and locks_clear and clean:
-            return {"status": "current", "snapshot": observed, "peer_updated": True}
-        if not in_flight or attempt == _PEER_SETTLE_ATTEMPTS - 1:
+        in_flight = (checkout_health._git_lock_is_present(main, "index.lock")
+                     or checkout_health._git_lock_is_present(main, "HEAD.lock"))
+        if not in_flight:
+            break
+        if attempt == _PEER_SETTLE_ATTEMPTS - 1:
             return result
         time.sleep(_PEER_SETTLE_DELAY_SECONDS)
+    # Locks are now clear: perform ONE fresh network-backed observation, never a refresh per local poll.
+    observed = checkout_health.checkout_snapshot(cwd)
+    clean, _ = checkout_health._is_lossless(main)
+    if observed.get("state") == "current" and observed.get("on_default") and clean:
+        return {"status": "current", "snapshot": observed, "peer_updated": True}
     return result
 
 

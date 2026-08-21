@@ -238,6 +238,18 @@ class TestAutomaticController(unittest.TestCase):
             result = cau.automatic_catch_up()
         self.assertEqual((result["status"], result["peer_updated"]), ("current", True))
 
+    def test_peer_wait_polls_only_local_locks_then_refreshes_once(self):
+        current = {**SNAPSHOT, "state": "current", "behind_commits": 0}
+        loser = {"status": "blocked", "reason": "checkout-changed", "snapshot": SNAPSHOT}
+        with mock.patch.object(cau.checkout_health, "_git_lock_is_present", side_effect=[True, True, False, False]), \
+             mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=current) as snapshot, \
+             mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau.time, "sleep") as sleep:
+            result = cau._normalise_peer_winner("/operator", loser)
+        self.assertEqual((result["status"], result["peer_updated"]), ("current", True))
+        self.assertEqual(snapshot.call_count, 1)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_unavailable_target_never_advances(self):
         unavailable = {"state": "unavailable", "reason": "refresh-timeout", "fresh": False}
         with mock.patch.object(cau, "load_preference", return_value=self._enabled()), \
