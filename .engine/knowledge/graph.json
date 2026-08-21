@@ -9980,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:f8129cf6825a4171f4b304cd9648cb86d70cc13ba514206f499087cb8d1381fc",
+        "fingerprint": "sha256:f17482ce9d994dec66eceaa2d220216c2be952938e407505ff564bb3ba9b7949",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -15533,6 +15533,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:checkout_auto_update",
           "tool:checkout_health",
           "tool:license_health",
           "tool:license_seeds"
@@ -15540,7 +15541,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:ed5f4fd8e6a103395b762ec82ce4f8fe965b95b6d1043a0c6479a3861f15c0de",
+        "fingerprint": "sha256:86d2d6120b7891e667bb8febf0468313c75757ac60fe5d182a95522376f58883",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
