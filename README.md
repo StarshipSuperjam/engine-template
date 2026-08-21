@@ -75,9 +75,12 @@ don't need — you can add it later, and each one is removable.
 
 **Product management**
 
-- **Product design** (`/engine-design`) — describe what you want to build in plain words, and the Engine helps
-  you write it down clearly, checks it's complete and well-formed, and settles it as the description to build
-  from. It checks the description, never whether the idea is a good one — that stays your call.
+- **Product design / SDD** (`/engine-design`) — turns what you want into a durable, settled product
+  specification in your repository: a capability index, one document per capability with acceptance criteria,
+  and an ordered build plan. The full default also produces guiding principles, a widely recognized
+  arc42-shaped architecture overview with a C4-style diagram, Diátaxis-organized user guides, and decision
+  records — shared context that future sessions and builds can read instead of reconstructing. Engine checks
+  that the artifacts are complete and well-formed; whether the design is right stays your call.
 - **Project board** (`/engine-setup`) — a GitHub Projects board showing what's next, what needs your
   review, and known issues. Never required: the Engine works the same from your issues and pull requests, and
   you can delete the board later without losing anything.
