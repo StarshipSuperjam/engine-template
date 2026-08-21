@@ -1,9 +1,9 @@
 <!-- engine-template:landing-front -->
 
 <div align="center">
-  <img src="assets/engine_banner.jpg" width="700" alt="Engine — direct AI on real engineering work, and stay the person who decides, without reading a line of code" />
+  <img src="assets/engine_banner.jpg" width="700" alt="Engine — your engineering coworker for building and maintaining software" />
 
-  <p><strong>Direct real engineering work — and stay the person who decides — without reading a line of code.</strong></p>
+  <p><strong>Direct the product. Engine carries the engineering work.</strong></p>
 
   <p>
     <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue" /></a>
@@ -14,75 +14,59 @@
   <p><a href="#get-started"><strong>Jump to Get started ↓</strong></a></p>
 </div>
 
-The Engine keeps a human director in charge of AI that writes the code. It does that by making every change
-**legible** and **safe to approve** — so you can direct serious work on a real project and approve it on
-evidence you can actually judge, rather than on trust or a code review you'd have to perform yourself.
+Engine is an engineering coworker for people who want to direct a software product without becoming its
+engineer. You decide what to build, which tradeoffs to accept, and when to ship. Engine carries project
+continuity, engineering execution, verification, and the evidence you need to judge the result.
 
 ## Why the Engine
 
-Most AI coding tools assume a power user who will read the diff and catch what's wrong. The Engine makes the
-opposite bet: **you shouldn't have to read code to stay in control of it.** You remain
-the decision-maker by governing on evidence, not by reviewing source. "Build real software without reading
-code" isn't a limitation the Engine works around; it's the workflow the whole thing is built to support.
+An AI coding session can write code. A long-lived engineering coworker also has to understand the project,
+challenge a weak plan, coordinate a build, verify the behavior, explain the risks, and come back tomorrow with
+the same bearings. Engine keeps that working relationship in your repository so it survives cold sessions and
+changes of model or runtime.
+
+Its cognitive framing is directly inspired by the [CoALA paper](https://arxiv.org/abs/2309.02427): Engine uses
+repository-based state, memory, knowledge, and attention functions to preserve project understanding and guide
+engineering work. It adapts that framing for governed software delivery under human authority; CoALA is an
+inspiration, not an implementation specification.
+
+## What the Engine handles for you
+
+**Keep the project understood across sessions.** Engine starts from a plain-language briefing, remembers
+decisions and lessons, tracks where the work stands, maps how the repository fits together, and brings the most
+relevant context forward. Its state, memory, knowledge, and attention live with the project rather than in one
+model's temporary context, and rebuild from committed files if a live helper is unavailable.
+
+**Shape work before code is written.** Engine helps turn an idea into a bounded plan, challenges assumptions,
+checks the strongest case against the change, and records the decisions the build must preserve. Optional
+product-design and plan-review modules add structured specification and cold review when you want them.
+
+**Coordinate the Build.** Once you approve a plan, Engine binds implementation to that plan, breaks work into
+coherent pieces, coordinates concurrent work where it is safe, integrates the result, and keeps every commit
+headed toward one pull request. The Build coordinator carries plan authority, progress, review coverage, and
+final evidence so a long or interrupted build can resume without inventing state.
+
+**Verify and demonstrate the result.** Engine runs deterministic checks, requires an operator-runnable
+demonstration where behavior can be shown, records review and repair, and composes an evidence-backed pull
+request explaining what changed, what was verified, and what remains uncertain. Optional finished-work review
+adds independent checks of conformance, technical integrity, usability, and release safety.
+
+**Carry the project forward.** Engine supports releases, its own upgrades, planned unattended work, project
+status, and periodic read-only self-review. Its authority stays bounded: consequential product and ship
+decisions remain yours, and Engine never merges its own work.
 
 ## How you stay in control — evidence, not code review
 
-Every change the AI proposes arrives as a pull request, and nothing reaches your protected `main` until you
-merge it. Your approval never rests on reading the code. It rests on an **evidence bundle** you can weigh:
+Every change Engine proposes arrives as a pull request, and nothing reaches your protected `main` until you
+merge it. Your approval can rest on an **evidence bundle** you can weigh:
 
 - **A demonstration you run yourself** — and vary — to see the behavior with your own eyes.
-- **Deterministic checks that must pass** before a change is even offered to you.
-- **A plain-language account** of what changed, why, and what it could put at risk — including an honest
-  statement of how sure anyone can be.
+- **Deterministic checks that must pass** before a change is offered to you.
+- **A plain-language account** of what changed, why, and the risks and tradeoffs involved.
 
-Those automatic checks are a floor: they mechanically hold a pull request until they pass. But passing checks
-don't *approve* anything — your merge does, and it's the only thing that can. That bundle, not a code review,
-is the gate. And because every change lands as a reviewable, revertible pull request, a decision you regret is
-one you can undo.
-
-## What's inside
-
-The Engine keeps its thinking and its safety controls as files in your own repository — open to inspection, not
-a black box. Every Engine ships with all of these:
-
-**Externalized cognition**
-
-- **Memory** — a committed, searchable record of decisions, pushback, and lessons that survives across cold
-  sessions. It captures as you work, distills itself over time, lets noise decay, and can back itself up to a
-  private repo.
-- **State** — a small committed "where things stand" pointer a fresh session reads first to orient, and the
-  floor it falls back to when GitHub is unreachable.
-- **Knowledge** — a queryable map of how your project's parts actually connect, generated from the code itself
-  rather than guessed, and refreshed as the project changes.
-- **Attention** — a deterministic, inspectable prioritizer for what to do next, with a built-in guarantee that
-  blocking problems surface ahead of new features — a structural rule, not a dial anyone has to calibrate.
-
-**Controls & gates**
-
-- **Guardrails & the review gate** — a suite of automatic checks, a protected `main` the AI cannot merge to
-  on its own, and a detector that names every change to a safety-enforcement file in plain language on the
-  pull request — and, for the rare killswitch class (repointing where the engine fetches or writes code,
-  demoting a merge-blocking check, deleting a gate), forces a deliberate, logged sign-off.
-- **Explore / Build modes** — sessions are read-only by default; the AI can change files only after a
-  deliberate switch into build, and every change still lands as a reviewable pull request.
-
-**Lifecycle**
-
-- **Boot briefing & status** — a plain-language orientation at the start of every session, and an on-demand
-  dashboard of where things stand, what shipped, and what needs you.
-- **First-run setup** — a guided walkthrough that installs what you choose, wires it in, verifies it, and then
-  removes its own scaffolding (see [Get started](#get-started)).
-- **Unattended routines** — advance a *planned* build on a schedule while you're away; it never merges (see
-  [Running unattended](#running-unattended)).
-- **Periodic self-review** — a cold, independent audit of the Engine's own health that reports what has
-  drifted or outlived its use, and never changes anything itself.
-
-**Runtime & resilience**
-
-- **Native in Claude Code and Codex** — one canonical core, wired into both runtimes (see
-  [Runtime support](#runtime-support)).
-- **Degrades to plain git files** — every index and cache rebuilds from what's committed, so a downed service
-  slows the work but never strands it.
+Those automatic checks mechanically hold a pull request until they pass. Passing checks do not approve
+anything — your merge does, and it is the only thing that can. Because every change lands as a reviewable,
+revertible pull request, a decision you regret is one you can undo.
 
 ## Optional modules
 
@@ -126,7 +110,7 @@ not running, never passed off as a silent green.
 
 - A **GitHub account**, and a repository created with **Use this template** (not a fork — see
   [Contributing](#contributing)).
-- **Claude Code** (current version), or **Codex** (a 2026 build with hooks support, around v0.114 or later).
+- A current **Claude Code** or **Codex** release with project hooks support.
 - The **GitHub CLI (`gh`) signed in** — otherwise assigning who reviews your changes, and the review gate
   itself, quietly defer until it is.
 
@@ -153,7 +137,7 @@ not running, never passed off as a silent green.
 When setup finishes it removes its own walkthrough files and tells you it's done — that's your signal the Engine
 is live. From there, just make your first request, or ask for a status readout to see where things stand.
 
-### What the Engine handles for you
+### What setup handles for you
 
 So the steps above don't read as more work than they are — here's what setup does on its own:
 
@@ -188,71 +172,13 @@ traveled files and repairs an existing protection ruleset in place, so it never 
 
 ## Runtime support
 
-Claude Code is the primary, most-exercised runtime. The Engine also serves Codex natively from the same core —
-but that path is newer and not yet stress-tested: genuinely supported, though less proven, with the differences
-and rough edges worth knowing below.
+Claude Code and Codex share one canonical Engine core: the same project state, memory, decisions, checks, and
+Build evidence follow the repository between them. Each runtime receives native instructions, commands, hooks,
+and live helpers rather than a separate Engine implementation.
 
-<table>
-<thead>
-<tr>
-<th>Capability</th>
-<th width="42%">Claude Code</th>
-<th width="42%">Codex</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Instruction floor</td>
-<td><code>CLAUDE.md</code> (conduct auto-imported)</td>
-<td><code>AGENTS.md</code> (conduct by required reading — an instruction, not a mechanism)</td>
-</tr>
-<tr>
-<td>Session hooks (boot, write-gate, memory, status)</td>
-<td>Native, on by default</td>
-<td>Native; <strong>requires your one-time approval in Codex settings</strong>, and re-approval after any Engine update that changes them — the Engine tells you when</td>
-</tr>
-<tr>
-<td>Explore / Build write-gate</td>
-<td>A session hook that blocks writes until you build</td>
-<td>Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both</td>
-</tr>
-<tr>
-<td>Build entry</td>
-<td><code>/engine-start</code> or plan approval</td>
-<td><code>$engine-start</code> only (Codex has no plan-approval signal)</td>
-</tr>
-<tr>
-<td>Typed commands</td>
-<td><code>/engine-…</code> (10)</td>
-<td><code>$engine-…</code> (10)</td>
-</tr>
-<tr>
-<td>Review personas</td>
-<td>10 native agents</td>
-<td>The same 10, rendered natively (request a read-only default; a parent task's live permission can override it)</td>
-</tr>
-<tr>
-<td>Memory &amp; knowledge servers</td>
-<td><code>.mcp.json</code></td>
-<td><code>.codex/config.toml</code> (trusted projects only)</td>
-</tr>
-<tr>
-<td>Session-memory capture</td>
-<td>Native transcripts</td>
-<td>Dedicated reader; Codex's transcript format is not a stable interface, so a format change degrades <strong>loudly</strong> ("memory not captured"), never silently</td>
-</tr>
-<tr>
-<td>Minimum version</td>
-<td>Current</td>
-<td>A 2026 build with hooks support (~v0.114+)</td>
-</tr>
-<tr>
-<td>Windows</td>
-<td>Supported</td>
-<td>Untested by this project — the hook launcher carries the standard fallbacks, but no Windows/Codex run has verified them</td>
-</tr>
-</tbody>
-</table>
+On Claude Code, Engine commands use the `/engine-…` form. On Codex, they use `$engine-…`; approve the Engine's
+project hooks when prompted, re-approve them when an Engine update asks you to, and trust the project before
+enabling its live helpers. The setup flow above tells you when one of those runtime-specific actions is needed.
 
 ## Running unattended
 
@@ -307,11 +233,24 @@ schedule or a Claude Cloud Routine. Codex scheduled self-review is retired becau
 a separate Read Only sandbox; run it interactively in a Read Only Codex task instead. See
 [Setting up the engine's scheduled self-review](.engine/audits/self-review-setup.md).
 
-## Status
+## Roadmap
 
-The Engine does what its first version set out to do, and it is in daily use on real work — it builds itself.
-Growth from here is additive: new capability arrives as new modules and new checks, not as a rewrite of what is
-already here. There is no separate milestone release to wait for before adopting it.
+Engine's current core is focused on repository-native engineering work and evidence-backed pull requests. Its
+future delivery work extends that same engineering-coworker role in this settled order:
+
+1. **Stronger local delivery and evidence** — deepen implementation, testing, demonstrations, and proof around
+   changes built in the local repository.
+2. **Controlled execution environments** — run software and its checks in bounded, reproducible environments.
+3. **Web delivery and debugging** — add browser-based demonstrations, web diagnostics, and interactive
+   debugging evidence.
+4. **Bounded deployment** — connect reviewed changes to deployment through explicit adapters and human-held
+   authority.
+5. **Operations, maintenance, and repair** — observe shipped software, maintain it, diagnose failures, and make
+   bounded repairs with the same evidence and approval model.
+6. **Larger-program and platform coordination** — coordinate related products, shared infrastructure, and
+   longer delivery programs without collapsing their separate authority.
+7. **Richer operator views and product learning** — make product state, evidence, system structure, and
+   post-delivery learning easier to explore and govern.
 
 ## Contributing
 
