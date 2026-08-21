@@ -94,6 +94,7 @@
       ".claude/skills/engine-validate-codex/SKILL.md"
     ],
     "doc": [
+      ".engine/docs/ci-assurance.md",
       ".engine/docs/getting-started.md"
     ],
     "state": [
