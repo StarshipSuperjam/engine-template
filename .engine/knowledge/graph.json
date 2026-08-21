@@ -17902,7 +17902,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:20a781767e7aeeb494e8d69e173ed708e8a6a69e7a5a9dd31a665659d946e9a9",
+        "fingerprint": "sha256:0afa5e1f3eb7fca37b4823362100ff8985cd3666a52f8979ff53793ef8aaa85b",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
