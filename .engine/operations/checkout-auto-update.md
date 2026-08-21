@@ -26,9 +26,9 @@ It never changes GitHub, pushes, merges, moves a session worktree, or broadens t
    uv run --directory .engine -- python tools/checkout_auto_update.py enable
    ```
 
-   The command atomically writes `.engine/operator-checkout.json`, creates a pull request, and leaves the
-   choice pending until the operator merges it. This file is operator configuration: Engine upgrades preserve
-   it and Engine overlays do not own it.
+   The command atomically writes `.engine/operator-checkout.json` only in a temporary review worktree, then
+   creates a pull request. The live project folder stays unchanged until the operator merges that pull request.
+   This file is operator configuration: Engine upgrades preserve it and Engine overlays do not own it.
 3. If `show` reports malformed or unreadable preference data, automatic catch-up is already paused. Explain
    the named reason and use `enable` or `disable` to write a valid replacement when the filesystem permits.
    If that write cannot complete, report the filesystem error and leave the existing file untouched.

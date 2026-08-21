@@ -6376,7 +6376,7 @@
       },
       "slug": "checkout-auto-update",
       "source": {
-        "fingerprint": "sha256:cd768e892424cf0987cb4fadc7fd08ceea3690586aea9d88939384457ccd5ef8",
+        "fingerprint": "sha256:f2a2f1a163f3547fbdf4d7193fba102f99efa6f6e997c55c2e9a4101fe5d3d4b",
         "path": ".engine/operations/checkout-auto-update.md"
       },
       "status": "active",
