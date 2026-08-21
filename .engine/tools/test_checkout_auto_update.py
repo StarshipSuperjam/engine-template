@@ -6,7 +6,9 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 import checkout_auto_update as cau
@@ -392,6 +394,64 @@ class TestAutomaticController(unittest.TestCase):
             self.assertEqual((result["status"], result["preference"]["source"]), ("disabled", "target-configured"))
             self.assertEqual(after, before)
             self.assertFalse(os.path.exists(os.path.join(operator, ".engine", "operator-checkout.json")))
+
+    def test_simultaneous_real_starts_normalize_a_fetch_loser_to_current(self):
+        # Release both remote refreshes together so Git's remote-tracking-ref CAS has a real winner and loser.
+        # The losing fetch is benign only when the winner installed the exact freshly advertised commit.
+        with tempfile.TemporaryDirectory() as tmp:
+            origin = os.path.join(tmp, "origin.git")
+            author = os.path.join(tmp, "author")
+            operator = os.path.join(tmp, "operator")
+
+            def git(cwd, *args):
+                return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, check=True)
+
+            subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", origin], check=True)
+            subprocess.run(["git", "init", "-q", "--initial-branch=main", author], check=True)
+            git(author, "config", "user.email", "test@example.invalid")
+            git(author, "config", "user.name", "Concurrent startup test")
+            os.makedirs(os.path.join(author, ".claude"))
+            os.makedirs(os.path.join(author, ".engine"))
+            with open(os.path.join(author, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
+            with open(os.path.join(author, ".engine", "marker"), "w", encoding="utf-8") as fh:
+                fh.write("fixture\n")
+            with open(os.path.join(author, "shared.txt"), "w", encoding="utf-8") as fh:
+                fh.write("before\n")
+            git(author, "add", ".")
+            git(author, "commit", "-qm", "initial")
+            git(author, "remote", "add", "origin", origin)
+            git(author, "push", "-qu", "origin", "main")
+            subprocess.run(["git", "clone", "-q", origin, operator], check=True)
+            with open(os.path.join(author, "shared.txt"), "w", encoding="utf-8") as fh:
+                fh.write("after\n")
+            git(author, "add", "shared.txt")
+            git(author, "commit", "-qm", "shared update")
+            target = git(author, "rev-parse", "HEAD").stdout.strip()
+            git(author, "push", "-q", "origin", "main")
+
+            barrier = threading.Barrier(2)
+            real_run = subprocess.run
+            fetches = 0
+            fetches_lock = threading.Lock()
+
+            def simultaneous_fetch(cmd, *args, **kwargs):
+                nonlocal fetches
+                if len(cmd) > 3 and cmd[0] == "git" and cmd[3] == "fetch":
+                    with fetches_lock:
+                        fetches += 1
+                        this_fetch = fetches
+                    if this_fetch <= 2:
+                        barrier.wait(timeout=5)
+                return real_run(cmd, *args, **kwargs)
+
+            with mock.patch.object(cau.checkout_health.subprocess, "run", side_effect=simultaneous_fetch), \
+                 ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: cau.automatic_catch_up(cwd=operator), range(2)))
+
+            self.assertEqual(sorted(result["status"] for result in results), ["current", "updated"], results)
+            self.assertEqual(git(operator, "rev-parse", "HEAD").stdout.strip(), target)
+            self.assertEqual(git(operator, "status", "--porcelain").stdout, "")
 
     def test_throwaway_repository_demonstration_proves_exact_clean_fast_forward(self):
         self.assertEqual(cau._demo(), 0)

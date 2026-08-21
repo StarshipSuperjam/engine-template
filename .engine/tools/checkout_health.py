@@ -165,7 +165,22 @@ def _verified_remote_default(checkout_path: str) -> dict:
                                   f"+refs/heads/{default}:refs/remotes/origin/{default}"],
                                  capture_output=True, text=True, timeout=remaining, check=False)
         if fetched.returncode != 0:
-            return {"ok": False, "reason": "refresh-failed"}
+            # Two session starts can fetch the same advertised OID concurrently. Git's ref CAS lets one win
+            # and may make the peer command fail even though that winner installed the exact fresh target.
+            # Wait only for that recognized ref lock to settle, then accept solely the just-advertised OID
+            # with its commit object present. Every other fetch failure remains honestly unavailable.
+            deadline = started + _FETCH_TIMEOUT
+            lock_name = f"refs/remotes/origin/{default}.lock"
+            while _git_lock_is_present(checkout_path, lock_name) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if _git_lock_is_present(checkout_path, lock_name):
+                return {"ok": False, "reason": "refresh-failed"}
+            peer_actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
+                                 f"refs/remotes/origin/{default}"]) or "").strip()
+            peer_has_commit = _succeeds(["git", "-C", checkout_path, "cat-file", "-e",
+                                         f"{advertised_oid}^{{commit}}"])
+            if peer_actual != advertised_oid or not peer_has_commit:
+                return {"ok": False, "reason": "refresh-failed"}
         actual = (_run(["git", "-C", checkout_path, "rev-parse", "--verify",
                         f"refs/remotes/origin/{default}"]) or "").strip()
         if actual != advertised_oid:
