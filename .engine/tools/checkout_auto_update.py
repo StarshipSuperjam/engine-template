@@ -200,11 +200,23 @@ def _current_snapshot(snapshot: dict) -> dict:
 
 
 def _normalise_peer_winner(cwd: str | None, result: dict) -> dict:
-    """A sibling boot may win the named-ref CAS; a fresh current reread is a benign result, not a failure."""
+    """Recognise a sibling winner only after its ref, index, and worktree have settled together.
+
+    A named-ref CAS happens just before the winner materialises its tree.  During that intentionally tiny
+    interval HEAD resolves to the target even though a peer's files and index still describe the old commit;
+    treating that as ``current`` would suppress recovery if the winner then hits a late clash and rolls back.
+    The winner's Git-recognised index/HEAD locks make the in-flight state observable.  Once neither lock is
+    present, the common lossless gate also proves the observed HEAD and its worktree/index agree before a peer
+    can call the outcome benign.
+    """
     if result.get("reason") not in {"checkout-changed", "clash"}:
         return result
     observed = checkout_health.checkout_snapshot(cwd)
-    if observed.get("state") == "current":
+    main = observed.get("main")
+    locks_clear = bool(main and not checkout_health._git_lock_is_present(main, "index.lock")
+                       and not checkout_health._git_lock_is_present(main, "HEAD.lock"))
+    clean, _ = checkout_health._is_lossless(main) if main and locks_clear else (False, [])
+    if observed.get("state") == "current" and observed.get("on_default") and locks_clear and clean:
         return {"status": "current", "snapshot": observed, "peer_updated": True}
     return result
 
