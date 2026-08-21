@@ -106,6 +106,12 @@ def _offline():
         # dict, and this shape resolves behind_origin/off_main cleanly to None. A surfacing test re-patches it.
         mock.patch.object(boot.checkout_health, "checkout_snapshot",
                           return_value={"state": "current", "on_default": True}),
+        # The generic offline harness models an ordinary deployed repository, independent of the repository
+        # that happens to run the shipped self-tests. A mechanic has its own explicit grounding and budget
+        # cases below; letting ambient mechanic state leak into every generic pack case double-counts that
+        # never-shed block and makes the same shipped suite pass at home but fail in a mechanic deployment.
+        mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=None),
+        mock.patch.object(boot.checkout_health, "detect_product_build_sprawl", return_value=None),
     ]
     for p in patchers:
         p.start()
@@ -3541,6 +3547,19 @@ class TestPackCapGuard(unittest.TestCase):
         pack = self._pack(10**6)
         self.assertIn("the full status (your grounding", pack)
         self.assertNotIn("left out this session", pack)
+
+    def test_offline_pack_is_hermetic_to_an_ambient_mechanic_host(self):
+        # These tests ship into generated repositories. Prove their ordinary-repository fixture does not
+        # silently inherit mechanic-only grounding from whichever repository is running the suite; the
+        # mechanic shape remains covered independently by test_mechanic_shape_margin_canary_keeps_headroom.
+        ambient = {"product": "acme/engine-home", "checkout": None, "state": "path-unset"}
+        sprawl = {"present": True, "product": "acme/engine-home", "stray_worktrees": ["/tmp/stray"]}
+        with mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=ambient), \
+             mock.patch.object(boot.checkout_health, "detect_product_build_sprawl", return_value=sprawl):
+            pack = self._pack(boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertNotIn("this is an engine-MECHANIC", pack)
+        self.assertNotIn("BUILD-SPRAWL", pack)
+        self.assertIn("the full status (your grounding", pack)
 
     def test_real_platform_cap_keeps_the_status_dashboard_after_codex_probe_expansion(self):
         with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
