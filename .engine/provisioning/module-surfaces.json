@@ -519,6 +519,9 @@
   ".engine/check/census-completeness.json": [
    "validators-core"
   ],
+  ".engine/check/ci-assurance-drift.json": [
+   "validators-core"
+  ],
   ".engine/check/codex-agent-coherence.json": [
    "validators-core"
   ],
@@ -865,6 +868,9 @@
    "core"
   ],
   ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md": [
+   "core"
+  ],
+  ".engine/docs/ci-assurance.md": [
    "core"
   ],
   ".engine/docs/getting-started.md": [
@@ -1351,6 +1357,12 @@
    "core"
   ],
   ".engine/tools/checkout_health.py": [
+   "core"
+  ],
+  ".engine/tools/ci_assurance.py": [
+   "core"
+  ],
+  ".engine/tools/ci_assurance_check.py": [
    "core"
   ],
   ".engine/tools/close.py": [
@@ -2152,6 +2164,9 @@
    "core"
   ],
   ".engine/tools/test_checkout_health.py": [
+   "core"
+  ],
+  ".engine/tools/test_ci_assurance.py": [
    "core"
   ],
   ".engine/tools/test_close.py": [

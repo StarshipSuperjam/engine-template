@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ENGINE_CI_ASSURANCE_PATH": ".engine/_fixtures/ci-assurance-drift/ci-assurance.md"
+  }
+}
