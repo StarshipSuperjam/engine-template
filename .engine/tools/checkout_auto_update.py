@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checkout_health  # noqa: E402
@@ -28,6 +29,8 @@ import tune  # noqa: E402  (reviewed configuration PR transport)
 
 CONFIG_REL = os.path.join(".engine", "operator-checkout.json")
 _KEY = "automatic_catch_up"
+_PEER_SETTLE_ATTEMPTS = 20
+_PEER_SETTLE_DELAY_SECONDS = 0.025
 
 _PREFERENCE_PROBLEMS = {
     "checkout-unresolved": "the project folder could not be found",
@@ -211,13 +214,18 @@ def _normalise_peer_winner(cwd: str | None, result: dict) -> dict:
     """
     if result.get("reason") not in {"checkout-changed", "clash"}:
         return result
-    observed = checkout_health.checkout_snapshot(cwd)
-    main = observed.get("main")
-    locks_clear = bool(main and not checkout_health._git_lock_is_present(main, "index.lock")
-                       and not checkout_health._git_lock_is_present(main, "HEAD.lock"))
-    clean, _ = checkout_health._is_lossless(main) if main and locks_clear else (False, [])
-    if observed.get("state") == "current" and observed.get("on_default") and locks_clear and clean:
-        return {"status": "current", "snapshot": observed, "peer_updated": True}
+    for attempt in range(_PEER_SETTLE_ATTEMPTS):
+        observed = checkout_health.checkout_snapshot(cwd)
+        main = observed.get("main")
+        in_flight = bool(main and (checkout_health._git_lock_is_present(main, "index.lock")
+                                   or checkout_health._git_lock_is_present(main, "HEAD.lock")))
+        locks_clear = bool(main and not in_flight)
+        clean, _ = checkout_health._is_lossless(main) if main and locks_clear else (False, [])
+        if observed.get("state") == "current" and observed.get("on_default") and locks_clear and clean:
+            return {"status": "current", "snapshot": observed, "peer_updated": True}
+        if not in_flight or attempt == _PEER_SETTLE_ATTEMPTS - 1:
+            return result
+        time.sleep(_PEER_SETTLE_DELAY_SECONDS)
     return result
 
 

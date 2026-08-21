@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -664,10 +665,9 @@ class TestCatchUp(unittest.TestCase):
                              before_ref)
             self.assertFalse(os.path.exists(os.path.join(work, ".git", "index.lock")))
 
-    def test_peer_boot_waits_for_the_winner_to_materialize_or_roll_back(self):
-        # Pause a winning automatic update immediately after its named-ref CAS.  A losing boot sees HEAD at the
-        # target, but index.lock and then the unmaterialized index must keep it from calling that transient
-        # state `current`; the winner may still discover a late edit and roll main back.
+    def test_peer_boot_waits_for_the_winner_to_materialize_before_reporting_current(self):
+        # Pause a winning automatic update immediately after its named-ref CAS.  A losing boot must wait over
+        # the Git lock, then normalize only after the winner has materialized the exact assessed target.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"])
             snapshot = checkout_health.checkout_snapshot(work, do_fetch=True)
@@ -675,25 +675,39 @@ class TestCatchUp(unittest.TestCase):
             index_lock = checkout_health._acquire_index_lock(work)
             self.assertTrue(index_lock)
             loser = {"status": "blocked", "reason": "checkout-changed", "applied": False}
+            locks = {"index": index_lock, "head": None}
+            materialized = []
+
+            def finish_winner():
+                locks["head"] = checkout_health._acquire_head_lock(work)
+                self.assertTrue(locks["head"])
+                checkout_health._release_head_lock(locks["index"])
+                locks["index"] = None
+                materialized.append(checkout_health._materialize_target(work, snapshot["head_oid"],
+                                                                         snapshot["target_oid"]))
+                checkout_health._release_head_lock(locks["head"])
+                locks["head"] = None
+
+            timer = None
             try:
                 self.assertTrue(checkout_health._advance_named_default(work, "main", snapshot["head_oid"],
                                                                         snapshot["target_oid"]))
-                paused = checkout_auto_update._normalise_peer_winner(work, loser)
-                self.assertEqual(paused, loser, "index.lock marks the winning materialisation as in flight")
-                checkout_health._release_head_lock(index_lock)
-                index_lock = None
-                unmaterialized = checkout_auto_update._normalise_peer_winner(work, loser)
-                self.assertEqual(unmaterialized, loser, "a target HEAD with an old index/tree is not current")
-                with open(os.path.join(work, "shared.txt"), "w") as fh:
-                    fh.write("LATE EDIT AFTER PEER CHECK\n")
-                self.assertTrue(checkout_health._advance_named_default(work, "main", snapshot["target_oid"],
-                                                                        snapshot["head_oid"]))
+                timer = threading.Timer(0.05, finish_winner)
+                timer.start()
+                peer = checkout_auto_update._normalise_peer_winner(work, loser)
+                self.assertEqual((peer["status"], peer.get("peer_updated")), ("current", True))
+                timer.join()
+                self.assertEqual(materialized, [True])
             finally:
-                if index_lock:
-                    checkout_health._release_head_lock(index_lock)
-            self.assertEqual(_head(work), before)
-            with open(os.path.join(work, "shared.txt")) as fh:
-                self.assertEqual(fh.read(), "LATE EDIT AFTER PEER CHECK\n")
+                if timer:
+                    timer.cancel()
+                    timer.join()
+                if locks["head"]:
+                    checkout_health._release_head_lock(locks["head"])
+                if locks["index"]:
+                    checkout_health._release_head_lock(locks["index"])
+            self.assertNotEqual(_head(work), before)
+            self.assertEqual(_head(work).strip(), snapshot["target_oid"])
 
     def test_unreadable_status_is_not_treated_as_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
