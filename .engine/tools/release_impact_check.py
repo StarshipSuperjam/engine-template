@@ -10,9 +10,9 @@ github-actions) are waved through here — their markerless pull requests fold t
 disclosed there. So this script only judges the pull requests that ARE required to declare.
 
 Emits a finding.v1 JSON array on stdout — the custom/script contract. Reads the body from the trusted event
-context ($GITHUB_EVENT_PATH); with NO body available (a local rehearsal, no event) OR an unreadable event, it
+context ($GITHUB_EVENT_PATH); with NO body available (a local rehearsal or non-PR event) OR an unreadable event, it
 emits a DISCLOSED not-applicable no-op rather than a false hard block — so a CI-infra failure can never turn this
-into a fail-closed wall. In CI the body is present and the check runs for real."""
+into a fail-closed wall. On pull-request events the body is present and the check runs for real."""
 from __future__ import annotations
 
 import json
@@ -38,7 +38,7 @@ def _read_pr_body() -> "str | None":
     ROOT-RELATIVE event path against validate.ROOT (only the negative fixture uses a relative path — GitHub sets
     GITHUB_EVENT_PATH absolute in production, so this is a no-op there). Mirrors release_integrity_check's
     ROOT-join so the seeded fixture body is found regardless of the check's working directory. None when no event
-    is available (a local rehearsal); raises only on a genuinely malformed event."""
+    is available (a local rehearsal or non-PR event); raises only on a genuinely malformed event."""
     event = os.environ.get("GITHUB_EVENT_PATH")
     if not event:
         return None
@@ -46,7 +46,10 @@ def _read_pr_body() -> "str | None":
         event = os.path.join(validate.ROOT, event)
     if not os.path.exists(event):
         return None
-    return (validate.load_json(event).get("pull_request") or {}).get("body") or ""
+    payload = validate.load_json(event)
+    if "pull_request" not in payload:
+        return None
+    return (payload.get("pull_request") or {}).get("body") or ""
 
 
 def findings_for_body(body: str) -> list:
@@ -85,12 +88,13 @@ def findings() -> list:
         # nothing in the CI log to tell an operator the check is broken rather than legitimately skipping (QA).
         return [{"severity": "soft", "not_applicable": True,
                  "message": f"Could not read the pull-request body ({type(exc).__name__}: {exc}); the "
-                            "release-impact declaration was not evaluated. In CI the body is present, so if this "
+                            "release-impact declaration was not evaluated. On pull-request events the body is "
+                            "present, so if this "
                             "persists there the check may be BROKEN (not merely skipping) — investigate."}]
     if body is None:
         return [{"severity": "soft", "not_applicable": True,
-                 "message": "PR body not available (no event context); the release-impact declaration was not "
-                            "evaluated. In CI the body is present and the check runs."}]
+                 "message": "PR body not available (no pull-request event context); the release-impact declaration was not "
+                            "evaluated. On pull-request events the body is present and the check runs."}]
     return findings_for_body(body)
 
 

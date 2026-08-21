@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import unittest
+from unittest import mock
 
 import release_impact
 import release_impact_check as chk
@@ -44,6 +46,16 @@ class ReleaseImpactCheck(unittest.TestCase):
     def test_no_body_is_disclosed_no_op_not_a_hard_block(self):
         f = self._run(None)
         self.assertTrue(f[0].get("not_applicable"))       # local rehearsal: never a fail-closed wall
+
+    def test_push_event_is_disclosed_no_op_not_an_empty_pr_failure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            event = os.path.join(tmpdir, "event.json")
+            with open(event, "w", encoding="utf-8") as fh:
+                json.dump({"ref": "refs/heads/main", "repository": {"default_branch": "main"}}, fh)
+            with mock.patch.dict(os.environ, {"GITHUB_EVENT_PATH": event}, clear=True):
+                f = chk.findings()
+        self.assertTrue(f[0].get("not_applicable"))
+        self.assertNotIn("declares no release impact", f[0]["message"])
 
     def test_unreadable_event_is_disclosed_no_op(self):
         orig = chk._read_pr_body

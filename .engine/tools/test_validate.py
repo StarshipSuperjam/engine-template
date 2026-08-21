@@ -987,7 +987,8 @@ class TestLivePrBodyFetch(unittest.TestCase):
         called = []
         with mock.patch.object(github_client, "_urlopen", lambda *a, **k: called.append(1)), \
                 mock.patch.dict(os.environ, self.ci_env, clear=True):
-            _body, source = validate.resolve_ci_pr_body(None)
+            body, source = validate.resolve_ci_pr_body(None)
+        self.assertIsNone(body)                  # no PR witness → disclosed no-op, never an empty-body failure
         self.assertEqual(source, "frozen")
         self.assertEqual(called, [])
 
