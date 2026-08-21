@@ -5386,7 +5386,7 @@
       },
       "slug": "eADR-0018-cognitive-substrate-one-workflow",
       "source": {
-        "fingerprint": "sha256:040543b286305b8d9ccab70926924da6864b9de7a0d0ce29b00590882fc50428",
+        "fingerprint": "sha256:18c806bf7e81ef26a010e8f7221b4677378c1437d86643af6d662ddd6e020222",
         "path": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md"
       },
       "status": "accepted",
@@ -6716,7 +6716,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:e2d647e6a4ebcd3d1d3c3a5871f835b935ce745e435633407dcaf870cca04084",
+        "fingerprint": "sha256:43a017c35a02d825e8726efb51b9b0abd6dfa863af2052ef667e32f51807fde8",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -14222,7 +14222,7 @@
       },
       "slug": "scent",
       "source": {
-        "fingerprint": "sha256:57644cf9cee34ce3989d97afb5deb63b89ebb5049ef7d8d18339a94c4ebd0c40",
+        "fingerprint": "sha256:4a2b1709ce5117810363c516851d12a0df8af57f52a37f1634fdf44f499a4296",
         "path": ".engine/tools/scent.py"
       },
       "status": "active",
@@ -18359,7 +18359,7 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:8633c5dd0ec88059c63b76a084c31491e3aef004a652c617af64ebc56b04bb6c",
+        "fingerprint": "sha256:080410ea3f1c2fc499f1ed47deb898709fc922e5767ea97ff5313a42535f1f9a",
         "path": ".engine/tools/test_scent.py"
       },
       "status": "active",
