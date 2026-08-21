@@ -2902,6 +2902,12 @@ def _automatic_checkout_relay(s: dict) -> list[str]:
         ]
     if status != "blocked":
         return []
+    if automatic.get("reason") == "rollback-failed":
+        return [
+            f"{RELAY_MARKER} Git changed the project folder while I was protecting it, and I could not safely "
+            "finish returning it to its earlier state. I did not call it current or overwrite anything; please "
+            "inspect the folder's Git state before choosing a manual recovery."
+        ]
     why = {
         "off-main": "the folder is on a side line of work",
         "diverged": "the folder and shared main line no longer have a safe fast-forward path",

@@ -57,6 +57,22 @@ class TestPreference(unittest.TestCase):
             result = cau.load_preference(path=path)
         self.assertEqual((result["state"], result["reason"]), ("invalid", "not-a-regular-file"))
 
+    def test_preference_replaced_between_lstat_and_open_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "operator-checkout.json")
+            replacement = os.path.join(tmp, "replacement.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"automatic_catch_up": False}, fh)
+            with open(replacement, "w", encoding="utf-8") as fh:
+                json.dump({"automatic_catch_up": True}, fh)
+            real_open = cau.os.open
+            def swapped(open_path, flags):
+                os.replace(replacement, path)
+                return real_open(open_path, flags)
+            with mock.patch.object(cau.os, "open", side_effect=swapped):
+                result = cau.load_preference(path=path)
+        self.assertEqual((result["state"], result["reason"]), ("invalid", "changed-during-read"))
+
     def test_invalid_preference_reason_has_a_plain_recovery_explanation(self):
         self.assertEqual(cau.preference_problem("invalid-json"), "the file is not valid JSON")
         self.assertIn("automatic_catch_up", cau.preference_problem("unexpected-shape"))
@@ -167,11 +183,14 @@ class TestAutomaticController(unittest.TestCase):
     def _enabled(self):
         return {"state": "enabled", "source": "default", "path": "/operator/.engine/operator-checkout.json"}
 
-    def test_opt_out_short_circuits_before_the_automatic_snapshot(self):
+    def test_opt_out_keeps_a_fresh_snapshot_for_drift_detection_without_mutating(self):
+        current = {**SNAPSHOT, "state": "current", "behind_commits": 0}
         with mock.patch.object(cau, "load_preference", return_value={"state": "disabled"}), \
-             mock.patch.object(cau.checkout_health, "checkout_snapshot") as snapshot:
+             mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=current) as snapshot, \
+             mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot") as advance:
             self.assertEqual(cau.automatic_catch_up()["status"], "disabled")
-        snapshot.assert_not_called()
+        snapshot.assert_called_once_with(None)
+        advance.assert_not_called()
 
     def test_invalid_preference_short_circuits_before_the_automatic_snapshot(self):
         with mock.patch.object(cau, "load_preference", return_value={"state": "invalid", "reason": "invalid-json"}), \
@@ -288,6 +307,21 @@ class TestAutomaticController(unittest.TestCase):
             result = cau.automatic_catch_up()
         self.assertEqual((result["status"], result["preference"]["source"]), ("disabled", "target-configured"))
         advance.assert_not_called()
+
+    def test_reviewed_target_reenable_supersedes_a_stale_local_opt_out(self):
+        fixed = {"status": "fixed", "branch": "main", "before": SNAPSHOT["head_oid"],
+                 "after": SNAPSHOT["target_oid"], "target_oid": SNAPSHOT["target_oid"], "applied": True}
+        local_opt_out = {"state": "disabled", "source": "configured", "path": "local:config"}
+        remote_reenable = {"state": "enabled", "source": "target-configured", "path": "target:config"}
+        with mock.patch.object(cau, "load_preference", return_value=local_opt_out), \
+             mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=SNAPSHOT), \
+             mock.patch.object(cau, "_target_preference", return_value=remote_reenable), \
+             mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
+             mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot", return_value=fixed) as advance:
+            result = cau.automatic_catch_up()
+        self.assertEqual(result["status"], "updated")
+        advance.assert_called_once_with(SNAPSHOT, protect_head=True)
 
     def test_malformed_assessed_target_never_enters_the_mutation_seam(self):
         malformed = {"state": "invalid", "reason": "invalid-json", "path": "target:config"}

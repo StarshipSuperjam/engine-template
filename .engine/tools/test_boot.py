@@ -3039,6 +3039,13 @@ class TestStanceLine(unittest.TestCase):
         self.assertIn("left the project folder alone", blocked[0].lower())
         self.assertNotIn("updated the project folder", blocked[0].lower())
 
+    def test_failed_automatic_rollback_is_never_described_as_a_no_op(self):
+        rollback = boot.must_push({**_signals(), "automatic_checkout": {
+            "status": "blocked", "reason": "rollback-failed"}})
+        self.assertIn("could not safely finish returning", rollback[0].lower())
+        self.assertIn("did not call it current", rollback[0].lower())
+        self.assertNotIn("left the project folder alone", rollback[0].lower())
+
 
 class TestAntiHabituationCollapse(unittest.TestCase):
     """The standing-alarm collapse applied in the hook path (_relay_lines / assemble_pack

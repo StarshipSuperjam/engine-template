@@ -40,6 +40,7 @@ _PREFERENCE_PROBLEMS = {
     "checkout-unresolved": "the project folder could not be found",
     "invalid-json": "the file is not valid JSON",
     "unreadable": "the file cannot be read",
+    "changed-during-read": "the file changed while it was being checked",
     "not-a-regular-file": "the file must be a regular file, not a link or directory",
     "not-an-object": "the file must contain one settings object",
     "unexpected-shape": "the setting must contain only `automatic_catch_up: true` or `automatic_catch_up: false`",
@@ -59,22 +60,36 @@ def load_preference(cwd: str | None = None, *, path: str | None = None) -> dict:
     if not path:
         return {"state": "invalid", "reason": "checkout-unresolved", "path": None}
     try:
-        mode = os.lstat(path).st_mode
+        before = os.lstat(path)
     except FileNotFoundError:
         return {"state": "enabled", "source": "default", "path": path}
     except OSError:
         return {"state": "invalid", "reason": "unreadable", "path": path}
-    if stat.S_ISLNK(mode):
+    if stat.S_ISLNK(before.st_mode):
         return {"state": "invalid", "reason": "not-a-regular-file", "path": path}
-    if not stat.S_ISREG(mode):
+    if not stat.S_ISREG(before.st_mode):
+        return {"state": "invalid", "reason": "unreadable", "path": path}
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
         return {"state": "invalid", "reason": "unreadable", "path": path}
     try:
-        with open(path, encoding="utf-8") as fh:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            return {"state": "invalid", "reason": "not-a-regular-file", "path": path}
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            return {"state": "invalid", "reason": "changed-during-read", "path": path}
+        with os.fdopen(fd, encoding="utf-8") as fh:
+            fd = None
             raw = json.load(fh)
     except json.JSONDecodeError:
         return {"state": "invalid", "reason": "invalid-json", "path": path}
     except OSError:
         return {"state": "invalid", "reason": "unreadable", "path": path}
+    finally:
+        if fd is not None:
+            os.close(fd)
     return _parse_preference(raw, path=path, source="configured")
 
 
@@ -287,15 +302,25 @@ def automatic_catch_up(cwd: str | None = None) -> dict:
     preference = load_preference(cwd)
     if preference["state"] == "invalid":
         return {"status": "invalid-config", "preference": preference}
-    if preference["state"] == "disabled":
-        # Boot still takes its ordinary fresh health snapshot afterwards, so drift and the consented action remain.
-        return {"status": "disabled", "preference": preference}
-
     snapshot = checkout_health.checkout_snapshot(cwd)
     if snapshot.get("state") == "unavailable":
-        return {"status": "unavailable", "snapshot": snapshot}
+        return ({"status": "disabled", "preference": preference, "snapshot": snapshot}
+                if preference["state"] == "disabled" else {"status": "unavailable", "snapshot": snapshot})
     if snapshot.get("state") == "current":
-        return {"status": "current", "snapshot": snapshot}
+        return ({"status": "disabled", "preference": preference, "snapshot": snapshot}
+                if preference["state"] == "disabled" else {"status": "current", "snapshot": snapshot})
+    target_preference = None
+    if preference["state"] == "disabled" and snapshot.get("on_default"):
+        # A re-enable may be the reviewed target commit while this checkout still reads its old `false` file.
+        # Fetch and inspect only the pinned target before allowing that reviewed true value to supersede it.
+        target_preference = _target_preference(snapshot)
+        if target_preference["state"] == "invalid":
+            return {"status": "invalid-config", "preference": target_preference, "snapshot": snapshot}
+        if target_preference["state"] == "disabled":
+            return {"status": "disabled", "preference": target_preference, "snapshot": snapshot}
+        preference = target_preference
+    elif preference["state"] == "disabled":
+        return {"status": "disabled", "preference": preference, "snapshot": snapshot}
     if not snapshot.get("on_default"):
         return {"status": "blocked", "reason": "off-main", "snapshot": snapshot}
     if not checkout_health._succeeds(["git", "-C", snapshot["main"], "merge-base", "--is-ancestor",
@@ -307,7 +332,7 @@ def automatic_catch_up(cwd: str | None = None) -> dict:
 
     # The configuration may be the pending reviewed commit itself. Inspect the same immutable target that the
     # atomic advance will later revalidate, so an opt-out or bad file can never be materialised by accident.
-    target_preference = _target_preference(snapshot)
+    target_preference = target_preference or _target_preference(snapshot)
     if target_preference["state"] == "invalid":
         return {"status": "invalid-config", "preference": target_preference, "snapshot": snapshot}
     if target_preference["state"] == "disabled":
