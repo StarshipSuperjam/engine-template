@@ -50,10 +50,18 @@ class TestPreference(unittest.TestCase):
             result = cau.load_preference(path=tmp)
         self.assertEqual((result["state"], result["reason"]), ("invalid", "unreadable"))
 
+    def test_dangling_symlink_fails_closed_instead_of_becoming_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "operator-checkout.json")
+            os.symlink(os.path.join(tmp, "no-such-preference"), path)
+            result = cau.load_preference(path=path)
+        self.assertEqual((result["state"], result["reason"]), ("invalid", "not-a-regular-file"))
+
     def test_invalid_preference_reason_has_a_plain_recovery_explanation(self):
         self.assertEqual(cau.preference_problem("invalid-json"), "the file is not valid JSON")
         self.assertIn("automatic_catch_up", cau.preference_problem("unexpected-shape"))
         self.assertNotIn("not-a-boolean", cau.preference_problem("not-a-boolean"))
+        self.assertIn("regular file", cau.preference_problem("not-a-regular-file"))
 
     def test_atomic_writer_preserves_previous_file_when_replace_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,6 +155,14 @@ class TestPreference(unittest.TestCase):
             self.assertEqual(git("branch", "--show-current").stdout.strip(), "main")
 
 
+class TestAssessedTargetPreference(unittest.TestCase):
+    def test_committed_symlink_fails_closed_without_dereferencing_it(self):
+        with mock.patch.object(cau.checkout_health, "_run",
+                               return_value="120000 blob deadbeef\t.engine/operator-checkout.json\0"):
+            result = cau._target_preference(SNAPSHOT)
+        self.assertEqual((result["state"], result["reason"]), ("invalid", "not-a-regular-file"))
+
+
 class TestAutomaticController(unittest.TestCase):
     def _enabled(self):
         return {"state": "enabled", "source": "default", "path": "/operator/.engine/operator-checkout.json"}
@@ -221,6 +237,7 @@ class TestAutomaticController(unittest.TestCase):
              mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=SNAPSHOT), \
              mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
              mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau, "_target_preference", return_value=self._enabled()), \
              mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot", return_value=fixed) as advance:
             result = cau.automatic_catch_up()
         advance.assert_called_once_with(SNAPSHOT, protect_head=True)
@@ -233,6 +250,7 @@ class TestAutomaticController(unittest.TestCase):
              mock.patch.object(cau.checkout_health, "checkout_snapshot", side_effect=[SNAPSHOT, current]), \
              mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
              mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau, "_target_preference", return_value=self._enabled()), \
              mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot",
                                return_value={"status": "blocked", "reason": "checkout-changed", "applied": False}):
             result = cau.automatic_catch_up()
@@ -259,6 +277,30 @@ class TestAutomaticController(unittest.TestCase):
         self.assertEqual(result["status"], "unavailable")
         advance.assert_not_called()
 
+    def test_assessed_target_opt_out_never_enters_the_mutation_seam(self):
+        target_opt_out = {"state": "disabled", "source": "target-configured", "path": "target:config"}
+        with mock.patch.object(cau, "load_preference", return_value=self._enabled()), \
+             mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=SNAPSHOT), \
+             mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
+             mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau, "_target_preference", return_value=target_opt_out), \
+             mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot") as advance:
+            result = cau.automatic_catch_up()
+        self.assertEqual((result["status"], result["preference"]["source"]), ("disabled", "target-configured"))
+        advance.assert_not_called()
+
+    def test_malformed_assessed_target_never_enters_the_mutation_seam(self):
+        malformed = {"state": "invalid", "reason": "invalid-json", "path": "target:config"}
+        with mock.patch.object(cau, "load_preference", return_value=self._enabled()), \
+             mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=SNAPSHOT), \
+             mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
+             mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+             mock.patch.object(cau, "_target_preference", return_value=malformed), \
+             mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot") as advance:
+            result = cau.automatic_catch_up()
+        self.assertEqual((result["status"], result["preference"]["reason"]), ("invalid-config", "invalid-json"))
+        advance.assert_not_called()
+
     def test_target_moved_or_late_clash_is_never_reported_as_updated(self):
         for reason in ("target-changed", "postcondition-failed"):
             with self.subTest(reason=reason), \
@@ -266,10 +308,48 @@ class TestAutomaticController(unittest.TestCase):
                  mock.patch.object(cau.checkout_health, "checkout_snapshot", return_value=SNAPSHOT), \
                  mock.patch.object(cau.checkout_health, "_succeeds", return_value=True), \
                  mock.patch.object(cau.checkout_health, "_is_lossless", return_value=(True, [])), \
+                 mock.patch.object(cau, "_target_preference", return_value=self._enabled()), \
                  mock.patch.object(cau.checkout_health, "_advance_clean_default_snapshot",
                                    return_value={"status": "blocked", "reason": reason, "applied": False}):
                 result = cau.automatic_catch_up()
             self.assertEqual((result["status"], result["reason"]), ("blocked", reason))
+
+    def test_real_remote_opt_out_is_honoured_before_it_is_materialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            origin = os.path.join(tmp, "origin.git")
+            author = os.path.join(tmp, "author")
+            operator = os.path.join(tmp, "operator")
+            def git(cwd, *args):
+                return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, check=True)
+            subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", origin], check=True)
+            subprocess.run(["git", "init", "-q", "--initial-branch=main", author], check=True)
+            git(author, "config", "user.email", "test@example.invalid")
+            git(author, "config", "user.name", "Target preference test")
+            os.makedirs(os.path.join(author, ".claude"))
+            os.makedirs(os.path.join(author, ".engine"))
+            with open(os.path.join(author, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
+            with open(os.path.join(author, ".engine", "marker"), "w", encoding="utf-8") as fh:
+                fh.write("fixture\n")
+            with open(os.path.join(author, "shared.txt"), "w", encoding="utf-8") as fh:
+                fh.write("before\n")
+            git(author, "add", ".")
+            git(author, "commit", "-qm", "initial")
+            git(author, "remote", "add", "origin", origin)
+            git(author, "push", "-qu", "origin", "main")
+            subprocess.run(["git", "clone", "-q", origin, operator], check=True)
+            with open(os.path.join(author, ".engine", "operator-checkout.json"), "w", encoding="utf-8") as fh:
+                json.dump({"automatic_catch_up": False}, fh)
+                fh.write("\n")
+            git(author, "add", ".engine/operator-checkout.json")
+            git(author, "commit", "-qm", "disable automatic catch-up")
+            git(author, "push", "-q", "origin", "main")
+            before = git(operator, "rev-parse", "HEAD").stdout.strip()
+            result = cau.automatic_catch_up(cwd=operator)
+            after = git(operator, "rev-parse", "HEAD").stdout.strip()
+            self.assertEqual((result["status"], result["preference"]["source"]), ("disabled", "target-configured"))
+            self.assertEqual(after, before)
+            self.assertFalse(os.path.exists(os.path.join(operator, ".engine", "operator-checkout.json")))
 
     def test_throwaway_repository_demonstration_proves_exact_clean_fast_forward(self):
         self.assertEqual(cau._demo(), 0)

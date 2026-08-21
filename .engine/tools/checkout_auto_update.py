@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ _PREFERENCE_PROBLEMS = {
     "checkout-unresolved": "the project folder could not be found",
     "invalid-json": "the file is not valid JSON",
     "unreadable": "the file cannot be read",
+    "not-a-regular-file": "the file must be a regular file, not a link or directory",
     "not-an-object": "the file must contain one settings object",
     "unexpected-shape": "the setting must contain only `automatic_catch_up: true` or `automatic_catch_up: false`",
     "not-a-boolean": "`automatic_catch_up` must be `true` or `false`",
@@ -57,14 +59,27 @@ def load_preference(cwd: str | None = None, *, path: str | None = None) -> dict:
     if not path:
         return {"state": "invalid", "reason": "checkout-unresolved", "path": None}
     try:
-        with open(path, encoding="utf-8") as fh:
-            raw = json.load(fh)
+        mode = os.lstat(path).st_mode
     except FileNotFoundError:
         return {"state": "enabled", "source": "default", "path": path}
+    except OSError:
+        return {"state": "invalid", "reason": "unreadable", "path": path}
+    if stat.S_ISLNK(mode):
+        return {"state": "invalid", "reason": "not-a-regular-file", "path": path}
+    if not stat.S_ISREG(mode):
+        return {"state": "invalid", "reason": "unreadable", "path": path}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
     except json.JSONDecodeError:
         return {"state": "invalid", "reason": "invalid-json", "path": path}
     except OSError:
         return {"state": "invalid", "reason": "unreadable", "path": path}
+    return _parse_preference(raw, path=path, source="configured")
+
+
+def _parse_preference(raw: object, *, path: str, source: str) -> dict:
+    """Validate one decoded preference document shared by the live and assessed-target readers."""
     if not isinstance(raw, dict):
         return {"state": "invalid", "reason": "not-an-object", "path": path}
     if set(raw) != {_KEY}:
@@ -72,7 +87,36 @@ def load_preference(cwd: str | None = None, *, path: str | None = None) -> dict:
     value = raw.get(_KEY)
     if type(value) is not bool:  # bool is intentionally exact; truthy JSON values never opt in/out.
         return {"state": "invalid", "reason": "not-a-boolean", "path": path}
-    return {"state": "enabled" if value else "disabled", "source": "configured", "path": path}
+    return {"state": "enabled" if value else "disabled", "source": source, "path": path}
+
+
+def _target_preference(snapshot: dict) -> dict:
+    """Read the preference *from the exact assessed target*, without materialising that target.
+
+    A reviewed opt-out can itself be the next remote commit. Looking only at the old working tree would apply
+    that commit once before noticing its ``false`` value on the next boot. ``ls-tree`` pins this read to the
+    snapshot target and rejects anything other than a regular blob, including a committed symlink.
+    """
+    main, target = snapshot["main"], snapshot["target_oid"]
+    relpath = CONFIG_REL.replace(os.sep, "/")
+    display_path = f"{target}:{relpath}"
+    listed = checkout_health._run(["git", "-C", main, "ls-tree", "-z", target, "--", relpath])
+    if listed is None:
+        return {"state": "invalid", "reason": "unreadable", "path": display_path}
+    if not listed:
+        return {"state": "enabled", "source": "target-default", "path": display_path}
+    entry = listed.split("\0", 1)[0]
+    metadata = entry.split("\t", 1)[0].split()
+    if len(metadata) != 3 or metadata[1] != "blob" or not metadata[0].startswith("100"):
+        return {"state": "invalid", "reason": "not-a-regular-file", "path": display_path}
+    contents = checkout_health._run(["git", "-C", main, "show", f"{target}:{relpath}"])
+    if contents is None:
+        return {"state": "invalid", "reason": "unreadable", "path": display_path}
+    try:
+        raw = json.loads(contents)
+    except json.JSONDecodeError:
+        return {"state": "invalid", "reason": "invalid-json", "path": display_path}
+    return _parse_preference(raw, path=display_path, source="target-configured")
 
 
 def preference_problem(reason: str | None) -> str:
@@ -218,7 +262,8 @@ def _normalise_peer_winner(cwd: str | None, result: dict) -> dict:
     if result.get("reason") not in {"checkout-changed", "clash"}:
         return result
     assessed = result.get("snapshot") if isinstance(result.get("snapshot"), dict) else {}
-    main = assessed.get("main")
+    resolved = checkout_health._main_checkout(cwd)
+    main = assessed.get("main") or (resolved[0] if resolved else None)
     if not main:
         return result
     for attempt in range(_PEER_SETTLE_ATTEMPTS):
@@ -259,6 +304,14 @@ def automatic_catch_up(cwd: str | None = None) -> dict:
     safe, reasons = checkout_health._is_lossless(snapshot["main"])
     if not safe:
         return {"status": "blocked", "reason": "local-work", "reasons": reasons, "snapshot": snapshot}
+
+    # The configuration may be the pending reviewed commit itself. Inspect the same immutable target that the
+    # atomic advance will later revalidate, so an opt-out or bad file can never be materialised by accident.
+    target_preference = _target_preference(snapshot)
+    if target_preference["state"] == "invalid":
+        return {"status": "invalid-config", "preference": target_preference, "snapshot": snapshot}
+    if target_preference["state"] == "disabled":
+        return {"status": "disabled", "preference": target_preference, "snapshot": snapshot}
 
     applied = checkout_health._advance_clean_default_snapshot(snapshot, protect_head=True)
     if applied.get("status") == "fixed":

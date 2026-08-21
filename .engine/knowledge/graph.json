@@ -9980,7 +9980,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:b5f94384aa9eb6a07faebd08dfbc9a4c2218da4c49532e773e8ab32020a325a8",
+        "fingerprint": "sha256:c832823962b5d12546b115c188596ce8349182da3ab654ddb7cfe95fa53ef352",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -15515,7 +15515,7 @@
       },
       "slug": "test_checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:ebb73666c5bfae962a507f007c1140fc62dc3205dd036742c842afa3fc00d2bb",
+        "fingerprint": "sha256:40cd7740266a7fcdad96ff5676e1e9476dd4ae752da205a2506864767eade60f",
         "path": ".engine/tools/test_checkout_auto_update.py"
       },
       "status": "active",
