@@ -52,6 +52,7 @@ returns non-zero, which the kind turns into a hard fail-closed finding (a guard 
 """
 from __future__ import annotations
 import glob as _glob
+import hashlib
 import json
 import os
 import sys
@@ -393,6 +394,12 @@ def proof_inventory(*, root: str | None = None, check_dir: str | None = None,
     def record(scope: str, key: str, kind: str, fdir: str, rule: dict | None = None) -> dict:
         declarations = [name for name in ("not-applicable.json", _HS_DECLARATION, "requires.json")
                         if os.path.isfile(os.path.join(fdir, name))]
+        declaration_fingerprints = {}
+        for name in declarations:
+            with open(os.path.join(fdir, name), "rb") as declaration_file:
+                declaration_fingerprints[name] = "sha256:" + hashlib.sha256(
+                    declaration_file.read()
+                ).hexdigest()
         if not os.path.isdir(fdir):
             carrier = "missing"
         elif "not-applicable.json" in declarations:
@@ -406,6 +413,7 @@ def proof_inventory(*, root: str | None = None, check_dir: str | None = None,
             "fixture_dir": os.path.relpath(fdir, root).replace(os.sep, "/"),
             "carrier": carrier,
             "declarations": declarations,
+            "declaration_fingerprints": declaration_fingerprints,
             **({"rule": rule} if rule is not None else {}),
         }
 

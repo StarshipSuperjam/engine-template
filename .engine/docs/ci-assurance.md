@@ -25,8 +25,8 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | Workflow triggers | 2 |
 | Executable workflow steps | 5 |
 | CI validator rules | 81 (76 hard, 5 soft) |
-| Dedicated hard custom-check proofs | 44 |
-| Disclosed proof exceptions | 4 |
+| Dedicated hard custom-check proofs | 41 |
+| Disclosed proof exceptions | 3 |
 | Discovered self-test modules | 176 |
 
 ### When it runs
@@ -409,3 +409,12 @@ These summaries are parsed from module docstrings and report declared test inten
 | [`engine/check/template-shape-spec`](../../.engine/check/template-shape-spec.json) | `hard` | `custom/script` | Each template that a kind of engine file is written from sets out, at its top, the required shape for that kind of file — which sections must appear, which may, and a length budget. The engine now reads that shape straight from the template and checks every file of that kind against it, so a template with a broken shape setting would quietly break the check for all of them. This check makes sure every template's shape settings are well-formed. If it goes red, it names the template and what is wrong; the fix is to correct the settings at the top of that template to match the shape the others use. | Dedicated hard-check bite proof — negative fixture ([carrier](../../.engine/_fixtures/template-shape-spec)) |
 | [`engine/check/untracked-surface`](../../.engine/check/untracked-surface.json) | `soft` | `custom/script` | A file under the engine's surface is present in your working copy but git is not tracking it — most often a duplicate left behind by a file-sync tool, with a name like `something 2.py`. The shared checks run on a clean copy of the repository and never see it, so it can cause a failure that only happens on your machine, and regenerating the engine's map of itself would pull it in. Each such file is named individually with what to do; in short, if a file-sync tool created it, delete it, and if it is a new engine file you meant to add, commit it. This is a warning only and never blocks a merge. | Soft check — outside the hard-check proof roster |
 | [`engine/check/uv-group-drift`](../../.engine/check/uv-group-drift.json) | `hard` | `custom/script` | The tool-runtime's dependency-group selection (\[tool.uv\] default-groups in .engine/pyproject.toml) is the engine's derived, committed list of which installed modules' Python dependencies to install. It is derived from the present module set, so it must always match them; the module manager keeps it derived as modules are added or removed, and this check is the standing backstop that catches drift from a hand-edit, a botched merge, or a missed re-derivation. This check regenerates the selection from the installed modules and compares; if the committed value is stale it goes red. To fix it, run `uv run --directory .engine -- python tools/module_manager.py sync-groups` and commit the result. | Dedicated hard-check bite proof — negative fixture ([carrier](../../.engine/_fixtures/uv-group-drift)) |
+
+<!-- ci-assurance-proof-declarations
+.engine/_fixtures/census-completeness/construction-scoped.json=sha256:07cf1b519a6cd788da60e4cde6cf7e9c18d5ccdb83364e384df4515f712f9a7b
+.engine/_fixtures/dependency-review/not-applicable.json=sha256:106ac18371a273638c4f6b9e5b167d6ca0df28863b48d6957a5d49abf1be347b
+.engine/_fixtures/memory-pointer-public-safety/construction-scoped.json=sha256:6457d21bbbdd6568980ec11a34f673d8f3aac9935f8289802b862f56181a1183
+.engine/_fixtures/product-lock-integrity/not-applicable.json=sha256:a75244869fb5f88aa66fa5cdb4b58286cf7efcc50adfec60f070d4fbdaf678d7
+.engine/_fixtures/protection/not-applicable.json=sha256:515282571acf3b68ecb5bdb491bb2d116de0c11ead1601d0bd99955e9ab1f0ed
+.engine/_fixtures/shipped-issue-references/construction-scoped.json=sha256:49f496b622f56ed1086eeb6b88c14a41b017d497536bec2182a4d5f460f875e2
+-->

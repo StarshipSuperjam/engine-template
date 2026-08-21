@@ -252,10 +252,10 @@ def _proof_rows(root: str) -> tuple[dict[str, dict], dict[str, dict]]:
     return kinds, checks
 
 
-def classify_rule(rule: dict, kind_proofs: dict, check_proofs: dict) -> tuple[str, str | None]:
+def classify_rule(rule: dict, kind_proofs: dict, check_proofs: dict) -> tuple[str, str | None, dict | None]:
     """Describe the proof carrier without claiming that a declaration or fixture has passed this run."""
     if rule.get("tier") != "hard":
-        return "Soft check — outside the hard-check proof roster", None
+        return "Soft check — outside the hard-check proof roster", None, None
     if rule.get("kind") == "custom/script":
         proof = check_proofs.get(rule.get("id"))
         label = "Dedicated hard-check bite proof"
@@ -271,7 +271,21 @@ def classify_rule(rule: dict, kind_proofs: dict, check_proofs: dict) -> tuple[st
         label += " — missing carrier (CI will refuse)"
     else:
         label += " — negative fixture"
-    return label, proof.get("fixture_dir")
+    return label, proof.get("fixture_dir"), proof
+
+
+def _proof_totals(classified_ci_rules: list[tuple]) -> tuple[int, int]:
+    """Count only CI-scoped proof carriers, keeping proofs and exceptions mutually exclusive."""
+    dedicated = sum(
+        rule.get("tier") == "hard" and rule.get("kind") == "custom/script"
+        and proof["carrier"] == "negative-fixture"
+        for rule, _relpath, _label, _fixture, proof in classified_ci_rules
+    )
+    exceptions = sum(
+        rule.get("tier") == "hard" and proof["carrier"] == "declared-not-applicable"
+        for rule, _relpath, _label, _fixture, proof in classified_ci_rules
+    )
+    return dedicated, exceptions
 
 
 def canonical_catalogue(root: str = validate.ROOT) -> str:
@@ -291,8 +305,8 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
         owner = owners.get(rel)
         if owner not in modules:
             raise ValueError(f"CI rule {rule.get('id')} has no unique installed-module owner ({rel})")
-        proof, fixture = classify_rule(rule, kind_proofs, check_proofs)
-        grouped_rules[owner].append((rule, rel, proof, fixture))
+        proof_label, fixture, proof = classify_rule(rule, kind_proofs, check_proofs)
+        grouped_rules[owner].append((rule, rel, proof_label, fixture, proof))
     grouped_tests = defaultdict(list)
     for test in tests:
         owner = owners.get(test["path"])
@@ -302,9 +316,8 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
 
     hard = sum(rule.get("tier") == "hard" for rule, _relpath in rules)
     soft = len(rules) - hard
-    dedicated = sum(rule.get("tier") == "hard" and rule.get("kind") == "custom/script"
-                    for rule, _relpath in rules)
-    exception_count = sum(row["carrier"] == "declared-not-applicable" for row in [*kind_proofs.values(), *check_proofs.values()])
+    classified_ci_rules = [row for rows in grouped_rules.values() for row in rows]
+    dedicated, exception_count = _proof_totals(classified_ci_rules)
     out = [
         "---", "title: What Engine CI verifies", "---", "",
         "# What Engine CI verifies", "",
@@ -365,8 +378,8 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
             out.extend(["##### Validator rules", "",
                         "| Rule | Tier | Kind | Purpose | Proof classification |",
                         "| --- | --- | --- | --- | --- |"])
-            for rule, rel, proof, fixture in rows:
-                proof_text = proof
+            for rule, rel, proof_label, fixture, _proof in rows:
+                proof_text = proof_label
                 if fixture:
                     proof_text += f" ({_link(fixture, 'carrier')})"
                 rule_label = f"`{rule['id']}`"
@@ -383,6 +396,17 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
                 test_label = f"`{test['path']}`"
                 out.append(f"| {_link(test['path'], test_label)} | {test['description']} |")
             out.append("")
+    declaration_fingerprints = sorted({
+        f"{proof['fixture_dir']}/{name}={digest}"
+        for rule, _relpath, _label, _fixture, proof in classified_ci_rules
+        if rule.get("tier") == "hard" and proof
+        for name, digest in (proof.get("declaration_fingerprints") or {}).items()
+    })
+    if declaration_fingerprints:
+        # The rendered page links each carrier for readers. This invisible derived-input roster ensures every
+        # byte of an applicable bounded declaration also participates in drift detection without presenting
+        # implementation fingerprints as reader-facing assurance prose.
+        out.extend(["<!-- ci-assurance-proof-declarations", *declaration_fingerprints, "-->", ""])
     return "\n".join(out).rstrip() + "\n"
 
 

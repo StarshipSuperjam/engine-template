@@ -5,6 +5,8 @@ Markdown escaping, module grouping, proof classifications, malformed-input refus
 """
 from __future__ import annotations
 
+import copy
+import json
 import os
 import tempfile
 import unittest
@@ -93,6 +95,26 @@ class TestProofClassification(unittest.TestCase):
         }
         self.assertEqual({row["key"] for row in inventory if row["scope"] == "check"}, hard_custom_ids)
 
+    def test_declaration_content_changes_the_shared_inventory(self):
+        with tempfile.TemporaryDirectory() as root:
+            check_dir = os.path.join(root, ".engine", "check")
+            fixture_dir = os.path.join(root, ".engine", "_fixtures", "sample")
+            os.makedirs(check_dir)
+            os.makedirs(fixture_dir)
+            with open(os.path.join(check_dir, "sample.json"), "w", encoding="utf-8") as fh:
+                json.dump({"id": "engine/check/sample", "tier": "hard", "kind": "custom/script"}, fh)
+            declaration = os.path.join(fixture_dir, "not-applicable.json")
+            with open(declaration, "w", encoding="utf-8") as fh:
+                json.dump({"property": hcb._NA_PROPERTY, "reason": "first reason"}, fh)
+            first = hcb.proof_inventory(root=root, check_dir=check_dir,
+                                        fixture_root=os.path.dirname(fixture_dir), registry={}, kinds=[])
+            with open(declaration, "w", encoding="utf-8") as fh:
+                json.dump({"property": hcb._NA_PROPERTY, "reason": "changed reason"}, fh)
+            second = hcb.proof_inventory(root=root, check_dir=check_dir,
+                                         fixture_root=os.path.dirname(fixture_dir), registry={}, kinds=[])
+        self.assertNotEqual(first[0]["declaration_fingerprints"],
+                            second[0]["declaration_fingerprints"])
+
 
 class TestRendering(unittest.TestCase):
     def test_markdown_cells_escape_pipes_and_collapse_lines(self):
@@ -116,6 +138,41 @@ class TestRendering(unittest.TestCase):
         self.assertIn("Python line or branch coverage", first)
         self.assertNotIn("coverage percentage", first.lower().replace("no coverage percentage", ""))
         self.assertNotIn("quality score", first.lower().replace("quality score", ""))
+
+    def test_live_entries_follow_manifest_module_ownership(self):
+        rendered = assurance.canonical_catalogue()
+        core = rendered.split("#### `core`", 1)[1].split("\n#### `", 1)[0]
+        validators = rendered.split("#### `validators-core`", 1)[1].split("\n#### `", 1)[0]
+        self.assertIn(".engine/tools/test_ci_assurance.py", core)
+        self.assertNotIn("engine/check/ci-assurance-drift", core)
+        self.assertIn("engine/check/ci-assurance-drift", validators)
+        self.assertNotIn(".engine/tools/test_ci_assurance.py", validators)
+
+    def test_proof_totals_are_ci_scoped_and_exceptions_are_not_proofs(self):
+        rows = [
+            ({"tier": "hard", "kind": "custom/script"}, "a", "", None,
+             {"carrier": "negative-fixture"}),
+            ({"tier": "hard", "kind": "custom/script"}, "b", "", None,
+             {"carrier": "declared-not-applicable"}),
+            ({"tier": "hard", "kind": "schema"}, "c", "", None,
+             {"carrier": "negative-fixture"}),
+            ({"tier": "soft", "kind": "custom/script"}, "d", "", None, None),
+        ]
+        self.assertEqual(assurance._proof_totals(rows), (1, 1))
+
+    def test_changed_proof_declaration_makes_committed_catalogue_stale(self):
+        committed = assurance.canonical_catalogue()
+        inventory = copy.deepcopy(hcb.proof_inventory())
+        declared = next(row for row in inventory if row["declaration_fingerprints"])
+        name = next(iter(declared["declaration_fingerprints"]))
+        declared["declaration_fingerprints"][name] = "sha256:" + "0" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "ci-assurance.md")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(committed)
+            with mock.patch.object(hcb, "proof_inventory", return_value=inventory):
+                finding = assurance.check(path)
+        self.assertEqual(finding["severity"], "hard")
 
     def test_check_reports_missing_or_stale_as_hard(self):
         with tempfile.TemporaryDirectory() as tmp:

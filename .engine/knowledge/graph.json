@@ -5919,7 +5919,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:a56d81c298eee457c03f5bace2ca8e375eeb0bf206a96c8948f1d7d23c21eadb",
+        "fingerprint": "sha256:cb4198b76792affeae19085c1359a5aa77bba903612daa9e42a5cabc3c42cd12",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10101,7 +10101,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:aaf3e6e467ff1ea69278bcca4b765459b153e9bdd144ed66442990af90dca8ba",
+        "fingerprint": "sha256:2d02b86b46e716d45c3e928ad8fcff3e26c71d6d61282e41a65cbbfa89c79bee",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -12262,7 +12262,7 @@
       },
       "slug": "hard_check_bite_check",
       "source": {
-        "fingerprint": "sha256:a1204a2401e927254eefa2db735bd6ed644c996dffa57d128190c903ae34c6d0",
+        "fingerprint": "sha256:e530ea3e061fda44214720f01200ee2e5c4c1837b952563088a8ddd63208cc16",
         "path": ".engine/tools/hard_check_bite_check.py"
       },
       "status": "active",
@@ -15670,7 +15670,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:d29237454d047832b997ed4eb7c42844f56452c5a6a0f714bd15331d565e296c",
+        "fingerprint": "sha256:3723a8c59c2d5d15d6fee3358084b6c1f3dee8bb7dd3664573c8bff34c6359bd",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
