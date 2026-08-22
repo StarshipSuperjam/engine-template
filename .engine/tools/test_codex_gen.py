@@ -336,6 +336,18 @@ class TestDriftGate(_FixtureTree):
         problems = codex_gen.check(self.root)
         self.assertTrue(any("has no canonical source" in p for p in problems), problems)
 
+    def test_generate_prunes_an_orphaned_render_so_regeneration_converges(self):
+        # The reconcile/sync convergence property: after a source is removed, regeneration must DELETE the
+        # stale engine-* render (not only flag it), or the drift check would never clear.
+        codex_gen.generate(self.root)
+        skill_render = os.path.join(self.root, ".agents", "skills", "engine-widget")
+        self.assertTrue(os.path.isdir(skill_render))
+        shutil.rmtree(os.path.join(self.root, ".claude", "skills", "engine-widget"))
+        removed = codex_gen.generate(self.root)                       # regenerate over the deleted-source tree
+        self.assertFalse(os.path.exists(skill_render), "the orphaned skill render dir was not pruned")
+        self.assertTrue(any("engine-widget" in r for r in removed), removed)
+        self.assertEqual(codex_gen.check(self.root), [])             # converged: no drift remains
+
     def test_a_missing_render_is_caught(self):
         codex_gen.generate(self.root)
         os.remove(os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml"))
