@@ -7,8 +7,8 @@ title: Engine development — how a session that develops the Engine itself runs
 The Engine is developed in exactly one place — its own home repository — but a session can reach that work
 from more than one starting point. A deployed project treats the Engine as fixed machinery that arrives as
 released updates (its root floor says so: "changing the Engine's own machinery isn't this project's job");
-there, that machinery is never the work. This runbook governs every session that develops the Engine,
-whichever lane it arrived by.
+in the engine's home, that machinery **is** the work. This runbook governs every session that develops the
+Engine, whichever lane the session arrived by.
 
 It rests on the **trust model — informed consent on evidence, never code review.** The maintainer is a
 **non-engineer and the sole gate-holder, with no outside engineer;** he directs the work and approves every
@@ -33,7 +33,10 @@ this runbook decides the discipline. The lanes turn on **which repository holds 
   commit** — never its working tree or index — because in-flight edits must never govern the build that makes
   them; a change to this runbook governs only from the merge that lands it. Record that base commit with the
   evidence. All seven steps below govern, and step 4's Build is the owned-product Build already in progress:
-  continue it, never re-enter and cut a second worktree.
+  continue it, never re-enter and cut a second worktree. The two runbooks are different axes, not two copies
+  of one sequence — the steps below are the development discipline, and `owned-product-build.md`'s own steps
+  are the delivery mechanics that carry it. Follow the steps below in order, taking each delivery mechanic at
+  the point it applies; never run either list twice.
 - **Work whose files live in the mechanic's own repository** — its spec corpus, its runbooks, and the like —
   is an ordinary Build in that repository, not Engine development. An ask spanning both repositories is two
   Builds, one per repository, sequenced; never one worktree, and never a refusal.
