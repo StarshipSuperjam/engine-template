@@ -219,7 +219,7 @@ A note on runtimes: on Claude these routes are hidden from the operator's typed 
 | `engine-configure-memory-backup` | model-only | tool `.engine/tools/memory/backup_vault.py` (active) | `core` |
 | `engine-coordinate-build` | model-only | operation `.engine/operations/build-orchestration.md` (active) | `core` |
 | `engine-design-product` | model-only | operation `.engine/operations/product-intake.md` (module-conditional) | `core` |
-| `engine-develop-engine` | model-only | operation `.engine/operations/engine-development.md` (home-only) | `core` |
+| `engine-develop-engine` | model-only | operation `.engine/operations/engine-development.md` (home-only); operation `.engine/operations/owned-product-build.md` (active) | `core` |
 | `engine-drop-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
 | `engine-enable-protection` | model-only | operation `.engine/operations/control-plane-bootstrap.md` (active) | `core` |
 | `engine-file-engine-issue` | model-only | tool `.engine/tools/issue_author.py` (active) | `core` |

@@ -3499,7 +3499,7 @@
       },
       "slug": "engine-develop-engine",
       "source": {
-        "fingerprint": "sha256:83eb358d6c8f8d6e083c308a0ab78fa25cbafa1225e55938a60cbe4c4d00b8aa",
+        "fingerprint": "sha256:6d2c2324863d472b2c269c1fd5520a3a135ef18c904588c4520ce40f2e0ad852",
         "path": ".agents/skills/engine-develop-engine/SKILL.md"
       },
       "status": "active",
@@ -6589,7 +6589,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:b52fcdd58b4b836520b48f0296436062e31d4a4a5d69c5eb431cb1895337ad62",
+        "fingerprint": "sha256:a7f489a88893a0b8e085acd033dd7603ad6b7964458710779fe3163d0df7162d",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -6869,7 +6869,7 @@
       },
       "slug": "owned-product-build",
       "source": {
-        "fingerprint": "sha256:27a0fb73858fcbd5ebce40f5d8c51750b693ae3e4e5b5ae2f5d73d5d4a97ed63",
+        "fingerprint": "sha256:520d4c220d0998a8f13ff7d59478660ab528a92399b377ac5394c6113ab43626",
         "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
@@ -8254,12 +8254,13 @@
           "module:core"
         ],
         "routes_to": [
-          "operation:engine-development"
+          "operation:engine-development",
+          "operation:owned-product-build"
         ]
       },
       "slug": "engine-develop-engine",
       "source": {
-        "fingerprint": "sha256:b3c0087775bc4f8295fd2a18e035e9176ac4f92361c12f2cbab8639b2a9dc1cb",
+        "fingerprint": "sha256:1b7a5a4b8cb62259acfb75ceb5905beb6b9c76baa41675f89c3ca946906b78e3",
         "path": ".claude/skills/engine-develop-engine/SKILL.md"
       },
       "status": "active",
