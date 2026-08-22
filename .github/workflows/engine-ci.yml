@@ -9,8 +9,13 @@
 # successful run of this same workflow, bound to the git TREE hash of the checkout — content-addressed, so it
 # is identical only if the content is. New or changed code never takes route two: every push, open and reopen
 # runs the full inventory, as does every run on the default branch. Only a body edit or a label change can
-# reuse, and only for a tree already judged. Any doubt — no receipt, an unreadable one, an API failure —
-# resolves to the full run. A reuse run uploads no receipt, so reuse can never chain off reuse.
+# reuse, and only for a tree already judged. A reuse run still re-runs the checks whose verdict CAN change while
+# the tree is unchanged — the pull-request body rules, the product-design lock, branch protection, and the
+# dependency-advisory screen (which reads GitHub's live advisory database, so an identical dependency can turn
+# red as a new advisory is published) — and skips only the self-test inventory that a tree already judged
+# cannot change. A receipt is honoured for at most 14 days; past that even a metadata event runs full. Any
+# doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run uploads no
+# receipt, so reuse can never chain off reuse.
 #
 # The job name `engine-ci` is the FROZEN check context bound in the branch
 # ruleset; renaming it is a guardrail-weakening change.
@@ -104,6 +109,11 @@ jobs:
           path: ${{ runner.temp }}/receipt.json
           retention-days: 30
           if-no-files-found: error
+          # A re-run of a full run (`gh run rerun`) re-executes this step; artifacts are namespaced per run, not
+          # per attempt, so without this the re-run would pay the whole inventory again and then FAIL on a
+          # duplicate artifact name. The name must stay fixed (the discovery filter matches it exactly), so
+          # overwrite — not a per-attempt name, which would silently break reuse.
+          overwrite: true
       - name: Record that the full arm completed
         if: env.ENGINE_CI_MODE != 'reuse'
         run: echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"

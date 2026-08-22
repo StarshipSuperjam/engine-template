@@ -1186,12 +1186,13 @@
       },
       "slug": "dependency-review",
       "source": {
-        "fingerprint": "sha256:af31490e488b4ff074d46d8d63823cf1c7d8faf989efa33c1b8d003a0c2cb076",
+        "fingerprint": "sha256:30f793765d539f405218da77c0906b7226a0934868e93ac86044ce3af8d36baa",
         "path": ".engine/check/dependency-review.json"
       },
       "status": "active",
       "suites": [
         "CI",
+        "CI-metadata",
         "pre-close",
         "pre-commit"
       ],
@@ -5924,7 +5925,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:1a63646559a9339e3b653eeb8f4b47af0f0af3352690583d4630919bcdc97532",
+        "fingerprint": "sha256:bacdfe09e40d06b366dfa42e72626c6407d815c478ca6fc57f5de4f3e21eb409",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6354,7 +6355,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:caeb54268724d04f574113a0098d46d8ca3956c1da1c2d4cb996761d6781568c",
+        "fingerprint": "sha256:878acf110151abfe254c971611b88f980c75f00583002b3aa4118fd911d9c1b2",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10106,7 +10107,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:a7554f54d288ed2c04a327b6b85d33f593d2b364f219f6ba2c9b639fd3fd95fd",
+        "fingerprint": "sha256:f76cdfaf87b5f1062bf13e9ff093ecef9025140a3b85bade97e07e4becbb2146",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10156,7 +10157,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:ba642a73ce4dcb9a26455ba3adbf91a9933a4b4e7836c84efa275983e7baabc1",
+        "fingerprint": "sha256:4e12cc1b94621f96b8ba1243be24576362d1746082b0191bbaa9c48113dc77cc",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -12246,7 +12247,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:26dac73ca3697204e98c643a74cb4e3060ab8cca74da3b910d752b6a94e04842",
+        "fingerprint": "sha256:695d4fd55b3c9a4f671932c980bc19be958e222f34f1cd95d8cb6757d86cf781",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -15725,7 +15726,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:9c7ecc0ba5abc068d143fd7e2cfb34d75ffddb395e1d9beea5d16a233cedda35",
+        "fingerprint": "sha256:51c4aad59f4dcebf6aa06f0f76a50fde3c4830ce4e4c79c7c2378c9fcbffcda3",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",
@@ -18729,7 +18730,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:0b73712dd5b0c9958b4b7ca65a9cfc8705ad1908476bdc1ba666927ceaf0ea26",
+        "fingerprint": "sha256:2aad7dffa77ef1c5074bac0fb94d199cff86897ca228a8d6c74485f788cb7380",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -19335,13 +19336,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:ci_assurance",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:f45a6521cd73ae4d6cdb1e1e87b425f198ee83e6ba3706060e3b0aca1aac2dd5",
+        "fingerprint": "sha256:52b285d42624fb8174131fe2a81c715088e48996de0fdb173d9407d08177e116",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",

@@ -86,9 +86,9 @@ MODE_REUSE = "reuse"
 # The environment names the workflow branches on. MODE_ENV carries the decision; RAN_ENV is written by an arm
 # when it FINISHES, and the two are deliberately different: a marker set by the decision step would prove only
 # that the decision ran, which is exactly the thing the terminal assertion must not accept as proof that an
-# arm ran. The arms condition on MODE_ENV; the terminal step reads RAN_ENV.
+# arm ran. The arms condition on MODE_ENV; the terminal step reads RAN_ENV. The reason a full run was chosen is
+# disclosed in the job summary and stdout, not published to the environment — no step conditions on it.
 MODE_ENV = "ENGINE_CI_MODE"
-REASON_ENV = "ENGINE_CI_REASON"
 RAN_ENV = "ENGINE_CI_RAN"
 
 # The actions that cannot change the tree under test. Everything else — including an action this module does
@@ -357,8 +357,16 @@ def _age_ok(completed_at, now=None):
     return None
 
 
+# A hard ceiling on the receipt member's UNCOMPRESSED size. A genuine receipt is a few hundred bytes; this
+# refuses a zip-bomb entry whose declared size would balloon in memory before the JSON parse ever runs.
+_MAX_RECEIPT_BYTES = 1 * 1024 * 1024
+
+
 def _extract_receipt(zip_bytes: bytes) -> str:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        info = archive.getinfo(RECEIPT_FILENAME)
+        if info.file_size > _MAX_RECEIPT_BYTES:
+            raise ValueError("the receipt artifact's declared size exceeds the cap")
         return archive.read(RECEIPT_FILENAME).decode("utf-8")
 
 
@@ -471,7 +479,6 @@ def main(argv):
         event = _load_event()
         mode, reason, detail = decide(event, repo=repo, token=token)
         _publish(MODE_ENV, mode)
-        _publish(REASON_ENV, reason or "")
         if mode == MODE_REUSE:
             line = reuse_disclosure(detail)
             print(line)

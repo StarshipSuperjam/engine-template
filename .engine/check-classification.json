@@ -1,5 +1,5 @@
 {
-  "description": "Which CI checks can change their verdict while the tree is unchanged. A 'metadata' rule reads live state outside the committed tree \u2014 the pull-request body, the pull-request diff, or branch protection \u2014 so its answer can differ on a body edit or a label change even though no code moved; those rules join the CI-metadata suite and re-run when engine-ci reuses an earlier full-suite proof. A 'code' rule reads only the tree, so a run that has already judged that tree has already judged it. Every rule in the CI suite must appear here exactly once: a self-test fails until a newly added rule is classified, so the question is answered when the rule is written rather than inferred later from a field that cannot carry it (a target context is documentary for most rules and does not distinguish live state from tree state).",
+  "description": "Which CI checks can change their verdict while the tree is unchanged. A 'metadata' rule reads live state outside the committed tree \u2014 the pull-request body, the pull-request diff, branch protection, or an external service such as GitHub's dependency-advisory database \u2014 so its answer can differ over time or on a body edit or a label change even though no code moved; those rules join the CI-metadata suite and re-run when engine-ci reuses an earlier full-suite proof. A 'code' rule reads only the tree, so a run that has already judged that tree has already judged it. Every rule in the CI suite must appear here exactly once: a self-test fails until a newly added rule is classified, AND that self-test independently forces 'metadata' for any rule that reaches live state \u2014 one handed an API token (pass_token) or one whose target context is the pull-request body, the pull-request diff, or branch protection \u2014 so a misjudged 'code' answer on a live-state rule cannot slip through. The question is answered when the rule is written rather than inferred later from a field that cannot fully carry it (a target context is documentary for most rules and, on its own, does not distinguish live state from tree state).",
   "classification": {
     "engine/check/agent-coherence": "code",
     "engine/check/agent-frontmatter": "code",
@@ -25,7 +25,7 @@
     "engine/check/contract-shape": "code",
     "engine/check/contract-threshold": "code",
     "engine/check/dependency-pinning": "code",
-    "engine/check/dependency-review": "code",
+    "engine/check/dependency-review": "metadata",
     "engine/check/doc-frontmatter": "code",
     "engine/check/doc-shape": "code",
     "engine/check/engine-manifest": "code",

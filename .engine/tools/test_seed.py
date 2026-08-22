@@ -3344,17 +3344,32 @@ class TestMetadataSuiteClassification(unittest.TestCase):
                 self.assertNotIn("CI-metadata", ci[rid].get("suites", []),
                                  f"{rid} is classified code-only but re-runs on a metadata event")
 
-    def test_every_live_context_rule_is_classified_metadata(self):
-        # The independent cross-check, so the classification cannot drift quietly in the unsafe direction: a
-        # rule reading the pull-request body, the pull-request diff, or branch protection cannot be code-only,
-        # whatever the file says.
-        live = {"pull-request-body", "pull-request-diff", "branch-protection"}
+    def test_every_live_state_rule_is_classified_metadata(self):
+        # The independent cross-check, so the classification cannot drift quietly in the unsafe direction. A
+        # rule reaches live state — state that can change while the tree does not — in one of two statically
+        # detectable ways: it is handed an API token (pass_token), or its target context is the pull-request
+        # body, the pull-request diff, or branch protection. Either way it cannot be code-only, whatever the
+        # file says. Keying on pass_token as WELL as the context is what catches a live-state rule whose context
+        # label is something else — the dependency-advisory screen (context 'product-dependency-changes', which
+        # consults GitHub's advisory database at request time) is exactly that case, and a context-only allowlist
+        # was blind to it.
+        live_contexts = {"pull-request-body", "pull-request-diff", "branch-protection"}
         classification = self._classification()
         for rid, rule in self._ci_rules().items():
             target = rule.get("target") or {}
-            if target.get("context") in live and "path" not in target:
+            reaches_live = (rule.get("params", {}).get("pass_token") is True
+                            or (target.get("context") in live_contexts and "path" not in target))
+            if reaches_live:
                 self.assertEqual(classification.get(rid), "metadata",
-                                 f"{rid} reads live state but is classified code-only")
+                                 f"{rid} reaches live state but is classified code-only")
+
+    def test_the_metadata_suite_is_not_empty(self):
+        # A defence-in-depth floor. validate.py exits 0 on a suite that selects no rules, so an empty
+        # CI-metadata would let the reuse arm report green having checked nothing. The live-state cross-check
+        # above already forces the live-state rules in, but assert the floor directly so the guarantee does not
+        # rest on that inference alone.
+        members = [r["id"] for r in validate.load_rules() if "CI-metadata" in r.get("suites", [])]
+        self.assertTrue(members, "CI-metadata selects no rules; a reuse run would check nothing")
 
     def test_the_metadata_suite_is_a_blocking_gate(self):
         # One word decides whether its hard findings bite. Declared with any other context the reuse arm would
@@ -3435,6 +3450,30 @@ class TestReuseGateIsGuarded(unittest.TestCase):
             engine_modules, self._PERMITTED_IMPORTS,
             "the reuse gate reached a new engine module: decide where its logic belongs, guard it at least "
             "as strongly as the gate, and add it here with the reason")
+
+
+class TestAssuranceCatalogueSentences(unittest.TestCase):
+    """The two sentences of the generated CI-assurance catalogue that carry the safety claim, pinned as literal
+    strings (StarshipSuperjam/engine-template#1042). The catalogue is regenerated from the workflow and a hard
+    drift check compares it byte-for-byte, so these pins are the human-meaning backstop under that mechanical
+    check: an edit that regenerates a catalogue whose safety sentences no longer say what they must turns these
+    red, rather than silently publishing a truthful-looking page that misdescribes what a green check proves."""
+
+    def _catalogue(self):
+        return _read_text(os.path.join(validate.ENGINE_DIR, "docs", "ci-assurance.md"))
+
+    def test_the_default_branch_sentence_is_present(self):
+        # A main-push run is never a reuse run, so its green keeps its full meaning; the catalogue must still
+        # say so plainly.
+        self.assertIn(
+            "green means the checked revision completed every non-optional workflow step",
+            self._catalogue())
+
+    def test_the_pull_request_sentence_distinguishes_reuse_from_a_lighter_full_run(self):
+        self.assertIn(
+            "A reuse run is not a lighter full run: it re-runs only the CI rules whose verdict can change "
+            "while the tree is unchanged",
+            self._catalogue())
 
 
 def _read_text(path):

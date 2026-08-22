@@ -298,27 +298,34 @@ class TransportStaysDumb(unittest.TestCase):
         sent = {}
 
         class FakeResp:
+            def __init__(self, body=b"payload"):
+                self._body = body
+
             def __enter__(self):
                 return self
 
             def __exit__(self, *a):
                 return False
 
-            def read(self):
-                return b"payload"
+            def read(self, size=-1):
+                # Model urllib's response: read(n) returns at most n bytes. The capped reader asks for
+                # cap+1, so a body longer than the cap is what trips the guard.
+                return self._body if size is None or size < 0 else self._body[:size]
 
         def fake_urlopen(req, timeout=None):
             sent["headers"] = dict(req.headers)
             sent["url"] = req.full_url
             return FakeResp()
 
-        class Opener:
-            def open(self, req, timeout=None):
-                raise urllib.error.HTTPError(
-                    req.full_url, 302, "Found",
-                    {"Location": "https://blob.example.invalid/signed"}, None)
+        def opener_to(location):
+            class Opener:
+                def open(self, req, timeout=None):
+                    raise urllib.error.HTTPError(
+                        req.full_url, 302, "Found", {"Location": location}, None)
+            return Opener()
 
-        with mock.patch.object(github_client.urllib.request, "build_opener", return_value=Opener()), \
+        with mock.patch.object(github_client.urllib.request, "build_opener",
+                               return_value=opener_to("https://blob.example.invalid/signed")), \
              mock.patch.object(github_client, "_urlopen", fake_urlopen):
             body = github_client.download_redirected("/repos/x/y/actions/artifacts/5/zip", "SECRET",
                                                      user_agent="ua")
@@ -327,6 +334,64 @@ class TransportStaysDumb(unittest.TestCase):
         joined = " ".join(f"{k}: {v}" for k, v in sent["headers"].items())
         self.assertNotIn("SECRET", joined, "the token was forwarded to a foreign redirect target")
         self.assertNotIn("Authorization", sent["headers"])
+
+        # A redirect to a non-https scheme (a local file, plain http) is refused before the second hop is made,
+        # so the default opener's file:/ftp: handlers can never be reached through the redirect door.
+        for hostile in ("file:///etc/passwd", "http://blob.example.invalid/signed", "ftp://host/x"):
+            with mock.patch.object(github_client.urllib.request, "build_opener",
+                                   return_value=opener_to(hostile)), \
+                 mock.patch.object(github_client, "_urlopen", fake_urlopen):
+                with self.assertRaises(ValueError):
+                    github_client.download_redirected("/repos/x/y/actions/artifacts/5/zip", "SECRET",
+                                                      user_agent="ua")
+
+    def test_a_redirected_download_is_read_under_a_size_cap(self):
+        import urllib.error
+
+        class FakeResp:
+            def __init__(self, body):
+                self._body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, size=-1):
+                return self._body if size is None or size < 0 else self._body[:size]
+
+        def opener_to(location):
+            class Opener:
+                def open(self, req, timeout=None):
+                    raise urllib.error.HTTPError(
+                        req.full_url, 302, "Found", {"Location": location}, None)
+            return Opener()
+
+        with mock.patch.object(github_client, "_MAX_DOWNLOAD_BYTES", 4), \
+             mock.patch.object(github_client.urllib.request, "build_opener",
+                               return_value=opener_to("https://blob.example.invalid/signed")), \
+             mock.patch.object(github_client, "_urlopen",
+                               lambda req, timeout=None: FakeResp(b"0123456789")):
+            with self.assertRaises(ValueError):
+                github_client.download_redirected("/repos/x/y/actions/artifacts/5/zip", "SECRET",
+                                                  user_agent="ua")
+
+
+class ReceiptExtraction(unittest.TestCase):
+    """Reading the receipt out of the downloaded artifact zip stays bounded."""
+
+    def test_a_receipt_member_over_the_cap_is_refused(self):
+        # A genuine receipt is a few hundred bytes; a member whose declared uncompressed size exceeds the cap is
+        # refused before it is read into memory, so a zip-bomb entry cannot balloon before the JSON parse.
+        payload = zipped({"anything": "x" * 100})
+        with mock.patch.object(gk, "_MAX_RECEIPT_BYTES", 8):
+            with self.assertRaises(ValueError):
+                gk._extract_receipt(payload)
+
+    def test_a_normal_receipt_extracts(self):
+        payload = zipped({"schema": gk.RECEIPT_SCHEMA if hasattr(gk, "RECEIPT_SCHEMA") else "x"})
+        self.assertIn("schema", gk._extract_receipt(payload))
 
 
 class Disclosures(unittest.TestCase):

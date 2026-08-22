@@ -50,6 +50,19 @@ _urlopen = urllib.request.urlopen
 
 _TIMEOUT = 30
 
+# A hard ceiling on a redirected download. The receipt artifact is a few hundred bytes zipped; this cap is
+# generous for that while refusing an unbounded read from the foreign blob host the redirect points at.
+_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+
+
+def _read_capped(resp) -> bytes:
+    """Read a response body, refusing more than `_MAX_DOWNLOAD_BYTES` rather than reading unbounded into
+    memory. The extra byte is what distinguishes "exactly at the cap" from "over it"."""
+    body = resp.read(_MAX_DOWNLOAD_BYTES + 1)
+    if len(body) > _MAX_DOWNLOAD_BYTES:
+        raise ValueError("a redirected download exceeded the size cap")
+    return body
+
 
 def request(url_or_path: str, token: str, *, user_agent: str, method: str = "GET", data=None):
     """Build the authenticated GitHub API Request. `url_or_path` is either an api.github.com-relative
@@ -167,25 +180,30 @@ def download_redirected(path: str, token: str, *, user_agent: str) -> bytes:
     followed, and the second hop is made with a BARE request carrying only the user agent: the signed URL is
     itself the authorization, so no credential is needed and none is sent.
 
-    Dumb transport by design — it selects nothing and judges nothing. Deciding WHICH artifact is worth
-    fetching, and whether what comes back may be trusted, belongs to the caller (see `ci_gatekeeper`, which the
-    guard holds at the hard tier for exactly that reason).
+    Dumb transport by design — it selects nothing and judges nothing about WHICH artifact is worth fetching or
+    whether what comes back may be trusted; that belongs to the caller (see `ci_gatekeeper`, which the guard
+    holds at the hard tier for exactly that reason). What it DOES enforce are two transport-safety properties,
+    the same class as the off-host guard in `request`: the redirect target must be `https` — never `file:`,
+    `http:`, or any other scheme the default opener would otherwise honour — and the body is read under a size
+    cap rather than unbounded into memory.
 
     Returns the resource's bytes. Raises `urllib.error.HTTPError` / `URLError` unwrapped, and `ValueError` when
-    a redirect carries no target."""
+    a redirect carries no target, points at a non-https scheme, or overruns the size cap."""
     opener = urllib.request.build_opener(_NoRedirect)
     try:
         with opener.open(request(path, token, user_agent=user_agent), timeout=_TIMEOUT) as resp:
-            return resp.read()                          # answered directly; no redirect to strip
+            return _read_capped(resp)                   # answered directly; no redirect to strip
     except urllib.error.HTTPError as exc:
         if exc.code not in (301, 302, 303, 307, 308):
             raise
         target = exc.headers.get("Location")
         if not target:
             raise ValueError("a redirect carried no Location") from exc
+    if urllib.parse.urlsplit(target).scheme.lower() != "https":
+        raise ValueError("a redirect pointed at a non-https target")
     bare = urllib.request.Request(target, headers={"User-Agent": user_agent})
     with _urlopen(bare, timeout=_TIMEOUT) as resp:
-        return resp.read()
+        return _read_capped(resp)
 
 
 def next_link(link_header):
