@@ -43,7 +43,16 @@ re-proves it; a derived-artifact collision is never surfaced to a human as a mer
 **authored** source, by contrast, is refused for auto-reconciliation — both branches are left intact for a
 human decision. The derived-state substrate (`derived_state.py`) is the single mechanism that makes derived
 regeneration hand-free; it owns the set, so a new derived artifact reaches every integration boundary from
-one registration.
+one registration. A registered member declares one or more typed outputs (an exact file or a recursive tree),
+the lifecycle boundaries it participates in (reconcile, upgrade, release), and a **scope** — enforced inside
+the substrate, not at any call site — so a member that must regenerate only in the engine's own home (a
+catalogue that would erase declined-module memory if rebuilt from a deployment's reduced manifest set) is
+skipped anywhere its home cannot be positively confirmed. The set therefore reaches beyond the index files to
+every built-in generated surface — the provider render twins and the provisioning catalogues among them — and
+the Build coordinator prepares them through one transactional artifact-sync step ahead of its read-only
+validation, rather than each session remembering a generator. (Amended in place 2026-08-22: the derived set
+generalised from the index files to the full built-in generated-surface registry, with typed multi-output,
+scope-aware members and coordinator-facing sync; the multi-writer law above is unchanged.)
 
 **Serialized integration does not merge.** A provider-independent integration coordinator may order reviewed
 candidates and admit one integration candidate at a time — via a native merge queue where the provider offers
