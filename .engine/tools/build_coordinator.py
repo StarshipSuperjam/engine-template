@@ -435,6 +435,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         warnings.extend(resolved_notes)
     if trivial_violations:
         judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
+    # Advisory artifact-preparation line: a recorded sync receipt whose commit is no longer HEAD means the
+    # tree moved since the last sync, so derived artifacts may be stale. Advisory only — validate's read-only
+    # pre-gate and CI's drift checks are the authority; this just tells a session to re-sync before validating.
+    sync_receipt = state.get("artifact_sync")
+    if sync_receipt and sync_receipt.get("commit") != _head():
+        warnings.append("derived artifacts were synced at " + sync_receipt["commit"][:12]
+                        + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     plan_ready = fast_path or plan_waived or ((plan_stage.get("referent_digest") or plan_stage["packet_digest"])
@@ -648,6 +655,9 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     state["checkpoint"] = state["validation"] = state["repair"] = state["pr_contract"] = None
     state["preflights"] = []
     state["checkout_snapshot"] = None
+    # The artifact-sync receipt is cycle-bound like validation: a revised plan may change what is built, so a
+    # stale sync receipt must not stand in for a fresh preparation of the re-authored change.
+    state.pop("artifact_sync", None)
 
 
 def cmd_plan_revise(args, store: StateStore) -> None:
@@ -1162,12 +1172,30 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         print(_COORDINATOR_OWNED_REMINDER)
 
 
+def _derived_drift() -> list:
+    """Read-only: the derived members whose committed output is stale against source (drift or a
+    fail-closed error). The one seam the validation pre-gate consults — it never regenerates."""
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import derived_state
+    return [d for d in derived_state.verify() if d.status in ("drift", "error")]
+
+
 def cmd_validate(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
     plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
     if not plan_ready:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
+    # Fail-fast pre-gate (read-only), BEFORE the expensive StableCommit run: if a derived artifact is stale,
+    # refuse naming the exact remedy rather than spending the full CI suite + self-tests only to go red on a
+    # drift check. This is NOT a new hard hold (eADR-0041) — it is a cheap early refusal; CI's drift checks
+    # remain the authority, and the artifact-sync step is what a session runs to clear it.
+    drift = _derived_drift()
+    if drift:
+        detail = "; ".join(f"{d.path} ({d.status})" for d in drift[:6])
+        raise CoordinatorError(
+            "derived artifacts are stale, so validation would fail its drift checks — run "
+            "`build_coordinator.py sync-artifacts` first, then re-run validate: " + detail)
     results = []
     with core.StableCommit(ROOT, "validation") as head:
         for item in _protocol()["validation_commands"]:
@@ -1183,6 +1211,80 @@ def cmd_validate(args, store: StateStore) -> None:
     print(json.dumps({"commit": head, "results": results}, indent=2, sort_keys=True))
     if not all(x["passed"] for x in results):
         raise CoordinatorError("validation failed; the failed results remain recorded")
+
+
+def _sync_changed_paths() -> list:
+    """(status_code, repo-relative path) for every path git sees as changed — modified (` M`), deleted
+    (` D`), or untracked (`??`). A rename's destination is taken. The porcelain lines come from the same
+    `git status --porcelain=v1 --untracked-files=all` the clean-tree guard reads."""
+    out = []
+    for line in core.dirty_paths(ROOT):
+        xy, path = line[:2], line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        out.append(("??" if xy == "??" else xy.strip(), path))
+    return out
+
+
+def cmd_sync_artifacts(args, store: StateStore) -> None:
+    """Transactional artifact preparation: regenerate the built-in derived members in declared order and
+    commit them, so the read-only `validate` (which refuses a dirty or moved tree) then runs against a
+    current tree. Refuses a dirty tree at entry (the proven executor precondition that makes restore
+    trivially correct); refuses AND restores exactly if a generator writes outside its declared outputs;
+    records a receipt bound to the resulting sync commit. Never a blanket `git clean` — the enumerated new
+    untracked paths are removed by name, and tracked mods/deletions are undone with `git checkout`."""
+    import shutil
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import derived_state
+    state = store.read()
+    revision = state["revision"]
+    dirty = core.dirty_paths(ROOT)
+    if dirty:
+        raise CoordinatorError("artifact-sync requires a clean working tree; commit or remove: "
+                               + ", ".join(d[3:] for d in dirty[:8]))
+    # The declared-output guard: a changed path is legitimate iff a registry member owns it (exact file, or
+    # an EXCLUSIVE tree by directory-boundary prefix) OR it is a dynamic member's concrete output.
+    dynamic_files = {o.path for m in derived_state.MEMBERS if m.dynamic
+                     for o in derived_state._concrete_outputs(m, str(ROOT))}
+
+    def _declared(path: str) -> bool:
+        return derived_state.owner_of(path) is not None or path in dynamic_files
+
+    results = derived_state.regenerate()            # in declared order, scope-aware, import dispatch
+    failed = [r for r in results if r.status == "failed"]
+    changed = _sync_changed_paths()
+    undeclared = [p for _code, p in changed if not _declared(p)]
+
+    def _restore() -> None:
+        core.run(["git", "checkout", "--", "."], root=ROOT)     # undo tracked mods/deletions (clean start)
+        for code, p in changed:
+            if code == "??":                                    # remove exactly the generator's new files
+                fp = ROOT / p
+                if fp.is_dir():
+                    shutil.rmtree(fp, ignore_errors=True)
+                elif fp.exists():
+                    fp.unlink()
+
+    if failed or undeclared:
+        _restore()
+        why = ("a generator failed: " + "; ".join(f"{r.path}: {r.error}" for r in failed)) if failed else \
+              ("a generator wrote outside its declared outputs: " + ", ".join(sorted(set(undeclared))[:8]))
+        raise CoordinatorError("artifact-sync refused and restored the tree — " + why)
+
+    committed = bool(changed)
+    if committed:
+        paths = sorted({p for _code, p in changed})
+        if core.run(["git", "add", "--", *paths], root=ROOT).returncode:
+            _restore()
+            raise CoordinatorError("artifact-sync could not stage the regenerated outputs; tree restored")
+        core.run(["git", "-c", "user.email=engine@local", "-c", "user.name=engine",
+                  "commit", "-m", "Regenerate derived artifacts"], root=ROOT)
+    head = core.head(ROOT)
+    receipt = {"commit": head,
+               "results": [{"path": r.path, "status": r.status, "changed": r.changed} for r in results]}
+    store.mutate(lambda s: s.update({"artifact_sync": receipt}), from_revision=revision)
+    print(json.dumps({"commit": head, "committed": committed,
+                      "regenerated": [r.path for r in results if r.changed]}, indent=2, sort_keys=True))
 
 
 def cmd_repair_assess(args, store: StateStore) -> None:
@@ -2002,12 +2104,16 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     else:
         drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
 
-    # Index-regeneration disclosure (BO-24): which of the engine's generated index files this PR changed,
-    # computed from the diff so the operator sees regeneration happened over generated paths only.
-    generated = [".engine/knowledge/graph.json", ".engine/self-map.md", ".engine/provisioning/module-surfaces.json"]
+    # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,
+    # computed from the diff so the operator sees regeneration happened over generated paths only. Driven
+    # from the derived-state REGISTRY (owner_of) rather than a hand-maintained literal, so it can never
+    # drift from what the engine actually regenerates: a changed file inside a Codex render tree is
+    # attributed to its member, and ci-assurance / the spec matrix / the catalogs appear when they change.
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import derived_state
     changed = set(_run(["git", "diff", "--name-only", f"{base}...HEAD"]).stdout.splitlines())
-    regen = [g for g in generated if g in changed]
-    index_regen = (f"Regeneration updated {len(regen)} of the engine's generated index files "
+    regen = sorted({owner.path for f in changed if (owner := derived_state.owner_of(f)) is not None})
+    index_regen = (f"Regeneration updated {len(regen)} of the engine's generated surfaces "
                    f"({', '.join(regen)}) from the final tree — generated paths only."
                    if regen else "")
 
@@ -2250,6 +2356,7 @@ def parser() -> argparse.ArgumentParser:
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
+    sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)

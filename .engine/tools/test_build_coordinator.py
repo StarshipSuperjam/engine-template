@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import types
 import io
 import json
 import os
@@ -570,6 +571,72 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertFalse(any("operator decision" in item for item in status["engineering_judgment"]))
 
 
+class TestArtifactSync(CoordinatorCase):
+    """The E4 artifact-preparation transaction and the read-only validation pre-gate."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("quick")
+        state = self.state()
+        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64, "required_lenses": [],
+                                         "installed_lenses": [], "receipts": []})
+        self.store.mutate(lambda s: s.update(state))
+
+    def test_validate_pre_gate_refuses_on_drift_naming_the_sync_command(self):
+        import derived_state
+        drift = [derived_state.DriftResult(".engine/self-map.md", "r", "drift", "stale")]
+        with mock.patch.object(bc, "_derived_drift", return_value=drift):
+            with self.assertRaisesRegex(bc.CoordinatorError, "sync-artifacts"):
+                bc.cmd_validate(argparse.Namespace(), self.store)
+        self.assertIsNone(self.state()["validation"])   # nothing recorded — refused before StableCommit
+
+    def test_sync_refuses_a_dirty_tree(self):
+        with mock.patch.object(bc.core, "dirty_paths", return_value=[" M .engine/tools/x.py"]):
+            with self.assertRaisesRegex(bc.CoordinatorError, "clean working tree"):
+                bc.cmd_sync_artifacts(argparse.Namespace(), self.store)
+
+    def test_sync_refuses_and_restores_on_an_undeclared_write(self):
+        import derived_state
+        ok = [derived_state.MemberResult(".engine/self-map.md", "regenerated", True, "wrote")]
+        # clean at entry, then a leaked untracked path appears after regeneration
+        dirty = mock.patch.object(bc.core, "dirty_paths",
+                                  side_effect=[[], ["?? src/leaked.py"]])
+        run = mock.patch.object(bc.core, "run",
+                                return_value=types.SimpleNamespace(returncode=0, stdout="", stderr=""))
+        with dirty, run as run_mock, \
+                mock.patch.object(derived_state, "regenerate", return_value=ok), \
+                mock.patch.object(derived_state, "MEMBERS", ()), \
+                mock.patch.object(derived_state, "owner_of", return_value=None):
+            with self.assertRaisesRegex(bc.CoordinatorError, "outside its declared outputs"):
+                bc.cmd_sync_artifacts(argparse.Namespace(), self.store)
+        # the restore ran a git checkout to undo the tracked mods
+        self.assertTrue(any(c.args[0][:3] == ["git", "checkout", "--"] for c in run_mock.call_args_list))
+        self.assertIsNone(self.state().get("artifact_sync"))   # no receipt on a refused sync
+
+    def test_sync_records_a_receipt_bound_to_the_sync_commit(self):
+        import derived_state
+        ok = [derived_state.MemberResult(".engine/self-map.md", "regenerated", True, "wrote")]
+        with mock.patch.object(bc.core, "dirty_paths", side_effect=[[], [" M .engine/self-map.md"]]), \
+                mock.patch.object(bc.core, "run",
+                                  return_value=types.SimpleNamespace(returncode=0, stdout="", stderr="")), \
+                mock.patch.object(bc.core, "head", return_value=HEAD_B), \
+                mock.patch.object(derived_state, "regenerate", return_value=ok), \
+                mock.patch.object(derived_state, "MEMBERS", ()), \
+                mock.patch.object(derived_state, "owner_of",
+                                  side_effect=lambda p: object() if p == ".engine/self-map.md" else None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_sync_artifacts(argparse.Namespace(), self.store)
+        receipt = self.state()["artifact_sync"]
+        self.assertEqual(receipt["commit"], HEAD_B)
+        self.assertEqual(receipt["results"][0]["path"], ".engine/self-map.md")
+
+    def test_a_snapshot_without_the_sync_receipt_is_valid(self):
+        # old-snapshot compatibility: the field is optional; a state that never ran sync validates and a
+        # plan revision that clears it does not crash.
+        self.assertNotIn("artifact_sync", self.state())
+        self.store.read()   # re-validates on read; must not raise
+
+
 class TestValidationRepairAndStatus(CoordinatorCase):
     def setUp(self):
         super().setUp()
@@ -582,7 +649,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         def validation(command, path):
             path.write_text("complete validation output\n", encoding="utf-8")
             return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(), self.store)
         self.assertEqual({r["commit"] for r in self.state()["validation"]["results"]}, {HEAD_A})
         self.assertTrue(all(Path(r["log_path"]).read_text() == "complete validation output\n" for r in self.state()["validation"]["results"]))
@@ -591,7 +658,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         seen = []
         def validation(command, path):
             seen.append(command); path.write_text("ok\n"); return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(), self.store)
         self.assertEqual(seen, [item["command"] for item in bc._protocol()["validation_commands"]])
 
@@ -599,7 +666,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         payload = "x" * 5000
         def validation(command, path):
             path.write_text(payload); return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(), self.store)
         for result in self.state()["validation"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
@@ -677,6 +744,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         def validation(command, path):
             path.write_text("ok\n"); return 0
         with mock.patch.object(bc.core, "StableCommit", return_value=ChangedAfter()), \
+                mock.patch.object(bc, "_derived_drift", return_value=[]), \
                 mock.patch.object(bc, "_run_validation", side_effect=validation), \
                 self.assertRaisesRegex(bc.CoordinatorError, "changed after"), \
                 contextlib.redirect_stdout(io.StringIO()):
