@@ -4,22 +4,22 @@ title: Memory recall — finding what this project already knows
 
 ## Purpose
 
-How to find what this project already settled, from its saved memory. Enter it on either of two shapes, and
-before relying on your own recollection of this project, which does not survive between sessions:
+How to find what this project already settled, from its saved memory. This is an available tool, not a
+mandatory preflight: enter it when recall would help, and before relying on your own recollection of this
+project, which does not survive between sessions. Two common useful shapes are:
 
 - **A request that points backwards** — "what did we decide about X?", "why did we do it that way?", "have we
   hit this before?", anything about last time or an earlier session.
-- **A request that points forwards over ground already covered** — an approach to propose, a call to make, an
-  instruction to act on, where this project may already have **decided** it, already **tried and rejected**
-  it, or stated a **preference** that contradicts it. Nothing in the wording announces a past here; that is
-  precisely why it is worth checking. Silently repeating a settled dead end is the costlier failure, and the
-  one nothing else catches.
+- **A request that points forwards over ground already covered** — an approach to propose, a call to make, or
+  an instruction to act on where something already **decided**, already **tried and rejected**, or a stated
+  **preference** could help. Nothing in the wording necessarily announces a past here, so the standing cue
+  keeps the option visible; whether to recall remains the model's judgment.
 
 Memory offers two ways to look, and they answer different questions. **Keyword search** matches words: when a
 word is absent it returns nothing — which is exactly why an irrelevant question gets an empty answer, not a
 plausible wrong one. **Meaning-based recall** finds records that say the same thing in different words, but it
 always has a nearest record, so it returns the passage that matched and leaves the judging to you. Neither
-falls back to the other — you choose, and on a question that matters you use both; rephrasing several ways is
+falls back to the other — you choose, and when recall would help you may use both; rephrasing several ways is
 the step that does the real work on the keyword side, and skipping it is what makes recall fail.
 
 ## Steps
@@ -29,10 +29,9 @@ the step that does the real work on the keyword side, and skipping it is what ma
    than a memory of it. So if the answer belongs in a canonical artifact, read that instead — and use memory
    to find *which* artifact to read. Memory is the right source for the *narrative*: why a choice was made,
    what was rejected and why, what went wrong last time, what the operator prefers.
-   **This step is not an off-ramp.** On the forwards-facing shape above, "was this already tried?" has no
-   canonical artifact to consult — a rejected approach usually leaves no file behind, only the conversation
-   that rejected it. Deciding memory is not the right source *because the prompt names no past* is the exact
-   miss this procedure exists to prevent.
+   On a forwards-facing request, use judgment: a rejected approach may leave no canonical artifact, only the
+   conversation that rejected it, so memory can help even when the prompt names no past. The standing cue
+   makes that option visible; it does not make every prompt require a lookup.
 2. **Turn the question into several short search phrases.** Write three to six, and make them differ from each
    other — this is the step that does the real work:
    - Keep one phrase using the question's own key terms — when the wording happens to match, that is the
@@ -54,8 +53,9 @@ the step that does the real work on the keyword side, and skipping it is what ma
    nothing there". That bites hardest on the case you most want it for ("what did we decide about eADR-0038?").
    Search unfiltered first; reach for the filter only to narrow a flood, knowing what it costs you.
 4. **Ask the same question by meaning** with `mcp__engine-memory__recall-by-meaning`, passing the question in
-   ordinary words — not the short phrases, which are for keyword search. Do this whenever step 3 came back
-   thin or empty, and always on the forwards-facing shape, where the wording is guaranteed not to match. Each
+   ordinary words — not the short phrases, which are for keyword search. Do this when step 3 came back thin or
+   empty and the same idea may have been expressed in different words. A forwards-facing shape is a useful
+   reason to consider it, not an automatic requirement. Each
    result carries a `passage` — the text that actually matched — and **the passage is the only evidence you
    get.** Results are ordered nearest-first, but nearest is not the same as relevant: every question has a
    nearest record, so the top hit may share one stray word and nothing else. Read each passage before you
@@ -86,8 +86,9 @@ the step that does the real work on the keyword side, and skipping it is what ma
    for. **Before reporting a conversation hit as what the project settled, look at who said it:** an operator
    turn is what was actually asked for, an assistant turn is only what a past session *proposed*, and it may
    have been rejected or overtaken later in that same conversation — read the window around it rather than
-   treating it as a decision. Say plainly where the answer came from and how confident it is. If nothing
-   genuinely answers, say that; a confident answer assembled from near-misses is worse than "I did not find it."
+   treating it as a decision. Do not narrate merely considering memory. When recalled history affects the
+   answer, say plainly where it came from and how confident it is. If nothing genuinely answers, say that; a
+   confident answer assembled from near-misses is worse than "I did not find it."
 7. **Offer the exact wording when it matters.** A summary is a paraphrase; the conversation is not. When
    wording is load-bearing — what the operator actually asked for, a commitment, a specific phrasing — offer the
    verbatim conversation from step 5 rather than relying on a summary of it, and say which of the two you are

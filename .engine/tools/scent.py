@@ -2,17 +2,17 @@
 """scent.py — the per-prompt recall cue (boot/orientation; core-owned).
 
 The per-prompt member of the orientation family. It is "metacognition as a push": on every prompt
-(`UserPromptSubmit`) it injects one short, constant, AI-facing line asking whether this project has already
-settled the thing at hand — and, when it may have, to run the recall workflow instead of answering from a
-recollection that does not survive between sessions. It pushes the CUE; the model pulls the content.
+(`UserPromptSubmit`) it injects one short, constant, AI-facing line saying that memory is available and
+pointing to the recall workflow when recall would help. It pushes awareness; the model decides whether to
+pull content.
 
 WHY A CUE AND NOT A POINTER. This seam used to run a fast keyword lookup over memory and inject pointers to
 whichever stored records matched the prompt's words. That fired only when the prompt happened to share
 vocabulary with the original conversation — silent on exactly the reworded questions recall keeps failing, and
 silent on the case that costs most: a prompt that names no past at all while the project has already decided
-the question, already tried and rejected the approach, or already stated a preference against it. The reflex
-that catches those cannot be a word-match; it has to be a standing question the model asks itself. So the
-payload is a constant, the firing is unconditional, and the intelligence lives in the workflow the cue names.
+the question, already tried and rejected the approach, or already stated a preference against it. Awareness
+of that possibility cannot be a word-match, so the payload is constant and the firing is unconditional. The
+model still decides whether recall would help; the workflow the cue names carries the retrieval intelligence.
 
 OWNERSHIP — the close-relay twin (NOT memory-owned). `UserPromptSubmit` is a single-owner `boot/orientation`
 event (hooks.py EVENT_INVENTORY `("boot",)`; the locked hooks owner table), so this is a boot/core-owned tool,
@@ -29,7 +29,7 @@ THE LAWS (all load-bearing here and pinned by tests):
     grow with the store. The injected text is bounded by `_CUE_MAX_CHARS` and that bound is tested, because
     `additionalContext` persists in history and an unbounded cue would accrue every turn.
   - CONTENT-FREE. The cue names no record, no role, no tag and no stored text — there is nothing to leak,
-    because nothing is read. What it carries is a question to ask and where to go to answer it.
+    because nothing is read. What it carries is memory's availability and where to go when recall would help.
   - POINTS AT ONE PROCEDURE. The workflow depth lives in `.engine/operations/memory-recall.md`, never copied
     here; the cue and the `engine-recall` skill are two doors into the same room. A test pins that the named
     operation exists, since a rename would otherwise leave the cue firing at nothing.
@@ -62,18 +62,13 @@ _OPERATION_FILE = os.path.join(validate.ENGINE_DIR, "operations", "memory-recall
 
 # AI-FACING text (this reaches the model via additionalContext, never the operator's screen).
 #
-# The trigger is deliberately "may this project have already settled this", NOT "does this prompt mention an
-# earlier session". Every backward-referencing shape — "what did we decide", "why did we do it that way" —
-# already reaches recall through the `engine-recall` skill's own description, on both runtimes. What nothing
-# else catches is the prompt that announces no past while the project has already answered it: "should we use
-# a cron job or hook the calendar?" when that was tried and rejected, or "make the onboarding copy longer"
-# when a stated preference says keep it short. Those are the expensive misses, and they are why the wording
-# leads with the three record kinds a forward-looking prompt can collide with rather than with the past tense.
+# The cue makes memory available without turning availability into a mandatory preflight. Backward-referencing
+# prompts already reach recall through the `engine-recall` skill's own description on both runtimes; the
+# standing cue also keeps forward-looking collisions visible when the prompt itself names no past. Whether to
+# run recall remains the model's judgment.
 _CUE = (
-    "You do not remember this project's earlier sessions; its saved memory does. Before proposing an "
-    "approach, making a call, or acting on an instruction, ask whether it was already decided, already tried "
-    f"and rejected, or covered by a stated preference — and when it may have been, follow `{_OPERATION}` "
-    "first."
+    "Engine memory is available for prior decisions, rejected approaches, and stated preferences. "
+    f"Use `{_OPERATION}` when recall would help."
 )
 
 # The near-zero bound, tested rather than asserted in prose. The cue is injected on EVERY prompt and
@@ -268,13 +263,11 @@ def _demo() -> int:
     results.append(ok5)
 
     print("\n" + "-" * 80)
-    print("What this changes for you: from now on, every message you send quietly carries a short note asking")
-    print("the assistant to check whether this project already decided the thing, already tried and rejected")
-    print("it, or already stated a preference about it — before it answers from its own recollection, which")
-    print("does not carry over between sessions. The note itself contains none of your saved memory. When the")
-    print("assistant judges it relevant it then goes and searches, which takes a moment and reads back real")
-    print("past conversation; when it judges it irrelevant, nothing happens. It deletes nothing, and whether")
-    print("it looks is its judgement, not a guarantee.")
+    print("What this changes for you: every message you send quietly carries a short note that Engine memory")
+    print("is available for prior decisions, rejected approaches, and stated preferences. The note contains")
+    print("none of your saved memory and does not require a lookup. When the assistant judges recall would help,")
+    print("it can search and read back real past conversation; otherwise it continues without searching. It")
+    print("deletes nothing, and whether it looks is its judgement, not a guarantee.")
     return 0 if all(results) else 1
 
 
