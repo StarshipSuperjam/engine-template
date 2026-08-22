@@ -1175,7 +1175,12 @@ def _overlay_copy_map(tree_root: str, manifests_by_id: dict) -> dict:
 # exactly one owner: a new derived artifact registers there and reaches this reconcile tail, the overwrite
 # disclosure, and every other boundary at once, rather than in several hand-maintained tuples that drift
 # (StarshipSuperjam/engine-template#925). Kept as a module attribute for back-compat readers (overlay_disclosure).
-REGENERATED_DERIVED = derived_state.paths()
+# Bound to the UPGRADE lifecycle subset (`upgrade=True`), not the whole roster: a member that participates in
+# reconcile/release but NOT the upgrade tail (e.g. the Codex renders and provisioning catalogs, which the
+# overlay delivers whole rather than regenerating, and the home-only module-surfaces catalog) must not be
+# regenerated — or destructively pruned — inside a deployment's upgrade. Today every member is upgrade=True, so
+# this equals the full roster; the filter is what keeps the newly-registered members OUT of the upgrade path.
+REGENERATED_DERIVED = derived_state.paths(upgrade=True)
 
 
 def _preserved_present(dest_root: "str | None" = None) -> set:
@@ -2762,7 +2767,11 @@ def _regen_indexes() -> list:
     own check in the full engine-ci run post-open), so an upgrade whose committed output is already canonical is
     not newly refused by a transient generator hiccup. Returns the per-member results for any caller that wants
     them; today's callers rely on the drift gate and ignore the return."""
-    results = derived_state.regenerate()   # single owner; import dispatch honours the redirected ENGINE_DIR
+    # The UPGRADE-lifecycle subset only: a reconcile/release-but-not-upgrade member (Codex renders,
+    # provisioning catalogs, the home-only surfaces catalog) is delivered whole by the overlay and must not be
+    # regenerated — or destructively pruned — inside a deployment's upgrade tail. Today this equals the full
+    # roster; the filter is what keeps the newly-registered members out.
+    results = derived_state.regenerate(derived_state.paths(upgrade=True))   # import dispatch honours the redirected ENGINE_DIR
     for r in results:
         if r.status == "failed":
             # Surfaced, never swallowed — but non-blocking: the drift gate is what refuses.
