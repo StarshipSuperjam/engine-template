@@ -378,6 +378,42 @@ class TransportStaysDumb(unittest.TestCase):
                                                   user_agent="ua")
 
 
+class CandidatePagination(unittest.TestCase):
+    """The head-scoped runs listing can exceed the page budget on a long-churned PR."""
+
+    def test_a_truncated_candidate_list_reports_a_distinct_reason(self):
+        # Every page comes back full and none yields a valid receipt: the budget is exhausted with more runs
+        # unread. That must resolve to a DISTINCT reason, not the same no-receipt a fresh tree gives, so the
+        # silent "reuse quietly stopped working" degradation is observable.
+        with mock.patch.object(gk, "_RUNS_PER_PAGE", 2), mock.patch.object(gk, "_MAX_CANDIDATE_PAGES", 2):
+            full_page = [run_record(run_id=1), run_record(run_id=2)]  # candidates, but no artifacts → refused
+
+            def t(method, path, body=None):
+                if "/actions/runs?" in path:
+                    return 200, {"workflow_runs": full_page}
+                return 404, None  # no receipt artifact on any run
+
+            found, detail = gk.find_reusable_receipt(
+                repo=REPO, token="t", pr_number=PR, head_sha=HEAD, expected_tree=TREE, transport=t)
+        self.assertFalse(found)
+        self.assertTrue(detail["truncated"])
+        self.assertEqual(detail["reason"], gk.REASON_CANDIDATE_LIST_TRUNCATED)
+
+    def test_a_short_final_page_is_not_truncated(self):
+        # A page shorter than the budget means we saw every run: an honest no-receipt/refused, not truncation.
+        with mock.patch.object(gk, "_RUNS_PER_PAGE", 5), mock.patch.object(gk, "_MAX_CANDIDATE_PAGES", 3):
+            def t(method, path, body=None):
+                if "/actions/runs?" in path:
+                    return 200, {"workflow_runs": [run_record(run_id=1)]}  # 1 < per_page → last page
+                return 404, None
+
+            found, detail = gk.find_reusable_receipt(
+                repo=REPO, token="t", pr_number=PR, head_sha=HEAD, expected_tree=TREE, transport=t)
+        self.assertFalse(found)
+        self.assertFalse(detail["truncated"])
+        self.assertEqual(detail["reason"], gk.REASON_REFUSED)
+
+
 class ReceiptExtraction(unittest.TestCase):
     """Reading the receipt out of the downloaded artifact zip stays bounded."""
 

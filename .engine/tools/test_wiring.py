@@ -1200,6 +1200,14 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         self.assertIn("ENGINE_CI_RAN=full", runs)
         self.assertIn("ENGINE_CI_RAN=reuse", runs)
 
+    def test_the_terminal_assertion_is_the_last_step(self):
+        # assert-ran's safety rests on running AFTER both arms' completion-marker writes — true only because it
+        # is physically last. A step inserted between an arm and the terminal, or the terminal moved earlier,
+        # would defeat it without tripping the unconditioned/marker pins above; this pins the position too.
+        last = self._steps()[-1]
+        self.assertIn("ci_gatekeeper.py assert-ran", str(last.get("run", "")),
+                      "the final job step must be the terminal assert-ran")
+
     def test_only_a_full_run_uploads_the_receipt_and_it_overwrites(self):
         uploads = [s for s in self._steps() if "upload-artifact" in str(s.get("uses", ""))]
         self.assertEqual(len(uploads), 1, "there must be exactly one artifact upload step")

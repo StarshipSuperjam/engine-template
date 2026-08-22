@@ -196,7 +196,8 @@ class TestCiAuthorExempt(unittest.TestCase):
         # The positive of test_exempt_only_in_blocking_gate_suite: the gate keys on the
         # blocking-gate CONTEXT, not the literal name "CI", so a differently-named blocking-gate
         # suite ALSO exempts. Locks the plan-gate decision to gate on `gates`, future-proofing a
-        # second blocking-gate suite. (Today CI is the only one — so this needs a synthetic suite.)
+        # second blocking-gate suite. (This uses a synthetic suite rather than the real CI-metadata one so the
+        # test does not couple to that suite's live membership.)
         self._install(suites=("release-gate",))
         saved = validate.load_suites
         validate.load_suites = lambda: {"release-gate": {"trigger": "x", "context": "blocking-gate"}}
@@ -1803,8 +1804,9 @@ class TestShapeKind(unittest.TestCase):
 
 class TestSuiteContextGating(unittest.TestCase):
     """The locked tier-vs-context law: a hard finding fails the run ONLY in a
-    blocking-gate context (CI). A suites.json that mislabeled CI's context would
-    silently un-gate the merge — this is the test that would catch that."""
+    blocking-gate context (CI and CI-metadata carry it; the advisory suites do not).
+    A suites.json that mislabeled a gate's context would silently un-gate the merge —
+    this is the test that would catch that."""
     def setUp(self):
         self._rules, self._reg, self._suites = (
             validate.load_rules, dict(validate.REGISTRY), validate.SUITES_PATH)

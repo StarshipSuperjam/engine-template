@@ -105,6 +105,11 @@ REASON_UNRECOGNISED_ACTION = "unrecognised-action"
 REASON_NO_RECEIPT = "no-receipt-for-this-tree"
 REASON_DISCOVERY_FAILED = "receipt-discovery-failed"
 REASON_REFUSED = "receipt-refused"
+# The candidate list for this head exceeded the page budget and no valid receipt was found among the runs we
+# read. Distinct from REASON_NO_RECEIPT so a head whose run count has outgrown the budget (reuse silently
+# stops paying off) is DISTINGUISHABLE from a tree that simply never had a full run — the module's
+# distinct-reason principle applied to the one give-up path that was otherwise indistinguishable.
+REASON_CANDIDATE_LIST_TRUNCATED = "candidate-list-truncated"
 
 _USER_AGENT = "engine-ci-gatekeeper"
 
@@ -235,7 +240,8 @@ def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, ro
     valid receipt wins, deterministically."""
     transport = transport or _default_transport(token)
     refusals = []
-    for run in _candidate_runs(repo=repo, head_sha=head_sha, transport=transport):
+    progress = {}
+    for run in _candidate_runs(repo=repo, head_sha=head_sha, transport=transport, progress=progress):
         ok, why, receipt = _receipt_from_run(
             repo=repo, run=run, pr_number=pr_number, head_sha=head_sha,
             expected_tree=expected_tree, root=root, token=token, transport=transport)
@@ -243,16 +249,28 @@ def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, ro
             return True, {"run_id": run["id"], "run_url": run.get("html_url"),
                           "run_attempt": run.get("run_attempt"), "receipt": receipt}
         refusals.append({"run_id": run.get("id"), "why": why})
-    reason = REASON_REFUSED if refusals else REASON_NO_RECEIPT
-    return False, {"reason": reason, "refusals": refusals}
+    # Truncation is reported EVEN IF some candidates were refused: a valid receipt might sit in the pages we
+    # did not read, so a truncated give-up must not masquerade as an ordinary no-receipt/refused result.
+    if progress.get("truncated"):
+        reason = REASON_CANDIDATE_LIST_TRUNCATED
+    elif refusals:
+        reason = REASON_REFUSED
+    else:
+        reason = REASON_NO_RECEIPT
+    return False, {"reason": reason, "refusals": refusals, "truncated": progress.get("truncated", False)}
 
 
-def _candidate_runs(*, repo, head_sha, transport):
+def _candidate_runs(*, repo, head_sha, transport, progress=None):
     """Successful runs of THIS workflow for THIS head commit, newest first, from platform-reported metadata only.
 
     Selection never consults a value taken from a receipt: the workflow is identified by its file `path` (a
     display `name` can be duplicated by any workflow a pull request adds), the conclusion must be `success`, and
-    the head commit the platform reports for the run must equal the one this event is about."""
+    the head commit the platform reports for the run must equal the one this event is about.
+
+    The runs listing is head-scoped across ALL workflows, so a long-churned head can exceed the page budget.
+    If every page up to the budget comes back full — meaning more runs exist beyond what we read — `progress`
+    (when supplied) is marked `truncated`, so the caller can report a distinct give-up reason rather than a
+    silent no-receipt."""
     for page in range(1, _MAX_CANDIDATE_PAGES + 1):
         path = (f"/repos/{repo}/actions/runs?head_sha={head_sha}&status=completed"
                 f"&per_page={_RUNS_PER_PAGE}&page={page}")
@@ -270,6 +288,9 @@ def _candidate_runs(*, repo, head_sha, transport):
             yield run
         if len(runs) < _RUNS_PER_PAGE:
             return
+    # Fell through the whole page budget without a short (final) page: there may be more runs we did not read.
+    if progress is not None:
+        progress["truncated"] = True
 
 
 def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, token, transport):
@@ -432,9 +453,13 @@ def _int_or_none(value):
 def reuse_disclosure(detail) -> str:
     """The first line of a reuse run's job summary, in plain words.
 
-    A reuse run's green looks identical to a full run's green in the pull-request checks list, so the one click
-    that reveals the difference must reveal it immediately — naming the run whose proof was accepted, so a merge
-    allowed by reuse stays reconstructable while the run's logs live."""
+    A reuse run's green looks identical to a full run's green in the pull-request checks list. This line is the
+    run's own account of the difference: it names the run whose proof was accepted, so a merge allowed by reuse
+    stays reconstructable while the run's logs live. Where it surfaces, honestly: it is written to the run's
+    Summary tab (one click past the check's Details link) AND printed to the decide step's log; the run's step
+    list separately shows the validator and self-test steps as skipped. It is NOT the operator's primary
+    disclosure — that is the pull-request body's standing statement, which needs no click at all; this line is
+    the per-run detail for whoever opens the run."""
     receipt = (detail or {}).get("receipt") or {}
     return (
         f"Reused the proof from run {detail.get('run_id')} ({detail.get('run_url')}) for this exact tree "
@@ -489,9 +514,11 @@ def main(argv):
                 print("engine-ci: refusing to reuse a proof this run cannot disclose "
                       "(no writable step summary).", file=sys.stderr)
                 return 1
-        elif reason not in (REASON_NOT_PULL_REQUEST, REASON_CODE_EVENT):
+        elif reason not in (REASON_NOT_PULL_REQUEST, REASON_CODE_EVENT, REASON_UNRECOGNISED_ACTION):
             # Reuse was expected on a metadata-only event and did not happen. Say why, where a person will
-            # see it: otherwise a permanently broken receipt path looks exactly like a normal full run.
+            # see it: otherwise a permanently broken receipt path looks exactly like a normal full run. The
+            # three ordinary reasons (not-a-PR, a code event, an unrecognised action) are plain full runs and
+            # need no could-not-reuse note.
             line = full_disclosure(reason, detail)
             print(line)
             _write_summary(line)
