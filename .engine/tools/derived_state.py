@@ -415,8 +415,11 @@ def _member_digest(member: DerivedMember, root: str) -> str:
         h.update(("\x00" + o.path + "\x00").encode())
         if o.kind == "file":
             if os.path.isfile(abs_path):
-                with open(abs_path, "rb") as fh:
-                    h.update(fh.read())
+                try:
+                    with open(abs_path, "rb") as fh:
+                        h.update(fh.read())
+                except OSError:                      # a TOCTOU race or permission error is not a crash —
+                    h.update(b"\x03unreadable")       # mirror the tree branch (and _regen_one_* wraps this call)
             else:
                 h.update(b"\x01absent")
         else:
@@ -461,6 +464,31 @@ def _ordered(selected: tuple[DerivedMember, ...]) -> list[DerivedMember]:
     return sorted(selected, key=lambda m: rank.get(m.path, len(rank)))
 
 
+def _symlink_escape(member: DerivedMember, root: str) -> Optional[str]:
+    """The first concrete output that is a symlink (or sits under one) escaping the tree, or None. Applied to
+    BOTH dispatch modes and to file AND tree outputs: regenerating THROUGH a live symlink would write outside
+    the tree, and the subprocess path (which pr_reconcile uses to regenerate a merged branch) is exactly where
+    the tree's shape can be influenced by content the operator did not author, so the guard must cover it too."""
+    for o in _concrete_outputs(member, root):
+        # rstrip the trailing slash a tree output carries: os.path.islink follows a path ending in '/', so
+        # the leaf-symlink check would miss a symlinked render directory without this.
+        if engine_write.write_through_symlink_reason(_abspath(o.path.rstrip("/"), root), root):
+            return o.path
+    return None
+
+
+def _changed_or_failed(member: DerivedMember, root: str, before: str, detail: str) -> MemberResult:
+    """Compute the post-regeneration result, treating a digest read failure as a per-member 'failed' rather
+    than a raise (TI: the digest read is a filesystem op that can race/EPERM; letting it escape would skip a
+    caller's crash cleanup — pr_reconcile's merge --abort/reset --hard)."""
+    try:
+        changed = _member_digest(member, root) != before
+    except OSError as exc:
+        return MemberResult(member.path, "failed", False, "could not read regenerated output", error=repr(exc))
+    return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
+                        detail if changed else "already up to date")
+
+
 def _regen_one_import(member: DerivedMember, root: Optional[str]) -> MemberResult:
     scope_root = _scope_root(root)
     if not _in_scope(member, scope_root):
@@ -470,26 +498,20 @@ def _regen_one_import(member: DerivedMember, root: Optional[str]) -> MemberResul
     if missing:
         return MemberResult(member.path, "skipped-absent", False,
                             "the tree does not carry this member's output(s) — not fabricated")
-    for o in member.outputs:
-        if o.kind == "file":
-            abs_path = _abspath(o.path, scope_root)
-            # os.path.isfile follows a symlink; refuse to regenerate THROUGH a live symlink (out-of-tree write).
-            if engine_write.write_through_symlink_reason(abs_path, scope_root):
-                return MemberResult(member.path, "skipped-symlink", False,
-                                    "an output is a symlink out of the tree — regen skipped, drift gate backstops")
+    if _symlink_escape(member, scope_root):
+        return MemberResult(member.path, "skipped-symlink", False,
+                            "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     gen = _resolve_generate(member)
     if gen is None:
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"optional module {member.optional_module!r} absent — nothing to regenerate")
-    before = _member_digest(member, scope_root)
     primary_target = _abspath(member.outputs[0].path, scope_root) if member.outputs else scope_root
     try:
+        before = _member_digest(member, scope_root)
         gen(scope_root, primary_target)
     except Exception as exc:  # noqa: BLE001 — surfaced as a per-member result, never a traceback
         return MemberResult(member.path, "failed", False, "regeneration raised", error=repr(exc))
-    changed = _member_digest(member, scope_root) != before
-    return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
-                        "regenerated" if changed else "already up to date")
+    return _changed_or_failed(member, scope_root, before, "regenerated")
 
 
 def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberResult:
@@ -500,12 +522,15 @@ def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberR
     missing = [o for o in member.outputs if not _output_exists(o, base)]
     if missing:
         return MemberResult(member.path, "skipped-absent", False, "the tree does not carry this member's output(s)")
+    if _symlink_escape(member, base):
+        return MemberResult(member.path, "skipped-symlink", False,
+                            "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     tool_path = os.path.join(base, ".engine", "tools", member.tool)
     if not os.path.isfile(tool_path):
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"generator tool {member.tool} absent in the tree")
-    before = _member_digest(member, base)
     try:
+        before = _member_digest(member, base)
         proc = subprocess.run([sys.executable, tool_path, "generate"], capture_output=True, text=True,
                               timeout=300, check=False, cwd=base)
     except Exception as exc:  # noqa: BLE001 — a hung (TimeoutExpired) or un-spawnable (OSError) generator is
@@ -517,9 +542,7 @@ def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberR
     if proc.returncode != 0:
         return MemberResult(member.path, "failed", False, "generator exited non-zero",
                             error=(proc.stderr or proc.stdout or "").strip()[:500])
-    changed = _member_digest(member, base) != before
-    return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
-                        (proc.stdout or ("regenerated" if changed else "already up to date")).strip()[:200])
+    return _changed_or_failed(member, base, before, (proc.stdout or "regenerated").strip()[:200])
 
 
 # ---- verification ----------------------------------------------------------------------------------

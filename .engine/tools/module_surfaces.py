@@ -132,6 +132,17 @@ def declined_surface_owner(abs_path: str, root: str | None = None) -> "str | Non
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "generate":
+        # Home-guard the DIRECT hand-run: this registry lists EVERY module's surfaces, so regenerating it from
+        # a deployment's reduced manifest set would ERASE the declined modules' ownership. The derived-state
+        # substrate already scope-gates its own call; this closes the bare `module_surfaces.py generate` path a
+        # human could run in a deployment. Refuse toward safety unless home is positively confirmed.
+        import derived_state
+        if not derived_state.is_confirmed_home(validate.ROOT):
+            print("Refusing to regenerate module-surfaces.json here: it lists every module's surfaces and is "
+                  "generated only in the engine's home repository; regenerating it in a deployment (which "
+                  "carries a subset of modules) would erase declined modules' surface ownership. This tree's "
+                  "origin is not confidently the recorded home.", file=sys.stderr)
+            sys.exit(2)
         generate()
         print(f"wrote {REGISTRY_REL}")
     elif len(sys.argv) > 1 and sys.argv[1] == "check":

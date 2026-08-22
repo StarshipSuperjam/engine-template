@@ -402,10 +402,11 @@ def _plain_reconcile(apply: bool) -> int:
               "I'll offer to do this again.")
     elif status == "needs-manual" and reason == "authored-conflict":
         print("I stopped and left everything exactly as it was — nothing changed, no work lost. This one I "
-              "can't safely fix on my own: the two pieces of work changed the same actual content (not just "
-              "the engine's index files), and choosing between them is a real decision. Tell me which "
-              "direction you want, or ask me to walk you through the two versions in plain English — I'll do "
-              "the rest once you've chosen.")
+              "can't safely fix on my own: the conflict is on files I can't regenerate-to-resolve. If it is "
+              "real hand-written content, tell me which direction you want, or ask me to walk you through the "
+              "two versions in plain English. If it is a generated file the engine keeps out of auto-merge for "
+              "safety (a setup route lives beside hand-written skills), pick either side and I'll regenerate "
+              "the rest once you've chosen — no hand-written work is actually in conflict there.")
     elif status == "fixable" and not apply:
         print("This pull request is stuck on the engine's internal index files. I can fix it safely and keep "
               "both pieces of work (I reconcile it against the latest main and rebuild those files). Re-run "
@@ -439,8 +440,9 @@ def main(argv: list) -> int:
                   else "This branch is behind the latest main; I can bring it up to date and regenerate its "
                        "derived files (run with --apply).")
         elif status == "needs-manual" and r.get("reason") == "authored-conflict":
-            print("This branch conflicts with the latest main in your own edited files — that's a real "
-                  "decision for you, so I've left both untouched.")
+            print("This branch conflicts with the latest main on files I won't auto-resolve — real "
+                  "hand-written content, or a generated file the engine keeps out of auto-merge for safety. "
+                  "Either way it's your call, so I've left both untouched.")
         else:
             print(f"Could not prepare this branch ({r.get('reason', status)}); nothing was changed.")
         return 0 if status in ("healthy", "prepared") else 1

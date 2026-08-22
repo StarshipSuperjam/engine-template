@@ -1178,8 +1178,9 @@ def _overlay_copy_map(tree_root: str, manifests_by_id: dict) -> dict:
 # Bound to the UPGRADE lifecycle subset (`upgrade=True`), not the whole roster: a member that participates in
 # reconcile/release but NOT the upgrade tail (e.g. the Codex renders and provisioning catalogs, which the
 # overlay delivers whole rather than regenerating, and the home-only module-surfaces catalog) must not be
-# regenerated — or destructively pruned — inside a deployment's upgrade. Today every member is upgrade=True, so
-# this equals the full roster; the filter is what keeps the newly-registered members OUT of the upgrade path.
+# regenerated — or destructively pruned — inside a deployment's upgrade. The Codex renders, both provisioning
+# catalogues, and the setup routes are upgrade=False, so paths(upgrade=True) is the original four index files,
+# NOT the whole roster; the filter is what keeps those newly-registered members OUT of the upgrade path.
 REGENERATED_DERIVED = derived_state.paths(upgrade=True)
 
 
@@ -2769,8 +2770,8 @@ def _regen_indexes() -> list:
     them; today's callers rely on the drift gate and ignore the return."""
     # The UPGRADE-lifecycle subset only: a reconcile/release-but-not-upgrade member (Codex renders,
     # provisioning catalogs, the home-only surfaces catalog) is delivered whole by the overlay and must not be
-    # regenerated — or destructively pruned — inside a deployment's upgrade tail. Today this equals the full
-    # roster; the filter is what keeps the newly-registered members out.
+    # regenerated — or destructively pruned — inside a deployment's upgrade tail. paths(upgrade=True) is the
+    # original four index files, not the whole roster; the filter is what keeps the new members out.
     results = derived_state.regenerate(derived_state.paths(upgrade=True))   # import dispatch honours the redirected ENGINE_DIR
     for r in results:
         if r.status == "failed":

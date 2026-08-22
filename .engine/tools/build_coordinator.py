@@ -1189,10 +1189,17 @@ def cmd_validate(args, store: StateStore) -> None:
     # Fail-fast pre-gate (read-only), BEFORE the expensive StableCommit run: if a derived artifact is stale,
     # refuse naming the exact remedy rather than spending the full CI suite + self-tests only to go red on a
     # drift check. This is NOT a new hard hold (eADR-0041) — it is a cheap early refusal; CI's drift checks
-    # remain the authority, and the artifact-sync step is what a session runs to clear it.
+    # remain the authority, and the sync-artifacts step is what a session runs to clear it.
     drift = _derived_drift()
     if drift:
         detail = "; ".join(f"{d.path} ({d.status})" for d in drift[:6])
+        # A `drift` status means the committed output is stale — sync-artifacts fixes it. An `error` status
+        # means the drift check itself could not evaluate (a broken generator/check); sync may not clear that,
+        # so name the distinct remedy rather than send a session in a loop.
+        if any(d.status == "error" for d in drift):
+            raise CoordinatorError(
+                "a derived-artifact drift check could not evaluate (an error, not plain drift) — investigate "
+                "the named generator/check; `sync-artifacts` may not clear it: " + detail)
         raise CoordinatorError(
             "derived artifacts are stale, so validation would fail its drift checks — run "
             "`build_coordinator.py sync-artifacts` first, then re-run validate: " + detail)
@@ -1226,13 +1233,31 @@ def _sync_changed_paths() -> list:
     return out
 
 
+def _rmdir_empty_parents(start: Path) -> None:
+    """Remove `start` and its ancestors while they are empty directories strictly under ROOT — tidies the
+    dir a pruned untracked file left behind, so a failed sync leaves no empty-dir debris the clean-tree guard
+    cannot see (git does not track empty dirs). Stops at the first non-empty dir, at ROOT, or on any error."""
+    current = start
+    try:
+        root_resolved = ROOT.resolve()
+        while current.resolve() != root_resolved and root_resolved in current.resolve().parents:
+            if any(current.iterdir()):
+                return
+            current.rmdir()
+            current = current.parent
+    except OSError:
+        return
+
+
 def cmd_sync_artifacts(args, store: StateStore) -> None:
     """Transactional artifact preparation: regenerate the built-in derived members in declared order and
     commit them, so the read-only `validate` (which refuses a dirty or moved tree) then runs against a
     current tree. Refuses a dirty tree at entry (the proven executor precondition that makes restore
     trivially correct); refuses AND restores exactly if a generator writes outside its declared outputs;
-    records a receipt bound to the resulting sync commit. Never a blanket `git clean` — the enumerated new
-    untracked paths are removed by name, and tracked mods/deletions are undone with `git checkout`."""
+    records a receipt bound to the resulting sync commit. Never a blanket `git clean` or a whole-tree
+    checkout — the restore is scoped to THIS sync's own enumerated footprint (so a concurrent peer's
+    unrelated tracked edit on a shared checkout is never reverted), and the enumerated new untracked paths
+    are removed by name with their now-empty parent dirs."""
     import shutil
     sys.path.insert(0, str(ROOT / ".engine" / "tools"))
     import derived_state
@@ -1240,7 +1265,7 @@ def cmd_sync_artifacts(args, store: StateStore) -> None:
     revision = state["revision"]
     dirty = core.dirty_paths(ROOT)
     if dirty:
-        raise CoordinatorError("artifact-sync requires a clean working tree; commit or remove: "
+        raise CoordinatorError("sync-artifacts requires a clean working tree; commit or remove: "
                                + ", ".join(d[3:] for d in dirty[:8]))
     # The declared-output guard: a changed path is legitimate iff a registry member owns it (exact file, or
     # an EXCLUSIVE tree by directory-boundary prefix) OR it is a dynamic member's concrete output.
@@ -1256,7 +1281,12 @@ def cmd_sync_artifacts(args, store: StateStore) -> None:
     undeclared = [p for _code, p in changed if not _declared(p)]
 
     def _restore() -> None:
-        core.run(["git", "checkout", "--", "."], root=ROOT)     # undo tracked mods/deletions (clean start)
+        # Undo only the tracked mods/deletions THIS sync produced — NOT `git checkout -- .`, which would also
+        # revert a concurrent peer's unrelated tracked edit on a shared checkout (SG-F1). The tree was clean
+        # at entry, so `changed` is exactly this sync's footprint.
+        tracked = [p for code, p in changed if code != "??"]
+        if tracked:
+            core.run(["git", "checkout", "--", *tracked], root=ROOT)
         for code, p in changed:
             if code == "??":                                    # remove exactly the generator's new files
                 fp = ROOT / p
@@ -1264,19 +1294,20 @@ def cmd_sync_artifacts(args, store: StateStore) -> None:
                     shutil.rmtree(fp, ignore_errors=True)
                 elif fp.exists():
                     fp.unlink()
+                _rmdir_empty_parents(fp.parent)                 # and the dir it left empty (no debris)
 
     if failed or undeclared:
         _restore()
         why = ("a generator failed: " + "; ".join(f"{r.path}: {r.error}" for r in failed)) if failed else \
               ("a generator wrote outside its declared outputs: " + ", ".join(sorted(set(undeclared))[:8]))
-        raise CoordinatorError("artifact-sync refused and restored the tree — " + why)
+        raise CoordinatorError("sync-artifacts refused and restored the tree — " + why)
 
     committed = bool(changed)
     if committed:
         paths = sorted({p for _code, p in changed})
         if core.run(["git", "add", "--", *paths], root=ROOT).returncode:
             _restore()
-            raise CoordinatorError("artifact-sync could not stage the regenerated outputs; tree restored")
+            raise CoordinatorError("sync-artifacts could not stage the regenerated outputs; tree restored")
         core.run(["git", "-c", "user.email=engine@local", "-c", "user.name=engine",
                   "commit", "-m", "Regenerate derived artifacts"], root=ROOT)
     head = core.head(ROOT)

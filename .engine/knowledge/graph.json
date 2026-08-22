@@ -9754,7 +9754,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:e98ad7d602f06e0a666e365e7af9c62ae015548f2038f1a70fab5af6cda0c62b",
+        "fingerprint": "sha256:0b37e6cdc0dd1430b9df13fc528c7c1dca6dd59d247c875bace295ed66bed649",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11839,7 +11839,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:2601b499e25f21a678c44895689f6b81d233d4042b3d3012b3de289fa825ef8a",
+        "fingerprint": "sha256:e50a6f7ecd134b47207e4a48b53aa7a500112d9f6e78a6d66c14c6f7819efcee",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -13373,7 +13373,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:a72028f82e3f36c92c4a07cf26945db2876026afebe23a33d330a1d667f8cd81",
+        "fingerprint": "sha256:33b6876c87991dc9d25b5566d53f6fcca818be25a03ec0f937841e589d4acf30",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13398,7 +13398,7 @@
       },
       "slug": "module_surfaces",
       "source": {
-        "fingerprint": "sha256:824d490cebbdd30e2b23c9fa2627dab71c9feed032ee179ed5f96f4e841354bf",
+        "fingerprint": "sha256:75030be551e1dab55dd8c43018c50e1044a06a1beceef57c2ac0d9ecfa20c35d",
         "path": ".engine/tools/module_surfaces.py"
       },
       "status": "active",
@@ -13712,7 +13712,7 @@
       },
       "slug": "pr_reconcile",
       "source": {
-        "fingerprint": "sha256:a15d9136a80da7ab60c7f4043c703802a343de5cdaa92353e796b82b1f85503f",
+        "fingerprint": "sha256:86234ffee042544d8f9421656ee2f5dca765d71906daaaff33aaecf538a07531",
         "path": ".engine/tools/pr_reconcile.py"
       },
       "status": "active",
@@ -15404,7 +15404,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:e74d9bf020d7081e25f0b98b8f883d68e5c8d0b68a06d40408c705415021bb67",
+        "fingerprint": "sha256:fb2e5f2c4a215024692c03645b26ce8aedb1c901d537e0a9043b166aed05d14c",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16068,7 +16068,7 @@
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:606399517e51ee7a9e77e8a66017affaf93375b51885934f009d882c16eeb5ed",
+        "fingerprint": "sha256:b156a7be5f2c61ab3bf55bef47562da4836c651e0fa4203f0fc825438101c983",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -18062,6 +18062,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:derived_state",
           "tool:issue_kind",
           "tool:module_coherence",
           "tool:module_manager",
@@ -18071,7 +18072,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:11ae4a5942e39b15b1fbb2ed8891c932327e981491c38e67685cc26efa3dd257",
+        "fingerprint": "sha256:c053c1d7b6a5343f76d78ea950e838f64303387a07c019c7eeda22d2959e6540",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

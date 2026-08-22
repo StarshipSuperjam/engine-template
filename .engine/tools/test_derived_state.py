@@ -287,12 +287,46 @@ class TestVerifyNormalizer(unittest.TestCase):
 class TestSingleSource(unittest.TestCase):
     def test_module_manager_regenerated_derived_is_the_upgrade_registry(self):
         import module_manager
-        # E5 rebinds this to the upgrade subset; today upgrade==all four, so it still equals paths().
+        # bound to the upgrade subset (the original four index files), NOT the whole roster.
         self.assertEqual(tuple(module_manager.REGENERATED_DERIVED), ds.paths(upgrade=True))
 
     def test_pr_reconcile_members_is_the_reconcile_registry(self):
         import pr_reconcile
         self.assertEqual(tuple(pr_reconcile.MEMBERS), ds.paths(reconcile=True))
+
+    def test_ci_required_indexes_is_a_leak_boundary_not_bound_to_the_registry(self):
+        # DELIBERATE non-convergence: module_coherence._CI_REQUIRED_INDEXES feeds travels_to_engine_home — it
+        # decides what a deployment may contribute UPSTREAM, a leak boundary, NOT a lifecycle regeneration set.
+        # It must stay the two always-travel-safe index files and must NOT absorb the registry — binding it to
+        # paths() would flip the deployment-private product-spec-matrix (and the catalogs) to travel-safe.
+        import module_coherence
+        self.assertEqual(module_coherence._CI_REQUIRED_INDEXES,
+                         frozenset({".engine/knowledge/graph.json", ".engine/self-map.md"}))
+        self.assertNotIn(".engine/product-spec-matrix.json", module_coherence._CI_REQUIRED_INDEXES)
+
+
+class TestNonEngineOutputResolution(unittest.TestCase):
+    def test_a_non_engine_output_is_reached_under_both_dispatch_modes(self):
+        # The old _target dropped the first path segment under .engine/, so a member whose output is OUTSIDE
+        # .engine/ (the Codex renders) resolved to a nonexistent path and always skipped-absent. Root-relative
+        # resolution reaches it: the codex member is processed (not skipped-absent) under BOTH dispatch modes.
+        codex = ".codex/agents"
+        for dispatch in ("import", "subprocess"):
+            result = {r.path: r for r in ds.regenerate([codex], dispatch=dispatch)}[codex]
+            self.assertIn(result.status, ("regenerated", "unchanged"),
+                          f"{dispatch} dispatch did not reach the non-.engine output: {result.status}")
+
+    def test_symlink_guard_covers_tree_outputs_and_both_dispatches(self):
+        # The symlink-escape guard is a shared pre-check over CONCRETE outputs, file and tree, in both
+        # dispatch modes — not only import-file (the pre-repair gap).
+        member = _TREE_MEMBER
+        with tempfile.TemporaryDirectory() as tmp:
+            # make the codex render root a symlink pointing out of the tree
+            os.makedirs(os.path.join(tmp, "outside"))
+            os.makedirs(os.path.join(tmp, ".codex"))
+            os.symlink(os.path.join(tmp, "outside"), os.path.join(tmp, ".codex", "agents"))
+            os.makedirs(os.path.join(tmp, ".agents", "skills"))
+            self.assertEqual(ds._symlink_escape(member, tmp), ".codex/agents/")
 
 
 class TestRegenerate(unittest.TestCase):

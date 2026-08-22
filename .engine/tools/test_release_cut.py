@@ -2387,5 +2387,21 @@ class EnumeratorPartialDropGuard(unittest.TestCase):
             rc._enumerate_merged_pr_lines("v0.4.0", "HEAD", repo="acme/x")
 
 
+class GeneratedSurfacesDisclosure(unittest.TestCase):
+    """The release-cut PR body names the generated surfaces from the registry, not a stale literal."""
+
+    def test_disclosure_derives_from_the_release_subset_registry(self):
+        import derived_state
+        self.assertEqual(rc._release_generated_surfaces(), list(derived_state.paths(release=True)))
+
+    def test_disclosure_names_the_catalogs_not_just_the_two_maps(self):
+        # regression against the pre-fix literal ("graph.json and self-map.md"): the release cut refreshes
+        # more than two files now, so the body must name them all.
+        surfaces = rc._release_generated_surfaces()
+        self.assertIn(".engine/provisioning/module-catalog.json", surfaces)
+        self.assertIn(".engine/provisioning/module-surfaces.json", surfaces)
+        self.assertIn(".engine/docs/ci-assurance.md", surfaces)
+
+
 if __name__ == "__main__":
     unittest.main()
