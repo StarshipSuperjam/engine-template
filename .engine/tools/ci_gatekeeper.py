@@ -83,6 +83,14 @@ _RUNS_PER_PAGE = 100
 MODE_FULL = "full"
 MODE_REUSE = "reuse"
 
+# The environment names the workflow branches on. MODE_ENV carries the decision; RAN_ENV is written by an arm
+# when it FINISHES, and the two are deliberately different: a marker set by the decision step would prove only
+# that the decision ran, which is exactly the thing the terminal assertion must not accept as proof that an
+# arm ran. The arms condition on MODE_ENV; the terminal step reads RAN_ENV.
+MODE_ENV = "ENGINE_CI_MODE"
+REASON_ENV = "ENGINE_CI_REASON"
+RAN_ENV = "ENGINE_CI_RAN"
+
 # The actions that cannot change the tree under test. Everything else — including an action this module does
 # not recognise — is a code event and earns a full run.
 METADATA_ACTIONS = frozenset({"edited", "labeled", "unlabeled"})
@@ -462,8 +470,8 @@ def main(argv):
     if verb == "decide":
         event = _load_event()
         mode, reason, detail = decide(event, repo=repo, token=token)
-        _emit_output("mode", mode)
-        _emit_output("reason", reason or "")
+        _publish(MODE_ENV, mode)
+        _publish(REASON_ENV, reason or "")
         if mode == MODE_REUSE:
             line = reuse_disclosure(detail)
             print(line)
@@ -504,7 +512,7 @@ def main(argv):
         # step ever wrote nothing, wrote an unexpected value, or its marker name drifted, every substantive
         # step would skip — and the platform treats a skipped step as successful, so the job would report
         # GREEN having proven nothing. This refuses that.
-        marker = os.environ.get("ENGINE_CI_RAN", "")
+        marker = os.environ.get(RAN_ENV, "")
         if marker not in (MODE_FULL, MODE_REUSE):
             print(f"engine-ci: no arm recorded completion (marker={marker!r}); refusing to report success.",
                   file=sys.stderr)
@@ -516,8 +524,15 @@ def main(argv):
     return 0
 
 
-def _emit_output(key, value):
-    path = os.environ.get("GITHUB_OUTPUT")
+def _publish(key, value):
+    """Publish one verdict to the job ENVIRONMENT, where later steps' conditions can read it as `env.<key>`.
+
+    Deliberately the environment rather than a step output: reading a step output requires the producing step
+    to carry an `id:`, and the assurance generator refuses any workflow step key outside a fixed set — a set
+    this change does not widen, because that refusal is itself a structural defence (the required gate cannot
+    grow a shape the published catalogue is unable to describe). The environment file needs no step key at
+    all, so the branch value travels with the generator untouched."""
+    path = os.environ.get("GITHUB_ENV")
     if path:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(f"{key}={value}\n")

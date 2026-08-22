@@ -364,6 +364,28 @@ class Disclosures(unittest.TestCase):
         with open(summary, encoding="utf-8") as fh:
             self.assertIn("900", fh.read())
 
+    def test_the_verdict_is_published_to_the_environment_not_a_step_output(self):
+        # Reading a step output would require the producing step to carry an `id:`, which the assurance
+        # generator's step-key allowlist refuses — and that refusal is a structural defence this Build does
+        # not widen, since the required gate must not grow a shape the published catalogue cannot describe.
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as fh:
+            envfile = fh.name
+        self.addCleanup(os.unlink, envfile)
+        with mock.patch.object(gk, "decide", return_value=(gk.MODE_FULL, gk.REASON_CODE_EVENT, None)), \
+             mock.patch.object(gk, "_load_event", return_value=event("opened")), \
+             mock.patch.dict(os.environ, {"GITHUB_ENV": envfile, "GITHUB_OUTPUT": ""}, clear=False):
+            self.assertEqual(gk.main(["decide"]), 0)
+        with open(envfile, encoding="utf-8") as fh:
+            written = fh.read()
+        self.assertIn(f"{gk.MODE_ENV}={gk.MODE_FULL}", written)
+
+    def test_the_branch_value_and_the_completion_marker_are_different_names(self):
+        # A marker written by the decision step would prove only that the decision ran. The terminal
+        # assertion must read something an ARM wrote, or it cannot tell "an arm finished" from "we decided".
+        self.assertNotEqual(gk.MODE_ENV, gk.RAN_ENV)
+
     def test_full_disclosure_states_why_reuse_did_not_happen(self):
         line = gk.full_disclosure(gk.REASON_REFUSED, {"refusals": [{"run_id": 901, "why": "different-tree"}]})
         self.assertIn(gk.REASON_REFUSED, line)

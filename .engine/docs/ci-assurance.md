@@ -8,7 +8,7 @@ title: What Engine CI verifies
 
 The `engine-ci` badge reports the latest `main` push run of the workflow described here. On a **main push**, green means the checked revision completed every non-optional workflow step: it materialized the pinned Engine runtime, ran the declared CI validator suite, and ran the discovered self-test modules. Checks that require pull-request context can disclose that their live witness is unavailable on a push; green does not turn that absence into pull-request evidence.
 
-On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event context. Green means its hard findings were clear and its self-tests passed for that run. Branch protection, other workflows, and the operator's merge decision are separate controls; this catalogue documents only [engine-ci](../../.github/workflows/engine-ci.yml).
+On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event context. Green means its hard findings were clear and EITHER its self-tests passed for that run, OR a receipt from an earlier successful run of this workflow was verified in their place — bound to the identical checked-out tree, and named with its source run in that run's summary. New or changed code always runs the self-tests; only an event that cannot have changed the tree may reuse, and the checks whose verdict can change while the tree is unchanged re-run either way. Branch protection, other workflows, and the operator's merge decision are separate controls; this catalogue documents only [engine-ci](../../.github/workflows/engine-ci.yml).
 
 ### The assurance claim
 
@@ -23,7 +23,7 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | Surface | Total |
 | --- | ---: |
 | Workflow triggers | 2 |
-| Executable workflow steps | 5 |
+| Executable workflow steps | 12 |
 | CI validator rules | 81 (76 hard, 5 soft) |
 | Dedicated hard custom-check proofs | 41 |
 | Disclosed proof exceptions | 3 |
@@ -33,7 +33,7 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 
 Workflow: `engine-ci` · job: `engine-ci` · runner: `ubuntu-latest`
 
-Permissions: `contents: read`, `pull-requests: read`, `statuses: read`.
+Permissions: `actions: read`, `contents: read`, `pull-requests: read`, `statuses: read`.
 
 | Event | Scope |
 | --- | --- |
@@ -49,8 +49,15 @@ A step is gating unless `continue-on-error` is true. The condition column record
 | 1 | Check out the revision | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` | none | always when prior steps succeed | gating |
 | 2 | Set up uv (pinned) | `astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d` | with: version=0.11.8 | always when prior steps succeed | gating |
 | 3 | Materialize the engine tool-runtime | `uv sync --directory .engine --frozen` | none | always when prior steps succeed | gating |
-| 4 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | always when prior steps succeed | gating |
-| 5 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | none | always when prior steps succeed | gating |
+| 4 | Decide whether this run owes the full inventory | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} | always when prior steps succeed | gating |
+| 5 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 6 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 7 | Write the full-suite receipt | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"` | env: GITHUB_REPOSITORY=${{ github.repository }} | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
+| 8 | Upload the full-suite receipt | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | with: if-no-files-found=error, name=engine-ci-receipt, path=${{ runner.temp }}/receipt.json, retention-days=30 | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
+| 9 | Record that the full arm completed | `echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 10 | Re-check what an unchanged tree cannot settle | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE == 'reuse' | gating |
+| 11 | Record that the reuse arm completed | `echo "ENGINE_CI_RAN=reuse" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE == 'reuse' | gating |
+| 12 | Refuse a run in which no arm did any work | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran` | none | always when prior steps succeed | gating |
 
 ### Verification by Engine module
 

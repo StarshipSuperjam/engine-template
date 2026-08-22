@@ -5924,7 +5924,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:cab2cfb4db7cd6d03ae0e52a6aded985d9c830ccfe12f1d10989018ea3b04ebb",
+        "fingerprint": "sha256:1a63646559a9339e3b653eeb8f4b47af0f0af3352690583d4630919bcdc97532",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10106,7 +10106,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:2d02b86b46e716d45c3e928ad8fcff3e26c71d6d61282e41a65cbbfa89c79bee",
+        "fingerprint": "sha256:a7554f54d288ed2c04a327b6b85d33f593d2b364f219f6ba2c9b639fd3fd95fd",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10156,7 +10156,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:e1faf91db4a29a6e4b9801475b4b4e3d740d25723481d4e2f005843a3c094bc7",
+        "fingerprint": "sha256:ba642a73ce4dcb9a26455ba3adbf91a9933a4b4e7836c84efa275983e7baabc1",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -15725,7 +15725,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:cbf8a51492183cad5d4d93e0f04abcbbbde6a8e63ca04529195c8e59ca985987",
+        "fingerprint": "sha256:9c7ecc0ba5abc068d143fd7e2cfb34d75ffddb395e1d9beea5d16a233cedda35",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",

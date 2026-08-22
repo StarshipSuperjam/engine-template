@@ -328,7 +328,11 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
         "Checks that require pull-request context can disclose that their live witness is unavailable on a push; "
         "green does not turn that absence into pull-request evidence.", "",
         "On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event "
-        "context. Green means its hard findings were clear and its self-tests passed for that run. Branch protection, "
+        "context. Green means its hard findings were clear and EITHER its self-tests passed for that run, OR a "
+        "receipt from an earlier successful run of this workflow was verified in their place — bound to the "
+        "identical checked-out tree, and named with its source run in that run's summary. New or changed code "
+        "always runs the self-tests; only an event that cannot have changed the tree may reuse, and the checks "
+        "whose verdict can change while the tree is unchanged re-run either way. Branch protection, "
         "other workflows, and the operator's merge decision are separate controls; this catalogue documents only "
         f"{_link(WORKFLOW_REL, 'engine-ci')}.", "",
         "### The assurance claim", "",
