@@ -10139,7 +10139,7 @@
     },
     {
       "entrypoint": "cli",
-      "guarded": false,
+      "guarded": true,
       "id": "tool:ci_gatekeeper",
       "name": ".engine/tools/ci_gatekeeper.py",
       "owner": "core",
@@ -18729,7 +18729,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:d39ac84383e6dac3742506561aad2cd7d63d1f9c2f04d2cc8f44e04ee847ae5b",
+        "fingerprint": "sha256:0b73712dd5b0c9958b4b7ca65a9cfc8705ad1908476bdc1ba666927ceaf0ea26",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -19555,7 +19555,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:f47ccea8db0dbede62b10526ad8baf2b348b9918139d4706eb7c5980ae34f99c",
+        "fingerprint": "sha256:d434290429de338fb233f08124792f91526ab99c35a895162845164f70cf5572",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

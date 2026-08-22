@@ -3380,5 +3380,67 @@ class TestMetadataSuiteClassification(unittest.TestCase):
                 self.assertIn("CI", rule.get("suites", []))
 
 
+class TestReuseGateIsGuarded(unittest.TestCase):
+    """The tool that decides whether engine-ci may go green without running the inventory.
+
+    Its weakening has no on-disk correlate a reviewer would notice — returning reuse on a discovery failure,
+    or dropping the workflow-file-path filter, mints a green on evidence nothing earned while the diff looks
+    like an ordinary refactor. A unit test is the wrong instrument on its own, because the same pull request
+    can flip the belt and its test together; the guardrail acknowledgement is what makes the change deliberate."""
+
+    GATEKEEPER = ".engine/tools/ci_gatekeeper.py"
+
+    def test_the_reuse_gate_is_guarded_at_the_hard_tier(self):
+        self.assertTrue(weakening_guard.is_guardrail(self.GATEKEEPER),
+                        "the blanket .engine/tools/ prefix no longer confers guarded status, so the reuse "
+                        "gate must join an enforcement floor explicitly")
+        self.assertIn(self.GATEKEEPER, weakening_guard._HARD_EXACT)
+
+    def test_modifying_the_reuse_gate_is_hard_not_a_disclosure(self):
+        # The distinction that matters: a soft finding is a note on the pull request, a hard one holds the
+        # guard check red until the operator deliberately acknowledges it.
+        self.assertEqual(weakening_guard.classify(self.GATEKEEPER, "modified", instance_guards=(set(), ())),
+                         "hard")
+
+    def test_removing_the_reuse_gate_is_hard(self):
+        self.assertEqual(weakening_guard.classify(self.GATEKEEPER, "removed", instance_guards=(set(), ())),
+                         "hard")
+
+    # The engine modules the gate is allowed to reach. Each was reviewed for where its logic sits:
+    #   github_client — dumb transport only, pinned by test_ci_gatekeeper asserting it names no workflow
+    #                   path, artifact name, or success literal, so no trust predicate can live there
+    #   ci_assurance  — the inventory discovery the receipt attests, so the receipt and the published
+    #                   catalogue name the same roster rather than two quietly diverging ones
+    #   issue_event   — the existing event-loading seam, rather than a tenth reader of the event payload
+    #   validate      — the repository root only
+    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate"})
+
+    def test_the_gate_grows_no_unreviewed_helper(self):
+        # The StarshipSuperjam/engine-template#895 shape: guarding the file but not the logic it calls. If the
+        # decision or the verification moves into a new module, guarding this file alone stops meaning
+        # anything — so a new import turns this red until someone decides, deliberately, where that logic
+        # belongs and how it is guarded.
+        import ast
+
+        source = _read_text(os.path.join(validate.ENGINE_DIR, "tools", "ci_gatekeeper.py"))
+        reached = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                reached.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                reached.add(node.module.split(".")[0])
+        engine_modules = {m for m in reached
+                          if os.path.exists(os.path.join(validate.ENGINE_DIR, "tools", f"{m}.py"))}
+        self.assertLessEqual(
+            engine_modules, self._PERMITTED_IMPORTS,
+            "the reuse gate reached a new engine module: decide where its logic belongs, guard it at least "
+            "as strongly as the gate, and add it here with the reason")
+
+
+def _read_text(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
 if __name__ == "__main__":
     unittest.main()
