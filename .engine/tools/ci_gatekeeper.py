@@ -465,12 +465,22 @@ def main(argv):
         _emit_output("mode", mode)
         _emit_output("reason", reason or "")
         if mode == MODE_REUSE:
-            _write_summary(reuse_disclosure(detail))
-            print(reuse_disclosure(detail))
-        elif reason not in (REASON_NOT_PULL_REQUEST, REASON_CODE_EVENT):
-            line = full_disclosure(reason, detail)
-            _write_summary(line)
+            line = reuse_disclosure(detail)
             print(line)
+            # A reuse run's green is indistinguishable from a full run's green in the checks list, so this
+            # summary line is the ONLY thing that tells a person the inventory did not run here. If it cannot
+            # be written, the run has no way to disclose what it did — so it refuses rather than reporting a
+            # green nobody can account for.
+            if not _write_summary(line):
+                print("engine-ci: refusing to reuse a proof this run cannot disclose "
+                      "(no writable step summary).", file=sys.stderr)
+                return 1
+        elif reason not in (REASON_NOT_PULL_REQUEST, REASON_CODE_EVENT):
+            # Reuse was expected on a metadata-only event and did not happen. Say why, where a person will
+            # see it: otherwise a permanently broken receipt path looks exactly like a normal full run.
+            line = full_disclosure(reason, detail)
+            print(line)
+            _write_summary(line)
         else:
             print(f"engine-ci: running the full inventory ({reason}).")
         return 0
@@ -513,11 +523,20 @@ def _emit_output(key, value):
             fh.write(f"{key}={value}\n")
 
 
-def _write_summary(line):
+def _write_summary(line) -> bool:
+    """Append one line to the run's job summary; `True` when it was actually written.
+
+    Returns a verdict rather than swallowing the outcome, because on the reuse path a disclosure that cannot
+    be written is a refusal, not a nicety — see the `decide` verb."""
     path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if path:
+    if not path:
+        return False
+    try:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+    except OSError:
+        return False
+    return True
 
 
 if __name__ == "__main__":

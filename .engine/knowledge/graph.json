@@ -10151,7 +10151,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:6a3b82ab5eb19616c6bddc5de5dd76d7771170e14902d3b16177004868ce49f6",
+        "fingerprint": "sha256:e1faf91db4a29a6e4b9801475b4b4e3d740d25723481d4e2f005843a3c094bc7",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -15720,7 +15720,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:2906acad51e86553abe5fd836a30efb78ef61c59689ab7d47af4565d2ab3b868",
+        "fingerprint": "sha256:cbf8a51492183cad5d4d93e0f04abcbbbde6a8e63ca04529195c8e59ca985987",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",

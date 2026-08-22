@@ -285,7 +285,9 @@ class TransportStaysDumb(unittest.TestCase):
     def test_the_client_names_no_trust_predicate(self):
         with open(github_client.__file__, "r", encoding="utf-8") as fh:
             source = fh.read()
-        for token in (gk.WORKFLOW_PATH, gk.RECEIPT_ARTIFACT_NAME, gk.CHECK_CONTEXT, "conclusion"):
+        # Pin the specific identities a trust predicate would have to name, not ordinary English: the shared
+        # client is core-owned and a future helper may legitimately mention a conclusion in passing.
+        for token in (gk.WORKFLOW_PATH, gk.RECEIPT_ARTIFACT_NAME, gk.CHECK_CONTEXT, '"success"', "'success'"):
             self.assertNotIn(token, source,
                              f"{token!r} appears in github_client: a trust predicate has leaked out of the "
                              f"hard-tier gatekeeper into a soft-tier transport module")
@@ -336,6 +338,31 @@ class Disclosures(unittest.TestCase):
         self.assertIn("900", line)
         self.assertIn("NOT", line)
         self.assertIn(TREE, line)
+
+    def test_a_reuse_run_refuses_when_it_cannot_disclose_what_it_did(self):
+        # The summary line is the only thing distinguishing a reuse green from a full green in the checks
+        # list. A reuse that cannot say so has no account of itself, so it must not report success.
+        with mock.patch.object(gk, "decide", return_value=(gk.MODE_REUSE, None, {"run_id": 900,
+                                                                                 "run_url": "u",
+                                                                                 "receipt": receipt()})), \
+             mock.patch.object(gk, "_load_event", return_value=event("labeled")), \
+             mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False):
+            self.assertEqual(gk.main(["decide"]), 1)
+
+    def test_a_reuse_run_that_can_disclose_passes(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            summary = fh.name
+        self.addCleanup(os.unlink, summary)
+        with mock.patch.object(gk, "decide", return_value=(gk.MODE_REUSE, None, {"run_id": 900,
+                                                                                 "run_url": "u",
+                                                                                 "receipt": receipt()})), \
+             mock.patch.object(gk, "_load_event", return_value=event("labeled")), \
+             mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}, clear=False):
+            self.assertEqual(gk.main(["decide"]), 0)
+        with open(summary, encoding="utf-8") as fh:
+            self.assertIn("900", fh.read())
 
     def test_full_disclosure_states_why_reuse_did_not_happen(self):
         line = gk.full_disclosure(gk.REASON_REFUSED, {"refusals": [{"run_id": 901, "why": "different-tree"}]})
