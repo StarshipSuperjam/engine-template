@@ -1,13 +1,14 @@
 ---
-title: Engine development — how a development session runs in the engine's own home repo
+title: Engine development — how a session that develops the Engine itself runs
 ---
 
 ## Purpose
 
-This repo is the engine's own home — the one place the Engine itself is developed. A deployed project treats
-the Engine as fixed machinery that arrives as released updates (its root floor says so: "changing the Engine's
-own machinery isn't this project's job"); here, that machinery **is** the work. Enter this runbook at the start
-of any development session in this repo.
+The Engine is developed in exactly one place — its own home repository — but a session can reach that work
+from more than one starting point. A deployed project treats the Engine as fixed machinery that arrives as
+released updates (its root floor says so: "changing the Engine's own machinery isn't this project's job");
+in the engine's home, that machinery **is** the work. This runbook governs every session that develops the
+Engine, whichever lane the session arrived by.
 
 It rests on the **trust model — informed consent on evidence, never code review.** The maintainer is a
 **non-engineer and the sole gate-holder, with no outside engineer;** he directs the work and approves every
@@ -19,14 +20,43 @@ tier. Confidence is bounded by how much of a change has a non-AI correlate — t
 up. The full record is in the contracts: **eADR-0013** (consent on evidence, never code review) states the
 gate's nature; **eADR-0005** places the one unbypassable gate at the protected-branch merge.
 
-Boot surfaces this runbook when the checkout is the engine's own home — git origin equals the recorded
-`home_repository` (`repo_identity.is_home_repo`). It is retired from a generated copy at first-run, so a
-deployed project never carries it. The codes of conduct load every session through the root floor.
+**Which sessions this governs.** The routing decision itself is authored in the `engine-develop-engine` route,
+which is present in every deployment and is read before a lane is chosen; this runbook holds the reasoning
+behind that decision and the discipline that follows it. Where the two differ, the route decides the lane and
+this runbook decides the discipline. The lanes turn on **which repository holds the files the change edits**:
+
+- **Home lane.** The checkout is the engine's own home — git origin equals the recorded `home_repository`
+  (`repo_identity.is_home_repo`, which fails toward home). Work here, under the steps below.
+- **Mechanic lane.** The edited files live in the engine's home repository and this checkout is the mechanic
+  that builds it. Enter `.engine/operations/owned-product-build.md`: it cuts the isolated worktree and governs
+  isolation, delivery, and cleanup. Ground in this runbook by reading it at the worktree's **resolved base
+  commit** — never its working tree or index — because in-flight edits must never govern the build that makes
+  them; a change to this runbook governs only from the merge that lands it. Record that base commit with the
+  evidence. All seven steps below govern, and step 4's Build is the owned-product Build already in progress:
+  continue it, never re-enter and cut a second worktree. The two runbooks are different axes, not two copies
+  of one sequence — the steps below are the development discipline, and `owned-product-build.md`'s own steps
+  are the delivery mechanics that carry it. Follow the steps below in order, taking each delivery mechanic at
+  the point it applies; never run either list twice.
+- **Work whose files live in the mechanic's own repository** — its spec corpus, its runbooks, and the like —
+  is an ordinary Build in that repository, not Engine development. An ask spanning both repositories is two
+  Builds, one per repository, sequenced; never one worktree, and never a refusal.
+- **Anything else refuses.** A deployed project consumes the Engine as released updates and is not authorized
+  to develop it. When the lane cannot be confidently established, refuse.
+
+Two things this arrangement does not give you. Nothing at session start names this runbook in the mechanic
+lane; the owned-product build step is what reaches it. And the trust model above describes the engine's own
+maintainer — it does not transfer to another operator's clone that arms a build target.
+
+Boot surfaces this runbook when the checkout is the engine's own home. It is retired from a generated copy at
+first-run, so a deployed project never carries it — but a worktree cut from the home repository is home source,
+not a deployed copy, which is why the mechanic lane grounds in that worktree's own base copy. The codes of
+conduct load every session through the root floor.
 
 ## Steps
 
-1. **Ground in this runbook** — the trust model above, the **development invariants**, and the **frozen check
-   names** (both in Notes). These are the durable disciplines every step below assumes.
+1. Confirm your lane (see Purpose); in the mechanic lane every step below runs inside the emitted product
+   worktree. Then **Ground in this runbook** — the trust model above, the **development invariants**, and the
+   **frozen check names** (both in Notes). These are the durable disciplines every step below assumes.
 2. **Set the session stance** — read `.engine/operations/operating-modes.md` for the Explore/Build write-gate
    (eADR-0024 — the three stances; the local gate is backstopped by the protected-branch merge wall, never
    dressed as the wall itself), and `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md`
