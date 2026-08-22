@@ -3300,5 +3300,85 @@ class TestGuardRuleIsolation(unittest.TestCase):
         self.assertEqual(errs, [])
 
 
+CLASSIFICATION_PATH = os.path.join(validate.ENGINE_DIR, "check-classification.json")
+
+
+class TestMetadataSuiteClassification(unittest.TestCase):
+    """Which checks re-run when engine-ci reuses an earlier full-suite proof.
+
+    A reuse run does NOT re-run the self-test inventory, so its green rests on two things: a receipt attesting
+    the identical checked-out tree, and these checks — the ones whose verdict can change while the tree is
+    unchanged. Get this roster wrong in the shrinking direction and a pull request whose body was edited to
+    strip a required section goes green on a proof that never saw the edit."""
+
+    def _classification(self):
+        return validate.load_json(CLASSIFICATION_PATH)["classification"]
+
+    def _ci_rules(self):
+        return {r["id"]: r for r in validate.load_rules() if "CI" in r.get("suites", [])}
+
+    def test_every_ci_rule_is_classified_exactly_once(self):
+        # The forcing function: a rule added to the CI suite with no answer here turns this red, so the
+        # question is settled when the rule is written rather than inferred later from a field that cannot
+        # carry it — a target context is documentary for most rules and does not separate live from tree state.
+        self.assertEqual(sorted(self._classification()), sorted(self._ci_rules()))
+
+    def test_classification_values_are_closed(self):
+        self.assertLessEqual(set(self._classification().values()), {"metadata", "code"})
+
+    def test_metadata_rules_join_the_metadata_suite_and_keep_ci(self):
+        # Keeping CI is load-bearing: the generated assurance catalogue filters on the literal "CI", so
+        # dropping it would silently shrink the published roster of what the merge gate checks.
+        ci = self._ci_rules()
+        for rid, kind in self._classification().items():
+            if kind != "metadata":
+                continue
+            suites = ci[rid].get("suites", [])
+            self.assertIn("CI-metadata", suites, f"{rid} is classified metadata but does not join the suite")
+            self.assertIn("CI", suites, f"{rid} dropped its CI membership")
+
+    def test_code_rules_stay_out_of_the_metadata_suite(self):
+        ci = self._ci_rules()
+        for rid, kind in self._classification().items():
+            if kind == "code":
+                self.assertNotIn("CI-metadata", ci[rid].get("suites", []),
+                                 f"{rid} is classified code-only but re-runs on a metadata event")
+
+    def test_every_live_context_rule_is_classified_metadata(self):
+        # The independent cross-check, so the classification cannot drift quietly in the unsafe direction: a
+        # rule reading the pull-request body, the pull-request diff, or branch protection cannot be code-only,
+        # whatever the file says.
+        live = {"pull-request-body", "pull-request-diff", "branch-protection"}
+        classification = self._classification()
+        for rid, rule in self._ci_rules().items():
+            target = rule.get("target") or {}
+            if target.get("context") in live and "path" not in target:
+                self.assertEqual(classification.get(rid), "metadata",
+                                 f"{rid} reads live state but is classified code-only")
+
+    def test_the_metadata_suite_is_a_blocking_gate(self):
+        # One word decides whether its hard findings bite. Declared with any other context the reuse arm would
+        # run these checks, let a hard finding fire, and still exit zero — an unearned green.
+        suites = validate.load_json(validate.SUITES_PATH)["suites"]
+        self.assertEqual(suites["CI-metadata"]["context"], "blocking-gate")
+
+    def test_a_hard_finding_in_the_metadata_suite_fails_the_run(self):
+        rules, reg = validate.load_rules, dict(validate.REGISTRY)
+        try:
+            validate.load_rules = lambda: [{"id": "synthetic", "kind": "synthetic", "tier": "hard",
+                                            "suites": ["CI-metadata"], "params": {}}]
+            validate.REGISTRY["synthetic"] = lambda rule, ctx: (False, [validate.finding("hard", "boom")])
+            self.assertEqual(_run_quiet("CI-metadata", {}), 1)
+        finally:
+            validate.load_rules = rules
+            validate.REGISTRY.clear()
+            validate.REGISTRY.update(reg)
+
+    def test_the_metadata_suite_is_a_subset_of_ci(self):
+        for rule in validate.load_rules():
+            if "CI-metadata" in rule.get("suites", []):
+                self.assertIn("CI", rule.get("suites", []))
+
+
 if __name__ == "__main__":
     unittest.main()

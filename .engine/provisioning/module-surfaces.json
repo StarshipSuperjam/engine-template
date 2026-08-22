@@ -489,6 +489,9 @@
   ".engine/build-protocol.json": [
    "core"
   ],
+  ".engine/check-classification.json": [
+   "core"
+  ],
   ".engine/check/agent-coherence.json": [
    "validators-core"
   ],

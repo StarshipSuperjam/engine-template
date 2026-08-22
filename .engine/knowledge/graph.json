@@ -2150,12 +2150,13 @@
       },
       "slug": "pr-behaviors-declared",
       "source": {
-        "fingerprint": "sha256:d4298deb0896bb5e446dfd56c6f6e10c8d63756c770d0661e0bd3b0cfa1c988a",
+        "fingerprint": "sha256:51f3c4e8a1e34d5bef287807a05d025925d9a5e984bd94a8bef92d5afe1c02a6",
         "path": ".engine/check/pr-behaviors-declared.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "soft",
       "type": "check"
@@ -2175,12 +2176,13 @@
       },
       "slug": "pr-body-completeness",
       "source": {
-        "fingerprint": "sha256:fc1b86a18b523532f2952e756d4caad3858ae2b3621c8b90a149ac009dbcd8a2",
+        "fingerprint": "sha256:2ea94537f4371b1a17706402a6a326bcbb4ab2fa622cf39d048e241e7f1bdc04",
         "path": ".engine/check/pr-body-completeness.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2203,12 +2205,13 @@
       },
       "slug": "pr-release-impact",
       "source": {
-        "fingerprint": "sha256:6640faa568aaead0c409e2029d1fd707ce2241828052c88ec798a436c7520df3",
+        "fingerprint": "sha256:21fe702a600144bba5d20ce49a610bfb1f855f09cf701fa92b3b5b69d8c33d9f",
         "path": ".engine/check/pr-release-impact.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2291,12 +2294,13 @@
       },
       "slug": "product-lock-integrity",
       "source": {
-        "fingerprint": "sha256:73583037806461a1f34850416da7011f8b744571414bd270a502db87fde78c4f",
+        "fingerprint": "sha256:04bddffe31db773b6baf00b334f5809657ba10878e416caa43cadf5da71ba88c",
         "path": ".engine/check/product-lock-integrity.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2407,12 +2411,13 @@
       },
       "slug": "protection",
       "source": {
-        "fingerprint": "sha256:e0ac22acf5b213c0aab82c87fe020e6c870bbcb374a2067ed6ccad1ea7d51a42",
+        "fingerprint": "sha256:fee4a36e8675ebc04a530c130e9a822ca1d152e1b34f7f106a95292579a36975",
         "path": ".engine/check/protection.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -6098,7 +6103,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2557d0abf48e492a4ba6dde4b38088496d65159c1d8768665bc7bb5dd8665527",
+        "fingerprint": "sha256:9b20d6aaf8f797a746d244f2e46a1fcaf19ad478bb4ea79c230d62d69272fa74",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -8012,7 +8017,7 @@
       },
       "slug": "suites.v1",
       "source": {
-        "fingerprint": "sha256:6f4b17fd62d17c02b90c6e8dc555b1c609e71d0c678ccd84284f8d7af9d5d255",
+        "fingerprint": "sha256:60ee34a330dba308034a3404c78ab3ea53e79c23df51ae203b3a99846f779566",
         "path": ".engine/schemas/suites.v1.json"
       },
       "status": "active",
@@ -18724,7 +18729,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:3346d65b90f550cb26101c51b68d1f36b7ea95c968509e69747799abba37860a",
+        "fingerprint": "sha256:d39ac84383e6dac3742506561aad2cd7d63d1f9c2f04d2cc8f44e04ee847ae5b",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",

@@ -29,7 +29,7 @@
           "enum": ["pre-commit", "pre-close", "CI", "audit-prep"]
         },
         "context": {
-          "description": "What a failure does in this suite. blocking-gate = a hard failure stops the merge (only the CI check can do this); local-nudge = a hard failure is a strong warning that never blocks; report-only = failures are recorded, never block.",
+          "description": "What a failure does in this suite. blocking-gate = a hard failure stops the merge (the suites the required merge check runs); local-nudge = a hard failure is a strong warning that never blocks; report-only = failures are recorded, never block.",
           "enum": ["blocking-gate", "local-nudge", "report-only"]
         }
       }

@@ -60,7 +60,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - conduct: `.engine/conduct/defaults.md`
   - contract: `.engine/contracts/*.md`
   - doc: `.engine/docs/ci-assurance.md`, `.engine/docs/getting-started.md`
-  - foundation: `.engine/build-orchestration-obligations.json`, `.engine/build-protocol.json`, `.engine/self-map.md`, `.engine/suites.json`
+  - foundation: `.engine/build-orchestration-obligations.json`, `.engine/build-protocol.json`, `.engine/check-classification.json`, `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
   - migration: `.engine/modules/core/migrations/*.py`
