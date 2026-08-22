@@ -5919,7 +5919,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:0a7c16600a02bb76ef703c171b85056aca9d372986fe1e688752168daf7e51ba",
+        "fingerprint": "sha256:cab2cfb4db7cd6d03ae0e52a6aded985d9c830ccfe12f1d10989018ea3b04ebb",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10133,6 +10133,32 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:ci_gatekeeper",
+      "name": ".engine/tools/ci_gatekeeper.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:ci_assurance",
+          "tool:github_client",
+          "tool:issue_event",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci_gatekeeper",
+      "source": {
+        "fingerprint": "sha256:6a3b82ab5eb19616c6bddc5de5dd76d7771170e14902d3b16177004868ce49f6",
+        "path": ".engine/tools/ci_gatekeeper.py"
+      },
+      "status": "active",
+      "summary": "ci_gatekeeper — decide whether an engine-ci run owes the full inventory or may reuse an earlier proof.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": true,
       "id": "tool:close",
@@ -12215,7 +12241,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:03fbb24d35d93d46e153cd37d5b3bb5bae8c8529412cf9f5b492dcbdf68c655c",
+        "fingerprint": "sha256:26dac73ca3697204e98c643a74cb4e3060ab8cca74da3b910d752b6a94e04842",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -15675,6 +15701,30 @@
       },
       "status": "active",
       "summary": "Tests for the generated Engine CI assurance catalogue and its fail-closed drift gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_ci_gatekeeper",
+      "name": ".engine/tools/test_ci_gatekeeper.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:ci_gatekeeper",
+          "tool:github_client"
+        ]
+      },
+      "slug": "test_ci_gatekeeper",
+      "source": {
+        "fingerprint": "sha256:2906acad51e86553abe5fd836a30efb78ef61c59689ab7d47af4565d2ab3b868",
+        "path": ".engine/tools/test_ci_gatekeeper.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the engine-ci gatekeeper: the mode decision, receipt provenance, and fail-closed degradation.",
       "type": "tool"
     },
     {

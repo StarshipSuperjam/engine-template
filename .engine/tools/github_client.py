@@ -150,6 +150,44 @@ def reader(repo: str, token: str, *, user_agent: str, transport=None):
     return _Reader(repo, bound)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect handler that hands a 3xx back to the caller instead of following it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def download_redirected(path: str, token: str, *, user_agent: str) -> bytes:
+    """GET a binary API resource that answers with a redirect to a foreign host, WITHOUT leaking the token.
+
+    The Actions artifact endpoint answers `302` with a `Location` on a signed blob host. urllib's default
+    opener follows a redirect and re-sends the headers it was given, which would hand the engine's token to a
+    host that is not `api.github.com` — the same class of leak the off-host guard in `request` exists to stop,
+    arriving through the redirect door rather than the `Link` door. So the redirect is CAUGHT rather than
+    followed, and the second hop is made with a BARE request carrying only the user agent: the signed URL is
+    itself the authorization, so no credential is needed and none is sent.
+
+    Dumb transport by design — it selects nothing and judges nothing. Deciding WHICH artifact is worth
+    fetching, and whether what comes back may be trusted, belongs to the caller (see `ci_gatekeeper`, which the
+    guard holds at the hard tier for exactly that reason).
+
+    Returns the resource's bytes. Raises `urllib.error.HTTPError` / `URLError` unwrapped, and `ValueError` when
+    a redirect carries no target."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(request(path, token, user_agent=user_agent), timeout=_TIMEOUT) as resp:
+            return resp.read()                          # answered directly; no redirect to strip
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (301, 302, 303, 307, 308):
+            raise
+        target = exc.headers.get("Location")
+        if not target:
+            raise ValueError("a redirect carried no Location") from exc
+    bare = urllib.request.Request(target, headers={"User-Agent": user_agent})
+    with _urlopen(bare, timeout=_TIMEOUT) as resp:
+        return resp.read()
+
+
 def next_link(link_header):
     """The rel="next" URL from a GitHub `Link` header, or None when there is no next page."""
     if not link_header:
