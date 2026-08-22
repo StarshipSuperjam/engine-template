@@ -12,8 +12,9 @@
 # reuse, and only for a tree already judged. A reuse run still re-runs the checks whose verdict CAN change while
 # the tree is unchanged — the pull-request body rules, the product-design lock, branch protection, and the
 # dependency-advisory screen (which reads GitHub's live advisory database, so an identical dependency can turn
-# red as a new advisory is published) — and skips only the self-test inventory that a tree already judged
-# cannot change. A receipt is honoured for at most 14 days; past that even a metadata event runs full. Any
+# red as a new advisory is published) — and skips the rest of the CI validator rules and the whole self-test
+# inventory, which a tree already judged cannot change. A receipt is honoured for at most 14 days — deliberately
+# tighter than the artifact's 30-day physical retention — past which even a metadata event runs full. Any
 # doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run uploads no
 # receipt, so reuse can never chain off reuse.
 #
@@ -119,8 +120,9 @@ jobs:
         run: echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"
       - name: Re-check what an unchanged tree cannot settle
         # The reuse arm. It runs the checks whose verdict can change while the tree is unchanged — the
-        # pull-request body rules, the product lock, and branch protection — as a BLOCKING gate, so a body
-        # edited to strip a required section still turns this check red.
+        # pull-request body rules, the product lock, branch protection, and the dependency-advisory screen —
+        # as a BLOCKING gate, so a body edited to strip a required section, or a newly-published advisory against
+        # an unchanged dependency, still turns this check red.
         if: env.ENGINE_CI_MODE == 'reuse'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

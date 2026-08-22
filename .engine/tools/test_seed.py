@@ -3353,6 +3353,15 @@ class TestMetadataSuiteClassification(unittest.TestCase):
         # label is something else — the dependency-advisory screen (context 'product-dependency-changes', which
         # consults GitHub's advisory database at request time) is exactly that case, and a context-only allowlist
         # was blind to it.
+        #
+        # This cross-check is a NET WITH KNOWN GAPS, not a proof: it is a sufficient forcing function for the two
+        # channels the engine's checks currently use to reach live state, not a decision procedure for "touches
+        # only the tree." A future rule that reaches live state some other way — an unauthenticated network read,
+        # a token pulled from the ambient environment rather than declared via pass_token, or a file CI populates
+        # each run — would slip it, and (the `path not in target` clause below) so would a rule reading BOTH a
+        # live context and a committed path. Such a rule is still caught by the primary forcing function (every
+        # CI rule must be classified, above) which rests on human judgement. Completeness is defence-in-depth
+        # across both, not this proxy alone; a new check author must classify honestly, not assume this net.
         live_contexts = {"pull-request-body", "pull-request-diff", "branch-protection"}
         classification = self._classification()
         for rid, rule in self._ci_rules().items():
