@@ -8,10 +8,12 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate            # noqa: E402
 import module_surfaces as ms  # noqa: E402
+import derived_state       # noqa: E402
 import repo_identity       # noqa: E402
 
 _CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
@@ -29,6 +31,49 @@ class TestRegistryInSync(unittest.TestCase):
         # A concrete anchor: the product-design operation a core runbook links to is owned by product-design.
         self.assertEqual(ms.load().get(os.path.join(".engine", "operations", "product-intake.md")),
                          ["product-design"])
+
+
+class TestDriftCheck(unittest.TestCase):
+    """The new drift check (a derived_state member's own gate). The BITE path is proven directly via _compare
+    against a seeded tree (a fixture tree has no confirmed-home origin, so the gated check would skip it); the
+    home GATE (silence off-home) is proven here as unit tests, per the deliberate split."""
+
+    def _tree(self, provides_file: str | None):
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, ".engine", "provisioning"))
+        os.makedirs(os.path.join(d, ".engine", "modules", "fx"))
+        os.makedirs(os.path.join(d, "src"))
+        with open(os.path.join(d, ".engine", "modules", "fx", "manifest.json"), "w") as fh:
+            json.dump({"id": "fx", "status": "optional", "version": "1.0.0",
+                       "provides": {"src": ["src/fx.txt"]}}, fh)
+        with open(os.path.join(d, "src", "fx.txt"), "w") as fh:
+            fh.write("surface")
+        surfaces = {} if provides_file is None else {"src/fx.txt": ["fx"]}
+        with open(os.path.join(d, ms.REGISTRY_REL), "w") as fh:
+            fh.write(ms._serialize(surfaces))
+        return d
+
+    def test_compare_bites_a_stale_registry(self):
+        d = self._tree(provides_file=None)                      # committed registry is EMPTY = stale
+        finding = ms._compare(d)
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("out of date", finding["message"])
+
+    def test_compare_is_silent_when_in_sync(self):
+        d = self._tree(provides_file="src/fx.txt")              # committed registry matches derive
+        self.assertIsNone(ms._compare(d))
+
+    def test_check_is_silent_off_home_even_when_stale(self):
+        # the home GATE: a stale registry in a NON-home tree returns None (no false drift in a deployment).
+        d = self._tree(provides_file=None)
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=False):
+            self.assertIsNone(ms.check(root=d))
+
+    def test_check_bites_when_confirmed_home(self):
+        d = self._tree(provides_file=None)
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=True):
+            self.assertIsNotNone(ms.check(root=d))
 
 
 class TestDeclinedSurfaceOwner(unittest.TestCase):

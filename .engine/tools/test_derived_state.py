@@ -35,21 +35,51 @@ _NONEXCLUSIVE_TREE = ds.DerivedMember(
 
 
 class TestRoster(unittest.TestCase):
-    def test_roster_is_the_four_derived_members(self):
-        self.assertEqual(ds.paths(), (
+    def test_roster_members(self):
+        self.assertEqual([m.path for m in ds.MEMBERS], [
             ".engine/self-map.md",
             ".engine/docs/ci-assurance.md",
             ".engine/knowledge/graph.json",
             ".engine/product-spec-matrix.json",
-        ))
+            ".codex/agents",
+            ".engine/provisioning/module-catalog.json",
+            ".engine/provisioning/module-surfaces.json",
+            ".claude/skills/engine-setup-routes",
+        ])
 
-    def test_reconcile_release_upgrade_filters(self):
-        self.assertEqual(set(ds.paths(reconcile=True)), set(ds.paths()))
-        self.assertEqual(ds.paths(release=True),
-                         (".engine/self-map.md", ".engine/docs/ci-assurance.md",
-                          ".engine/knowledge/graph.json"))
-        # every current member regenerates at upgrade, so paths(upgrade=True) == the full roster today
-        self.assertEqual(set(ds.paths(upgrade=True)), set(ds.paths()))
+    def test_upgrade_subset_is_exactly_the_original_four(self):
+        # the newly-registered members are all upgrade=False, so the upgrade tail regenerates only the
+        # original four — a reconcile/release member (Codex, catalogs) is delivered whole by the overlay and
+        # must not run (or destructively prune) inside a deployment's upgrade.
+        self.assertEqual(ds.paths(upgrade=True), (
+            ".engine/self-map.md", ".engine/docs/ci-assurance.md",
+            ".engine/knowledge/graph.json", ".engine/product-spec-matrix.json"))
+
+    def test_reconcile_set_flattens_codex_trees_and_excludes_setup_routes(self):
+        rc = ds.paths(reconcile=True)
+        self.assertIn(".codex/agents/", rc)          # both Codex output trees present, flattened
+        self.assertIn(".agents/skills/", rc)
+        self.assertIn(".engine/provisioning/module-catalog.json", rc)
+        self.assertIn(".engine/provisioning/module-surfaces.json", rc)
+        # setup routes are EXCLUDED from reconcile (mixed .claude/skills/ directory)
+        self.assertNotIn(".claude/skills/engine-setup-routes", rc)
+
+    def test_release_subset(self):
+        self.assertEqual(ds.paths(release=True), (
+            ".engine/self-map.md", ".engine/docs/ci-assurance.md", ".engine/knowledge/graph.json",
+            ".engine/provisioning/module-catalog.json", ".engine/provisioning/module-surfaces.json"))
+
+    def test_module_surfaces_is_home_scoped(self):
+        m = next(x for x in ds.MEMBERS if x.path == ".engine/provisioning/module-surfaces.json")
+        self.assertEqual(m.scope, "home")
+
+    def test_codex_is_one_member_two_exclusive_trees_two_check_rules(self):
+        m = next(x for x in ds.MEMBERS if x.path == ".codex/agents")
+        self.assertEqual([o.path for o in m.outputs], [".codex/agents/", ".agents/skills/"])
+        self.assertTrue(all(o.kind == "tree" for o in m.outputs))
+        self.assertTrue(m.exclusive)
+        self.assertEqual(m.check_rules,
+                         ("engine/check/codex-agent-coherence", "engine/check/codex-skill-coherence"))
 
     def test_assurance_regenerates_before_the_graph_that_fingerprints_it(self):
         order = ds._REGEN_ORDER
@@ -75,9 +105,14 @@ class TestRoster(unittest.TestCase):
 
 
 class TestPathsFlatten(unittest.TestCase):
-    def test_single_output_members_flatten_to_their_path(self):
-        # byte-identical: for every real member outputs == (path,), so paths() is unchanged.
-        self.assertEqual(ds.paths(), tuple(m.outputs[0].path for m in ds.MEMBERS))
+    def test_paths_flattens_outputs_across_members(self):
+        # every OUTPUT path appears; a single-file member contributes its one path, the Codex member both
+        # trees, and the empty-output dynamic setup-route member contributes nothing.
+        expected = tuple(o.path for m in ds.MEMBERS for o in m.outputs)
+        self.assertEqual(ds.paths(), expected)
+        self.assertIn(".codex/agents/", ds.paths())
+        self.assertIn(".agents/skills/", ds.paths())
+        self.assertNotIn(".claude/skills/engine-setup-routes", ds.paths())   # empty static outputs
 
     def test_multi_output_member_flattens_every_output(self):
         with mock.patch.object(ds, "MEMBERS", (_TREE_MEMBER,)):
@@ -133,27 +168,27 @@ class TestScope(unittest.TestCase):
     def test_confirmed_home_is_in_scope(self):
         with mock.patch.object(ds.repo_identity, "origin_slug", return_value="acme/engine"), \
              mock.patch.object(ds.repo_identity, "home_repository", return_value="acme/engine"):
-            self.assertTrue(ds._is_confirmed_home("/tree"))
+            self.assertTrue(ds.is_confirmed_home("/tree"))
             self.assertTrue(ds._in_scope(_HOME_MEMBER, "/tree"))
 
     def test_downstream_origin_is_out_of_scope(self):
         with mock.patch.object(ds.repo_identity, "origin_slug", return_value="fork/engine"), \
              mock.patch.object(ds.repo_identity, "home_repository", return_value="acme/engine"):
-            self.assertFalse(ds._is_confirmed_home("/tree"))
+            self.assertFalse(ds.is_confirmed_home("/tree"))
             self.assertFalse(ds._in_scope(_HOME_MEMBER, "/tree"))
 
     def test_no_origin_remote_is_out_of_scope(self):
         # the fail-open case the old is_home_repo got wrong: an unreadable/absent origin must be DEPLOYED.
         with mock.patch.object(ds.repo_identity, "origin_slug", return_value=None), \
              mock.patch.object(ds.repo_identity, "home_repository", return_value="acme/engine"):
-            self.assertFalse(ds._is_confirmed_home("/tree"))
+            self.assertFalse(ds.is_confirmed_home("/tree"))
 
     def test_malformed_manifest_is_out_of_scope(self):
         def boom(_root):
             raise ValueError("malformed engine.json")
         with mock.patch.object(ds.repo_identity, "origin_slug", return_value="acme/engine"), \
              mock.patch.object(ds.repo_identity, "home_repository", side_effect=boom):
-            self.assertFalse(ds._is_confirmed_home("/tree"))
+            self.assertFalse(ds.is_confirmed_home("/tree"))
 
     def test_home_only_member_is_skipped_out_of_scope_on_regenerate_in_a_deployment(self):
         with mock.patch.object(ds, "MEMBERS", (_HOME_MEMBER,)), \
@@ -308,14 +343,21 @@ class TestRegenerate(unittest.TestCase):
             sm.generate(path=os.path.join(ds.validate.ROOT, self_map))
 
     def test_absent_targets_are_skipped_not_fabricated(self):
+        # On a minimal tree nothing is fabricated: the file/tree members whose outputs are absent skip,
+        # the home-only member skips out of scope (a bare tmp has no confirmed-home origin), and the dynamic
+        # setup-route member writes nothing (no offerable manifests). No member reports 'regenerated'.
         with tempfile.TemporaryDirectory() as tmp:
             engine_dir = os.path.join(tmp, ".engine")
             os.makedirs(engine_dir)
             with mock.patch.object(ds.validate, "ENGINE_DIR", engine_dir), \
                  mock.patch.object(ds.validate, "ROOT", tmp):
                 results = ds.regenerate()
-        self.assertTrue(all(r.status == "skipped-absent" for r in results))
+        self.assertNotIn("regenerated", [r.status for r in results])
         self.assertTrue(all(not r.changed for r in results))
+        by_path = {r.path: r for r in results}
+        self.assertEqual(by_path[".engine/self-map.md"].status, "skipped-absent")
+        self.assertEqual(by_path[".codex/agents"].status, "skipped-absent")
+        self.assertEqual(by_path[".engine/provisioning/module-surfaces.json"].status, "skipped-out-of-scope")
 
     def test_optional_module_absent_is_skipped_no_generator(self):
         _needs_product_design(self)

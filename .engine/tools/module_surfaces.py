@@ -29,19 +29,59 @@ def derive(root: str | None = None) -> dict:
     installed. Complete only where every module is present (the source repo), which is why the committed file
     is generated there and travels."""
     import module_coherence  # lazy: module_coherence imports validate, so keep it out of import time
+    base = root or validate.ROOT
     surfaces: dict = {}
-    for rel, owners in module_coherence.provides_claims(module_coherence.discover_manifests()).items():
+    for rel, owners in module_coherence.provides_claims(
+            module_coherence.discover_manifests(base), root=base).items():
         surfaces[rel] = sorted(owners)
     return surfaces
+
+
+def _serialize(surfaces: dict) -> str:
+    """The committed registry text — the SINGLE serialization both `generate` (which writes it) and `check`
+    (which compares against it) use, so a drift check cannot disagree with what generate would write."""
+    return json.dumps({"surfaces": {k: sorted(surfaces[k]) for k in sorted(surfaces)}},
+                      indent=1, ensure_ascii=False) + "\n"
 
 
 def generate(root: str | None = None) -> dict:
     surfaces = derive(root)
     path = os.path.join(root or validate.ROOT, REGISTRY_REL)
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"surfaces": {k: surfaces[k] for k in sorted(surfaces)}}, fh, indent=1, ensure_ascii=False)
-        fh.write("\n")
+        fh.write(_serialize(surfaces))
     return surfaces
+
+
+def _compare(root: str):
+    """The drift finding (finding.v1 dict) when the committed registry at `root` no longer matches what
+    `derive` would write there, else None — the pure comparison, WITHOUT the home gate. The custom/script
+    negative fixture drives this directly (a fixture tree has no confirmed-home origin, so the gated `check`
+    would skip it and the bite could never be witnessed); production and the substrate go through `check`."""
+    committed_path = os.path.join(root, REGISTRY_REL)
+    if os.path.exists(committed_path) and validate.read(committed_path) == _serialize(derive(root)):
+        return None
+    return validate.finding(
+        "hard",
+        f"The module-surfaces registry ({REGISTRY_REL}) is out of date — it no longer matches the surfaces "
+        f"the present module manifests provide. Regenerate it with `uv run --directory .engine --frozen -- "
+        f"python tools/module_surfaces.py generate` and commit.",
+        validate.loc(committed_path))
+
+
+def check(root: str | None = None, path: str | None = None):
+    """The drift finding (a finding.v1 dict) when the committed registry no longer matches what `derive`
+    would write, else None. HOME-ONLY by construction: the committed registry lists EVERY module's surfaces
+    (generated in the source repo where all are present), but a deployment carries only its installed subset,
+    so `derive != load` there BY DESIGN — a drift check there would be a false positive that reddens every
+    deployment's CI. It therefore returns None anywhere that is not a POSITIVELY confirmed home tree, reusing
+    the SAME predicate the derived-state substrate gates regeneration on (never a second home rule that could
+    drift). `path` is accepted for the substrate's uniform check(root, primary_target) call and ignored (the
+    committed registry path is fixed)."""
+    base = root or validate.ROOT
+    import derived_state  # lazy: derived_state resolves THIS module's generate/check, so avoid an import cycle
+    if not derived_state.is_confirmed_home(base):
+        return None
+    return _compare(base)
 
 
 def load(root: str | None = None) -> dict:
@@ -94,6 +134,13 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "generate":
         generate()
         print(f"wrote {REGISTRY_REL}")
+    elif len(sys.argv) > 1 and sys.argv[1] == "check":
+        result = check()
+        if result is None:
+            print(f"{REGISTRY_REL} is in sync (or this is not a home tree — check skipped).")
+            sys.exit(0)
+        print(result["message"])
+        sys.exit(1)
     else:
-        print("usage: module_surfaces.py generate", file=sys.stderr)
+        print("usage: module_surfaces.py [generate | check]", file=sys.stderr)
         sys.exit(2)

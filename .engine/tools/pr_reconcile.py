@@ -57,9 +57,13 @@ import derived_state     # noqa: E402  (the derived-committed set + regeneration
 # (`_reconcile_members`): a member whose OPTIONAL generator is absent stays OUT of the spurious set, so its
 # conflict classifies authored (needs-manual) and refuses — never append-merged and then discovered to be
 # un-regenerable. `_CORE_MEMBERS` is the always-present core set that marks a tree as an engine
-# tree at all — the fork-main / external-contribution guard.
+# tree at all — the fork-main / external-contribution guard. It is the registry's `fork_guard_core` set
+# (the three always-present index FILES), NOT a filter over the reconcile roster: that filter would silently
+# absorb every newly-registered core reconcilable member — including a directory-output member like the Codex
+# renders, whose os.path.isfile guard would then judge every real engine tree a non-engine tree and disable
+# reconciliation. Sourcing it from the dedicated flag keeps it registry-owned and stable as the roster grows.
 MEMBERS = derived_state.paths(reconcile=True)
-_CORE_MEMBERS = tuple(m.path for m in derived_state.members(reconcile=True) if m.optional_module is None)
+_CORE_MEMBERS = derived_state.fork_guard_core_paths()
 
 
 def _reconcile_members(root: str) -> set:

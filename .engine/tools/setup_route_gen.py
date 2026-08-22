@@ -202,11 +202,15 @@ def check(tier: str = "hard", root: str | None = None) -> list:
     return findings
 
 
-def generate() -> list:
-    """Write every derived setup route; return the relative paths written."""
+def generate(root: str | None = None) -> list:
+    """Write every derived setup route; return the relative paths written. `root` overrides the tree written
+    (default validate.ROOT) so the derived-state substrate can regenerate a redirected/fixture tree — the
+    upgrade tail and the substrate's import dispatch both rely on writing the tree they are handed, not this
+    process's checkout."""
+    base = root or validate.ROOT
     written = []
-    for rel, text in sorted(derive().items()):
-        path = os.path.join(validate.ROOT, rel)
+    for rel, text in sorted(derive(base).items()):
+        path = os.path.join(base, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)

@@ -508,10 +508,14 @@ def untracked_surface_findings(tier: str = "soft") -> list:
     return findings
 
 
-def provides_claims(manifests: list) -> dict:
+def provides_claims(manifests: list, root: str | None = None) -> dict:
     """{relpath: [module-id, ...]} — for each present manifest, every file its `provides`
     globs select, mapped to the owning module id. Built against the live filesystem so it
-    uses real glob semantics; the pure validate.ownership_findings consumes the result."""
+    uses real glob semantics; the pure validate.ownership_findings consumes the result.
+    `root` overrides the tree read (default validate.ROOT) — the seam `module_surfaces.derive`
+    uses so it can regenerate a fixture/redirected tree faithfully; every other caller passes
+    nothing and reads the real tree."""
+    base = root or validate.ROOT
     claims: dict = {}
     for _path, m in manifests:
         mid = m.get("id")
@@ -519,9 +523,9 @@ def provides_claims(manifests: list) -> dict:
             for pattern in patterns:
                 # sorted() so the claim order is filesystem-order-independent — a defense-in-depth,
                 # matching discover_manifests/engine_file_inventory/foundation_infra_paths below.
-                for abs_path in sorted(_glob.glob(os.path.join(validate.ROOT, pattern), recursive=True)):
+                for abs_path in sorted(_glob.glob(os.path.join(base, pattern), recursive=True)):
                     if os.path.isfile(abs_path):
-                        claims.setdefault(_rel(abs_path), []).append(mid)
+                        claims.setdefault(os.path.relpath(abs_path, base).replace(os.sep, "/"), []).append(mid)
     return claims
 
 

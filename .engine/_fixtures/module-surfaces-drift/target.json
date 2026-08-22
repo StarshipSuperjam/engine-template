@@ -1,0 +1,5 @@
+{
+  "env": {
+    "MODULE_SURFACES_FIXTURE_ROOT": ".engine/_fixtures/module-surfaces-drift/root"
+  }
+}

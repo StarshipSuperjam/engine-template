@@ -77,6 +77,7 @@ class DerivedMember:
     scope: str = "both"                           # "home" | "deployed" | "both"
     exclusive: bool = False                       # a tree output wholly generated → prune-safe, prefix-ownable
     fork_guard_core: bool = False                 # an always-present file that marks a tree as an engine tree
+    dynamic: bool = False                         # concrete outputs are resolved at runtime (a per-module set)
     optional_module: Optional[str] = None         # importing module that must be present, else None (core)
 
 
@@ -104,6 +105,36 @@ MEMBERS: tuple[DerivedMember, ...] = (
     _file(".engine/product-spec-matrix.json", "product_design/obligation_matrix.py",
           "engine/check/product-spec-matrix", reconcile=True, release=False, upgrade=True,
           optional_module="product-design"),
+    # The Codex renders — ONE member, two wholly-generated (exclusive) output trees, one generator/check pair
+    # spanning both. upgrade=False: the overlay delivers the renders whole, so a deployment's upgrade tail
+    # must not re-run (and now prune) them; they reconcile and sync, never regenerate at upgrade.
+    DerivedMember(".codex/agents", "codex_gen.py",
+                  outputs=(Output("tree", ".codex/agents/"), Output("tree", ".agents/skills/")),
+                  check_rules=("engine/check/codex-agent-coherence", "engine/check/codex-skill-coherence"),
+                  reconcile=True, release=False, upgrade=False, exclusive=True),
+    # The module catalog — a single generated file. reconcile+release, but NOT upgrade: its merge-preserving
+    # derive retains a manifest-less module's entry, which at the upgrade tail (which runs AFTER a dropped
+    # module's manifest is deleted) would resurrect a RETIRED module as a "declined" zombie add-on offer. The
+    # overlay delivers the release's fresh catalog instead; drift stays CI-gated by module-catalog-drift.
+    _file(".engine/provisioning/module-catalog.json", "module_catalog.py",
+          "engine/check/module-catalog-drift", reconcile=True, release=True, upgrade=False),
+    # The module-surfaces catalog — HOME-ONLY. It lists EVERY module's surfaces (generated where all are
+    # present), and a deployment ships it unchanged so it can recognise a declined module's surfaces; a
+    # deployment carries only a subset of manifests, so regenerating it there would ERASE the declined
+    # modules' ownership. scope="home" (positive-home) is the guard; reconcile=True lets it self-heal a
+    # spurious conflict at home; upgrade=False keeps it out of the deployment tail.
+    DerivedMember(".engine/provisioning/module-surfaces.json", "module_surfaces.py",
+                  outputs=(Output("file", ".engine/provisioning/module-surfaces.json"),),
+                  check_rules=("engine/check/module-surfaces-drift",),
+                  reconcile=True, release=True, upgrade=False, scope="home"),
+    # The generated setup routes — a DYNAMIC per-offerable-module set of SKILL.md files under the MIXED
+    # .claude/skills/ directory (which also holds authored skills). reconcile=False and exclusive=False: a
+    # conflict on a route classifies authored (needs-manual) rather than risk a prefix-owner staging a
+    # hand-authored skill. Static `outputs` is empty so owner_of never matches; the concrete files are
+    # resolved at runtime (dynamic=True) for presence, the change digest, and sync staging. verify+sync only.
+    DerivedMember(".claude/skills/engine-setup-routes", "setup_route_gen.py",
+                  outputs=(), check_rules=("engine/check/setup-route-drift",),
+                  reconcile=False, release=False, upgrade=False, exclusive=False, dynamic=True),
 )
 # Deliberately EXCLUDED — do not re-add without cause:
 #   - uv default-groups: a FRAGMENT of authored .engine/pyproject.toml (not a whole derived file), a
@@ -117,10 +148,17 @@ MEMBERS: tuple[DerivedMember, ...] = (
 # assurance page — regenerates LAST. This is asserted by test_derived_state, not left to roster order alone.
 # Order today: [self-map, ci-assurance, graph] with ci-assurance before graph. When the render/route/catalog
 # members join (E2), the order is: setup-routes → codex-renders → {catalogs, self-map, ci-assurance} → graph.
+# Order: setup routes and Codex renders FIRST (the routes are an input to the Codex skill render and to the
+# self-map; the renders are catalogued surfaces the graph content-hashes), then the single-file maps and
+# catalogs, then the knowledge graph LAST (it fingerprints the assurance page and every catalogued surface).
 _REGEN_ORDER: tuple[str, ...] = (
+    ".claude/skills/engine-setup-routes",
+    ".codex/agents",
     ".engine/self-map.md",
     ".engine/docs/ci-assurance.md",
     ".engine/product-spec-matrix.json",
+    ".engine/provisioning/module-catalog.json",
+    ".engine/provisioning/module-surfaces.json",
     ".engine/knowledge/graph.json",
 )
 
@@ -174,6 +212,18 @@ def _resolve_generate(member: DerivedMember) -> Optional[Callable]:
         except ImportError:
             return None
         return lambda root, primary_target: obligation_matrix.generate(path=primary_target)
+    if member.path == ".codex/agents":
+        import codex_gen
+        return lambda root, primary_target: codex_gen.generate(root=root)
+    if member.path == ".engine/provisioning/module-catalog.json":
+        import module_catalog
+        return lambda root, primary_target: module_catalog.generate(path=primary_target, root=root)
+    if member.path == ".engine/provisioning/module-surfaces.json":
+        import module_surfaces
+        return lambda root, primary_target: module_surfaces.generate(root=root)
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return lambda root, primary_target: setup_route_gen.generate(root=root)
     raise KeyError(f"derived_state member {member.path!r} has no generator — roster/resolver drift")
 
 
@@ -193,6 +243,18 @@ def _resolve_check(member: DerivedMember) -> Optional[Callable]:
         except ImportError:
             return None
         return lambda root, primary_target: obligation_matrix.check(path=primary_target)
+    if member.path == ".codex/agents":
+        import codex_gen
+        return lambda root, primary_target: codex_gen.check(root=root)
+    if member.path == ".engine/provisioning/module-catalog.json":
+        import module_catalog
+        return lambda root, primary_target: module_catalog.check(path=primary_target, root=root)
+    if member.path == ".engine/provisioning/module-surfaces.json":
+        import module_surfaces
+        return lambda root, primary_target: module_surfaces.check(root=root)
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return lambda root, primary_target: setup_route_gen.check(root=root)
     raise KeyError(f"derived_state member {member.path!r} has no check — roster/resolver drift")
 
 
@@ -205,13 +267,15 @@ def _scope_root(root: Optional[str]) -> str:
     return root if root is not None else os.path.dirname(validate.ENGINE_DIR)
 
 
-def _is_confirmed_home(root: str) -> bool:
+def is_confirmed_home(root: str) -> bool:
     """POSITIVE home confirmation, read root-directly: the tree's on-disk git origin resolves AND equals the
     `home_repository` its own manifest records. Unlike `repo_identity.is_home_repo`, which fails TOWARD home
     for safety checks whose home-guess only costs an extra check, this fails toward DEPLOYED — the safe
     direction when guessing home means a DESTRUCTIVE regeneration. Any unplaceable case (no origin, a
     non-GitHub origin, an absent/malformed manifest) returns False. NOT memoized: the sole guard against the
-    one genuine data-loss hazard is judged fresh, never from a cache that a path-reuse could staleness."""
+    one genuine data-loss hazard is judged fresh, never from a cache that a path-reuse could staleness.
+    Public so a home-only member's own drift check (module_surfaces.check) reuses the SAME predicate its
+    substrate regeneration is gated on, rather than duplicating the rule (which could drift)."""
     own = repo_identity.origin_slug(root)          # total: None on any unreadable / non-GitHub origin
     if not own:
         return False
@@ -226,9 +290,9 @@ def _in_scope(member: DerivedMember, root: str) -> bool:
     if member.scope == "both":
         return True
     if member.scope == "home":
-        return _is_confirmed_home(root)
+        return is_confirmed_home(root)
     if member.scope == "deployed":
-        return not _is_confirmed_home(root)
+        return not is_confirmed_home(root)
     raise ValueError(f"derived_state member {member.path!r} has unknown scope {member.scope!r}")
 
 
@@ -251,12 +315,28 @@ def _output_exists(output: Output, root: str) -> bool:
         return any(True for _ in entries)
 
 
+def _concrete_outputs(member: DerivedMember, root: str) -> tuple[Output, ...]:
+    """A member's actual committed output paths under `root`. For a static member this is `member.outputs`
+    verbatim. For a `dynamic` member (the setup routes, one SKILL.md per offerable module) the concrete set
+    is resolved from the tree at runtime — so presence, the change digest, and sync staging all address the
+    real files, while `owner_of` (which reads only the static `outputs`) still never claims them, keeping a
+    route conflict authored → needs-manual."""
+    if not member.dynamic:
+        return member.outputs
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return tuple(Output("file", rel) for rel in sorted(setup_route_gen.derive(root)))
+    raise KeyError(f"derived_state dynamic member {member.path!r} has no output resolver — roster drift")
+
+
 def _present(member: DerivedMember, root: Optional[str]) -> bool:
     """A member is present iff it is in scope for this tree, its generator is resolvable (its optional module
-    is installed), AND every declared output exists (file → isfile, tree → non-empty dir). Gating on
+    is installed), AND every STATIC declared output exists (file → isfile, tree → non-empty dir). Gating on
     scope + generator-resolvability + output-kind-aware existence — not a bare isfile — is what keeps a
     home-only member OUT of a deployment's reconcile set and a present-file/absent-generator member OUT of
-    the spurious set (its conflict then classifies needs-manual and refuses)."""
+    the spurious set (its conflict then classifies needs-manual and refuses). A `dynamic` member declares no
+    static output (its per-module set is the generator's business), so presence for it is scope + generator
+    only — a missing route is drift to regenerate, not an absence that skips it."""
     scope_root = _scope_root(root)
     if not _in_scope(member, scope_root):
         return False
@@ -327,9 +407,10 @@ def _select(members_arg: Optional[Iterable[str]]) -> tuple[DerivedMember, ...]:
 def _member_digest(member: DerivedMember, root: str) -> str:
     """A stable digest of a member's committed output bytes — the truthful basis for `changed`, replacing
     the old log-message heuristic (which the absorbed generators, returning lists, could never satisfy). A
-    tree hashes every file under it in sorted order; an absent output contributes a fixed marker."""
+    tree hashes every file under it in sorted order; an absent output contributes a fixed marker. Uses the
+    CONCRETE outputs (a dynamic member's real per-module files), so `changed` is truthful for the routes too."""
     h = hashlib.sha256()
-    for o in member.outputs:
+    for o in _concrete_outputs(member, root):
         abs_path = _abspath(o.path, root)
         h.update(("\x00" + o.path + "\x00").encode())
         if o.kind == "file":
@@ -401,8 +482,9 @@ def _regen_one_import(member: DerivedMember, root: Optional[str]) -> MemberResul
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"optional module {member.optional_module!r} absent — nothing to regenerate")
     before = _member_digest(member, scope_root)
+    primary_target = _abspath(member.outputs[0].path, scope_root) if member.outputs else scope_root
     try:
-        gen(scope_root, _abspath(member.outputs[0].path, scope_root))
+        gen(scope_root, primary_target)
     except Exception as exc:  # noqa: BLE001 — surfaced as a per-member result, never a traceback
         return MemberResult(member.path, "failed", False, "regeneration raised", error=repr(exc))
     changed = _member_digest(member, scope_root) != before
@@ -501,8 +583,9 @@ def verify(members_arg: Optional[Iterable[str]] = None, *, root: Optional[str] =
             results.append(DriftResult(member.path, rule_id, "skipped-absent",
                                        f"optional module {member.optional_module!r} absent"))
             continue
+        primary_target = _abspath(member.outputs[0].path, scope_root) if member.outputs else scope_root
         try:
-            raw = check(scope_root, _abspath(member.outputs[0].path, scope_root))
+            raw = check(scope_root, primary_target)
             status, message = _normalize_verify(raw)
         except Exception as exc:  # noqa: BLE001 — a raising or unrecognized-return check is fail-closed drift-error
             results.append(DriftResult(member.path, rule_id, "error", repr(exc)))

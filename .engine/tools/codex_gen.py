@@ -251,10 +251,15 @@ def _orphan_renders(base: str, expected: dict) -> list:
 
 
 def generate(root: str | None = None) -> list:
-    """Write every render; returns the relative paths written (changed or created)."""
+    """Write every render AND prune orphaned engine-prefixed renders (a stale twin whose canonical Claude
+    source was removed). Returns the relative paths written, created, or removed (changed). Pruning is what
+    lets `regenerate` converge on the reconcile/sync path: without it, a merge that deleted a source would
+    leave a render the drift check flags forever. The prune is confined to `_orphan_renders`' engine-* shape
+    under the two render roots, so it can never delete an authored file."""
     base = root or validate.ROOT
+    expected = expected_renders(base)
     changed = []
-    for rel, content in sorted(expected_renders(base).items()):
+    for rel, content in sorted(expected.items()):
         path = os.path.join(base, rel)
         current = validate.read(path) if os.path.exists(path) else None
         if current != content:
@@ -262,7 +267,25 @@ def generate(root: str | None = None) -> list:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(content)
             changed.append(rel)
-    return changed
+    for rel in _orphan_renders(base, expected):
+        os.remove(os.path.join(base, rel))
+        changed.append(rel)
+    _prune_empty_skill_dirs(base)
+    return sorted(changed)
+
+
+def _prune_empty_skill_dirs(base: str) -> None:
+    """Remove an engine-* skill render directory (and its `agents/` subdir) left empty after an orphan render
+    was pruned — confined to the engine-* shape under SKILL_OUT_ROOT so no authored tree is touched. An
+    engine-* directory with a live render still carries SKILL.md + agents/openai.yaml and is never empty."""
+    for skill_dir in glob.glob(os.path.join(base, SKILL_OUT_ROOT, "engine-*")):
+        if not os.path.isdir(skill_dir):
+            continue
+        agents_sub = os.path.join(skill_dir, "agents")
+        if os.path.isdir(agents_sub) and not os.listdir(agents_sub):
+            os.rmdir(agents_sub)
+        if not os.listdir(skill_dir):
+            os.rmdir(skill_dir)
 
 
 def check(root: str | None = None) -> list:
