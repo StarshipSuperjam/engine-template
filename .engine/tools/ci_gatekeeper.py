@@ -59,6 +59,7 @@ import datetime
 import hashlib
 import io
 import json
+import moment
 import os
 import subprocess
 import sys
@@ -346,10 +347,8 @@ def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, ro
 def _age_ok(completed_at, now=None):
     if not isinstance(completed_at, str):
         return "no-completion-time"
-    try:
-        stamp = datetime.datetime.strptime(completed_at, "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=datetime.timezone.utc)
-    except ValueError:
+    stamp = moment.parse_z(completed_at)
+    if stamp is None:
         return "unparseable-completion-time"
     current = now or datetime.datetime.now(datetime.timezone.utc)
     if (current - stamp).days > MAX_RECEIPT_AGE_DAYS:
@@ -399,7 +398,7 @@ def emit_receipt(event, *, repo, root=None, env=None, now=None):
     number = (event.get("payload") or {}).get("number") or pull.get("number")
     head, base = head_and_base(root)
     count, digest = inventory_digest(root)
-    stamp = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = moment.to_z(now) if now is not None else moment.utc_now()
     return {
         "schema": RECEIPT_SCHEMA,
         "mode": MODE_FULL,

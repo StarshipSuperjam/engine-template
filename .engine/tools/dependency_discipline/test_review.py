@@ -433,7 +433,7 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(rule["kind"], "custom/script")
         self.assertTrue(rule["params"].get("pass_token"), "the gate needs the token to read the API")
         self.assertEqual(rule["params"]["script"], ".engine/tools/dependency_discipline/review.py")
-        self.assertEqual(sorted(rule["suites"]), ["CI", "pre-close", "pre-commit"])
+        self.assertEqual(sorted(rule["suites"]), ["CI", "CI-metadata", "pre-close", "pre-commit"])
         self.assertEqual(rule["params"]["allow-ghsas"], [], "ships an empty accept-list (loosens nothing)")
         self.assertEqual(rule["params"]["allow-licenses"], [])
 

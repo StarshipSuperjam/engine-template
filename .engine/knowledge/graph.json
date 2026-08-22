@@ -6355,7 +6355,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:878acf110151abfe254c971611b88f980c75f00583002b3aa4118fd911d9c1b2",
+        "fingerprint": "sha256:f925ef562ac4a83b27c59ed697191f849887df92977fd6fc7ceeb3953f7a48ca",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10149,6 +10149,7 @@
           "tool:ci_assurance",
           "tool:github_client",
           "tool:issue_event",
+          "tool:moment",
           "tool:validate"
         ],
         "provided_by": [
@@ -10157,7 +10158,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:4e12cc1b94621f96b8ba1243be24576362d1746082b0191bbaa9c48113dc77cc",
+        "fingerprint": "sha256:bf07541fe763acaf1dd5d0619f4bfb64e0bfe79f5b2f8e01038a402993dcadeb",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -13329,7 +13330,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:846fd9c92f3befff901674ccbb437df161a4e435ce62954d523fd828ff54a978",
+        "fingerprint": "sha256:205eb46f6a8b00031c8f0ab2a2b22774cd2e4d9f1069d8f14d64720874315cd6",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -15702,7 +15703,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:c77630062a9e815417352d1d422fe4fdabb5ab2b77ffa36284f4fdeff7abe9b3",
+        "fingerprint": "sha256:fc9adef0c2dbd17b56b28854b5b58a007bc513bff9d873012c6af9aeb84849c6",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
@@ -18372,7 +18373,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:ff0c0bd71d8d3ffab88e32e605f7f1f15d380573a97521a8792da78d3add98dc",
+        "fingerprint": "sha256:87fc2fe43a62fed4d7124e29c93c889b5bcdda909612f23c8bd73529dec5ecab",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
@@ -18730,7 +18731,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:5e19ee7112d503dc54accf499284dee94ee1080f482d757fdfda63dde9eb747e",
+        "fingerprint": "sha256:3b19a99894c976e1abac146fbf835ee10ccad4df00eed11d78a47987ad8c0742",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",

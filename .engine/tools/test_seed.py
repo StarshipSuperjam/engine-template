@@ -3437,7 +3437,9 @@ class TestReuseGateIsGuarded(unittest.TestCase):
     #                   catalogue name the same roster rather than two quietly diverging ones
     #   issue_event   — the existing event-loading seam, rather than a tenth reader of the event payload
     #   validate      — the repository root only
-    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate"})
+    #   moment        — the engine's one time seam (utc_now/to_z/parse_z), so the receipt's timestamp is
+    #                   formatted and parsed through the shared UTC-wire helper, never a hand-rolled strftime
+    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment"})
 
     def test_the_gate_grows_no_unreviewed_helper(self):
         # The StarshipSuperjam/engine-template#895 shape: guarding the file but not the logic it calls. If the
