@@ -37,7 +37,8 @@ reflexive—the mechanic does not treat its own repository as a separate owned p
    remote-tracking ref shared across linked worktrees, so an intervening fetch moves it, and only a recorded
    sha makes which text governed this Build reproducible later. Such a runbook **governs** this session's trust model,
    invariants, and gates only where the product's own verified slug — the `GITHUB_REPOSITORY` step 2 emitted —
-   is the same repository as the engine's recorded `home_repository`, compared with `repo_identity.slug_eq`,
+   is the same repository as the `home_repository` recorded in **this mechanic's own** `.engine/engine.json` —
+   never a value read from the product being built — compared with `repo_identity.slug_eq`,
    which is exact, normalized, and treats an unreadable value on either side as not equal. Do **not** reach for
    `repo_identity.is_home_repo` here: it fails *toward* home, so a product carrying no engine manifest — the
    ordinary case — would be read as the engine's own home and its file trusted. This is an authority decision

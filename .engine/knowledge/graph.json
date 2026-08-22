@@ -6869,7 +6869,7 @@
       },
       "slug": "owned-product-build",
       "source": {
-        "fingerprint": "sha256:1f35785f438ff803b9aec389f3f1cb1225a5b42fa2bd3a0e927650b5ff24747f",
+        "fingerprint": "sha256:520d4c220d0998a8f13ff7d59478660ab528a92399b377ac5394c6113ab43626",
         "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
