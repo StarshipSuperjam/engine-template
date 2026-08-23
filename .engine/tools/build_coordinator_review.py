@@ -154,16 +154,42 @@ def finding_is_demanded(finding: dict, demanded: dict[str, set]) -> bool:
         finding.get("lens_packet_digest"), finding["commit"]) in keys
 
 
+def superseded(finding: dict, demanded: dict[str, set]) -> bool:
+    """True when no live receipt demands this finding any more.
+
+    A finding becomes superseded when the receipt that asked for it is replaced -- most often because its
+    lens was re-run at a newer commit and the repair receipt took the deliverable receipt's place. Such a
+    finding must stop CARRYING WEIGHT: it can no longer block the pull request or force a disagreement
+    disclosure, because the review that raised it has been overtaken. It must NOT be erased: deleting it
+    dropped the earlier round's findings out of the pull-request body entirely, so an operator saw only
+    whichever lenses happened not to be re-run -- an arbitrary half of what review actually found, in a
+    change whose subject is audit-trail integrity."""
+    return not finding_is_demanded(finding, demanded)
+
+
 def surviving_findings(state: dict) -> list[dict]:
-    """The findings a live receipt still demands. Applied after a packet regeneration so a finding lives
-    exactly as long as the receipt referencing it -- never orphaned, never stranded."""
+    """Every finding that is still demanded, plus the superseded ones kept for disclosure with their weight
+    dropped. A finding is never silently deleted and never stranded."""
     demanded = demanded_findings(state)
-    return [f for f in state["findings"] if finding_is_demanded(f, demanded)]
+    kept = []
+    for finding in state["findings"]:
+        if finding_is_demanded(finding, demanded):
+            kept.append(finding)
+        elif not finding.get("superseded"):
+            kept.append({**finding, "superseded": True, "blocks_this_pr": False})
+        else:
+            kept.append(finding)
+    return kept
+
+
+def live_findings(state: dict) -> list[dict]:
+    """The findings that still carry weight -- what blocks, and what must be disclosed as a disagreement."""
+    return [f for f in state["findings"] if not f.get("superseded")]
 
 
 def missing_findings(state: dict) -> list[str]:
     demanded = demanded_findings(state)
-    actual = state["findings"]
+    actual = live_findings(state)
     return sorted(finding_id for finding_id in demanded if not any(
         finding["id"] == finding_id and finding_is_demanded(finding, demanded) for finding in actual))
 
@@ -221,6 +247,6 @@ def disagreement_line(finding: dict) -> str:
 def required_disagreement_lines(state: dict) -> list[str]:
     return [
         disagreement_line(finding)
-        for finding in state["findings"]
+        for finding in live_findings(state)
         if finding["severity"] == "blocking" and not finding["blocks_this_pr"]
     ]

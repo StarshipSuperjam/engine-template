@@ -359,7 +359,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     unresolved_assumptions: list[str] = []
     plan_stage, delivery = state["reviews"]["plan"], state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
-    blocking = [f["id"] for f in state["findings"] if f["blocks_this_pr"]]
+    blocking = [f["id"] for f in review.live_findings(state) if f["blocks_this_pr"]]
 
     if state["approval"] is None or state["approval"].get("plan_digest") != state["plan"]["digest"]:
         required_evidence.append("operator approval of this plan digest and review depth")
@@ -2490,39 +2490,46 @@ def _drift_line(state: dict, head: str) -> str:
     correction two clauses later."""
     repair = state.get("repair")
     reconciles = state.get("reconciles", [])
+
+    def repair_clause():
+        if not (repair and repair.get("final_commit")):
+            return None
+        if repair.get("judgment") == "none":
+            return (f"a post-review repair was assessed at `{repair['final_commit'][:12]}` and judged not "
+                    f"to need re-review ({repair['summary']})")
+        return (f"a post-review repair carried `{repair['reviewed_commit'][:12]}` to "
+                f"`{repair['final_commit'][:12]}` ({repair['summary']})")
+
     if not reconciles:
         if repair and repair.get("final_commit"):
-            return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
-                    f"{repair['summary']}")
+            tail = (f"{repair['summary']}; no re-review was judged necessary"
+                    if repair.get("judgment") == "none" else repair["summary"])
+            return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted "
+                    f"`{repair['final_commit'][:12]}` — {tail}")
         return "no post-review repair was needed; the reviewed and submitted commits are the same."
-    # The commit the review actually started from. A reconcile's `from_commit` is the commit it re-anchored
-    # -- after a completed repair round that is the round's OUTPUT, not the original reviewed commit -- so
-    # leading with it would put a commit that was never reviewed from scratch under the label the operator
-    # reads first, which is the defect this line already had once.
-    origin = (repair or {}).get("reviewed_commit") or reconciles[0]["from_commit"]
-    last = reconciles[-1]
-    line = (f"reviewed `{origin[:12]}`, submitted `{head[:12]}` — this branch's history was rewritten "
-            f"after review")
-    if repair and repair.get("final_commit"):
-        # Order is READ from state, never assumed: a repair record whose reviewed commit is the last
-        # reconcile's new base was created BY that reconcile handing the session back to `repair assess`,
-        # so it ran after the rewrite. Asserting "before" unconditionally got the divergent flow -- the one
-        # this verb deliberately routes sessions into -- backwards.
-        after = repair["reviewed_commit"] == last.get("anchored_to", last["base_after"])
-        when = "afterwards" if after else "before it"
-        what = ("no re-review was judged necessary" if repair.get("judgment") == "none"
-                else f"{repair['summary']}")
-        line += f", and a post-review repair ran {when} ({what})"
-    clauses = []
+
+    # Every event states its OWN commits and nothing else. Three successive attempts to lead with "the
+    # reviewed commit" and to say whether a repair ran before or after a rewrite each produced a sentence
+    # that was wrong on some reachable flow -- the last one contradicting itself inside a single line --
+    # because neither the original review point nor the ordering is reliably recoverable once history has
+    # been rewritten. So this asserts neither. The only claim about the whole is the commit actually in the
+    # pull request, which is always known. This is the operator's consent surface: a line that says less
+    # and is always true beats a narrative that reads well and is sometimes false.
+    events = []
     for item in reconciles:
         detail = ("the branch's own contribution was verified unchanged on exact tree entries"
                   if item["contribution_identical"] else
                   (item["unmeasurable"] or "the contribution differs at: "
                    + ", ".join(item["divergent_paths"])))
-        anchored = item.get("anchored_to", item["to_commit"])
-        clauses.append(f"from `{item['from_commit'][:12]}` to `{anchored[:12]}` "
-                       f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
-    return line + ". Review bindings were re-anchored " + "; then ".join(clauses) + "."
+        events.append(f"history was rewritten and the review bindings were re-anchored from "
+                      f"`{item['from_commit'][:12]}` to `{item['anchored_to'][:12]}` "
+                      f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
+    clause = repair_clause()
+    if clause:
+        events.append(clause)
+    ordering = (" These are listed by kind; their order relative to one another is not recorded."
+                if len(events) > 1 else "")
+    return f"submitted `{head[:12]}`, after: " + "; ".join(events) + "." + ordering
 
 
 def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:

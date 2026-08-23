@@ -2418,8 +2418,10 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified.", lens=None,
                                                     guidance=None), self.store)
         self._deliverable_reviewed(lenses=("technical-integrity",), head=HEAD_C)
-        ids = [f["id"] for f in self.state()["findings"]]
-        self.assertNotIn("R-3", ids, "the repair finding outlived every receipt that demanded it")
+        kept = [f for f in self.state()["findings"] if f["id"] == "R-3"]
+        self.assertEqual(len(kept), 1, "the finding was erased instead of being marked superseded")
+        self.assertTrue(kept[0]["superseded"], "it outlived every receipt that demanded it, with weight")
+        self.assertFalse(kept[0]["blocks_this_pr"])
         self.assertEqual(bc.review.missing_findings(self.state()), [])
         self.assertEqual(bc.review.required_disagreement_lines(self.state()), [])
 
@@ -2724,48 +2726,118 @@ class TestEvidenceDurability(CoordinatorCase):
                         f"the repair round's own files read as divergent: {entry['divergent_paths']}")
         self.assertEqual(self.state()["repair_rounds"], [])
 
-    def test_the_disclosure_reads_the_repair_ordering_from_state(self):
-        """The line stated an ordering it had no way to know, and got the divergent flow -- the one the verb
-        deliberately routes sessions into -- backwards: there the repair runs AFTER the rewrite."""
-        after = {"repair": {"reviewed_commit": HEAD_C, "final_commit": HEAD_B, "summary": "2 files",
-                            "judgment": "none", "rationale": "r", "lenses": [], "packet_digest": None,
-                            "receipts": []},
-                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
-                                 "base_after": HEAD_C, "contribution_identical": False,
-                                 "divergent_paths": ["x.py"], "unmeasurable": None,
-                                 "anchored_to": HEAD_C}]}
+    def _R(self, frm, to, bb, ba, identical, paths, anchored, unmeasurable=None):
+        return {"from_commit": frm, "to_commit": to, "base_before": bb, "base_after": ba,
+                "contribution_identical": identical, "divergent_paths": paths,
+                "unmeasurable": unmeasurable, "anchored_to": anchored}
+
+    def _P(self, reviewed, final, summary, judgment):
+        return {"reviewed_commit": reviewed, "final_commit": final, "summary": summary,
+                "judgment": judgment, "rationale": "r", "lenses": [], "packet_digest": None,
+                "receipts": []}
+
+    def test_the_disclosure_claims_no_ordering_it_cannot_support(self):
+        """Three successive attempts to lead with "the reviewed commit" and to say whether a repair ran
+        before or after a rewrite each produced a sentence that was wrong on some reachable flow — the last
+        contradicting itself inside one line. Neither fact is recoverable once history is rewritten, so the
+        line states neither. What it must never do is name a commit as the review's starting point."""
+        after = {"repair": self._P(HEAD_C, HEAD_B, "2 files", "none"),
+                 "reconciles": [self._R(HEAD_A, HEAD_B, BASE, HEAD_C, False, ["x.py"], HEAD_C)]}
         line = bc._drift_line(after, HEAD_B)
-        self.assertIn("ran afterwards", line)
+        # the contradiction that survived two repairs: "reviewed C" beside "re-anchored from A"
+        self.assertNotIn(f"reviewed `{HEAD_C[:12]}`", line)
         self.assertNotIn("ran before it", line)
-        # a `none` judgment is not described as a repair that was reviewed
+        self.assertNotIn("ran afterwards", line)
+        # what it does say is true and checkable
+        self.assertIn(f"submitted `{HEAD_B[:12]}`", line)
+        self.assertIn(f"from `{HEAD_A[:12]}` to `{HEAD_C[:12]}`", line)
+        self.assertIn("judged not to need re-review", line)
+        self.assertIn("x.py", line)
+
+    def test_a_repair_before_a_rewrite_is_reported_without_an_order_claim(self):
+        state = {"repair": self._P(BASE, HEAD_A, "3 files changed", "scoped"),
+                 "reconciles": [self._R(HEAD_A, HEAD_B, BASE, HEAD_C, True, [], HEAD_B)]}
+        line = bc._drift_line(state, HEAD_B)
+        self.assertIn(f"carried `{BASE[:12]}` to `{HEAD_A[:12]}`", line)
+        self.assertIn("3 files changed", line)
+        self.assertNotIn("ran before it", line)
+        self.assertIn("order relative to one another is not recorded", line)
+
+    def test_a_none_judgment_is_never_rendered_as_a_completed_re_review(self):
+        """Including on the no-rewrite path, which the earlier fix left untouched: a shortstat alone read
+        identically whether lenses had been dispatched or not."""
+        line = bc._drift_line({"repair": self._P(BASE, HEAD_A, "2 files changed", "none"),
+                               "reconciles": []}, HEAD_A)
         self.assertIn("no re-review was judged necessary", line)
-        # the binding moved only as far as the new base, so the clause must not claim it reached head
+        scoped = bc._drift_line({"repair": self._P(BASE, HEAD_A, "2 files changed", "scoped"),
+                                 "reconciles": []}, HEAD_A)
+        self.assertNotIn("no re-review", scoped)
+
+    def test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body(self):
+        """Drives the REAL composer: state -> drift line -> rendered pull-request body."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        state = {"repair": self._P(BASE, HEAD_A, "3 files changed", "scoped"),
+                 "reconciles": [self._R(HEAD_A, HEAD_B, BASE, HEAD_C, True, [], HEAD_B)]}
+        line = bc._drift_line(state, HEAD_B)
+        self.assertIn(f"submitted `{HEAD_B[:12]}`", line)
+        self.assertIn("3 files changed", line)
+        self.assertNotIn("no post-review repair was needed", line)
+        self.assertIn("verified unchanged", line)
+        body = bcc.compose(_good_claim(), {**_good_evidence(), "drift_line": line})
+        self.assertIn("Reviewed vs submitted", body)
+        self.assertIn(f"submitted `{HEAD_B[:12]}`", body)
+
+    def test_a_divergent_reconcile_names_the_paths_in_the_composed_body(self):
+        line = bc._drift_line({"repair": None,
+                               "reconciles": [self._R(HEAD_A, HEAD_B, BASE, HEAD_C, False,
+                                                      ["mine.py"], HEAD_C)]}, HEAD_B)
+        self.assertIn("mine.py", line)
+        self.assertNotIn("no post-review repair was needed", line)
+        # the binding stopped at the new base; the line must not claim it reached head
         self.assertIn(f"to `{HEAD_C[:12]}`", line)
 
-    def test_the_disclosure_leads_with_the_commit_the_review_started_from(self):
-        """A reconcile's from_commit is the commit it re-anchored; after a completed repair round that is
-        the round's OUTPUT, so leading with it put a never-reviewed-from-scratch commit under the label the
-        operator reads first."""
-        state = {"repair": {"reviewed_commit": BASE, "final_commit": HEAD_A, "summary": "3 files changed",
-                            "judgment": "scoped", "rationale": "r", "lenses": [], "packet_digest": None,
-                            "receipts": []},
-                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
-                                 "base_after": HEAD_C, "contribution_identical": True,
-                                 "divergent_paths": [], "unmeasurable": None, "anchored_to": HEAD_B}]}
-        line = bc._drift_line(state, HEAD_B)
-        self.assertTrue(line.startswith(f"reviewed `{BASE[:12]}`"), line)
-        self.assertIn("ran before it", line)
+    def test_two_rewrites_are_listed_separately(self):
+        line = bc._drift_line({"repair": None, "reconciles": [
+            self._R(HEAD_A, HEAD_B, BASE, HEAD_C, True, [], HEAD_B),
+            self._R(HEAD_B, HEAD_C, HEAD_C, HEAD_A, False, ["foo.py"], HEAD_A)]}, HEAD_C)
+        self.assertEqual(line.count("history was rewritten"), 2)
+        self.assertIn("; history was rewritten", line)
+        self.assertIn("order relative to one another is not recorded", line)
 
-    def test_two_rewrites_read_as_two_clauses(self):
-        state = {"repair": None, "reconciles": [
-            {"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE, "base_after": HEAD_C,
-             "contribution_identical": True, "divergent_paths": [], "unmeasurable": None,
-             "anchored_to": HEAD_B},
-            {"from_commit": HEAD_B, "to_commit": HEAD_C, "base_before": HEAD_C, "base_after": HEAD_A,
-             "contribution_identical": False, "divergent_paths": ["foo.py"], "unmeasurable": None,
-             "anchored_to": HEAD_A}]}
-        line = bc._drift_line(state, HEAD_C)
-        self.assertIn("); then from", line, "successive rewrites ran together with no clause boundary")
+    def test_a_superseded_finding_keeps_its_record_but_loses_its_weight(self):
+        """When a lens is re-run, its repair receipt replaces the deliverable receipt, so the earlier
+        findings are demanded by nothing. Deleting them dropped the first review round out of the
+        pull-request body entirely — an operator saw only whichever lenses happened not to be re-run."""
+        self._deliverable_reviewed()
+        pkt = self._repair_packet(["usability"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-8"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(
+                id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
+                disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
+                blocks_this_pr=False, handoff_summary="Earlier concern",
+                operator_summary="An earlier concern, fixed."), self.store)
+        self.assertTrue(bc.review.required_disagreement_lines(self.state()))
+        # Close the round, then re-run a different lens at a newer commit: the repair slot's own receipt
+        # goes with the round, and the deliverable re-cut drops the copy spliced into that stage, so
+        # nothing demands R-8 any more.
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), \
+                mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified.", lens=None,
+                                                    guidance=None), self.store)
+        self._deliverable_reviewed(lenses=("technical-integrity",), head=HEAD_C)
+        kept = [f for f in self.state()["findings"] if f["id"] == "R-8"]
+        self.assertEqual(len(kept), 1, "the earlier round's finding was erased from the record")
+        self.assertTrue(kept[0]["superseded"])
+        self.assertFalse(kept[0]["blocks_this_pr"])
+        # ...it no longer carries weight...
+        self.assertEqual(bc.review.required_disagreement_lines(self.state()), [])
+        self.assertEqual(bc.review.missing_findings(self.state()), [])
+        # ...but the record an operator reads still carries it, with its disposition intact
+        self.assertEqual(kept[0]["disposition"], "accepted-fixed")
+        self.assertEqual(kept[0]["operator_summary"], "An earlier concern, fixed.")
 
     def test_the_assembler_passes_the_real_head_to_the_disclosure(self):
         """The wiring half of the seam: the pure function is correct, but nothing asserted the assembler
