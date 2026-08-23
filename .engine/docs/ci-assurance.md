@@ -23,7 +23,7 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | Surface | Total |
 | --- | ---: |
 | Workflow triggers | 2 |
-| Executable workflow steps | 12 |
+| Executable workflow steps | 10 |
 | CI validator rules | 82 (77 hard, 5 soft) |
 | CI rules re-run on a metadata-only event (reuse) | 6 |
 | Dedicated hard custom-check proofs | 42 |
@@ -50,15 +50,13 @@ A step is gating unless `continue-on-error` is true. The condition column record
 | 1 | Check out the revision | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` | none | always when prior steps succeed | gating |
 | 2 | Set up uv (pinned) | `astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d` | with: version=0.11.8 | always when prior steps succeed | gating |
 | 3 | Materialize the engine tool-runtime | `uv sync --directory .engine --frozen` | none | always when prior steps succeed | gating |
-| 4 | Decide whether this run owes the full inventory | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} | always when prior steps succeed | gating |
-| 5 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE != 'reuse' | gating |
-| 6 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
-| 7 | Write the full-suite receipt | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"` | env: GITHUB_REPOSITORY=${{ github.repository }} | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
-| 8 | Upload the full-suite receipt | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | with: if-no-files-found=error, name=engine-ci-receipt, overwrite=True, path=${{ runner.temp }}/receipt.json, retention-days=30 | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
-| 9 | Record that the full arm completed | `echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
-| 10 | Re-check what an unchanged tree cannot settle | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE == 'reuse' | gating |
-| 11 | Record that the reuse arm completed | `echo "ENGINE_CI_RAN=reuse" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE == 'reuse' | gating |
-| 12 | Refuse a run in which no arm did any work | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran` | none | always when prior steps succeed | gating |
+| 4 | Decide whether this run owes the full inventory | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide` | id: gate; env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} | always when prior steps succeed | gating |
+| 5 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | steps.gate.outputs.mode != 'reuse' | gating |
+| 6 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | id: selftests; env: GITHUB_ENV=${{ runner.temp }}/decoy-github-env, GITHUB_OUTPUT=${{ runner.temp }}/decoy-github-output, GITHUB_PATH=${{ runner.temp }}/decoy-github-path, GITHUB_STATE=${{ runner.temp }}/decoy-github-state, GITHUB_STEP_SUMMARY=${{ runner.temp }}/decoy-github-step-summary | steps.gate.outputs.mode != 'reuse' | gating |
+| 7 | Write the full-suite receipt | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"` | env: GITHUB_REPOSITORY=${{ github.repository }} | steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request' | gating |
+| 8 | Upload the full-suite receipt | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | with: if-no-files-found=error, name=engine-ci-receipt, overwrite=True, path=${{ runner.temp }}/receipt.json, retention-days=30 | steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request' | gating |
+| 9 | Re-check what an unchanged tree cannot settle | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata` | id: metadata; env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | steps.gate.outputs.mode == 'reuse' | gating |
+| 10 | Refuse a run in which no arm did any work | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran` | env: ENGINE_CI_FULL_RAN=${{ steps.selftests.outcome }}, ENGINE_CI_REUSE_RAN=${{ steps.metadata.outcome }} | always when prior steps succeed | gating |
 
 ### Verification by Engine module
 

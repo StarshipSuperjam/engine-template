@@ -84,13 +84,30 @@ _RUNS_PER_PAGE = 100
 MODE_FULL = "full"
 MODE_REUSE = "reuse"
 
-# The environment names the workflow branches on. MODE_ENV carries the decision; RAN_ENV is written by an arm
-# when it FINISHES, and the two are deliberately different: a marker set by the decision step would prove only
-# that the decision ran, which is exactly the thing the terminal assertion must not accept as proof that an
-# arm ran. The arms condition on MODE_ENV; the terminal step reads RAN_ENV. The reason a full run was chosen is
-# disclosed in the job summary and stdout, not published to the environment — no step conditions on it.
-MODE_ENV = "ENGINE_CI_MODE"
-RAN_ENV = "ENGINE_CI_RAN"
+# WHERE THE DECISION TRAVELS. The gate publishes its verdict as its own STEP OUTPUT under this key, and the
+# arms condition on `steps.gate.outputs.mode`. A step's outputs can be written only by that step, so nothing
+# the job runs afterwards can reach the verdict — which is the entire point. The job ENVIRONMENT cannot carry
+# it: $GITHUB_ENV is mutable across steps, so any later step that appends to it rewrites what every subsequent
+# condition reads. That is not a hypothetical. It is the defect this module is repairing: the self-test step
+# runs the whole inventory, two of those tests invoked this CLI with $GITHUB_ENV still pointing at the runner's
+# live file, and the arm flipped underneath a job that had already done the work
+# (StarshipSuperjam/engine-template#1043).
+MODE_OUTPUT_KEY = "mode"
+
+# HOW COMPLETION IS PROVEN — a different question from which arm was chosen, and deliberately a different
+# channel. A marker written by the decision step would prove only that the decision ran, which is exactly what
+# the terminal assertion must not accept as proof that an ARM ran. So the terminal step reads the platform's
+# own verdict on each arm's substantive step (`steps.<id>.outcome`, which only the runner writes) and receives
+# it under these two names. Two names rather than one lets the assertion tell "no arm ran" from "both did".
+FULL_RAN_ENV = "ENGINE_CI_FULL_RAN"
+REUSE_RAN_ENV = "ENGINE_CI_REUSE_RAN"
+
+# The runner's word for a step that completed successfully; anything else (`skipped`, `failure`, `cancelled`,
+# or an empty string from a reference that resolves to nothing) is not completion.
+_OUTCOME_SUCCESS = "success"
+
+# The reason a full run was chosen is disclosed in the job summary and stdout, never published as an output —
+# no step conditions on it.
 
 # The actions that cannot change the tree under test. Everything else — including an action this module does
 # not recognise — is a code event and earns a full run.
@@ -502,7 +519,7 @@ def main(argv):
     if verb == "decide":
         event = _load_event()
         mode, reason, detail = decide(event, repo=repo, token=token)
-        _publish(MODE_ENV, mode)
+        _publish_mode(mode)
         if mode == MODE_REUSE:
             line = reuse_disclosure(detail)
             print(line)
@@ -541,34 +558,50 @@ def main(argv):
         return 0
 
     if verb == "assert-ran":
-        # The terminal, UNCONDITIONED step. Two positively-conditioned arms are not exhaustive: if the mode
-        # step ever wrote nothing, wrote an unexpected value, or its marker name drifted, every substantive
-        # step would skip — and the platform treats a skipped step as successful, so the job would report
-        # GREEN having proven nothing. This refuses that.
-        marker = os.environ.get(RAN_ENV, "")
-        if marker not in (MODE_FULL, MODE_REUSE):
-            print(f"engine-ci: no arm recorded completion (marker={marker!r}); refusing to report success.",
+        # The terminal, UNCONDITIONED step. If the gate ever published nothing, published an unexpected
+        # value, or a step reference drifted, every substantive step would skip — and the platform treats a
+        # skipped step as successful, so the job would report GREEN having proven nothing. This refuses that.
+        #
+        # It reads the runner's own outcome for each arm's substantive step, handed in as step-level `env:`.
+        # Exactly one must have succeeded: none means no work was done, and both means the arms stopped being
+        # mutually exclusive, which is a defect in the branch structure even though it did do the work.
+        full_ran = os.environ.get(FULL_RAN_ENV, "") == _OUTCOME_SUCCESS
+        reuse_ran = os.environ.get(REUSE_RAN_ENV, "") == _OUTCOME_SUCCESS
+        if not (full_ran or reuse_ran):
+            print("engine-ci: no arm recorded completion "
+                  f"({FULL_RAN_ENV}={os.environ.get(FULL_RAN_ENV, '')!r}, "
+                  f"{REUSE_RAN_ENV}={os.environ.get(REUSE_RAN_ENV, '')!r}); refusing to report success.",
                   file=sys.stderr)
             return 1
-        print(f"engine-ci: {marker} arm completed.")
+        if full_ran and reuse_ran:
+            print("engine-ci: BOTH arms reported completion; they must be mutually exclusive. "
+                  "Refusing to report success.", file=sys.stderr)
+            return 1
+        print(f"engine-ci: {MODE_FULL if full_ran else MODE_REUSE} arm completed.")
         return 0
 
     print(__doc__)
     return 0
 
 
-def _publish(key, value):
-    """Publish one verdict to the job ENVIRONMENT, where later steps' conditions can read it as `env.<key>`.
+def _publish_mode(value):
+    """Publish the arm decision as this step's OWN OUTPUT, which the arms read as `steps.gate.outputs.mode`.
 
-    Deliberately the environment rather than a step output: reading a step output requires the producing step
-    to carry an `id:`, and the assurance generator refuses any workflow step key outside a fixed set — a set
-    this change does not widen, because that refusal is itself a structural defence (the required gate cannot
-    grow a shape the published catalogue is unable to describe). The environment file needs no step key at
-    all, so the branch value travels with the generator untouched."""
-    path = os.environ.get("GITHUB_ENV")
+    A step output, never the job environment. Outputs are per-step: a later step writing $GITHUB_OUTPUT sets
+    ITS outputs, and no expression reaches back to the gate step's. The job environment offers no such
+    guarantee — it is a single mutable store every later step re-reads — and relying on it is what let the
+    self-test inventory overwrite this verdict mid-job (StarshipSuperjam/engine-template#1043).
+
+    This helper is now the sole author of a safety-critical channel, so it validates rather than trusting its
+    caller: only the two known modes, and nothing carrying a newline, which would inject further output keys."""
+    if value not in (MODE_FULL, MODE_REUSE):
+        raise ValueError(f"refusing to publish an unknown mode: {value!r}")
+    if "\n" in value or "\r" in value:                       # unreachable given the check above; the channel
+        raise ValueError("refusing to publish a mode containing a newline")   # is worth defending twice
+    path = os.environ.get("GITHUB_OUTPUT")
     if path:
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write(f"{key}={value}\n")
+            fh.write(f"{MODE_OUTPUT_KEY}={value}\n")
 
 
 def _write_summary(line) -> bool:

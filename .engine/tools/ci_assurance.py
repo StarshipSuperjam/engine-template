@@ -95,6 +95,13 @@ def workflow_facts(data: dict) -> tuple[list[dict], list[dict]]:
     unknown_top = set(data) - {"name", "on", "permissions", "jobs"}
     if unknown_top:
         raise ValueError(f"unsupported engine-ci workflow keys: {sorted(unknown_top)}")
+    # The catalogue describes ONE job, and this is what makes "the required gate cannot grow a shape the
+    # published catalogue is unable to describe" a fact rather than a slogan. Without it a second job could be
+    # added and would go entirely undescribed while the totals table still reported the engine-ci step count
+    # and the drift check stayed green.
+    unknown_jobs = set(data["jobs"]) - {"engine-ci"}
+    if unknown_jobs:
+        raise ValueError(f"unsupported {WORKFLOW_REL} jobs: {sorted(unknown_jobs)}")
     job = data["jobs"]["engine-ci"]
     unknown_job = set(job) - {"name", "runs-on", "steps"}
     if unknown_job:
@@ -131,7 +138,12 @@ def workflow_facts(data: dict) -> tuple[list[dict], list[dict]]:
         action_keys = [key for key in ("uses", "run") if key in step]
         if len(action_keys) != 1:
             raise ValueError(f"engine-ci step {number} must declare exactly one of uses/run")
-        unknown = set(step) - {"name", "uses", "run", "with", "env", "if", "continue-on-error", "timeout-minutes", "working-directory", "shell"}
+        # `id` is accepted because the gate's arm decision travels as a step OUTPUT, and referencing an output
+        # requires the producing step to be nameable. It carries no execution semantics — it is an anchor —
+        # and it is rendered below, so accepting it makes the catalogue MORE complete rather than less:
+        # refusing it would leave the condition column printing `steps.gate.outputs.mode` while declining to
+        # print which step `gate` is.
+        unknown = set(step) - {"name", "id", "uses", "run", "with", "env", "if", "continue-on-error", "timeout-minutes", "working-directory", "shell"}
         if unknown:
             raise ValueError(f"unsupported engine-ci step {number} keys: {sorted(unknown)}")
         steps.append({
@@ -150,6 +162,10 @@ def workflow_facts(data: dict) -> tuple[list[dict], list[dict]]:
 def _execution_details(step: dict) -> str:
     """Render every supported step field not carried by the primary action/condition columns."""
     parts = []
+    if "id" in step:
+        # Printed first: it is the name other steps' conditions refer to, so a reader tracing a
+        # `steps.<id>.outputs`/`.outcome` reference can find its producer in this table.
+        parts.append(f"id: {step['id']}")
     for key in ("with", "env"):
         value = step.get(key)
         if value is not None:

@@ -17,6 +17,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate       # noqa: E402
 import wiring         # noqa: E402
 import ci_assurance   # noqa: E402
+import ci_gatekeeper  # noqa: E402
 
 MODULE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "module.v1.json"))
 WIRES_ENUM = set(MODULE_SCHEMA["properties"]["wires"]["items"]["properties"]["type"]["enum"])
@@ -1180,25 +1182,86 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
             self.assertNotIn("continue-on-error", step,
                              f"step {step.get('name')!r} carries a continue-on-error escape")
 
-    def test_the_two_arms_are_mutual_negations_of_the_mode_marker(self):
-        full = [s for s in self._steps() if s.get("if") == "env.ENGINE_CI_MODE != 'reuse'"]
-        reuse = [s for s in self._steps() if s.get("if") == "env.ENGINE_CI_MODE == 'reuse'"]
-        self.assertTrue(full, "no full-arm step conditions on `env.ENGINE_CI_MODE != 'reuse'`")
-        self.assertTrue(reuse, "no reuse-arm step conditions on `env.ENGINE_CI_MODE == 'reuse'`")
+    def test_the_two_arms_are_mutual_negations_of_the_gate_step_output(self):
+        full = [s for s in self._steps() if s.get("if", "").startswith("steps.gate.outputs.mode != 'reuse'")]
+        reuse = [s for s in self._steps() if s.get("if", "").startswith("steps.gate.outputs.mode == 'reuse'")]
+        self.assertTrue(full, "no full-arm step conditions on `steps.gate.outputs.mode != 'reuse'`")
+        self.assertTrue(reuse, "no reuse-arm step conditions on `steps.gate.outputs.mode == 'reuse'`")
+
+    def test_no_step_condition_reads_the_mutable_job_environment(self):
+        # The defect this workflow repairs (StarshipSuperjam/engine-template#1043) was a condition on
+        # `env.ENGINE_CI_MODE`: the job environment is one mutable store every later step re-reads, so the
+        # self-test inventory could — and did — rewrite the arm underneath a job that had already done the
+        # work. No branch in this workflow may depend on it again.
+        for step in self._steps():
+            self.assertNotIn("env.", str(step.get("if", "")),
+                             f"step {step.get('name')!r} branches on the mutable job environment")
+
+    def test_no_step_writes_the_job_environment(self):
+        # The other half of the same rule: nothing here may PUBLISH to the mutable store either. The decoy
+        # `env:` block on the self-test step assigns GITHUB_ENV a throwaway path, which is the opposite of
+        # writing to it, so this looks only at what the steps actually run.
+        for step in self._steps():
+            self.assertNotIn("$GITHUB_ENV", str(step.get("run", "")),
+                             f"step {step.get('name')!r} appends to the mutable job environment")
+
+    def test_every_step_reference_resolves_to_a_step_that_produces_it(self):
+        # THE pin that makes a mistyped reference a local failure instead of a silent green. Because the full
+        # arm's condition is a NEGATION, an unresolvable reference yields the empty string, empty is not
+        # 'reuse', so the full arm runs, its outcome is recorded, and the terminal assertion passes — a green
+        # job with the feature inert, which is exactly what #1043 shipped. Literal-string pins cannot catch
+        # that: two literals drift together. This resolves each reference against what the workflow actually
+        # declares, so `steps.gata.outputs.mode` or a renamed step fails here, before any push.
+        steps = self._steps()
+        declared = {s["id"] for s in steps if "id" in s}
+        self.assertEqual(declared, {"gate", "selftests", "metadata"},
+                         "the set of addressable steps is itself pinned: a step that grows an id becomes "
+                         "referenceable, and the self-test step in particular must never be")
+        writes_output = {}
+        for step in steps:
+            for match in re.finditer(r"^\s*([A-Za-z_][A-Za-z0-9_-]*)=.*>>\s*\"?\$GITHUB_OUTPUT",
+                                     str(step.get("run", "")), re.MULTILINE):
+                writes_output.setdefault(step.get("id"), set()).add(match.group(1))
+        # The gate publishes its key from Python rather than a shell append, so it is sourced from the tool.
+        writes_output.setdefault("gate", set()).add(ci_gatekeeper.MODE_OUTPUT_KEY)
+
+        blob = "\n".join(str(s.get("if", "")) + "\n" + json.dumps(s.get("env", {})) for s in steps)
+        seen = 0
+        for ref, attr, key in re.findall(r"steps\.([A-Za-z0-9_-]+)\.(outputs\.([A-Za-z0-9_-]+)|outcome)", blob):
+            seen += 1
+            self.assertIn(ref, declared, f"`steps.{ref}.…` names no step declared in this workflow")
+            if attr.startswith("outputs."):
+                self.assertIn(key, writes_output.get(ref, set()),
+                              f"step {ref!r} is read for output {key!r} but never writes it")
+        self.assertGreater(seen, 0, "the reference scan matched nothing; the pin would pass vacuously")
 
     def test_the_decision_step_is_unconditioned(self):
         decide = self._sole_step("ci_gatekeeper.py decide")
         self.assertNotIn("if", decide, "the decision step must run on every event, unconditioned")
 
-    def test_the_terminal_assertion_is_unconditioned_and_reads_a_distinct_completion_marker(self):
+    def test_the_terminal_assertion_is_unconditioned_and_reads_each_arms_own_outcome(self):
         term = self._sole_step("ci_gatekeeper.py assert-ran")
         self.assertNotIn("if", term, "the terminal assert-ran step must carry no condition")
-        # The completion marker the terminal reads (ENGINE_CI_RAN) is a DIFFERENT variable than the one the arms
-        # branch on (ENGINE_CI_MODE): a marker proving only that the decision ran must never be mistaken for
-        # proof that an arm ran. Each arm writes the completion marker as its last act.
-        runs = "\n".join(str(s.get("run", "")) for s in self._steps())
-        self.assertIn("ENGINE_CI_RAN=full", runs)
-        self.assertIn("ENGINE_CI_RAN=reuse", runs)
+        # The completion evidence is the PLATFORM's verdict on each arm's substantive step, not a marker the
+        # job echoes about itself: `steps.<id>.outcome` is written only by the runner and only for the step it
+        # names, so proof that an ARM ran can never be confused with proof that the decision ran. Reading the
+        # arms' own steps also keeps it honest on a `push` to the default branch, where the receipt steps
+        # legitimately skip — which is why the full arm is read from the self-test step, not the upload.
+        env = term.get("env", {})
+        self.assertEqual(env.get(ci_gatekeeper.FULL_RAN_ENV), "${{ steps.selftests.outcome }}")
+        self.assertEqual(env.get(ci_gatekeeper.REUSE_RAN_ENV), "${{ steps.metadata.outcome }}")
+        self.assertEqual(self._sole_step("unittest discover").get("id"), "selftests")
+        self.assertEqual(self._sole_step("--suite CI-metadata").get("id"), "metadata")
+
+    def test_the_self_test_step_redirects_every_runner_control_file(self):
+        # The one step in the job that runs arbitrary code — the whole inventory — gets decoy paths for every
+        # control file, so a test that writes one cannot reach the live job's control plane. The runner reads
+        # back the file at the path IT generated, so handing this step's children a different path is what
+        # makes the redirect effective. One edit at the trust boundary, covering every test module.
+        env = self._sole_step("unittest discover").get("env", {})
+        for var in ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"):
+            self.assertIn("runner.temp", str(env.get(var, "")),
+                          f"the self-test step must redirect {var} to a throwaway path")
 
     def test_the_terminal_assertion_is_the_last_step(self):
         # assert-ran's safety rests on running AFTER both arms' completion-marker writes — true only because it
@@ -1212,7 +1275,8 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         uploads = [s for s in self._steps() if "upload-artifact" in str(s.get("uses", ""))]
         self.assertEqual(len(uploads), 1, "there must be exactly one artifact upload step")
         up = uploads[0]
-        self.assertEqual(up.get("if"), "env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request'",
+        self.assertEqual(up.get("if"),
+                         "steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'",
                          "the upload must carry the full-arm condition, so artifact presence marks a full run")
         self.assertIn(up.get("with", {}).get("overwrite"), (True, "true"),
                       "the upload must overwrite: a re-run of a full run re-executes it, and artifacts are "
@@ -1220,13 +1284,57 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
 
     def test_the_reuse_arm_runs_the_metadata_suite(self):
         step = self._sole_step("--suite CI-metadata")
-        self.assertEqual(step.get("if"), "env.ENGINE_CI_MODE == 'reuse'",
+        self.assertEqual(step.get("if"), "steps.gate.outputs.mode == 'reuse'",
                          "the metadata suite must be the reuse arm's blocking gate")
 
     def test_permissions_are_exactly_the_four_read_scopes(self):
         self.assertEqual(self._wf().get("permissions"),
                          {"contents": "read", "pull-requests": "read",
                           "statuses": "read", "actions": "read"})
+
+    def test_no_test_module_reaches_the_runners_control_files_unisolated(self):
+        """No module in the inventory may write the live job's control plane.
+
+        The self-test step runs the WHOLE inventory, so any module could open one of these and scribble on
+        the running job — which is how StarshipSuperjam/engine-template#1043 shipped inert. The workflow's
+        decoy `env:` block defends this at runtime; this defends it at authoring time, across every module
+        rather than the one that happened to have the bug, so the next writer is caught before it merges.
+
+        A module that legitimately needs one of these names must isolate it, either by removing it for the
+        module (a `setUpModule` that pops it) or by pointing it at a temporary file. Both leave the real file
+        untouched, and both are visible in the source this reads.
+        """
+        # An ALLOWLIST, not a pattern-match on how the reference looks. A heuristic that tries to recognise
+        # "isolated enough" from source text ends up matching nearly everything and passing vacuously, which
+        # would be worse than no pin. This instead names the modules that may mention these at all, each with
+        # the reason it is safe. A new module that touches one fails here until someone adds it deliberately —
+        # which is the moment to think about whether it writes the live job's control plane.
+        permitted = {
+            "test_ci_gatekeeper.py": "removes all five for the whole module in setUpModule; the tests that "
+                                     "need one point it at their own temporary file",
+            "test_wiring.py": "this module — asserts about the workflow's decoy block and owns this pin",
+            "test_seed.py": "asserts about workflow TEXT (a summary append surviving an unset variable)",
+            "test_audit_prep.py": "asserts about workflow TEXT (one step handing a value to a later step)",
+            "test_audit_digest.py": "isolates run-identity variables; names no control file it writes",
+        }
+        control = ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY")
+        tools = os.path.dirname(os.path.abspath(__file__))
+        found, scanned = {}, 0
+        for name in sorted(os.listdir(tools)):
+            if not (name.startswith("test_") and name.endswith(".py")):
+                continue
+            scanned += 1
+            with open(os.path.join(tools, name), encoding="utf-8") as fh:
+                source = fh.read()
+            hits = sorted(var for var in control if var in source)
+            if hits:
+                found[name] = hits
+        self.assertGreater(scanned, 50, "the inventory scan found almost nothing; it would pass vacuously")
+        self.assertEqual(sorted(found), sorted(permitted),
+                         "a test module now names a runner control file. The self-test step runs the whole "
+                         "inventory, so a module that WRITES one writes the live job's control plane — the "
+                         "defect of StarshipSuperjam/engine-template#1043. Isolate it (pop it for the module, "
+                         "or point it at a temporary file), then add it to this allowlist with the reason.")
 
 
 class TestDanglingShortcutRefusal(_Redirected):
