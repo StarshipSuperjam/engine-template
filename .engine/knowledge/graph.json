@@ -431,7 +431,7 @@
       },
       "slug": "block-coherence",
       "source": {
-        "fingerprint": "sha256:d18bb2ef49425248e142f2ab05d7cd661a35b3d0e54c60997e8604bc87182b80",
+        "fingerprint": "sha256:03764ac1387786c08275fb973b3ef1b22f43ee26e8edbb1c07bdefaf5f9b8afa",
         "path": ".engine/check/block-coherence.json"
       },
       "status": "active",
@@ -2076,6 +2076,7 @@
           "policy:finding-disposition",
           "policy:migration-discipline",
           "policy:model-routing",
+          "policy:session-economy",
           "policy:spec-structure-integrity",
           "policy:supported-upgrade-matrix",
           "policy:triage-threshold"
@@ -2143,6 +2144,7 @@
           "policy:finding-disposition",
           "policy:migration-discipline",
           "policy:model-routing",
+          "policy:session-economy",
           "policy:spec-structure-integrity",
           "policy:supported-upgrade-matrix",
           "policy:triage-threshold"
@@ -5953,7 +5955,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:2a94f6c027c17aed9c80e7a0dbdc05f3d51572980d3100745631dde27bb8d4b2",
+        "fingerprint": "sha256:8840e6ce728bdafd1f57dd8273683b37b25ad2b09239f352c9f4a03b1181c0e6",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6126,13 +6128,14 @@
           "tool:modes",
           "tool:scent",
           "tool:self_map",
+          "tool:session_economy",
           "tool:telemetry",
           "tool:validate"
         ]
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:9b20d6aaf8f797a746d244f2e46a1fcaf19ad478bb4ea79c230d62d69272fa74",
+        "fingerprint": "sha256:5c21dee599e4381c4b9febf6e3d001941a21fccaf80f2b5451ed07ba8c160c76",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6383,7 +6386,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:0a239d8c51e1d04864b09082ca0d605ecec240ad91a4820a33119fcc939f3104",
+        "fingerprint": "sha256:52dd16435989acbe908785ff1477b5fc8ca045a83a7f0ac20c55722256f06030",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7231,7 +7234,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:8c2964dd7ad8f353f293517c2eb1a3b630415137a961399b4ed65a0d5eab3b33",
+        "fingerprint": "sha256:6a616f5a6de0e45df18b3cc6631f4b52f32bfcd8342c4499fb692f9b928374b3",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -7252,10 +7255,31 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:d8d0a9d4eab166b3db0e6657c9e8c5ee3229060b247866714c94c0d906fb3db5",
+        "fingerprint": "sha256:ab9cca45c34f18828fcfa71634c57f4f0a9d4adba267c387b1419a7a97e2c672",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:session-economy",
+      "name": ".engine/policies/session-economy.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "session-economy",
+      "source": {
+        "fingerprint": "sha256:4dded76f62e2da113e1d767b2ec5a9f9e0916203cc7800669bbd972c6805bcfe",
+        "path": ".engine/policies/session-economy.md"
+      },
+      "status": "active",
+      "title": "Session economy",
       "type": "policy"
     },
     {
@@ -7400,7 +7424,7 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:8a84917d434e80ed7385265f56fe5d3a6c344f255986041068c2c3870b995fbc",
+        "fingerprint": "sha256:947b151ac7ca5c25615a3ab1f180c8408bfbf39996dfa9a8f8ae42571f176617",
         "path": ".engine/schemas/build-handoff.v1.json"
       },
       "status": "active",
@@ -7417,7 +7441,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:99916b4fa5a0b5375979e14bc285cdcc0ce2b19241ab4fa4bea701590bdf9e49",
+        "fingerprint": "sha256:81e532abde182c85f3b37392e84349d3f8ec4e819a92f152e9d880abe9503d53",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7502,7 +7526,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:3739e279c41964c7bbf8d52d42250a4b044f015c1226554b9bdc8747ba16358f",
+        "fingerprint": "sha256:fed57f3bfaf381b3ae1e1b3cda405a9a63fc01ef17cccad4e2e27b4bc2529ffc",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -7519,7 +7543,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:b169e6b3a0b0084b479eb15cf2fce2b0b293d61b1eeae937c129adf1565e7f4c",
+        "fingerprint": "sha256:d207078bb681fb9808a61a702c3cf814a2630ceb81d874ce9f82e13eaa3f0edf",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9761,7 +9785,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:0b37e6cdc0dd1430b9df13fc528c7c1dca6dd59d247c875bace295ed66bed649",
+        "fingerprint": "sha256:d6801d4a5bd95e91e5aecfdc6b05718a5d111675f39eda2193b508b4edba7571",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9785,7 +9809,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:87f644392c9e3e87b6bb4919d865972e4625d93af1bea2feb497a9479cbf505e",
+        "fingerprint": "sha256:c31b13516334b53ff97655a08b4850faae450e995b4d20d5cfae96173604d4e0",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -9900,7 +9924,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:85cc721a5dd6613583111e684f9ded8d83a2eb88ec4ff88e4c037299054261fb",
+        "fingerprint": "sha256:e3063a3de3a0f477bd4eb84f373cfbdd8c2600891e0cd48c1b303cf9fc0e64a7",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -13356,6 +13380,7 @@
           "tool:hooks",
           "tool:modes",
           "tool:repo_identity",
+          "tool:session_economy",
           "tool:validate",
           "tool:wiring"
         ],
@@ -13365,7 +13390,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:986c0efb1bd3c6810d6c13d2dcd2afc0fee922d3721a0c7af85948ae08a5af75",
+        "fingerprint": "sha256:9fbf2ed08b772c06a08062c39960e34c468d207ed6c257cd0a473a3da204b414",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -14605,6 +14630,29 @@
       "type": "tool"
     },
     {
+      "entrypoint": "hook",
+      "guarded": true,
+      "id": "tool:session_economy",
+      "name": ".engine/tools/session_economy.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:hooks"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "session_economy",
+      "source": {
+        "fingerprint": "sha256:11560305898d87593be3f002b3fd590509003903f5643f9e5c860d125fa4af95",
+        "path": ".engine/tools/session_economy.py"
+      },
+      "status": "active",
+      "summary": "The session-economy gate: a PreToolUse deny on the two spend behaviours nothing else governs.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:setup_route_drift_check",
@@ -15297,7 +15345,7 @@
       },
       "slug": "test_block_coherence",
       "source": {
-        "fingerprint": "sha256:b33710dbd100c2d58b7edbfa3e06e9137b090864b70fb9b2ace2773e4143472c",
+        "fingerprint": "sha256:052442c2e0862023ce34fbb438cceedd7c08dd546092191c17ff207305ffa23a",
         "path": ".engine/tools/test_block_coherence.py"
       },
       "status": "active",
@@ -15438,7 +15486,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:fb2e5f2c4a215024692c03645b26ce8aedb1c901d537e0a9043b166aed05d14c",
+        "fingerprint": "sha256:83052e9d2e7971357ce33587553ad54e50ec16687a0bb61a1febd4dafdd34516",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16655,7 +16703,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:f10c26f8996ce46a9b2ce387617891da5b1c0e8ec65709e940317c8f513bfc55",
+        "fingerprint": "sha256:504641971fcf129c9be96670773f5db677b104ef4bc1987a27f66180b0eee3ef",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18937,6 +18985,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_session_economy",
+      "name": ".engine/tools/test_session_economy.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:hooks",
+          "tool:session_economy",
+          "tool:weakening_guard"
+        ]
+      },
+      "slug": "test_session_economy",
+      "source": {
+        "fingerprint": "sha256:ebb6aca238af1320bfd9e5a02a5c9873dbde4004dbcd244f124f6c8045237453",
+        "path": ".engine/tools/test_session_economy.py"
+      },
+      "status": "active",
+      "summary": "Tests for the session-economy PreToolUse gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_setup_route_gen",
       "name": ".engine/tools/test_setup_route_gen.py",
       "owner": "core",
@@ -19626,7 +19699,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:d434290429de338fb233f08124792f91526ab99c35a895162845164f70cf5572",
+        "fingerprint": "sha256:239a69359483b736a4703d2933b5774eddaa0a9108e66d93ea605b63d9c6103c",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

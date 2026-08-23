@@ -52,7 +52,9 @@ deployed repository, not in the engine's own store.
 Governs how the engine selects its execution posture and which model realizes each agent's capability tier. It
 does **not** override any deterministic control: protected `main`, human merge, the validation gates, explicit
 Build authority, and guardrail acknowledgment are unaffected by any posture. Posture selects self-instructions
-and model bindings only; it never modulates a review gate.
+and model bindings only; it never modulates a review gate. The Build coordinator's cadence caps — one design
+panel, and a repair-round count that stops for the operator — likewise modulate review CADENCE by the operator's
+consent, in the same register as review depth below, and never which lenses must run or pass.
 
 **Operator-chosen review depth is a separate axis from posture, and it scales reviewer EFFORT — not model.**
 The operator's Quick/Standard/Thorough choice sets how much reasoning effort the reviewers spend (the
@@ -85,7 +87,13 @@ that is a known, separate gap; only the per-depth review effort has an update-su
 The engine cannot meter its own token spend or choose its own model mid-session — it does not own the
 model-invocation loop, and no runtime exposes usage or the model name to it at session start. So a cost router,
 per-task budgets, and a token ledger were rejected: they would be scaffolding the engine cannot enforce, only
-pretend about. An automated behavioural qualification suite was also rejected — self-grading is circular and
+pretend about. That rejection stands for metering and for the engine choosing its own model mid-session, neither of
+which it can observe. It does NOT extend to a subagent SPAWN, which the engine does observe: a PreToolUse hook is
+handed the tool call naming the subagent type and its model, so a constraint there is enforceable rather than
+pretended. `session_economy.py` uses exactly that seam to refuse an `Explore` or `Plan` agent on an expensive model —
+the operator's rule, on the ground that a strong-model search agent is wasted spin-up for work the orchestrator should
+have done inline. It changes which model realizes an unbound agent, never how many tokens anything may spend, and it
+reduces no volume: the measured cost driver is context re-reads, not price per token. An automated behavioural qualification suite was also rejected — self-grading is circular and
 costs real tokens per model release. What the engine *can* do is what this policy does: record which
 environments the operator has qualified, notice drift from that snapshot, and shape which model realizes each
 capability tier. Model identity is deliberately capability-shaped, never a pinned model name in a persona file

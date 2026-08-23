@@ -364,6 +364,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # github-projects-sync).
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
                      ".engine/tools/self_map.py hook", ".engine/tools/validate.py hook",
+                     ".engine/tools/session_economy.py hook",
                      ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py",
                      ".engine/tools/telemetry.py run-ambient",
@@ -393,8 +394,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 15, "the fifteen venv-rooted core hook wires (boot ×3 + 8: modes, "
-                         "knowledge_gen, self_map, validate pre-commit, modes accept, validate accept, close, "
+        self.assertEqual(len(c_cmds), 16, "the sixteen venv-rooted core hook wires (boot ×3 + 9: modes, "
+                         "knowledge_gen, self_map, validate pre-commit, session_economy, modes accept, "
+                         "validate accept, close, "
                          "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
@@ -428,9 +430,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 25,
-                         "the twenty-five venv-rooted hook commands in settings "
-                         "(15 core + 7 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 26,
+                         "the twenty-six venv-rooted hook commands in settings "
+                         "(16 core + 7 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 

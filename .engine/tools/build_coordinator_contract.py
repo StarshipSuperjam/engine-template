@@ -302,6 +302,11 @@ def compose(claim: dict, evidence: dict) -> str:
     # vanish silently the way a plan-authored 'verified' does.
     for ar in evidence.get("assumption_resolutions", []):
         review_body.append(f"- **Assumption resolved after approval.** {ar}")
+    # Cost-cadence escalations: a plan changed after its panel without re-review, or a repair loop carried
+    # past its stop point. Both are the orchestrator asserting the operator said go; publishing them here is
+    # what lets the operator check that claim at the merge gate, where their consent actually lives.
+    for ce in evidence.get("cadence_escalations", []):
+        review_body.append(f"- **Escalation recorded.** {ce}")
     if evidence.get("drift_line"):
         review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
     for cl in evidence.get("close_linkage_lines", []):

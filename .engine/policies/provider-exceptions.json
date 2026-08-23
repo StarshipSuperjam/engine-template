@@ -48,6 +48,14 @@
       "provider": "codex",
       "reason": "Codex's own documentation states its pre-tool hook is a guardrail rather than a complete enforcement boundary, and that interception of its newer shell path is incomplete — so the Explore write-gate on Codex can miss shell forms the platform does not surface. The protected main branch and the operator's merge remain the only wall, on every runtime.",
       "contract_ref": "eADR-0034"
+    },
+    {
+      "kind": "hook",
+      "id": ".engine/tools/session_economy.py hook",
+      "missing_or_weaker": "missing",
+      "provider": "codex",
+      "reason": "The session-economy gate refuses an over-powered Explore/Plan subagent spawn and a session scheduling its own wake-up. Codex exposes neither surface: it has no subagent-spawn tool carrying a subagent_type and model, and no in-session wake-up scheduler. There is nothing there for the gate to observe, so its absence is the shape of that runtime rather than a weaker floor. If Codex later grows either surface this exception must be revisited, not renewed.",
+      "contract_ref": "eADR-0034"
     }
   ]
 }

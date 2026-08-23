@@ -355,10 +355,10 @@ class TestReviewAndFindings(CoordinatorCase):
         super().setUp()
         self.seed(); self.approve("thorough")
 
-    def packet(self, stage="plan", head=HEAD_A):
+    def packet(self, stage="plan", head=HEAD_A, roster=None):
         args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None)
         out = io.StringIO()
-        lenses = ["product-intent", "architecture", "feasibility", "risk-governance"] if stage == "plan" else ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"]
+        lenses = roster if roster is not None else (["product-intent", "architecture", "feasibility", "risk-governance"] if stage == "plan" else ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"])
         with mock.patch.object(bc, "_installed", return_value=lenses), mock.patch.object(bc, "_head", return_value=head), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
             bc._packet(args, self.store)
         return json.loads(out.getvalue())
@@ -369,6 +369,231 @@ class TestReviewAndFindings(CoordinatorCase):
                                   packet_digest=packet["packet_digest"],
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
                                   code_execution="none")
+
+    # --- one design panel per Build (cost-cadence cap) ---------------------------------
+
+    def complete_panel(self):
+        """Run the plan panel and receipt every lens, as a real Build does."""
+        pkt = self.packet("plan")
+        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
+        return pkt
+
+    def test_first_plan_panel_is_free_and_is_recorded_with_what_it_found(self):
+        self.complete_panel()
+        panels = self.state()["plan_panels"]
+        self.assertEqual(len(panels), 1)
+        entry = panels[0]
+        self.assertTrue(entry["complete"])
+        self.assertEqual(entry["plan_digest"], self.state()["plan"]["digest"])
+        self.assertEqual(entry["lenses"], ["architecture", "feasibility", "product-intent", "risk-governance"])
+        # The ack-free freeze still needs the panel's substance on record: a later reader must be able to
+        # see what it found, not merely that one ran.
+        self.assertEqual(entry["finding_ids"], sorted("F-" + x for x in
+                         ["product-intent", "architecture", "feasibility", "risk-governance"]))
+
+    def test_a_reviewed_plan_is_frozen_against_unescalated_revision(self):
+        self.complete_panel()
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False, operator_change=None)
+        with self.assertRaisesRegex(bc.CoordinatorError, "already been reviewed"):
+            bc.cmd_plan_revise(args, self.store)
+        # The refusal must name the escalation path, not just say no: a session told only "you cannot revise"
+        # is a session nudged into building on against a plan it already doubts.
+        with self.assertRaisesRegex(bc.CoordinatorError, "--operator-change"):
+            bc.cmd_plan_revise(args, self.store)
+
+    def test_operator_authorized_change_revises_without_re_running_the_panel(self):
+        self.complete_panel()
+        reviewed = self.state()["plan"]["digest"]
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                  operator_change="Operator: the API shape changed; adjust and ship without re-review.")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(args, self.store)
+        state = self.state()
+        escalations = state["plan_change_escalations"]
+        self.assertEqual(len(escalations), 1)
+        self.assertEqual(escalations[0]["reviewed_plan_digest"], reviewed)
+        self.assertEqual(escalations[0]["plan_digest"], state["plan"]["digest"])
+        # The panel is NOT re-run: no plan-review packet is demanded of the new digest...
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(state)
+        self.assertNotIn("plan-review packet", status["required_evidence"])
+        # ...and the gap is disclosed rather than hidden.
+        self.assertTrue(any("not re-reviewed" in w and "API shape changed" in w for w in status["warnings"]))
+
+    def test_receipts_are_never_rebound_to_the_changed_plan(self):
+        # The escalation authorizes shipping an unreviewed delta; it must not forge review OF that delta.
+        pkt = self.complete_panel()
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change="Operator: proceed."), self.store)
+        state = self.state()
+        self.assertEqual(state["reviews"]["plan"]["receipts"], [])
+        # The completed panel stays on record against the digest it actually read.
+        self.assertEqual([e["plan_digest"] for e in state["plan_panels"]], [pkt["plan_digest"]])
+        self.assertNotEqual(pkt["plan_digest"], state["plan"]["digest"])
+
+    def test_revising_before_any_panel_is_untouched(self):
+        # Iterating the plan to solid BEFORE cutting the first packet is the intended path.
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(args, self.store)
+        self.assertEqual(self.state()["plan_panels"], [])
+
+    def test_a_contract_forced_lens_rerun_is_not_a_second_panel(self):
+        # A changed reviewer persona moves that lens's contract but NOT the plan digest, so the packet digest
+        # differs and the re-issue is legitimate. Re-running the one lens must re-complete the SAME ledger
+        # entry, never read as a fresh panel. The roster is spelled out as real contracts because a bare-name
+        # roster derives its digest FROM THE NAME — an identical packet, which tests the wrong thing.
+        self.complete_panel()
+        changed = [{"lens": lens, "path": f"test-reviewer/{lens}.md",
+                    "digest": "sha256:" + ("9" * 64 if lens == "architecture" else "1" * 64)}
+                   for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
+        pkt = self.packet("plan", roster=changed)
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "architecture", ["F-again"]), self.store)
+        panels = self.state()["plan_panels"]
+        self.assertEqual(len(panels), 1)
+        self.assertEqual(panels[0]["plan_digest"], self.state()["plan"]["digest"])
+
+    def test_an_escalated_plan_change_unwedges_the_enforcing_gate_not_just_status(self):
+        # The gate checkpoint/validate consult is a DIFFERENT function from the status render. When only
+        # status knew about the escalation, status reported plan review satisfied while the gate refused.
+        #
+        # The re-approve below is load-bearing and was missing the first time: a revision clears approval,
+        # and _plan_review_ready returns EARLY when approval is None, which masked the real defect behind a
+        # green test. Every real session re-approves before it can proceed, so the test must too — checking
+        # a state the workflow never reaches proves nothing.
+        self.complete_panel()
+        revised = plan("A materially different intent.")
+        self.write_plan(revised)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change="Operator: adjust and ship."), self.store)
+        self.approve("thorough")
+        self.assertIsNotNone(self.state()["approval"], "the workflow re-approves; the test must not skip it")
+        # Real contract dicts: _plan_review_ready calls _required directly, without _packet's coercion.
+        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
+                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
+        with mock.patch.object(bc, "_installed", return_value=roster):
+            ready, missing = bc._plan_review_ready(self.state(), revised)
+        self.assertTrue(ready, missing)
+        self.assertEqual(missing, [])
+
+    def escalate(self, text="Operator: adjust and ship."):
+        """Drive the FULL real escalation path: revise, then re-approve as any session must."""
+        revised = plan("A materially different intent.")
+        self.write_plan(revised)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change=text), self.store)
+        self.approve("thorough")
+        return revised
+
+    def test_an_escalated_build_leaves_plan_review_and_is_not_told_to_re_panel(self):
+        # This asserts on what a SESSION actually experiences -- the derived phase and the next action --
+        # not on an internal predicate. Two earlier attempts at this defect passed while the Build was still
+        # wedged, because they stopped at a helper. The observable behaviour is the contract.
+        self.complete_panel()
+        self.escalate()
+        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
+                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
+        with mock.patch.object(bc, "_installed", return_value=roster), \
+             mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertNotEqual(status["phase"], "plan-review", status["required_evidence"])
+        self.assertNotIn("plan-review packet", status["required_evidence"])
+        self.assertNotIn("refresh plan-review coverage for the currently installed reviewers",
+                         status["required_evidence"])
+        self.assertFalse([x for x in status["required_evidence"] if x.startswith("plan-review receipt")],
+                         status["required_evidence"])
+        # ...and the escalation is still disclosed, never silently swallowed.
+        self.assertTrue(any("not re-reviewed" in w for w in status["warnings"]))
+
+    def test_the_pr_body_states_honestly_why_no_plan_review_is_recorded(self):
+        # Asserts on the SENTENCE, not on a predicate: the previous version of this test checked only that
+        # plan_change_escalation returned non-None, so the three-way split shipped unguarded.
+        self.complete_panel()
+        state = self.state()
+        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
+
+        self.escalate()
+        escalated = self.state()
+        self.assertIn("was NOT reviewed", bc._plan_review_clause(escalated))
+        self.assertIn("earlier version", bc._plan_review_clause(escalated))
+
+        # A waived Build must NOT be told its panel read an earlier plan: no panel ever ran.
+        waived = json.loads(json.dumps(escalated))
+        waived["plan_change_escalations"] = []
+        waived["reviews"]["plan"]["waiver"] = {"plan_digest": waived["plan"]["digest"], "depth": "thorough",
+                                               "reason": "operator waived", "adopted_commit": HEAD_A}
+        clause = bc._plan_review_clause(waived)
+        self.assertIn("explicitly waived", clause)
+        self.assertNotIn("earlier version", clause)
+
+        # And neither: no claim either way.
+        neither = json.loads(json.dumps(escalated))
+        neither["plan_change_escalations"] = []
+        self.assertEqual(bc._plan_review_clause(neither), "No plan review is recorded for the shipped plan")
+
+    def test_the_body_never_claims_a_plan_was_both_reviewed_and_not_reviewed(self):
+        # Reachable only after the packet-level cap was removed: escalate, then cut a fresh panel on the new
+        # plan. The body would then assert "Plan review ran before any code" AND "was NOT re-reviewed" about
+        # the same plan. The authorization stays disclosed either way; only the review claim is conditional.
+        self.complete_panel()
+        self.escalate()
+        state = self.state()
+        self.assertEqual(bc._plan_review_clause(state).startswith("The shipped plan was NOT reviewed"), True)
+        # ...now a fresh panel completes against the revised plan.
+        pkt = self.packet("plan")
+        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, lens, []), self.store)
+        state = self.state()
+        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
+        re_reviewed = bool(state["reviews"]["plan"]["receipts"])
+        self.assertTrue(re_reviewed)
+        # the escalation is still published, but as re-reviewed rather than contradicting the clause
+        line = (f"the plan changed after its review panel, on recorded operator authority, and was "
+                f"subsequently re-reviewed: {state['plan_change_escalations'][0]['operator_change']}")
+        self.assertNotIn("NOT re-reviewed", line)
+        self.assertIn("subsequently re-reviewed", line)
+
+    def test_re_cutting_a_plan_packet_is_deliberately_not_gated(self):
+        # Operator decision: the freeze in cmd_plan_revise is the whole enforcement. A packet-level cap was
+        # tried twice and wedged the Build both times -- a depth change or a lens install legitimately needs
+        # a re-cut, and refusing it left no exit but a faked plan edit. Pinned so the cap is not quietly
+        # reintroduced without revisiting why it was dropped.
+        self.complete_panel()
+        pkt = self.packet("plan")
+        self.assertTrue(pkt["reviewer_contracts"])
+        self.assertEqual(len(self.state()["plan_panels"]), 1)
+
+    def test_an_escalation_does_not_relax_deliverable_coverage(self):
+        # The first attempt folded the escalation into plan_waived, which also suppressed reviewer-coverage
+        # refresh. The escalation must satisfy plan review for its digest and NOTHING else.
+        self.complete_panel()
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change="Operator: adjust and ship."), self.store)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertIn("deliverable-review packet", status["required_evidence"])
+
+    def test_an_incomplete_panel_does_not_freeze_the_plan(self):
+        pkt = self.packet("plan")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "architecture", []), self.store)
+        self.assertFalse(self.state()["plan_panels"][0]["complete"])
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False), self.store)
 
     def test_packet_contains_exact_plan_raw_intent_and_digest(self):
         packet = self.packet()
@@ -763,6 +988,110 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_status_requires_validation_for_current_head(self):
         self.test_validation_becomes_stale_when_head_changes()
+
+    # --- repair-round escalation (never a cap on review coverage) ----------------------
+
+    def assess(self, judgment, head, lens=None, guidance=None, reviewed=None):
+        ns = argparse.Namespace(judgment=judgment, rationale="Round rationale.", lens=lens, guidance=guidance)
+        with mock.patch.object(bc, "_head", return_value=head), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             mock.patch.object(bc, "_required", return_value=[{"lens": "usability"}]), \
+             mock.patch.object(bc, "_installed", return_value=["usability"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_repair_assess(ns, self.store)
+
+    def receipt_round(self, head):
+        """Finish the current round's lenses so the next assess advances to a new commit pair. The receipts
+        are schema-faithful on purpose: a thin fake would pass here while the real shape failed."""
+        def change(s):
+            digest = "sha256:" + "3" * 64
+            s["repair"]["receipts"] = [
+                {"lens": x, "packet_digest": digest, "referent_digest": digest,
+                 "lens_packet_digest": digest, "commit": head, "finding_ids": [],
+                 "code_execution": "none"}
+                for x in s["repair"]["lenses"]]
+        self.store.mutate(change)
+
+    def test_a_none_judgment_still_counts_toward_escalation(self):
+        # The defect this closes: gating only scoped/full made "no re-review needed" the FRICTIONLESS exit
+        # at the moment cost pressure peaks -- the accept-the-breaks-and-merge outcome.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("none", HEAD_B)
+        self.assertEqual(len(self.state()["repair_rounds"]), 1)
+        self.assertEqual(self.state()["repair_rounds"][0]["judgment"], "none")
+
+    def test_a_third_round_of_any_judgment_stops_for_operator_guidance(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
+        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
+        self.assertEqual(len(self.state()["repair_rounds"]), 2)
+        with mock.patch.object(bc, "_head", return_value="d" * 40), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="scoped", rationale="r",
+                                                    lens=["usability"], guidance=None), self.store)
+        # ...and the free `none` exit is gated at the same point, not left open.
+        with mock.patch.object(bc, "_head", return_value="d" * 40), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r",
+                                                    lens=None, guidance=None), self.store)
+
+    def test_recorded_guidance_allows_the_next_round_and_is_kept(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
+        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
+        self.assess("scoped", "d" * 40, lens=["usability"], guidance="Operator: narrow to usability and ship.")
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 3)
+        self.assertEqual(rounds[-1]["guidance"], "Operator: narrow to usability and ship.")
+
+    def test_an_abandoned_fan_out_counts_as_its_own_round(self):
+        # The dedup key (reviewed, final) alone could not tell "upgrading my judgment before anything ran"
+        # from "the fan-out was abandoned and restarted": both share the commit pair, so repeated abandoned
+        # full fan-outs collapsed into ONE round while costing full price each time.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        # a repair packet was cut: the lenses were dispatched and that round cost real money
+        self.store.mutate(lambda s: s["repair"].update({"packet_digest": "sha256:" + "5" * 64}))
+        self.assess("full", HEAD_B)
+        self.assertEqual(len(self.state()["repair_rounds"]), 2)
+
+    def test_the_ledgers_survive_a_handoff_round_trip_and_a_legacy_restore(self):
+        # Unauthorized work is also unverified work: carrying the ledgers across handoff reversed a stated
+        # non-goal, so it needs its own coverage in both directions.
+        panels = [{"plan_digest": "sha256:" + "7" * 64, "depth": "standard", "lenses": ["architecture"],
+                   "finding_ids": ["F-1"], "complete": True}]
+        rounds = [{"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "judgment": "scoped",
+                   "lenses": ["usability"], "guidance": None}]
+        escalations = [{"reviewed_plan_digest": "sha256:" + "7" * 64,
+                        "plan_digest": "sha256:" + "8" * 64, "operator_change": "Operator: proceed."}]
+        restored = bc._restore_base_state(
+            {"build": {}, "plan": {}, "approval": None, "reviews": {}, "finding_summaries": [],
+             "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None,
+             "plan_panels": panels, "repair_rounds": rounds, "plan_change_escalations": escalations},
+            "build-state.v1")
+        self.assertEqual(restored["plan_panels"], panels)
+        self.assertEqual(restored["repair_rounds"], rounds)
+        self.assertEqual(restored["plan_change_escalations"], escalations)
+        # A handoff exported BEFORE this change carries none of these keys and must still restore, reading
+        # as empty ledgers (a free first panel) rather than raising.
+        legacy = bc._restore_base_state(
+            {"build": {}, "plan": {}, "approval": None, "reviews": {}, "finding_summaries": [],
+             "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None},
+            "build-state.v1")
+        self.assertEqual(legacy["plan_panels"], [])
+        self.assertEqual(legacy["repair_rounds"], [])
+        self.assertEqual(legacy["plan_change_escalations"], [])
+
+    def test_reassessing_the_same_divergence_replaces_its_round(self):
+        # Upgrading a scoped judgment to full on the SAME reviewed/final pair is one round, not two.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.assess("full", HEAD_B)
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0]["judgment"], "full")
 
     def test_none_repair_judgment_is_valid_for_small_change(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))

@@ -114,6 +114,7 @@
       ".engine/policies/finding-disposition.md",
       ".engine/policies/model-bindings.json",
       ".engine/policies/model-routing.md",
+      ".engine/policies/session-economy.md",
       ".engine/policies/supported-upgrade-matrix.md",
       ".engine/policies/triage-threshold.md"
     ],
@@ -519,6 +520,15 @@
       "hook": {
         "type": "command",
         "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/validate.py\" hook"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "PreToolUse",
+      "matcher": "Agent|Task|ScheduleWakeup",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/session_economy.py\" hook"
       }
     },
     {

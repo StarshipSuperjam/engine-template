@@ -184,7 +184,7 @@ review, validate it and make the same nature-based judgment.
 
 **A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
 review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
-leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Still the orchestrator's judgment, never a mechanical threshold or escalation (eADR-0041).
+leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold (eADR-0041); continuing is bounded — rounds count whatever the judgment, and after two `repair assess` stops until `--guidance` records the operator's answer. That narrows eADR-0041's "never an escalation" to a count-based stop for cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.
 
 ### 6. Preflight and submit
 
