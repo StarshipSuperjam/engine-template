@@ -69,26 +69,23 @@ _canonical = core.canonical
 _digest = core.digest
 
 
-def _plan_version(plan: dict) -> str:
-    """The plan document's schema version, or v1 when unstated (the historical default)."""
-    return plan.get("schema_version", "build-plan.v1")
+# The plan document's schema version, or v1 when unstated. Re-exported from the pure layer so the
+# version rule has one home now that the Plan Coordinator reads it too.
+_plan_version = dag.plan_version
 
 
 def _plan(path: str) -> dict:
+    """Read a Build plan document from `path` and validate it.
+
+    The reading is this module's job; the JUDGING is not. Every rule about what makes a payload
+    valid lives in dag.validate_plan_document, which plan_contract also calls before a plan may be
+    sealed — so a sealed plan and the bind that consumes it can never disagree about validity.
+    """
     try:
         value = json.loads(_input(path))
     except ValueError as exc:
         raise CoordinatorError(f"the Build plan is not valid JSON: {exc}") from exc
-    version = _plan_version(value)
-    schema = PLAN_SCHEMAS.get(version)
-    if schema is None:
-        raise CoordinatorError(f"unrecognized Build plan version {version!r}; expected build-plan.v1 or build-plan.v2")
-    _validate(value, schema)
-    ids = [item["id"] for item in value["work_items"]]
-    if len(ids) != len(set(ids)):
-        raise CoordinatorError("Build plan work-item ids must be unique")
-    if version == "build-plan.v2":
-        dag.validate_dag(value)
+    dag.validate_plan_document(value, PLAN_SCHEMAS)
     return value
 
 
