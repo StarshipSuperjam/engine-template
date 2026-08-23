@@ -154,9 +154,13 @@ jobs:
           PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
         run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata
       - name: Refuse a run in which no arm did any work
-        # UNCONDITIONED, and the last word. Without it, a value the arms did not anticipate would skip both,
-        # every step would report as successful, and the frozen required context would go green having
-        # proven nothing.
+        # Carries NO CONDITION OF ITS OWN, and is the last word. Without it, a value the arms did not
+        # anticipate would skip both, every step would report as successful, and the frozen required context
+        # would go green having proven nothing.
+        #
+        # It is not literally unconditional: a step with no `if:` still carries the platform's implicit
+        # success() gate, so it does not run when an earlier step FAILED. That is the behaviour we want — a
+        # job already red needs no second refusal — and it is why this guards the SKIP case specifically.
         #
         # The completion evidence is the PLATFORM'S OWN verdict on each arm — `steps.<id>.outcome`, which
         # only the runner writes and only for the step it names. An arm that ran reports `success`; one whose

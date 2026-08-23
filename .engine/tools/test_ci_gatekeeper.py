@@ -574,13 +574,22 @@ class Disclosures(unittest.TestCase):
 @unittest.skipIf(os.environ.get(_ISOLATION_CHILD_ENV) == "1",
                  "the child this test spawns must not spawn its own")
 class RunnerControlPlaneIsolation(unittest.TestCase):
-    """The suite that exercises the gate CLI cannot reach the job's control plane.
+    """Running this module leaves every runner control file exactly as it found it.
 
-    This is the regression for StarshipSuperjam/engine-template#1043 itself. Immutable step outputs already
-    make the ARM unreachable; this proves the broader property the workflow's decoy env block also defends —
-    that running this module leaves every runner control file exactly as it found it. It runs the module for
-    real in a child process with all five files fabricated, because the defect was a side effect no in-process
-    assertion about a mocked environment would have caught."""
+    The regression for StarshipSuperjam/engine-template#1043. Immutable step outputs already make the ARM
+    unreachable; this holds the broader property the workflow's decoy block also defends.
+
+    What it proves, stated precisely rather than generously: that this module's isolation is present and
+    effective. The child's own `setUpModule` removes the five names before any test runs, so no individual
+    test can reach the fabricated files — which means this does NOT certify that each test is independently
+    well-behaved. It fails exactly when the isolation is weakened or dropped, and dropping it is how #1043
+    happened, so that is the regression worth having. Confirmed by experiment rather than assumed: disabling
+    the pop makes this fail on GITHUB_OUTPUT, written by the two tests that drive the `decide` verb.
+
+    A child process rather than an in-process runner, for one reason: running this module's own suite from
+    inside one of its tests would re-enter the very setUpModule/tearDownModule fixture under test while it is
+    already active, nesting the patch on itself. A fresh interpreter sidesteps that, matches how CI invokes
+    the suite, and costs well under a second against an inventory of several thousand tests."""
 
     def test_running_this_module_leaves_every_runner_control_file_untouched(self):
         import subprocess

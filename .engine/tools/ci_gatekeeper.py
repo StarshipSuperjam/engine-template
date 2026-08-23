@@ -472,11 +472,17 @@ def reuse_disclosure(detail) -> str:
 
     A reuse run's green looks identical to a full run's green in the pull-request checks list. This line is the
     run's own account of the difference: it names the run whose proof was accepted, so a merge allowed by reuse
-    stays reconstructable while the run's logs live. Where it surfaces, honestly: it is written to the run's
-    Summary tab (one click past the check's Details link) AND printed to the decide step's log; the run's step
-    list separately shows the validator and self-test steps as skipped. It is NOT the operator's primary
-    disclosure — that is the pull-request body's standing statement, which needs no click at all; this line is
-    the per-run detail for whoever opens the run."""
+    stays reconstructable while the run's logs live.
+
+    Where it surfaces, exhaustively: the run's Summary tab (one click past the check's Details link) and the
+    decide step's log. The run's step list separately shows the validator and self-test steps as skipped.
+    That is ALL of it. Nothing writes a reuse statement into the pull-request body — no template section, no
+    check, no renderer — so a person who never opens the run is told nothing, and this line is the whole
+    disclosure rather than the detail behind a summary elsewhere. An earlier version of this docstring named
+    a "pull-request body standing statement" as the primary surface; no such surface was ever built, and the
+    one pull request that carried such a sentence had it typed in by hand. Said plainly here because the
+    module refuses a reuse run that cannot write this line (see the `decide` verb), and that refusal only
+    makes sense if this really is the last line of defence."""
     receipt = (detail or {}).get("receipt") or {}
     return (
         f"Reused the proof from run {detail.get('run_id')} ({detail.get('run_url')}) for this exact tree "
@@ -558,9 +564,12 @@ def main(argv):
         return 0
 
     if verb == "assert-ran":
-        # The terminal, UNCONDITIONED step. If the gate ever published nothing, published an unexpected
-        # value, or a step reference drifted, every substantive step would skip — and the platform treats a
-        # skipped step as successful, so the job would report GREEN having proven nothing. This refuses that.
+        # The terminal step, which carries no condition of its own. If the gate ever published nothing,
+        # published an unexpected value, or a step reference drifted, every substantive step would skip — and
+        # the platform treats a skipped step as successful, so the job would report GREEN having proven
+        # nothing. This refuses that. It guards the SKIP case specifically: a step without an `if:` still
+        # carries the platform's implicit success() gate, so a job whose arm FAILED has already gone red and
+        # never reaches here.
         #
         # It reads the runner's own outcome for each arm's substantive step, handed in as step-level `env:`.
         # Exactly one must have succeeded: none means no work was done, and both means the arms stopped being

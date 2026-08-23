@@ -1225,9 +1225,16 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         # The gate publishes its key from Python rather than a shell append, so it is sourced from the tool.
         writes_output.setdefault("gate", set()).add(ci_gatekeeper.MODE_OUTPUT_KEY)
 
-        blob = "\n".join(str(s.get("if", "")) + "\n" + json.dumps(s.get("env", {})) for s in steps)
+        # The WHOLE step, not just `if:` and `env:`. A `${{ steps.gate.outputs.mode }}` interpolated into a
+        # `run:` block or a `with:` value is an ordinary Actions pattern, and a pin that skipped those would
+        # advertise coverage it does not provide — the worst kind, because the next author trusts it. Nothing
+        # in this workflow references a step from `run:` today; the point is that it stays checked if one does.
+        blob = "\n".join(json.dumps(s) for s in steps)
         seen = 0
-        for ref, attr, key in re.findall(r"steps\.([A-Za-z0-9_-]+)\.(outputs\.([A-Za-z0-9_-]+)|outcome)", blob):
+        # `conclusion` as well as `outcome`: it is a real per-step field with different semantics around
+        # continue-on-error, and an unvalidated reference to it would resolve to empty just as silently.
+        for ref, attr, key in re.findall(
+                r"steps\.([A-Za-z0-9_-]+)\.(outputs\.([A-Za-z0-9_-]+)|outcome|conclusion)", blob):
             seen += 1
             self.assertIn(ref, declared, f"`steps.{ref}.…` names no step declared in this workflow")
             if attr.startswith("outputs."):
