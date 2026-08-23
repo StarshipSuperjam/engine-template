@@ -2320,6 +2320,20 @@ class TestEvidenceDurability(CoordinatorCase):
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
                                   code_execution="none")
 
+    def _plan_reviewed(self):
+        """Complete the plan panel so the phase driver can reach the later gates."""
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
+        out = io.StringIO()
+        roster = ["product-intent", "architecture", "feasibility", "risk-governance"]
+        with mock.patch.object(bc, "_installed", return_value=roster), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
+            bc._packet(args, self.store)
+        pkt = json.loads(out.getvalue())
+        for item in pkt["reviewer_contracts"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+
     def _repair_packet(self, lenses, final=HEAD_B, reviewed=HEAD_A):
         self.store.mutate(lambda s: s.update({
             "repair": {"reviewed_commit": reviewed, "final_commit": final, "summary": "1 file",
@@ -2430,6 +2444,13 @@ class TestEvidenceDurability(CoordinatorCase):
                                   capture_output=True, text=True)
         subprocess.run(["git", "init", "-q", "-b", "main", str(tmp)], check=True)
         git("config", "user.email", "e@x"); git("config", "user.name", "n")
+        # `_status` and `_packet` read the engine's own schemas and protocol from ROOT, which the probes
+        # repoint at this scratch repo. Link them in read-only rather than mocking every reader.
+        (tmp / ".engine").mkdir(exist_ok=True)
+        for name in ("schemas", "check", "policies", "modules"):
+            source = Path(bc.__file__).resolve().parents[1] / name
+            if source.exists():
+                (tmp / ".engine" / name).symlink_to(source)
         (tmp / "upstream.txt").write_text("one\n")
         git("add", "-A"); git("commit", "-qm", "base")
         base_before = git("rev-parse", "HEAD").stdout.strip()
@@ -2578,6 +2599,106 @@ class TestEvidenceDurability(CoordinatorCase):
         self.assertTrue(entry["contribution_identical"])
         self.assertEqual(entry["from_commit"], reviewed)
         self.assertEqual(entry["to_commit"], head)
+
+    def test_a_repair_round_before_the_rewrite_does_not_burn_a_fabricated_round(self):
+        """A completed repair round leaves commits that a later rebase orphans. Anchoring on them made
+        `repair assess` measure `orphan..head` -- a span carrying the upstream commits the rebase pulled in
+        -- and write a record whose reviewed_commit could never satisfy `repair_ready`, so the session
+        assessed twice and one fabricated round counted toward the escalation threshold."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self.store.mutate(lambda s: s.update({"repair": {
+            "reviewed_commit": base_before, "final_commit": reviewed, "summary": "1 file changed",
+            "judgment": "scoped", "rationale": "r", "lenses": [], "packet_digest": None, "receipts": []}}))
+        self._reconcile(tmp, base_before, reviewed, base_after, head)
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after):
+            # the orphaned repair record must not act as the live anchor once it is off the branch
+            self.assertEqual(bc._effective_reviewed(self.state()), head)
+            # ...so no re-review judgment is owed, and `repair assess` is not driven at an orphan
+            status = bc._status(self.state())
+            self.assertFalse(any("re-review" in j for j in status["engineering_judgment"]))
+            with self.assertRaisesRegex(bc.CoordinatorError, "already the current head"):
+                bc.cmd_reconcile(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        self.assertEqual(self.state()["repair_rounds"], [], "no fabricated round was burned")
+
+    def test_status_never_crashes_where_the_merge_base_cannot_be_resolved(self):
+        """`status` is the read-only command a stuck session runs FIRST; it must report, not raise."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": reviewed, "base_commit": base_before}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", side_effect=bc.CoordinatorError("no origin/HEAD")):
+            self.assertIsInstance(bc._status(self.state())["phase"], str)
+
+    def test_status_routes_a_rewritten_history_before_the_session_is_stuck(self):
+        """The point-of-action home: a session reading `status` must be told to reconcile BEFORE it tries
+        `repair assess` and meets the refusal."""
+        self._plan_reviewed()
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self._deliverable_reviewed(head=reviewed)
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"base_commit": base_before}))
+        self.store.mutate(lambda s: s.update({"validation": {
+            "commit": head, "results": [{"id": "x", "commit": head, "passed": True, "summary": "ok"}]}}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "repair-assessment")
+        self.assertTrue(any("reconcile" in j for j in status["engineering_judgment"]))
+        self.assertTrue(any("reconcile" in a for a in status["available_activities"]))
+        # and it must NOT offer the activity that is a guaranteed refusal in this state
+        self.assertFalse(any("proportional re-review" in a for a in status["available_activities"]))
+
+    def test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body(self):
+        """Drives the REAL composer: state -> drift line -> rendered pull-request body. The two rules this
+        sentence must never break are that it cannot claim no repair happened when one did, and that the
+        commit it names as submitted must be the one actually in the pull request."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        state = {"repair": {"reviewed_commit": BASE, "final_commit": HEAD_A, "summary": "3 files changed",
+                            "judgment": "scoped", "rationale": "r", "lenses": [], "packet_digest": None,
+                            "receipts": []},
+                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
+                                 "base_after": HEAD_C, "contribution_identical": True,
+                                 "divergent_paths": [], "unmeasurable": None}]}
+        line = bc._drift_line(state, HEAD_B)
+        # the submitted commit is the one in the PR, not the orphan the repair round ended on
+        self.assertIn(f"submitted `{HEAD_B[:12]}`", line)
+        self.assertNotIn(f"submitted `{HEAD_A[:12]}`", line)
+        # a repair round that really happened is never denied
+        self.assertIn("3 files changed", line)
+        self.assertNotIn("no post-review repair was needed", line)
+        self.assertIn("history was rewritten", line.lower())
+        self.assertIn("verified unchanged", line)
+        body = bcc.compose(_good_claim(), {**_good_evidence(), "drift_line": line})
+        self.assertIn("Reviewed vs submitted", body)
+        self.assertIn(f"submitted `{HEAD_B[:12]}`", body)
+
+    def test_a_divergent_reconcile_names_the_paths_in_the_composed_body(self):
+        state = {"repair": None,
+                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
+                                 "base_after": HEAD_C, "contribution_identical": False,
+                                 "divergent_paths": ["mine.py"], "unmeasurable": None}]}
+        line = bc._drift_line(state, HEAD_B)
+        self.assertIn("mine.py", line)
+        self.assertNotIn("no post-review repair was needed", line)
+
+    def test_two_receipts_naming_one_finding_id_keep_both_demands(self):
+        """A single-key map let the last receipt iterated win, silently dropping the other demand and
+        deleting an already-recorded disposition at the next regeneration."""
+        state = {"reviews": {"plan": {"packet_digest": "sha256:" + "1" * 64, "receipts": [
+                     {"lens": "architecture", "packet_digest": "sha256:" + "1" * 64,
+                      "lens_packet_digest": "sha256:" + "a" * 64, "commit": None, "finding_ids": ["X-1"]},
+                     {"lens": "usability", "packet_digest": "sha256:" + "1" * 64,
+                      "lens_packet_digest": "sha256:" + "b" * 64, "commit": None, "finding_ids": ["X-1"]}]},
+                     "deliverable": {"packet_digest": None, "receipts": []}},
+                 "repair": None, "findings": []}
+        demanded = bc.review.demanded_findings(state)
+        self.assertEqual(len(demanded["X-1"]), 2)
+        state["findings"] = [{"id": "X-1", "stage": "plan", "lens": "usability",
+                              "packet_digest": "sha256:" + "1" * 64,
+                              "lens_packet_digest": "sha256:" + "b" * 64, "commit": None}]
+        self.assertEqual(bc.review.missing_findings(state), [])
+        self.assertEqual(len(bc.review.surviving_findings(state)), 1)
 
     def test_reconciles_survive_a_handoff_round_trip_and_a_legacy_restore(self):
         entry = {"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE, "base_after": HEAD_C,

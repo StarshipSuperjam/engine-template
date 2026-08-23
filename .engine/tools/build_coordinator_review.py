@@ -130,22 +130,28 @@ def _finding_key(stage: str, lens: str, packet_digest: str, lens_packet_digest, 
     return (stage, lens, packet_digest, lens_packet_digest, commit)
 
 
-def demanded_findings(state: dict) -> dict[str, tuple]:
-    """finding id -> the exact key a disposition must match, for every id a live receipt demands."""
-    demanded = {}
+def demanded_findings(state: dict) -> dict[str, set]:
+    """finding id -> EVERY key that would satisfy it, across all live receipts naming that id.
+
+    A set rather than one key: `state["findings"]` holds at most one record per id, so if two live receipts
+    name the same id a single-key map would let the last one iterated win -- silently dropping the other
+    receipt's demand and, because the survival set reads the same map, deleting an already-recorded
+    disposition at the next packet regeneration. Matching ANY live demand keeps one honest record able to
+    satisfy every receipt that asked for it, instead of trading a loud wedge for quiet evidence loss."""
+    demanded: dict[str, set] = {}
     for produced_by, receipt in live_receipts(state):
         key = _finding_key(produced_by, receipt["lens"], receipt["packet_digest"],
                            receipt.get("lens_packet_digest"), receipt["commit"])
         for finding_id in receipt["finding_ids"]:
-            demanded[finding_id] = key
+            demanded.setdefault(finding_id, set()).add(key)
     return demanded
 
 
-def finding_is_demanded(finding: dict, demanded: dict[str, tuple]) -> bool:
-    key = demanded.get(finding["id"])
-    return key is not None and key == _finding_key(
+def finding_is_demanded(finding: dict, demanded: dict[str, set]) -> bool:
+    keys = demanded.get(finding["id"])
+    return bool(keys) and _finding_key(
         finding["stage"], finding["lens"], finding["packet_digest"],
-        finding.get("lens_packet_digest"), finding["commit"])
+        finding.get("lens_packet_digest"), finding["commit"]) in keys
 
 
 def surviving_findings(state: dict) -> list[dict]:

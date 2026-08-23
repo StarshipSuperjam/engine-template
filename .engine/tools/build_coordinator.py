@@ -504,7 +504,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                        # A session reads this list BEFORE it acts. Naming the verb only in
                                        # the refusals would mean a session met it only after being stuck.
                                        ["re-anchor the bindings with `reconcile` after a rebase or other "
-                                        "history rewrite", "record the proportional re-review judgment"])
+                                        "history rewrite"] if rewritten else
+                                       ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
         phase, next_one, available = "submission-preflight", "run submission preflights", []
     else:
@@ -1476,6 +1477,16 @@ def _is_ancestor(candidate: str, of: str) -> bool:
     return core.run(["git", "merge-base", "--is-ancestor", candidate, of], root=ROOT).returncode == 0
 
 
+def _base_or_none() -> str | None:
+    """The merge base, or None where it cannot be resolved. `_base` raises, and `_status` -- the read-only
+    command a stuck session runs FIRST -- must report where the Build stands rather than crash in a
+    checkout with no `origin/HEAD` (a disposable demo repo, a bare-ish clone)."""
+    try:
+        return _base()
+    except CoordinatorError:
+        return None
+
+
 def _tree_entry(commit: str, path: str) -> tuple[str, str] | None:
     """(mode, blob-or-tree oid) for one path at one commit, or None when absent. Exact: no diff, no
     normalization, no textconv, no rename heuristics -- so a whitespace-only edit, a swapped binary, and a
@@ -1531,11 +1542,26 @@ def _contribution_divergence(base_before: str, from_commit: str, base_after: str
 
 def _effective_reviewed(state: dict) -> str | None:
     """The commit the deliverable review currently stands on: the reviewed commit, advanced to a completed
-    repair round's final commit. Single-homed -- `cmd_repair_assess` and `cmd_reconcile` must agree."""
+    repair round's final commit. Single-homed -- `cmd_repair_assess` and `cmd_reconcile` must agree.
+
+    The advance holds only while that final commit is still ON the branch. A repair record is history: it
+    describes a round that happened, and a rewrite does not un-happen it, so its commits are deliberately
+    left as recorded for the audit trail. But once they name orphans they are no longer a live anchor.
+    Preferring an orphan here made `repair assess` measure `orphan..head` -- a span carrying the upstream
+    commits the rebase pulled in, exactly the diff its own refusal text calls meaningless -- and write a
+    repair record whose `reviewed_commit` could never satisfy `repair_ready`, so the session had to assess
+    twice and one fabricated round counted against the escalation threshold."""
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
     if _repair_round_complete(prior):
-        return prior["final_commit"]
+        final = prior["final_commit"]
+        head = _head()
+        # Demoted only on POSITIVE proof that the commit is off the branch: readable, and not an ancestor
+        # of head. An unreadable commit proves nothing -- treating "cannot tell" as "orphaned" would change
+        # the anchor on a failed probe, which is the wrong direction to fail in.
+        orphaned = final and final != head and _commit_present(final) and not _is_ancestor(final, head)
+        if not orphaned:
+            return final
     return reviewed
 
 
@@ -1553,7 +1579,8 @@ def _history_was_rewritten(state: dict, head: str) -> bool:
     if _is_ancestor(reviewed, head):
         return False
     recorded_base = state["reviews"]["deliverable"].get("base_commit")
-    return bool(recorded_base) and recorded_base != _base()
+    current_base = _base_or_none()
+    return bool(recorded_base) and bool(current_base) and recorded_base != current_base
 
 
 def cmd_reconcile(args, store: StateStore) -> None:
@@ -2432,6 +2459,39 @@ def _plan_review_clause(state: dict) -> str:
     return "No plan review is recorded for the shipped plan"
 
 
+def _drift_line(state: dict, head: str) -> str:
+    """The PR body's "Reviewed vs submitted" disclosure, composed from recorded state.
+
+    Pure and single-homed so it can be driven end to end by a test: the operator's consent surface is the
+    one place a wrong sentence does real damage, and this line has twice been the thing that went wrong.
+    Two rules it must never break. It must not claim no repair happened when one did -- clearing the repair
+    record used to make it say exactly that. And the commit it names as "submitted" must be the commit
+    actually in the pull request: after a history rewrite, a completed repair round's final commit is an
+    orphan, and leading with it put a rewritten SHA under the bold label an operator reads first, with the
+    correction two clauses later."""
+    repair = state.get("repair")
+    reconciles = state.get("reconciles", [])
+    if reconciles:
+        first, last = reconciles[0], reconciles[-1]
+        line = (f"reviewed `{first['from_commit'][:12]}`, submitted `{head[:12]}` — this branch's history "
+                f"was rewritten after review")
+        if repair and repair.get("final_commit"):
+            line += f", and a post-review repair ran before it ({repair['summary']})"
+        line += ". Review bindings were re-anchored"
+        for item in reconciles:
+            detail = ("the branch's own contribution was verified unchanged on exact tree entries"
+                      if item["contribution_identical"] else
+                      (item["unmeasurable"] or "the contribution differs at: "
+                       + ", ".join(item["divergent_paths"])))
+            line += (f" from `{item['from_commit'][:12]}` to `{item['to_commit'][:12]}` "
+                     f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
+        return line + "."
+    if repair and repair.get("final_commit"):
+        return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
+                f"{repair['summary']}")
+    return "no post-review repair was needed; the reviewed and submitted commits are the same."
+
+
 def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:
     """Compute the coordinator-owned evidence a composed body carries — everything deterministic that the
     claim deliberately does not hold. Read-only: it runs the same report-only tools the preflight uses and
@@ -2503,23 +2563,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     code_execution_line = ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
                            "your project" if ran_code else "no reviewer executed the change's code")
 
-    repair = state.get("repair")
-    if repair and repair.get("final_commit"):
-        drift_line = (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
-                      f"{repair['summary']}")
-    else:
-        drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
-    # A history rewrite moves the reviewed commit, so the sentence above stops being true on its own terms:
-    # "the same" would name a commit the branch no longer contains. Every reconcile is appended here, so a
-    # re-anchored Build states what actually happened rather than resting on a claim about commits that
-    # were rewritten underneath it.
-    for item in state.get("reconciles", []):
-        detail = ("the branch's own contribution was verified unchanged on exact tree entries"
-                  if item["contribution_identical"] else
-                  (item["unmeasurable"] or "the contribution differs at: " + ", ".join(item["divergent_paths"])))
-        drift_line += (f" History was rewritten: review bindings re-anchored from "
-                       f"`{item['from_commit'][:12]}` to `{item['to_commit'][:12]}` "
-                       f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`) — {detail}.")
+    drift_line = _drift_line(state, head)
 
     # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,
     # computed from the diff so the operator sees regeneration happened over generated paths only. Driven
