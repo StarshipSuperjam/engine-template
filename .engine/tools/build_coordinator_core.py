@@ -2,9 +2,18 @@
 
 This module knows JSON, git, private artifacts, and atomic snapshot storage. It
 does not know plans, reviewers, specifications, GitHub workflow, or CLI phases.
+
+Two stores ride these primitives: the Build coordinator's own `StateStore`
+(deliberately non-durable, in OS temp, one Build's current facts) and the Plan
+Coordinator's durable local library (`plan_store`). They differ in exactly the
+ways they should — where they may live, and how hard they try to survive a
+power cut — and agree on everything else, because the locking, the
+compare-and-swap, and the atomic-replace idiom are free functions here rather
+than a second copy that drifts.
 """
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -20,6 +29,106 @@ from typing import Any, Callable
 
 class CoordinatorError(Exception):
     pass
+
+
+# The platform durability barrier. On Darwin a bare os.fsync returns once the bytes reach the drive's
+# write cache, which a power cut can still lose; fcntl.F_FULLFSYNC forces them to stable storage.
+# Absent on other platforms, where os.fsync is the floor.
+#
+# The memory ledger holds an equivalent private pair, and that duplication is deliberate: the ledger
+# belongs to the OPTIONAL memory-substrate module, whose files are DELETED when an operator declines
+# it, and core may not depend on something that can be uninstalled. Six lines of platform primitive
+# is the right price for that independence; the payload validator, which had a real drift risk, was
+# genuinely shared instead.
+_F_FULLFSYNC = getattr(fcntl, "F_FULLFSYNC", None)
+
+
+def durable_fsync(fd) -> None:
+    """Flush `fd` to stable storage as durably as the platform allows. Guarded throughout: an fsync
+    fault must never crash past a caller's lock release, so it degrades rather than aborting a
+    critical section that still leaves intact data on disk."""
+    if _F_FULLFSYNC is not None:
+        try:
+            fcntl.fcntl(fd, _F_FULLFSYNC)
+            return
+        except OSError:
+            pass
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+
+
+def fsync_dir(path: Path | str) -> None:
+    """fsync a directory so a rename within it survives a crash. `os.replace` is atomic with respect
+    to readers, which is an ordering guarantee, not a durability one: without this the new file can
+    be on the platter while the directory entry pointing at it is not. Best-effort — some platforms
+    refuse to fsync a directory fd, and degrading beats crashing."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        durable_fsync(fd)
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def exclusive_lock(lock_path: Path):
+    """Hold an exclusive advisory lock on a sibling lock file for the duration of the block.
+
+    A sibling rather than the data file itself, because the data file is replaced by rename on every
+    write: a lock held on the old inode would guard nothing once the rename landed.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield handle
+    finally:
+        handle.close()
+
+
+def assert_revision(actual: int, expected: int | None, what: str, remedy: str) -> None:
+    """The compare-and-swap guard both stores enforce: a writer that read revision N may only write
+    over revision N. Refusing here is what makes a lost update impossible rather than unlikely — the
+    stale writer is told to reload, and NOTHING it holds is written.
+
+    `remedy` is the caller's own words for how to recover, because the two stores recover differently
+    and a generic phrase would send an operator to the wrong command.
+    """
+    if expected is not None and actual != expected:
+        raise CoordinatorError(f"{what} revision is {actual}, not expected {expected}; {remedy}")
+
+
+def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None) -> None:
+    """Write `text` to `path` so a reader sees either the whole old file or the whole new one.
+
+    Write to a temp file in the SAME directory (a cross-filesystem rename is not atomic), flush,
+    fsync, rename over the target. With `durable`, use the platform barrier and fsync the containing
+    directory afterwards, so the write survives a power cut and not merely a process crash — the
+    difference between a store that is atomic and one that is actually durable. `mode` is applied
+    explicitly with os.chmod rather than left to mkstemp, so permissions do not depend on umask.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            if durable:
+                durable_fsync(handle.fileno())
+            else:
+                os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+        if durable:
+            fsync_dir(path.parent)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 
 def json_file(path: Path) -> Any:
@@ -190,10 +299,7 @@ class StateStore:
         self.expected_revision = expected_revision
 
     def _locked(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = self.lock.open("a+", encoding="utf-8")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return handle
+        return exclusive_lock(self.lock)
 
     def _schema_for(self, state: dict) -> Path:
         """Resolve the schema for one state document.
@@ -227,23 +333,15 @@ class StateStore:
             state = json_file(self.path)
             validate(state, self._schema_for(state))
             expected = self.expected_revision if self.expected_revision is not None else from_revision
-            if expected is not None and state["revision"] != expected:
-                raise CoordinatorError(f"snapshot revision is {state['revision']}, not expected {expected}; reload status")
+            assert_revision(state["revision"], expected, "snapshot", "reload status")
             result = change(state)
             state["revision"] += 1
             self._write(state)
             return result
 
     def _write(self, state: dict) -> None:
+        # Atomic but deliberately NOT durable: this snapshot lives in OS temp by construction (see
+        # __init__), holds one Build's current facts, and is expected not to survive a reboot. The
+        # durable store is plan_store, and the difference is a design choice, not an oversight.
         validate(state, self._schema_for(state))
-        fd, temp_name = tempfile.mkstemp(prefix=self.path.name + ".", dir=self.path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(state, handle, indent=2, sort_keys=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_name, self.path)
-        finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
+        atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n")
