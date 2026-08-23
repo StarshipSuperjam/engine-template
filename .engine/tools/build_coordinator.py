@@ -270,7 +270,11 @@ def _plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
     stage = state["reviews"]["plan"]
     waiver = stage.get("waiver")
     trivial = plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick"
-    if waiver or trivial or not state.get("approval"):
+    # The escalation belongs in this bypass too: a revision empties reviewer_contracts, so the freshness
+    # comparison below can never be satisfied afterwards and would wall the Build permanently. It carries no
+    # depth binding (unlike a waiver) because it is recorded at the moment a revision CLEARS approval, so
+    # there is no depth to bind -- the operator re-approves depth immediately after, as their own act.
+    if waiver or trivial or not state.get("approval") or review.plan_change_escalation(state):
         return ready, missing
     current = _required(_protocol(), "plan", state["approval"]["depth"], _installed("plan"))
     recorded = {item["lens"]: (item["path"], item["digest"])
@@ -367,9 +371,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                         and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
                         and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
     # An operator-authorized mid-flight plan change stands in for plan-review of the NEW digest -- and for
-    # nothing else. It is read from the SAME predicate the checkpoint/validate gate uses, so the two can
-    # never disagree, and it is kept OUT of plan_waived: folding it in there also suppressed reviewer-
-    # coverage refresh, relaxing lens coverage this change promised never to touch.
+    # nothing else. FOUR readers decide whether plan review is satisfied -- this evidence line, the plan-
+    # coverage refresh line, the plan_ready phase driver, and the _plan_review_ready wrapper the
+    # checkpoint/validate gate calls -- and every one of them must consult the same predicate. Two earlier
+    # attempts at this fixed a subset and left the Build wedged into the re-panel the cap exists to prevent,
+    # each time behind a green test that stopped at a helper instead of the derived phase. It is kept OUT of
+    # plan_waived deliberately: folding it in also suppressed plan-review coverage refresh.
     plan_escalation = review.plan_change_escalation(state)
     if plan_stage["packet_digest"] is None and not fast_path and not plan_waived and not plan_escalation:
         required_evidence.append("plan-review packet")
@@ -404,7 +411,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             return all(actual.get(item["lens"]) == (item["path"], item["digest"]) for item in current)
         plan_coverage_current = contracts_current(current_plan, plan_stage)
         delivery_coverage_current = contracts_current(current_delivery, delivery)
-        if not plan_coverage_current and not plan_waived:
+        if not plan_coverage_current and not plan_waived and not plan_escalation:
             required_evidence.append("refresh plan-review coverage for the currently installed reviewers")
         if delivery["packet_digest"] and not delivery_coverage_current:
             required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
@@ -461,9 +468,9 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                         + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
-    plan_ready = fast_path or plan_waived or ((plan_stage.get("referent_digest") or plan_stage["packet_digest"])
-                                               is not None and not _missing_receipts(plan_stage)
-                                               and plan_coverage_current)
+    plan_ready = fast_path or plan_waived or bool(plan_escalation) or (
+        (plan_stage.get("referent_digest") or plan_stage["packet_digest"])
+        is not None and not _missing_receipts(plan_stage) and plan_coverage_current)
     dispositions_ready = not missing_findings and not blocking
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
@@ -973,16 +980,25 @@ def _packet(args, store: StateStore | None) -> None:
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
     # One panel per Build, enforced where the panel is actually CUT and not only where the plan is revised.
-    # An IDENTICAL plan-stage packet re-issued after a completed panel adds no reviewable difference -- the
-    # receipts it would carry already exist -- so the only thing it can buy is a second cold fan-out. A
-    # packet whose digest DIFFERS is a genuine re-review need (a reviewer contract moved, so that lens must
-    # run again) and stays free: refusing it would wall the legitimate case this cap explicitly preserves.
-    if stage == "plan" and unchanged and _completed_plan_panels(state):
-        raise CoordinatorError(
-            "the plan panel for this plan has already completed and this packet is identical to the one it "
-            "read, so re-issuing it can only re-run the panel. Its receipts already stand: disposition the "
-            "findings and fix them in the implementation, escalate a genuine plan change to the operator "
-            "with 'plan revise --operator-change', or abandon this Build and re-plan.")
+    # After a completed panel exactly ONE re-issue is legitimate: a reviewer contract moved, so that lens
+    # must run again. That case leaves the referent untouched and changes only the contracts, which is why
+    # the test is referent equality and NOT packet inequality. Packet inequality was the first attempt and
+    # was too weak twice over: --impact is caller-supplied JSON that feeds the referent, so any session
+    # could change it to mint a fresh packet and re-run all four lenses for free, and after an authorized
+    # plan change the new digest made a full panel legal again -- the cap forcing the very spend it exists
+    # to prevent.
+    if stage == "plan" and _completed_plan_panels(state):
+        recorded_referent = (state["reviews"]["plan"] or {}).get("referent_digest")
+        contract_only_rerun = (recorded_referent is not None
+                               and recorded_referent == referent_digest and not unchanged)
+        if not contract_only_rerun:
+            raise CoordinatorError(
+                "the plan panel for this Build has already completed, and this packet would re-run it. The "
+                "one re-issue that stays free is a reviewer contract moving, which leaves the reviewed "
+                "material identical; this packet changes it. If the plan itself must change, that is the "
+                "operator's call -- record it with 'plan revise --operator-change', which does NOT re-run "
+                "the panel. Otherwise disposition the panel's findings and fix them in the implementation, "
+                "or abandon this Build and re-plan.")
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
     # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
     # implementation and drives no throwaway-copy execution, so it needs no baseline.
@@ -2236,14 +2252,18 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     if cold_review_ran:
         lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+        # Three distinct cases reach "no plan receipts", and they are not the same sentence. Keying on
+        # receipt-emptiness alone told a WAIVED build that its panel had read an earlier plan and pointed it
+        # at an escalation line that does not exist -- swapping one false statement for another.
         if plan_review_ran:
             plan_clause = "Plan review ran before any code"
-        else:
-            # An escalated plan change clears the plan receipts: the panel read an EARLIER plan. Claiming
-            # plan review ran for the shipped plan would be the exact false statement this block exists to
-            # avoid; the Escalation line above carries the operator's authorization verbatim.
+        elif state.get("reviews", {}).get("plan", {}).get("waiver"):
+            plan_clause = ("No plan review ran — the operator explicitly waived it for this Build")
+        elif review.plan_change_escalation(state):
             plan_clause = ("The shipped plan was NOT reviewed — its panel read an earlier version and the "
                            "change was authorized without re-review (see the escalation above)")
+        else:
+            plan_clause = "No plan review is recorded for the shipped plan"
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
     else:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
@@ -2295,8 +2315,9 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
     # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
-    # an escalation to nobody -- the whole argument for these being real rather than a self-tick. Every round
-    # is listed, not just the latest, so a PR after three rounds cannot read like one after a single round.
+    # an escalation to nobody -- the whole argument for these being real rather than a self-tick. Only rounds
+    # carrying guidance are emitted: rounds one and two are free by design and have nothing to disclose. The
+    # "round N of M" phrasing carries the total, so a PR after three rounds cannot read like one after one.
     cadence_escalations = []
     for item in state.get("plan_change_escalations", []):
         cadence_escalations.append(

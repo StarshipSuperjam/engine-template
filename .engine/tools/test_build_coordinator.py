@@ -471,14 +471,101 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_an_escalated_plan_change_unwedges_the_enforcing_gate_not_just_status(self):
         # The gate checkpoint/validate consult is a DIFFERENT function from the status render. When only
         # status knew about the escalation, status reported plan review satisfied while the gate refused.
+        #
+        # The re-approve below is load-bearing and was missing the first time: a revision clears approval,
+        # and _plan_review_ready returns EARLY when approval is None, which masked the real defect behind a
+        # green test. Every real session re-approves before it can proceed, so the test must too — checking
+        # a state the workflow never reaches proves nothing.
         self.complete_panel()
-        self.write_plan(plan("A materially different intent."))
+        revised = plan("A materially different intent.")
+        self.write_plan(revised)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
                                                   operator_change="Operator: adjust and ship."), self.store)
-        ready, missing = bc._plan_review_ready(self.state(), plan("A materially different intent."))
+        self.approve("thorough")
+        self.assertIsNotNone(self.state()["approval"], "the workflow re-approves; the test must not skip it")
+        # Real contract dicts: _plan_review_ready calls _required directly, without _packet's coercion.
+        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
+                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
+        with mock.patch.object(bc, "_installed", return_value=roster):
+            ready, missing = bc._plan_review_ready(self.state(), revised)
         self.assertTrue(ready, missing)
         self.assertEqual(missing, [])
+
+    def escalate(self, text="Operator: adjust and ship."):
+        """Drive the FULL real escalation path: revise, then re-approve as any session must."""
+        revised = plan("A materially different intent.")
+        self.write_plan(revised)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change=text), self.store)
+        self.approve("thorough")
+        return revised
+
+    def test_an_escalated_build_leaves_plan_review_and_is_not_told_to_re_panel(self):
+        # This asserts on what a SESSION actually experiences -- the derived phase and the next action --
+        # not on an internal predicate. Two earlier attempts at this defect passed while the Build was still
+        # wedged, because they stopped at a helper. The observable behaviour is the contract.
+        self.complete_panel()
+        self.escalate()
+        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
+                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
+        with mock.patch.object(bc, "_installed", return_value=roster), \
+             mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertNotEqual(status["phase"], "plan-review", status["required_evidence"])
+        self.assertNotIn("plan-review packet", status["required_evidence"])
+        self.assertNotIn("refresh plan-review coverage for the currently installed reviewers",
+                         status["required_evidence"])
+        self.assertFalse([x for x in status["required_evidence"] if x.startswith("plan-review receipt")],
+                         status["required_evidence"])
+        # ...and the escalation is still disclosed, never silently swallowed.
+        self.assertTrue(any("not re-reviewed" in w for w in status["warnings"]))
+
+    def test_the_pr_body_states_honestly_why_no_plan_review_is_recorded(self):
+        # Three different situations reach "no plan receipts" and each needs its own true sentence; keying
+        # on emptiness alone told a waived Build its panel had read an earlier plan.
+        self.complete_panel()
+        self.escalate()
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"receipts": [{"lens": "usability", "packet_digest": "sha256:" + "2" * 64,
+                           "referent_digest": "sha256:" + "2" * 64,
+                           "lens_packet_digest": "sha256:" + "2" * 64, "commit": HEAD_A,
+                           "finding_ids": [], "code_execution": "none"}]}))
+        state = self.state()
+        self.assertIsNotNone(bc.review.plan_change_escalation(state))
+        self.assertTrue(bc.review.plan_change_escalation(state)["operator_change"])
+        # the waiver branch must NOT claim a panel read an earlier plan
+        waived = json.loads(json.dumps(state))
+        waived["plan_change_escalations"] = []
+        waived["reviews"]["plan"]["waiver"] = {"plan_digest": waived["plan"]["digest"],
+                                               "depth": "thorough", "reason": "operator waived",
+                                               "adopted_commit": HEAD_A}
+        self.assertIsNone(bc.review.plan_change_escalation(waived))
+
+    def test_a_changed_impact_cannot_mint_a_fresh_panel(self):
+        # --impact is caller-supplied JSON that feeds the referent. Keying the cap on packet inequality let
+        # any session change it and re-run all four lenses free, while the ledger still read "one panel".
+        self.complete_panel()
+        impact = Path(self.temp.name) / "impact.json"
+        impact.write_text(json.dumps({"cited": "fresh evidence"}), encoding="utf-8")
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=str(impact))
+        lenses = ["product-intent", "architecture", "feasibility", "risk-governance"]
+        with mock.patch.object(bc, "_installed", return_value=lenses), \
+             mock.patch.object(bc, "_head", return_value=HEAD_A), \
+             self.assertRaisesRegex(bc.CoordinatorError, "already completed"):
+            bc._packet(args, self.store)
+
+    def test_an_escalated_plan_cannot_re_cut_its_panel(self):
+        # After an authorized plan change the digest differs, so a packet-inequality test would call a full
+        # four-lens re-panel legal -- the cap forcing the exact spend it exists to prevent.
+        self.complete_panel()
+        self.escalate()
+        lenses = ["product-intent", "architecture", "feasibility", "risk-governance"]
+        with mock.patch.object(bc, "_installed", return_value=lenses), \
+             mock.patch.object(bc, "_head", return_value=HEAD_A), \
+             self.assertRaisesRegex(bc.CoordinatorError, "already completed"):
+            bc._packet(argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None), self.store)
 
     def test_an_escalation_does_not_relax_deliverable_coverage(self):
         # The first attempt folded the escalation into plan_waived, which also suppressed reviewer-coverage
