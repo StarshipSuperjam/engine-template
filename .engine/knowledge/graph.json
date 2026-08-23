@@ -7424,7 +7424,7 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:947b151ac7ca5c25615a3ab1f180c8408bfbf39996dfa9a8f8ae42571f176617",
+        "fingerprint": "sha256:30fb6543701dff4f9ee222d4d3df9f56070fec80bd2e698ccce1b0860ac17f53",
         "path": ".engine/schemas/build-handoff.v1.json"
       },
       "status": "active",
@@ -7441,7 +7441,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:81e532abde182c85f3b37392e84349d3f8ec4e819a92f152e9d880abe9503d53",
+        "fingerprint": "sha256:afaed5c659298e417034fee7fb13162f7c5dd37be45471b6dd34a16cad4f312e",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7526,7 +7526,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:fed57f3bfaf381b3ae1e1b3cda405a9a63fc01ef17cccad4e2e27b4bc2529ffc",
+        "fingerprint": "sha256:33125878e88c0dd989588ba8c97efdbc89752225b23c88336d5683e7d0b0f60b",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -7543,7 +7543,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:d207078bb681fb9808a61a702c3cf814a2630ceb81d874ce9f82e13eaa3f0edf",
+        "fingerprint": "sha256:8f8a4aaff29b226a1c15ed2fc0260ea24002bc9b766a638349763f7f481fbb01",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9785,7 +9785,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:d6801d4a5bd95e91e5aecfdc6b05718a5d111675f39eda2193b508b4edba7571",
+        "fingerprint": "sha256:5163db3a284eac5a7ea574d6dd5a0d4e1b59fd27bd0814bc5b0994af676246e6",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9924,7 +9924,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:e3063a3de3a0f477bd4eb84f373cfbdd8c2600891e0cd48c1b303cf9fc0e64a7",
+        "fingerprint": "sha256:8c2cef6fae523f1b328c56487edc631a3030f989452cb498d8f437147555fee9",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -15478,15 +15478,17 @@
         ],
         "tests": [
           "tool:build_coordinator",
+          "tool:build_coordinator_contract",
           "tool:build_coordinator_github",
           "tool:derived_state",
           "tool:module_coherence",
-          "tool:spec_referent"
+          "tool:spec_referent",
+          "tool:test_build_coordinator_contract"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:83052e9d2e7971357ce33587553ad54e50ec16687a0bb61a1febd4dafdd34516",
+        "fingerprint": "sha256:c27b3d2d72c3cbc36d1615d732d7bce93e3722110917bf25fdfb3ad49e9513b1",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",

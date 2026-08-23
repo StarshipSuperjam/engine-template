@@ -203,7 +203,7 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "validation": None, "repair": None,
         # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
         # a cap a cold resume silently zeroes is a cap with a published bypass.
-        "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [],
+        "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [], "reconciles": [],
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
@@ -359,7 +359,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     unresolved_assumptions: list[str] = []
     plan_stage, delivery = state["reviews"]["plan"], state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
-    blocking = [f["id"] for f in state["findings"] if f["blocks_this_pr"]]
+    blocking = [f["id"] for f in review.live_findings(state) if f["blocks_this_pr"]]
 
     if state["approval"] is None or state["approval"].get("plan_digest") != state["plan"]["digest"]:
         required_evidence.append("operator approval of this plan digest and review depth")
@@ -393,10 +393,14 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         required_evidence.append("deliverable-review packet")
     else:
         required_evidence.extend(f"deliverable-review receipt: {x}" for x in _missing_receipts(delivery))
+    rewritten = _history_was_rewritten(state, head)
     if delivery["reviewed_commit"] and delivery["reviewed_commit"] != head:
         repair = state["repair"]
         if not repair or repair["reviewed_commit"] != delivery["reviewed_commit"] or repair["final_commit"] != head:
-            judgments.append("choose none, scoped, or full re-review for reviewed-to-final divergence")
+            judgments.append(
+                "re-anchor the review bindings with `reconcile`: this branch's history was rewritten and the "
+                "reviewed commit is no longer on it" if rewritten else
+                "choose none, scoped, or full re-review for reviewed-to-final divergence")
         elif repair["judgment"] != "none":
             done = {r["lens"] for r in repair["receipts"]}
             required_evidence.extend(f"repair-review receipt: {x}" for x in repair["lenses"] if x not in done)
@@ -494,7 +498,14 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     elif not delivery_ready:
         phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
     elif not repair_ready:
-        phase, next_one, available = "repair-assessment", "record the proportional re-review judgment", []
+        phase, next_one, available = ("repair-assessment",
+                                       "re-anchor the review bindings with `reconcile`" if rewritten
+                                       else "record the proportional re-review judgment",
+                                       # A session reads this list BEFORE it acts. Naming the verb only in
+                                       # the refusals would mean a session met it only after being stuck.
+                                       ["re-anchor the bindings with `reconcile` after a rebase or other "
+                                        "history rewrite"] if rewritten else
+                                       ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
         phase, next_one, available = "submission-preflight", "run submission preflights", []
     else:
@@ -995,22 +1006,27 @@ def _packet(args, store: StateStore | None) -> None:
         preserved_receipts = [receipt for receipt in (old or {}).get("receipts", [])
                               if receipt["lens"] in expected
                               and receipt.get("lens_packet_digest") == expected[receipt["lens"]]]
-        preserved_packets = {receipt["packet_digest"] for receipt in preserved_receipts}
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
+            s["repair"]["base_commit"] = packet["base_commit"]
             s["repair"]["reviewer_contracts"] = contracts
             s["repair"]["receipts"] = preserved_receipts
-            s["findings"] = [f for f in s["findings"] if f["stage"] != "repair"
-                             or f["packet_digest"] in preserved_packets]
         else:
             target = s["reviews"][stage]
             target.update({"packet_digest": packet["packet_digest"], "referent_digest": referent_digest,
                            "required_lenses": required, "installed_lenses": installed_names,
                            "reviewer_contracts": contracts, "receipts": preserved_receipts, "reviewed_commit": commit,
                            "base_commit": packet["base_commit"], "waiver": None})
-            s["findings"] = [f for f in s["findings"] if f["stage"] != stage
-                             or f["packet_digest"] in preserved_packets]
+        # A finding lives exactly as long as a receipt still demands it -- derived, for BOTH branches, from
+        # the single home in `review` rather than from a per-branch stage filter. The two old filters keyed
+        # on `f["stage"] != stage`, which cut both ways: a repair regeneration deleted findings whose
+        # spliced receipt survived in the deliverable stage (leaving a demand `finding record` could never
+        # satisfy, wedging the Build out of submission), and a DELIVERABLE regeneration dropped a spliced
+        # repair receipt while leaving its findings behind (orphaned findings no receipt demanded, still
+        # counting toward `blocks_this_pr` and still rendering disagreement lines into the PR body).
+        # StarshipSuperjam/engine-template#1051.
+        s["findings"] = review.surviving_findings(s)
         if checkout_baseline is not None:
             s["checkout_snapshot"] = checkout_baseline
     if stable:
@@ -1102,7 +1118,13 @@ def cmd_review_record(args, store: StateStore) -> None:
                 item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
             ] + [contract]
             if not [lens for lens in target["lenses"] if lens not in {r["lens"] for r in target["receipts"]}]:
+                # `base_commit` advances WITH `reviewed_commit`, never behind it. Advancing only the
+                # reviewed commit left the pair naming two different points in history, so any later
+                # measurement across `base_commit..reviewed_commit` spanned a wider range than the branch
+                # actually contributed and swept in upstream commits on one side only.
                 delivery["reviewed_commit"] = target["final_commit"]
+                if target.get("base_commit"):
+                    delivery["base_commit"] = target["base_commit"]
         else:
             target = state["reviews"][args.stage]
             if target["packet_digest"] != args.packet_digest:
@@ -1136,19 +1158,43 @@ def cmd_finding_record(args, store: StateStore) -> None:
     if args.severity == "blocking" and not args.blocks_this_pr and not operator_summary:
         raise CoordinatorError("a downgraded blocking finding needs a safe operator-facing --operator-summary")
     def change(state):
-        target = state["repair"] if args.stage == "repair" and state["repair"] else state["reviews"][args.stage]
-        packet = target["packet_digest"]
-        if not packet:
+        # A disposition must be recordable against the packet ITS OWN RECEIPT names, not only against the
+        # live one. A receipt can outlive the packet that produced it -- a repair receipt is spliced into
+        # the deliverable stage and survives a repair-packet regeneration, and a `none` judgment clears the
+        # repair packet entirely -- and `missing_findings` keeps demanding that receipt's ids at its own
+        # digest. Deriving the target from the live packet alone left those ids permanently unrecordable
+        # and the Build wedged out of submission; the same lookup also replaces a bare KeyError on
+        # `--stage repair` with an empty repair slot. StarshipSuperjam/engine-template#1051.
+        demanded = review.demanded_findings(state)
+        by_receipt = next((
+            (produced_by, receipt) for produced_by, receipt in review.live_receipts(state)
+            if produced_by == args.stage and receipt["lens"] == args.lens
+            and args.id in receipt["finding_ids"]), None)
+        live = state["repair"] if args.stage == "repair" and state["repair"] else state["reviews"].get(args.stage)
+        contract = None if not live else next(
+            (item for item in live["reviewer_contracts"] if item["lens"] == args.lens), None)
+        live_offers = bool(live and live["packet_digest"] and contract and args.lens in (
+            live["lenses"] if args.stage == "repair" else live["required_lenses"]))
+        if live_offers:
+            packet = live["packet_digest"]
+            lens_packet_digest = contract["lens_packet_digest"]
+            commit = None if args.stage == "plan" else (
+                live["final_commit"] if args.stage == "repair" else live["reviewed_commit"])
+        elif by_receipt:
+            receipt = by_receipt[1]
+            packet = receipt["packet_digest"]
+            lens_packet_digest = receipt.get("lens_packet_digest")
+            commit = receipt["commit"]
+        elif args.id in demanded:
+            raise CoordinatorError(
+                f"no live {args.stage} receipt from {args.lens} demands {args.id} — the id is demanded by a "
+                "different lens or stage; record it against the one whose receipt names it")
+        elif not live or not live["packet_digest"]:
             raise CoordinatorError(f"no current {args.stage} review packet")
-        requested = target["lenses"] if args.stage == "repair" else target["required_lenses"]
-        if args.lens not in requested:
+        else:
             raise CoordinatorError(f"{args.lens} was not requested by the current {args.stage} packet")
-        contract = next((item for item in target["reviewer_contracts"] if item["lens"] == args.lens), None)
-        if not contract:
-            raise CoordinatorError(f"no current reviewer contract for {args.lens}")
-        commit = None if args.stage == "plan" else (target["final_commit"] if args.stage == "repair" else target["reviewed_commit"])
         finding = {"id": args.id, "stage": args.stage, "lens": args.lens, "packet_digest": packet,
-                   "lens_packet_digest": contract["lens_packet_digest"],
+                   "lens_packet_digest": lens_packet_digest,
                    "commit": commit, "severity": args.severity,
                    "summary": args.summary, "disposition": args.disposition, "rationale": args.rationale,
                    "escalation_kind": args.escalation_kind,
@@ -1416,17 +1462,245 @@ def _repair_round_complete(repair: dict | None) -> bool:
                 if lens not in {receipt["lens"] for receipt in repair["receipts"]}]
 
 
+class _Unmeasurable(Exception):
+    """The reconcile could not establish what the branch contributed. Never a free re-anchor."""
+
+
+def _commit_present(sha: str) -> bool:
+    """True when the object is still readable. Routed through core.run with the module-level ROOT read at
+    CALL time -- `_run`'s `cwd` default binds ROOT at import, so a probe written that way would answer from
+    the engine's own checkout under test and certify a measurement it never made."""
+    return core.run(["git", "cat-file", "-e", sha + "^{commit}"], root=ROOT).returncode == 0
+
+
+def _is_ancestor(candidate: str, of: str) -> bool:
+    return core.run(["git", "merge-base", "--is-ancestor", candidate, of], root=ROOT).returncode == 0
+
+
+def _base_or_none() -> str | None:
+    """The merge base, or None where it cannot be resolved. `_base` raises, and `_status` -- the read-only
+    command a stuck session runs FIRST -- must report where the Build stands rather than crash in a
+    checkout with no `origin/HEAD` (a disposable demo repo, a bare-ish clone)."""
+    try:
+        return _base()
+    except CoordinatorError:
+        return None
+
+
+def _tree_entry(commit: str, path: str) -> tuple[str, str] | None:
+    """(mode, blob-or-tree oid) for one path at one commit, or None when absent. Exact: no diff, no
+    normalization, no textconv, no rename heuristics -- so a whitespace-only edit, a swapped binary, and a
+    mode flip are all visible, none of which `git patch-id` can see."""
+    out = core.run(["git", "ls-tree", "-z", commit, "--", path], root=ROOT)
+    if out.returncode != 0:
+        raise _Unmeasurable(f"could not read `{path}` at `{commit[:12]}`")
+    line = (out.stdout or "").split("\0")[0].strip()
+    if not line:
+        return None
+    meta = line.split("\t", 1)[0].split()
+    if len(meta) < 3:
+        raise _Unmeasurable(f"unreadable tree entry for `{path}` at `{commit[:12]}`")
+    return meta[0], meta[2]
+
+
+def _touched_paths(base: str, tip: str) -> list[str]:
+    out = core.run(["git", "diff", "--name-only", "-z", f"{base}..{tip}"], root=ROOT)
+    if out.returncode != 0:
+        raise _Unmeasurable(f"could not list the paths between `{base[:12]}` and `{tip[:12]}`")
+    return [x for x in (out.stdout or "").split("\0") if x]
+
+
+def _contribution_divergence(base_before: str, from_commit: str, base_after: str, to_commit: str) -> list[str]:
+    """The paths where the branch's own contribution is NOT provably unchanged across a history rewrite.
+
+    For every path either side touches, the contribution is unchanged only when the upstream side is
+    identical (`base_before` and `base_after` agree on it) AND the result is identical (`from_commit` and
+    `to_commit` agree on it). Both comparisons are on exact tree entries, so nothing is normalized away.
+    Where upstream itself moved under a path the branch touched, the rebase produced real content that no
+    reviewer has read, and this reports the path as divergent rather than guessing.
+
+    An earlier design compared `git patch-id --stable` sets here. It was replaced before implementation:
+    patch-id strips whitespace before hashing, so `x = 1` and an indented `x = 1` share an id -- in a
+    Python tree that is a semantic change measuring as identical, and it was the sole safeguard on a free
+    re-anchor of review evidence. It is also blind to binary content and mode changes, has no per-file
+    form, and cannot be combined with `--verbatim`. Exact tree entries have none of those properties.
+    """
+    for sha in (base_before, from_commit, base_after, to_commit):
+        if not sha or not _commit_present(sha):
+            raise _Unmeasurable(f"commit `{(sha or '?')[:12]}` is no longer readable")
+    paths = sorted(set(_touched_paths(base_before, from_commit)) | set(_touched_paths(base_after, to_commit)))
+    if not paths:
+        # Nothing measured is not the same as nothing changed. Never a free pass.
+        raise _Unmeasurable("neither side touches any path, so there is no contribution to compare")
+    divergent = []
+    for path in paths:
+        if (_tree_entry(base_before, path) != _tree_entry(base_after, path)
+                or _tree_entry(from_commit, path) != _tree_entry(to_commit, path)):
+            divergent.append(path)
+    return divergent
+
+
+def _effective_reviewed(state: dict) -> str | None:
+    """The commit the deliverable review currently stands on: the reviewed commit, advanced to a completed
+    repair round's final commit. Single-homed -- `cmd_repair_assess` and `cmd_reconcile` must agree.
+
+    The advance holds only while that final commit is still ON the branch. A repair record is history: it
+    describes a round that happened, and a rewrite does not un-happen it, so its commits are deliberately
+    left as recorded for the audit trail. But once they name orphans they are no longer a live anchor.
+    Preferring an orphan here made `repair assess` measure `orphan..head` -- a span carrying the upstream
+    commits the rebase pulled in, exactly the diff its own refusal text calls meaningless -- and write a
+    repair record whose `reviewed_commit` could never satisfy `repair_ready`, so the session had to assess
+    twice and one fabricated round counted against the escalation threshold."""
+    reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
+    prior = state["repair"]
+    if _repair_round_complete(prior):
+        final = prior["final_commit"]
+        # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
+        # but the commit stays readable and is still exactly what was last reviewed, so it remains the
+        # right thing to measure a rewrite FROM -- demoting it merely because it left the branch made
+        # `reconcile` compare against a pre-repair commit, reporting the round's own files as divergent
+        # and denying the clean re-anchor to precisely the Build that had repaired before rebasing.
+        # Once a reconcile has re-anchored past that commit, the deliverable binding it wrote is newer and
+        # the repair record is history; anchoring on it there made `repair assess` measure `orphan..head`,
+        # a span carrying the upstream commits the rebase pulled in, and burn a fabricated round.
+        superseded = any(item["from_commit"] == final for item in state.get("reconciles", []))
+        if not superseded:
+            return final
+    return reviewed
+
+
+def _history_was_rewritten(state: dict, head: str) -> bool:
+    """The reviewed commit is no longer on the branch AND the branch sits on a different base -- the
+    signature of a rebase, as distinct from ordinary forward progress or an amend in place."""
+    reviewed = _effective_reviewed(state)
+    if not reviewed or reviewed == head:
+        return False
+    # Both ends must be READABLE before any conclusion is drawn. `merge-base --is-ancestor` exits non-zero
+    # for "not an ancestor" and for "no such object" alike, so an unreadable commit would otherwise look
+    # exactly like a rewrite and hijack the ordinary repair path on a failed probe.
+    if not _commit_present(reviewed) or not _commit_present(head):
+        return False
+    if _is_ancestor(reviewed, head):
+        return False
+    recorded_base = state["reviews"]["deliverable"].get("base_commit")
+    current_base = _base_or_none()
+    return bool(recorded_base) and bool(current_base) and recorded_base != current_base
+
+
+def cmd_reconcile(args, store: StateStore) -> None:
+    """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
+
+    The merge-freshness floor and a linear-history ruleset together make a rebase the required reconcile
+    for an already-reviewed branch, and a rebase rewrites the very SHAs the review evidence is bound to
+    (StarshipSuperjam/engine-template#1000). The receipts themselves survive -- they bind to packet
+    digests -- so what breaks is narrower than the audit trail: the coordinator can no longer tell what
+    the branch contributed, and demands a fresh judgment for a diff nobody changed.
+
+    There are exactly two outcomes and no operator-typed escape between them. When the branch's own
+    contribution is provably identical, the bindings move to the new head and the reconcile is published.
+    When it is not -- or cannot be measured -- the bindings move only as far as the NEW BASE, which leaves
+    `reviewed_commit != head` and hands the session straight back to `repair assess`, now against a
+    meaningful `base_after..head` diff instead of an orphaned one. That path consumes a repair round, arms
+    the escalation gate, and publishes the reviewed-vs-submitted line, so the weaker outcome is the one
+    carrying MORE scrutiny, not less. A session cannot spend a string to skip re-review here."""
+    head = _head()
+    state = store.read()
+    revision = state["revision"]
+    plan = _plan(args.plan)
+    _assert_plan(state, plan)
+    delivery = state["reviews"]["deliverable"]
+    reviewed = _effective_reviewed(state)
+    if not reviewed:
+        raise CoordinatorError("deliverable review has not recorded a reviewed commit; there is nothing to re-anchor")
+    if reviewed == head:
+        raise CoordinatorError("the reviewed commit is already the current head; nothing was rewritten")
+    if _is_ancestor(reviewed, head):
+        raise CoordinatorError(
+            "the reviewed commit is still on this branch, so this is ordinary post-review divergence, not a "
+            "history rewrite — record a proportional judgment with `repair assess` instead")
+    base_before = delivery.get("base_commit")
+    base_after = _base()
+    if not base_before:
+        raise CoordinatorError("the deliverable review recorded no base commit, so a rewrite cannot be measured")
+    if base_before == base_after:
+        raise CoordinatorError(
+            "the branch still sits on the same base, so the reviewed commit was amended rather than rebased — "
+            "that is a real content change and belongs to `repair assess`")
+    try:
+        divergent = _contribution_divergence(base_before, reviewed, base_after, head)
+        unmeasurable = None
+    except _Unmeasurable as exc:
+        divergent, unmeasurable = [], str(exc)
+    identical = unmeasurable is None and not divergent
+    entry = {"from_commit": reviewed, "to_commit": head, "base_before": base_before,
+             "base_after": base_after, "contribution_identical": identical,
+             "divergent_paths": divergent, "unmeasurable": unmeasurable,
+             # Where the binding ACTUALLY landed. On the divergent path it moves only as far as the new
+             # base, so a disclosure that assumed `to_commit` would overstate what was re-anchored.
+             "anchored_to": head if identical else base_after}
+    # Re-capture the checkout baseline: the rewrite this verb has just recorded as legitimate would
+    # otherwise surface as advisory integrity drift against a snapshot taken before it.
+    checkout_baseline = review_integrity.snapshot(str(ROOT))
+
+    def change(s):
+        d = s["reviews"]["deliverable"]
+        # The base moves on BOTH paths, so the pair (reviewed_commit, base_commit) never names two
+        # different points in history -- otherwise a second rewrite in one Build measures a wider span on
+        # one side and can never reach the identical path.
+        d["base_commit"] = base_after
+        d["reviewed_commit"] = head if identical else base_after
+        s["reconciles"] = list(s.get("reconciles", [])) + [entry]
+        # `state["repair"]` is deliberately NOT cleared. It is the sole producer of the PR body's
+        # reviewed-vs-submitted line, and clearing it made a Build that HAD run a repair round publish
+        # "no post-review repair was needed; the reviewed and submitted commits are the same" -- false on
+        # both halves, at the operator's only consent surface.
+        # A body composed before this reconcile must not carry into readiness: the contract's freshness
+        # keys on head, and a reconcile does not move head, so nothing else would invalidate it.
+        s["pr_contract"] = None
+        s["checkout_snapshot"] = checkout_baseline
+
+    store.mutate(change, from_revision=revision)
+    if identical:
+        print(f"re-anchored the deliverable review from {reviewed[:12]} to {head[:12]}: the branch's own "
+              f"contribution is unchanged across the rewrite, verified on exact tree entries for every "
+              f"path either side touches. Recompose the PR body before submitting.")
+    else:
+        why = unmeasurable or ("the branch's contribution differs at: " + ", ".join(divergent))
+        print(f"re-anchored the deliverable review onto the new base {base_after[:12]} — {why}. The reviewed "
+              f"commit is not the head, so record a proportional judgment with `repair assess`; its diff now "
+              f"spans the branch as it actually stands. Recompose the PR body before submitting.")
+
+
 def cmd_repair_assess(args, store: StateStore) -> None:
     head = _head()
     state = store.read()
     revision = state["revision"]
-    reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
-    if _repair_round_complete(prior):
-        reviewed = prior["final_commit"]
+    reviewed = _effective_reviewed(state)
     if not reviewed:
         raise CoordinatorError("deliverable review has not recorded a reviewed commit")
-    summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
+    if _history_was_rewritten(state, head):
+        # Refused HERE rather than measured: the reviewed commit is off the branch and the base has moved,
+        # so `reviewed..head` describes upstream history rather than this Build's work. Judging that diff
+        # spends a repair round on a summary that means nothing.
+        raise CoordinatorError(
+            "the reviewed commit is no longer on this branch and the base has moved, so this branch's "
+            "history was rewritten — `reviewed..head` would summarise upstream commits, not your work. "
+            "Run `reconcile` first to re-anchor the review bindings; it will hand this back to you with a "
+            "diff that spans the branch as it actually stands.")
+    try:
+        summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
+    except CoordinatorError as exc:
+        # Derived from the real failure rather than a pre-check, so this cannot disagree with what git
+        # actually did. A garbage-collected anchor otherwise surfaced as a raw "Invalid revision range".
+        if not _commit_present(reviewed):
+            raise CoordinatorError(
+                f"the commit this review stands on (`{reviewed[:12]}`) is no longer readable in this "
+                "checkout, so the reviewed-to-final divergence cannot be measured. Recover it (fetch the "
+                "branch, or restore it from a reflog) and re-run; if it is genuinely gone, re-run the "
+                "deliverable review against the current head rather than recording a judgment on a span "
+                "that cannot be computed.") from exc
+        raise
     lenses = sorted(set(args.lens or []))
     if args.judgment == "none" and lenses:
         raise CoordinatorError("a none judgment cannot request review lenses")
@@ -1641,7 +1915,8 @@ def _handoff(state: dict) -> dict:
              # continuing session a fresh free panel and fresh repair rounds. They carry digests, lens
              # names, finding ids and counts only -- nothing the redaction discipline above applies to.
              "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", []),
-             "plan_change_escalations": state.get("plan_change_escalations", [])}
+             "plan_change_escalations": state.get("plan_change_escalations", []),
+             "reconciles": state.get("reconciles", [])}
     if is_v2:
         value["work"] = _bounded_work(state.get("work", {}))
     _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
@@ -1718,7 +1993,8 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
             "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", []),
-            "plan_change_escalations": value.get("plan_change_escalations", [])}
+            "plan_change_escalations": value.get("plan_change_escalations", []),
+            "reconciles": value.get("reconciles", [])}
 
 
 def _restore_work(work_map: dict) -> dict:
@@ -2202,6 +2478,60 @@ def _plan_review_clause(state: dict) -> str:
     return "No plan review is recorded for the shipped plan"
 
 
+def _drift_line(state: dict, head: str) -> str:
+    """The PR body's "Reviewed vs submitted" disclosure, composed from recorded state.
+
+    Pure and single-homed so it can be driven end to end by a test: the operator's consent surface is the
+    one place a wrong sentence does real damage, and this line has twice been the thing that went wrong.
+    Two rules it must never break. It must not claim no repair happened when one did -- clearing the repair
+    record used to make it say exactly that. And the commit it names as "submitted" must be the commit
+    actually in the pull request: after a history rewrite, a completed repair round's final commit is an
+    orphan, and leading with it put a rewritten SHA under the bold label an operator reads first, with the
+    correction two clauses later."""
+    repair = state.get("repair")
+    reconciles = state.get("reconciles", [])
+
+    def repair_clause():
+        if not (repair and repair.get("final_commit")):
+            return None
+        if repair.get("judgment") == "none":
+            return (f"a post-review repair was assessed at `{repair['final_commit'][:12]}` and judged not "
+                    f"to need re-review ({repair['summary']})")
+        return (f"a post-review repair carried `{repair['reviewed_commit'][:12]}` to "
+                f"`{repair['final_commit'][:12]}` ({repair['summary']})")
+
+    if not reconciles:
+        if repair and repair.get("final_commit"):
+            tail = (f"{repair['summary']}; no re-review was judged necessary"
+                    if repair.get("judgment") == "none" else repair["summary"])
+            return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted "
+                    f"`{repair['final_commit'][:12]}` — {tail}")
+        return "no post-review repair was needed; the reviewed and submitted commits are the same."
+
+    # Every event states its OWN commits and nothing else. Three successive attempts to lead with "the
+    # reviewed commit" and to say whether a repair ran before or after a rewrite each produced a sentence
+    # that was wrong on some reachable flow -- the last one contradicting itself inside a single line --
+    # because neither the original review point nor the ordering is reliably recoverable once history has
+    # been rewritten. So this asserts neither. The only claim about the whole is the commit actually in the
+    # pull request, which is always known. This is the operator's consent surface: a line that says less
+    # and is always true beats a narrative that reads well and is sometimes false.
+    events = []
+    for item in reconciles:
+        detail = ("the branch's own contribution was verified unchanged on exact tree entries"
+                  if item["contribution_identical"] else
+                  (item["unmeasurable"] or "the contribution differs at: "
+                   + ", ".join(item["divergent_paths"])))
+        events.append(f"history was rewritten and the review bindings were re-anchored from "
+                      f"`{item['from_commit'][:12]}` to `{item['anchored_to'][:12]}` "
+                      f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
+    clause = repair_clause()
+    if clause:
+        events.append(clause)
+    ordering = (" These are listed by kind; their order relative to one another is not recorded."
+                if len(events) > 1 else "")
+    return f"submitted `{head[:12]}`, after: " + "; ".join(events) + "." + ordering
+
+
 def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:
     """Compute the coordinator-owned evidence a composed body carries — everything deterministic that the
     claim deliberately does not hold. Read-only: it runs the same report-only tools the preflight uses and
@@ -2273,12 +2603,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     code_execution_line = ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
                            "your project" if ran_code else "no reviewer executed the change's code")
 
-    repair = state.get("repair")
-    if repair and repair.get("final_commit"):
-        drift_line = (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
-                      f"{repair['summary']}")
-    else:
-        drift_line = "no post-review repair was needed; the reviewed and submitted commits are the same."
+    drift_line = _drift_line(state, head)
 
     # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,
     # computed from the diff so the operator sees regeneration happened over generated paths only. Driven
@@ -2562,6 +2887,7 @@ def parser() -> argparse.ArgumentParser:
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
+    reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.add_argument("--publish", action="store_true"); export.add_argument("--ack-visibility", action="store_true"); export.set_defaults(func=cmd_handoff_export)

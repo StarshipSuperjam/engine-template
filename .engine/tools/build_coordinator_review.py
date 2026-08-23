@@ -100,22 +100,98 @@ def missing_receipts(stage: dict) -> list[str]:
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 
-def missing_findings(state: dict) -> list[str]:
-    expected = []
+def live_receipts(state: dict) -> list[tuple[str, dict]]:
+    """Every review receipt currently live anywhere in the Build, each paired with the stage that PRODUCED
+    it -- the one home for that classification.
+
+    A receipt does not record its own producing stage, so it has to be inferred: a receipt sitting in the
+    deliverable stage whose packet digest is not the deliverable packet's was spliced there by a repair
+    review (`cmd_review_record`). That inference used to live only inside `missing_findings`, while the
+    complementary rule -- which findings SURVIVE a packet regeneration -- was reconstructed separately
+    inside `_packet`'s closures, in another module. The two had to stay exact complements forever and
+    nothing enforced it, so a deliverable regeneration dropped a spliced repair receipt while leaving its
+    findings behind: orphaned findings no receipt demanded, still counting toward `blocks_this_pr` and
+    still rendering disagreement lines into the PR body. Deriving both the demand and the survival set
+    from this one function is what keeps them from drifting apart
+    (StarshipSuperjam/engine-template#1051)."""
+    found = []
     for stage_name, stage in state["reviews"].items():
         for receipt in stage["receipts"]:
-            receipt_stage = "repair" if stage_name == "deliverable" and receipt["packet_digest"] != stage["packet_digest"] else stage_name
-            expected.extend((finding_id, receipt_stage, receipt) for finding_id in receipt["finding_ids"])
+            produced_by = ("repair" if stage_name == "deliverable"
+                           and receipt["packet_digest"] != stage["packet_digest"] else stage_name)
+            found.append((produced_by, receipt))
     if state["repair"]:
         for receipt in state["repair"]["receipts"]:
-            expected.extend((finding_id, "repair", receipt) for finding_id in receipt["finding_ids"])
-    actual = state["findings"]
-    return sorted(finding_id for finding_id, stage, receipt in expected if not any(
-        finding["id"] == finding_id and finding["stage"] == stage and finding["lens"] == receipt["lens"]
-        and finding["packet_digest"] == receipt["packet_digest"]
-        and finding.get("lens_packet_digest") == receipt.get("lens_packet_digest")
-        and finding["commit"] == receipt["commit"]
-        for finding in actual))
+            found.append(("repair", receipt))
+    return found
+
+
+def _finding_key(stage: str, lens: str, packet_digest: str, lens_packet_digest, commit) -> tuple:
+    return (stage, lens, packet_digest, lens_packet_digest, commit)
+
+
+def demanded_findings(state: dict) -> dict[str, set]:
+    """finding id -> EVERY key that would satisfy it, across all live receipts naming that id.
+
+    A set rather than one key: `state["findings"]` holds at most one record per id, so if two live receipts
+    name the same id a single-key map would let the last one iterated win -- silently dropping the other
+    receipt's demand and, because the survival set reads the same map, deleting an already-recorded
+    disposition at the next packet regeneration. Matching ANY live demand keeps one honest record able to
+    satisfy every receipt that asked for it, instead of trading a loud wedge for quiet evidence loss."""
+    demanded: dict[str, set] = {}
+    for produced_by, receipt in live_receipts(state):
+        key = _finding_key(produced_by, receipt["lens"], receipt["packet_digest"],
+                           receipt.get("lens_packet_digest"), receipt["commit"])
+        for finding_id in receipt["finding_ids"]:
+            demanded.setdefault(finding_id, set()).add(key)
+    return demanded
+
+
+def finding_is_demanded(finding: dict, demanded: dict[str, set]) -> bool:
+    keys = demanded.get(finding["id"])
+    return bool(keys) and _finding_key(
+        finding["stage"], finding["lens"], finding["packet_digest"],
+        finding.get("lens_packet_digest"), finding["commit"]) in keys
+
+
+def superseded(finding: dict, demanded: dict[str, set]) -> bool:
+    """True when no live receipt demands this finding any more.
+
+    A finding becomes superseded when the receipt that asked for it is replaced -- most often because its
+    lens was re-run at a newer commit and the repair receipt took the deliverable receipt's place. Such a
+    finding must stop CARRYING WEIGHT: it can no longer block the pull request or force a disagreement
+    disclosure, because the review that raised it has been overtaken. It must NOT be erased: deleting it
+    dropped the earlier round's findings out of the pull-request body entirely, so an operator saw only
+    whichever lenses happened not to be re-run -- an arbitrary half of what review actually found, in a
+    change whose subject is audit-trail integrity."""
+    return not finding_is_demanded(finding, demanded)
+
+
+def surviving_findings(state: dict) -> list[dict]:
+    """Every finding that is still demanded, plus the superseded ones kept for disclosure with their weight
+    dropped. A finding is never silently deleted and never stranded."""
+    demanded = demanded_findings(state)
+    kept = []
+    for finding in state["findings"]:
+        if finding_is_demanded(finding, demanded):
+            kept.append(finding)
+        elif not finding.get("superseded"):
+            kept.append({**finding, "superseded": True, "blocks_this_pr": False})
+        else:
+            kept.append(finding)
+    return kept
+
+
+def live_findings(state: dict) -> list[dict]:
+    """The findings that still carry weight -- what blocks, and what must be disclosed as a disagreement."""
+    return [f for f in state["findings"] if not f.get("superseded")]
+
+
+def missing_findings(state: dict) -> list[str]:
+    demanded = demanded_findings(state)
+    actual = live_findings(state)
+    return sorted(finding_id for finding_id in demanded if not any(
+        finding["id"] == finding_id and finding_is_demanded(finding, demanded) for finding in actual))
 
 
 def plan_change_escalation(state: dict) -> dict | None:
@@ -171,6 +247,6 @@ def disagreement_line(finding: dict) -> str:
 def required_disagreement_lines(state: dict) -> list[str]:
     return [
         disagreement_line(finding)
-        for finding in state["findings"]
+        for finding in live_findings(state)
         if finding["severity"] == "blocking" and not finding["blocks_this_pr"]
     ]
