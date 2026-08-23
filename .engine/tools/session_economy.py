@@ -22,7 +22,8 @@ FAIL TOWARD ALLOW. Every unrecognized shape allows. The payload contract for the
 platform's, not the engine's, and it has changed before (the subagent tool has been named both `Task`
 and `Agent`), so a shape this gate does not recognize must never become a block — matching the
 no-default-deny law modes.is_building_action keeps. A wrong deny is not caught by the fail-open harness,
-which only covers crashes, so the escape is explicit: set ENGINE_SESSION_ECONOMY=off.
+which only covers crashes, so the escapes are explicit: ENGINE_SESSION_ECONOMY_MODEL=off and
+ENGINE_SESSION_ECONOMY_WAKEUP=off disable one rule each, ENGINE_SESSION_ECONOMY=off disables both.
 """
 import json
 import os

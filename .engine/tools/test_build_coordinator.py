@@ -540,6 +540,30 @@ class TestReviewAndFindings(CoordinatorCase):
         neither = json.loads(json.dumps(escalated))
         neither["plan_change_escalations"] = []
         self.assertEqual(bc._plan_review_clause(neither), "No plan review is recorded for the shipped plan")
+
+    def test_the_body_never_claims_a_plan_was_both_reviewed_and_not_reviewed(self):
+        # Reachable only after the packet-level cap was removed: escalate, then cut a fresh panel on the new
+        # plan. The body would then assert "Plan review ran before any code" AND "was NOT re-reviewed" about
+        # the same plan. The authorization stays disclosed either way; only the review claim is conditional.
+        self.complete_panel()
+        self.escalate()
+        state = self.state()
+        self.assertEqual(bc._plan_review_clause(state).startswith("The shipped plan was NOT reviewed"), True)
+        # ...now a fresh panel completes against the revised plan.
+        pkt = self.packet("plan")
+        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, lens, []), self.store)
+        state = self.state()
+        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
+        re_reviewed = bool(state["reviews"]["plan"]["receipts"])
+        self.assertTrue(re_reviewed)
+        # the escalation is still published, but as re-reviewed rather than contradicting the clause
+        line = (f"the plan changed after its review panel, on recorded operator authority, and was "
+                f"subsequently re-reviewed: {state['plan_change_escalations'][0]['operator_change']}")
+        self.assertNotIn("NOT re-reviewed", line)
+        self.assertIn("subsequently re-reviewed", line)
+
     def test_re_cutting_a_plan_packet_is_deliberately_not_gated(self):
         # Operator decision: the freeze in cmd_plan_revise is the whole enforcement. A packet-level cap was
         # tried twice and wedged the Build both times -- a depth change or a lens install legitimately needs

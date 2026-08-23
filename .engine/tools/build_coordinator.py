@@ -374,7 +374,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     # nothing else. FOUR readers decide whether plan review is satisfied -- this evidence line, the plan-
     # coverage refresh line, the plan_ready phase driver, and the _plan_review_ready wrapper the
     # checkpoint/validate gate calls -- and every one of them must consult the same predicate. Two earlier
-    # attempts at this fixed a subset and left the Build wedged into the re-panel the cap exists to prevent,
+    # attempts at this fixed a subset and left the Build wedged into a forced re-panel of a settled plan,
     # each time behind a green test that stopped at a helper instead of the derived phase. It is kept OUT of
     # plan_waived deliberately: folding it in also suppressed plan-review coverage refresh.
     plan_escalation = review.plan_change_escalation(state)
@@ -2309,10 +2309,20 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # carrying guidance are emitted: rounds one and two are free by design and have nothing to disclose. The
     # "round N of M" phrasing carries the total, so a PR after three rounds cannot read like one after one.
     cadence_escalations = []
+    # The "not re-reviewed" half is only true while the plan stage still HAS no receipts. Once the cap at
+    # packet level was removed, a session could escalate and then cut a fresh panel on the new plan, which
+    # made the body assert both "Plan review ran before any code" and "was NOT re-reviewed" about the same
+    # plan. The authorization is disclosed either way; only the claim about review is conditional.
+    re_reviewed = bool(state.get("reviews", {}).get("plan", {}).get("receipts"))
     for item in state.get("plan_change_escalations", []):
-        cadence_escalations.append(
-            f"the plan changed after its review panel and was NOT re-reviewed, on recorded operator "
-            f"authority: {item['operator_change']}")
+        if re_reviewed:
+            cadence_escalations.append(
+                f"the plan changed after its review panel, on recorded operator authority, and was "
+                f"subsequently re-reviewed: {item['operator_change']}")
+        else:
+            cadence_escalations.append(
+                f"the plan changed after its review panel and was NOT re-reviewed, on recorded operator "
+                f"authority: {item['operator_change']}")
     rounds = state.get("repair_rounds", [])
     for index, item in enumerate(rounds, start=1):
         if item.get("guidance"):

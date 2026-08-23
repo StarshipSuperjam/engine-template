@@ -122,7 +122,7 @@ def plan_change_escalation(state: dict) -> dict | None:
     """The operator's recorded authorization to ship the CURRENT plan digest without re-reviewing the delta,
     or None. Single-homed because two readers enforce on it -- the status render and the checkpoint/validate
     gate -- and when only one of them knew, status reported plan review satisfied while the gate refused,
-    wedging the Build into exactly the re-panel this cap exists to prevent."""
+    wedging the Build into a forced re-panel of a plan the operator had already settled."""
     for item in state.get("plan_change_escalations", []):
         if item["plan_digest"] == state["plan"]["digest"]:
             return item
