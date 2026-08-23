@@ -81,6 +81,18 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def ensure_dir(path: Path) -> None:
+    """Create a library directory owner-only. The chmod is not redundant: `mkdir(exist_ok=True)`
+    ignores its `mode` for a directory that already exists, and the process umask can clip the mode
+    for one that does not. Anything that writes into the library uses this, so a projection cannot
+    quietly create a world-readable folder next to a 0700 one."""
+    path.mkdir(parents=True, exist_ok=True, mode=DIR_MODE)
+    try:
+        os.chmod(path, DIR_MODE)
+    except OSError:
+        pass
+
+
 # --- Where the library lives -------------------------------------------------
 
 def library_root(cwd: str | None = None) -> Path:
@@ -198,11 +210,7 @@ class PlanLibrary:
         return self.plan_dir(slug) / (RECORD_FILENAME + ".lock")
 
     def _mkdir(self, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True, mode=DIR_MODE)
-        try:
-            os.chmod(path, DIR_MODE)      # exist_ok=True ignores `mode`, and umask can clip it
-        except OSError:
-            pass
+        ensure_dir(path)
 
     def _write_json(self, path: Path, value: dict) -> None:
         core.atomic_write(path, json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
