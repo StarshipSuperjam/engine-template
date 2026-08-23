@@ -5955,7 +5955,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:8840e6ce728bdafd1f57dd8273683b37b25ad2b09239f352c9f4a03b1181c0e6",
+        "fingerprint": "sha256:f3e72cf31b8347a8fe41e67e9cbf3b099b0c0e2e419c2d47e35c36140969b474",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10161,7 +10161,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:f76cdfaf87b5f1062bf13e9ff093ecef9025140a3b85bade97e07e4becbb2146",
+        "fingerprint": "sha256:b9b4dcd1981d1d3ff7f1fb73f16d030b3be6f158d6b1185220f7fc9c7daec51a",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10212,7 +10212,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:b79bee2a86b4d37f4db5605a66ba435d057521255f69544e40faee74fd5a460f",
+        "fingerprint": "sha256:e44ff341212c91c352919ad4be79c1655f7c163db87bd354b993c6c3bb8b1b9e",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -15197,7 +15197,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:e32f7b21532cce4d56de1f1613d69cd33d39557ddc7cc60e1665ba63ee18689f",
+        "fingerprint": "sha256:9f32892dbfc30ea3166c874c8e4e4859e07b16f209b92ed04a341c1b5f29983e",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -15815,7 +15815,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:fc9adef0c2dbd17b56b28854b5b58a007bc513bff9d873012c6af9aeb84849c6",
+        "fingerprint": "sha256:31325cab7f7c7e4ad1685058b6e7076d3afc8415dc89f1bec31c67d316b3fe92",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
@@ -15839,7 +15839,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:78ec7768341881cd7520cfe0b31634fa9b518577c34cb539b3670db979c519e5",
+        "fingerprint": "sha256:8bf49c0d91aab844b4641072ce9e116ad254847978e3720441bae2ca4dd5b770",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",
@@ -19481,13 +19481,14 @@
         ],
         "tests": [
           "tool:ci_assurance",
+          "tool:ci_gatekeeper",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:1da0049c2f42bc4219dd77a8a237552c2929cf1cadce326c53aef8800cc38500",
+        "fingerprint": "sha256:8420b2126f368077e48711e577f1677ffb914358a8924af9c32ef764d3374a2f",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
