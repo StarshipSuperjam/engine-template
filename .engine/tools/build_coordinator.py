@@ -979,26 +979,12 @@ def _packet(args, store: StateStore | None) -> None:
         packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
-    # One panel per Build, enforced where the panel is actually CUT and not only where the plan is revised.
-    # After a completed panel exactly ONE re-issue is legitimate: a reviewer contract moved, so that lens
-    # must run again. That case leaves the referent untouched and changes only the contracts, which is why
-    # the test is referent equality and NOT packet inequality. Packet inequality was the first attempt and
-    # was too weak twice over: --impact is caller-supplied JSON that feeds the referent, so any session
-    # could change it to mint a fresh packet and re-run all four lenses for free, and after an authorized
-    # plan change the new digest made a full panel legal again -- the cap forcing the very spend it exists
-    # to prevent.
-    if stage == "plan" and _completed_plan_panels(state):
-        recorded_referent = (state["reviews"]["plan"] or {}).get("referent_digest")
-        contract_only_rerun = (recorded_referent is not None
-                               and recorded_referent == referent_digest and not unchanged)
-        if not contract_only_rerun:
-            raise CoordinatorError(
-                "the plan panel for this Build has already completed, and this packet would re-run it. The "
-                "one re-issue that stays free is a reviewer contract moving, which leaves the reviewed "
-                "material identical; this packet changes it. If the plan itself must change, that is the "
-                "operator's call -- record it with 'plan revise --operator-change', which does NOT re-run "
-                "the panel. Otherwise disposition the panel's findings and fix them in the implementation, "
-                "or abandon this Build and re-plan.")
+    # NOT gated here, by operator decision after a packet-level cap wedged the Build twice: it refused the
+    # re-cut that a depth change or a lens install legitimately needs, leaving no exit but faking a plan
+    # edit -- a laundered consent record as the escape from a cost cap. The freeze in cmd_plan_revise is
+    # the enforcement, and it sits where the measured cost actually came from: every observed second panel
+    # followed a plan revision invalidating its receipts. A session voluntarily re-cutting an unchanged
+    # packet was never the failure mode, and the operator's merge remains the wall.
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
     # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
     # implementation and drives no throwaway-copy execution, so it needs no baseline.
@@ -2201,6 +2187,21 @@ def _assert_claim_findings(state: dict, claim: dict) -> None:
             + " (re-run `contract template` against current state, or reconcile the finding ids)")
 
 
+def _plan_review_clause(state: dict) -> str:
+    """The PR body's one sentence about whether the SHIPPED plan was reviewed. Its own named seam because
+    four distinct situations reach it and each needs a different true sentence -- keying on receipt-
+    emptiness alone told a waived Build that its panel had read an earlier plan and pointed it at an
+    escalation line that did not exist, swapping one false statement for another."""
+    if state.get("reviews", {}).get("plan", {}).get("receipts"):
+        return "Plan review ran before any code"
+    if state.get("reviews", {}).get("plan", {}).get("waiver"):
+        return "No plan review ran — the operator explicitly waived it for this Build"
+    if review.plan_change_escalation(state):
+        return ("The shipped plan was NOT reviewed — its panel read an earlier version and the change was "
+                "authorized without re-review (see the escalation above)")
+    return "No plan review is recorded for the shipped plan"
+
+
 def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:
     """Compute the coordinator-owned evidence a composed body carries — everything deterministic that the
     claim deliberately does not hold. Read-only: it runs the same report-only tools the preflight uses and
@@ -2252,18 +2253,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     if cold_review_ran:
         lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
-        # Three distinct cases reach "no plan receipts", and they are not the same sentence. Keying on
-        # receipt-emptiness alone told a WAIVED build that its panel had read an earlier plan and pointed it
-        # at an escalation line that does not exist -- swapping one false statement for another.
-        if plan_review_ran:
-            plan_clause = "Plan review ran before any code"
-        elif state.get("reviews", {}).get("plan", {}).get("waiver"):
-            plan_clause = ("No plan review ran — the operator explicitly waived it for this Build")
-        elif review.plan_change_escalation(state):
-            plan_clause = ("The shipped plan was NOT reviewed — its panel read an earlier version and the "
-                           "change was authorized without re-review (see the escalation above)")
-        else:
-            plan_clause = "No plan review is recorded for the shipped plan"
+        plan_clause = _plan_review_clause(state)
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
     else:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "

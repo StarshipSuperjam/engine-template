@@ -101,11 +101,27 @@ class TestFailsTowardAllow(GateCase):
                         {"nothing": "recognizable"}, None, "", []):
             self.assertEqual(se.handler(payload), {"action": "proceed"}, payload)
 
-    def test_the_off_switch_disables_every_deny(self):
+    def test_the_master_switch_disables_every_deny(self):
         for value in ("off", "0", "false", "OFF"):
             with mock.patch.dict(os.environ, {se.OFF_SWITCH: value}):
                 self.assertAllowed(spawn("Explore", "opus"))
                 self.assertAllowed({"tool_name": "ScheduleWakeup", "tool_input": {}})
+
+    def test_each_rule_has_its_own_switch_and_does_not_disable_the_other(self):
+        # The rules are unrelated: turning off a self-scheduling deny must not silently un-gate expensive
+        # subagent spawns, which one combined switch did.
+        with mock.patch.dict(os.environ, {se.MODEL_OFF_SWITCH: "off"}):
+            self.assertAllowed(spawn("Explore", "opus"))
+            self.assertDenied({"tool_name": "ScheduleWakeup", "tool_input": {}})
+        with mock.patch.dict(os.environ, {se.WAKEUP_OFF_SWITCH: "off"}):
+            self.assertAllowed({"tool_name": "ScheduleWakeup", "tool_input": {}})
+            self.assertDenied(spawn("Explore", "opus"))
+
+    def test_each_deny_names_its_own_switch(self):
+        model_reason = self.assertDenied(spawn("Explore", "opus"))
+        self.assertIn(se.MODEL_OFF_SWITCH, model_reason)
+        wakeup_reason = self.assertDenied({"tool_name": "ScheduleWakeup", "tool_input": {}})
+        self.assertIn(se.WAKEUP_OFF_SWITCH, wakeup_reason)
 
     def test_the_deny_rides_the_structured_channel_not_exit_two(self):
         # exit-2 block() is read by the platform as a CRASH, dropping the deny AND its reason.

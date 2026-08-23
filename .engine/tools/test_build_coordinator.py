@@ -461,13 +461,6 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(len(panels), 1)
         self.assertEqual(panels[0]["plan_digest"], self.state()["plan"]["digest"])
 
-    def test_an_identical_plan_packet_is_refused_after_the_panel_completed(self):
-        # The cap must bite where the panel is CUT, not only where the plan is revised: re-issuing the same
-        # packet can buy nothing but a second cold fan-out.
-        self.complete_panel()
-        with self.assertRaisesRegex(bc.CoordinatorError, "already completed"):
-            self.packet("plan")
-
     def test_an_escalated_plan_change_unwedges_the_enforcing_gate_not_just_status(self):
         # The gate checkpoint/validate consult is a DIFFERENT function from the status render. When only
         # status knew about the escalation, status reported plan review satisfied while the gate refused.
@@ -523,49 +516,39 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertTrue(any("not re-reviewed" in w for w in status["warnings"]))
 
     def test_the_pr_body_states_honestly_why_no_plan_review_is_recorded(self):
-        # Three different situations reach "no plan receipts" and each needs its own true sentence; keying
-        # on emptiness alone told a waived Build its panel had read an earlier plan.
+        # Asserts on the SENTENCE, not on a predicate: the previous version of this test checked only that
+        # plan_change_escalation returned non-None, so the three-way split shipped unguarded.
         self.complete_panel()
-        self.escalate()
-        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
-            {"receipts": [{"lens": "usability", "packet_digest": "sha256:" + "2" * 64,
-                           "referent_digest": "sha256:" + "2" * 64,
-                           "lens_packet_digest": "sha256:" + "2" * 64, "commit": HEAD_A,
-                           "finding_ids": [], "code_execution": "none"}]}))
         state = self.state()
-        self.assertIsNotNone(bc.review.plan_change_escalation(state))
-        self.assertTrue(bc.review.plan_change_escalation(state)["operator_change"])
-        # the waiver branch must NOT claim a panel read an earlier plan
-        waived = json.loads(json.dumps(state))
-        waived["plan_change_escalations"] = []
-        waived["reviews"]["plan"]["waiver"] = {"plan_digest": waived["plan"]["digest"],
-                                               "depth": "thorough", "reason": "operator waived",
-                                               "adopted_commit": HEAD_A}
-        self.assertIsNone(bc.review.plan_change_escalation(waived))
+        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
 
-    def test_a_changed_impact_cannot_mint_a_fresh_panel(self):
-        # --impact is caller-supplied JSON that feeds the referent. Keying the cap on packet inequality let
-        # any session change it and re-run all four lenses free, while the ledger still read "one panel".
-        self.complete_panel()
-        impact = Path(self.temp.name) / "impact.json"
-        impact.write_text(json.dumps({"cited": "fresh evidence"}), encoding="utf-8")
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=str(impact))
-        lenses = ["product-intent", "architecture", "feasibility", "risk-governance"]
-        with mock.patch.object(bc, "_installed", return_value=lenses), \
-             mock.patch.object(bc, "_head", return_value=HEAD_A), \
-             self.assertRaisesRegex(bc.CoordinatorError, "already completed"):
-            bc._packet(args, self.store)
-
-    def test_an_escalated_plan_cannot_re_cut_its_panel(self):
-        # After an authorized plan change the digest differs, so a packet-inequality test would call a full
-        # four-lens re-panel legal -- the cap forcing the exact spend it exists to prevent.
-        self.complete_panel()
         self.escalate()
-        lenses = ["product-intent", "architecture", "feasibility", "risk-governance"]
-        with mock.patch.object(bc, "_installed", return_value=lenses), \
-             mock.patch.object(bc, "_head", return_value=HEAD_A), \
-             self.assertRaisesRegex(bc.CoordinatorError, "already completed"):
-            bc._packet(argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None), self.store)
+        escalated = self.state()
+        self.assertIn("was NOT reviewed", bc._plan_review_clause(escalated))
+        self.assertIn("earlier version", bc._plan_review_clause(escalated))
+
+        # A waived Build must NOT be told its panel read an earlier plan: no panel ever ran.
+        waived = json.loads(json.dumps(escalated))
+        waived["plan_change_escalations"] = []
+        waived["reviews"]["plan"]["waiver"] = {"plan_digest": waived["plan"]["digest"], "depth": "thorough",
+                                               "reason": "operator waived", "adopted_commit": HEAD_A}
+        clause = bc._plan_review_clause(waived)
+        self.assertIn("explicitly waived", clause)
+        self.assertNotIn("earlier version", clause)
+
+        # And neither: no claim either way.
+        neither = json.loads(json.dumps(escalated))
+        neither["plan_change_escalations"] = []
+        self.assertEqual(bc._plan_review_clause(neither), "No plan review is recorded for the shipped plan")
+    def test_re_cutting_a_plan_packet_is_deliberately_not_gated(self):
+        # Operator decision: the freeze in cmd_plan_revise is the whole enforcement. A packet-level cap was
+        # tried twice and wedged the Build both times -- a depth change or a lens install legitimately needs
+        # a re-cut, and refusing it left no exit but a faked plan edit. Pinned so the cap is not quietly
+        # reintroduced without revisiting why it was dropped.
+        self.complete_panel()
+        pkt = self.packet("plan")
+        self.assertTrue(pkt["reviewer_contracts"])
+        self.assertEqual(len(self.state()["plan_panels"]), 1)
 
     def test_an_escalation_does_not_relax_deliverable_coverage(self):
         # The first attempt folded the escalation into plan_waived, which also suppressed reviewer-coverage

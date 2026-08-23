@@ -40,7 +40,13 @@ builds that motivated it was re-read volume. It is worth having, and it is not t
 The gate fails toward **allow**. The payload shape it reads is the platform's contract, not the engine's,
 and that contract has changed before — the subagent tool has been named both `Task` and `Agent` — so any
 shape the gate does not recognize is allowed rather than blocked. A wrong deny is not caught by the hooks
-fail-open harness, which covers only crashes, so the escape is explicit: set `ENGINE_SESSION_ECONOMY=off`.
+fail-open harness, which covers only crashes, so the escape is explicit.
+
+**Each rule has its own switch**, because they are unrelated behaviours and one combined switch meant that
+turning off a self-scheduling deny also silently un-gated expensive subagent spawns:
+`ENGINE_SESSION_ECONOMY_MODEL=off` for the cheap-model rule, `ENGINE_SESSION_ECONOMY_WAKEUP=off` for the
+self-scheduling rule, and `ENGINE_SESSION_ECONOMY=off` for both. Each deny names its own switch in the
+refusal text, so the escape is discoverable at the moment it is needed.
 
 That escape is an environment variable rather than a tunable, deliberately. The tunables surface holds
 operator preferences and never enforcement switches, and its override file sits outside the weakening guard

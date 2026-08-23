@@ -40,19 +40,29 @@ SUBAGENT_TOOLS = ("Agent", "Task")
 # and are never touched here; `general-purpose` is deliberately absent because it does judgment work.
 GATED_SUBAGENT_TYPES = ("Explore", "Plan")
 WAKEUP_TOOLS = ("ScheduleWakeup",)
-OFF_SWITCH = "ENGINE_SESSION_ECONOMY"
+OFF_SWITCH = "ENGINE_SESSION_ECONOMY"            # master: turns both rules off
+MODEL_OFF_SWITCH = "ENGINE_SESSION_ECONOMY_MODEL"   # the Explore/Plan cheap-model rule alone
+WAKEUP_OFF_SWITCH = "ENGINE_SESSION_ECONOMY_WAKEUP" # the self-scheduling rule alone
 
 BLOCK_INVARIANT = {"event": "PreToolUse", "name": "session-economy-gate", "owner": "session_economy",
                    "modes": ["explore", "build", "routine"]}
 
 
-def disabled() -> bool:
+def _off(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"off", "0", "false"}
+
+
+def disabled(switch: str | None = None) -> bool:
     """The operator's escape, deliberately an environment variable rather than a tunable: the tunables
     surface holds preferences and explicitly never enforcement switches, and its override file sits outside
     the weakening guard on the strength of that. Honest limit: hooks inherit the LAUNCHING process's
     environment, so this is not settable from inside the session a wrong deny just stopped — it governs
-    sessions started after it is set. That is a real cost of the choice, not a hidden one."""
-    return os.environ.get(OFF_SWITCH, "").strip().lower() in {"off", "0", "false"}
+    sessions started after it is set. That is a real cost of the choice, not a hidden one.
+
+    The two rules answer to SEPARATE switches by operator decision: they are unrelated behaviours, and one
+    combined switch meant turning off a self-scheduling deny also silently un-gated expensive subagent
+    spawns. The master switch still turns both off."""
+    return _off(OFF_SWITCH) or (switch is not None and _off(switch))
 
 
 def cheap_models() -> set:
@@ -80,7 +90,7 @@ def cheap_models() -> set:
 
 def subagent_denial(tool_name, tool_input):
     """The deny reason for an over-powered search/plan spawn, or None to allow."""
-    if tool_name not in SUBAGENT_TOOLS or not isinstance(tool_input, dict):
+    if disabled(MODEL_OFF_SWITCH) or tool_name not in SUBAGENT_TOOLS or not isinstance(tool_input, dict):
         return None
     kind = tool_input.get("subagent_type")
     if kind not in GATED_SUBAGENT_TYPES:
@@ -94,20 +104,21 @@ def subagent_denial(tool_name, tool_input):
     return (f"A {kind} subagent must name a cheap model ({named}); this spawn {said}. "
             "A search or planning agent on an expensive model is spin-up cost for work the "
             "orchestrator should do inline — if the task genuinely needs stronger judgment, do it yourself "
-            "rather than delegating it. Relaunch this spawn with model set to one of those. To switch the "
-            f"gate off entirely, set {OFF_SWITCH}=off in the environment (or the project settings' env "
-            "block); hooks read the launching process's environment, so that takes effect for sessions "
-            "started afterwards, not this one.")
+            "rather than delegating it. Relaunch this spawn with model set to one of those. To switch this "
+            f"rule off, set {MODEL_OFF_SWITCH}=off in the environment (or the project settings' env block); "
+            f"{OFF_SWITCH}=off turns off the self-scheduling rule too. Hooks read the launching process's "
+            "environment, so either takes effect for sessions started afterwards, not this one.")
 
 
 def wakeup_denial(tool_name):
-    if tool_name not in WAKEUP_TOOLS:
+    if disabled(WAKEUP_OFF_SWITCH) or tool_name not in WAKEUP_TOOLS:
         return None
     return ("This session should not schedule its own wake-up. Each one re-reads the whole context, and "
             "observed builds spent consecutive wake-ups reporting nothing. Wait on a blocking check, or end "
             "the turn and let the operator resume; unattended work is fired by the platform scheduler, not "
-            f"arranged from inside a session. To switch the gate off, set {OFF_SWITCH}=off in the "
-            "environment (or the project settings' env block), which applies to sessions started after.")
+            f"arranged from inside a session. To switch this rule off, set {WAKEUP_OFF_SWITCH}=off in the "
+            f"environment (or the project settings' env block); {OFF_SWITCH}=off turns off the subagent "
+            "model rule too. Either applies to sessions started after it is set.")
 
 
 def handler(payload: dict) -> dict:
