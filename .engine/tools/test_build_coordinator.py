@@ -2279,3 +2279,317 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEvidenceDurability(CoordinatorCase):
+    """A finding lives exactly as long as a receipt demands it, and review bindings survive a rebase.
+
+    StarshipSuperjam/engine-template#1051 and #1000. Both defects are the same geometry: recorded review
+    evidence bound to state the workflow itself later rewrites.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("thorough")
+
+    # --- shared scaffolding -------------------------------------------------------------
+
+    def _deliverable_reviewed(self, lenses=("usability", "spec-conformance"), head=HEAD_A):
+        """Land a completed deliverable review at `head`, the way a real Build reaches repair. The roster is
+        passed as bare lens names to `_installed` and coerced by `_packet`, mirroring the established helper
+        -- a hand-built roster of `{"lens": x}` dicts is not a real reviewer contract and is rejected."""
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        out = io.StringIO()
+        self.store.mutate(lambda s: s.update({"validation": {
+            "commit": head, "results": [{"id": "x", "commit": head, "passed": True, "summary": "ok"}]}}))
+        with mock.patch.object(bc, "_installed", return_value=list(lenses)), \
+                mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                contextlib.redirect_stdout(out):
+            bc._packet(args, self.store)
+        pkt = json.loads(out.getvalue())
+        for item in pkt["reviewer_contracts"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, item["lens"], []), self.store)
+        return pkt
+
+    def receipt_args(self, packet, lens, findings):
+        contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == lens)
+        return argparse.Namespace(stage=packet["stage"], lens=lens,
+                                  packet_digest=packet["packet_digest"],
+                                  lens_packet_digest=contract["lens_packet_digest"], finding=findings,
+                                  code_execution="none")
+
+    def _repair_packet(self, lenses, final=HEAD_B, reviewed=HEAD_A):
+        self.store.mutate(lambda s: s.update({
+            "repair": {"reviewed_commit": reviewed, "final_commit": final, "summary": "1 file",
+                       "judgment": "scoped", "rationale": "Logic changed.", "lenses": list(lenses),
+                       "packet_digest": None, "referent_digest": None, "reviewer_contracts": [],
+                       "receipts": []},
+            "validation": {"commit": final, "results": [{"id": "x", "commit": final, "passed": True, "summary": "ok"}]}}))
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=list(lenses)), \
+                mock.patch.object(bc, "_head", return_value=final), \
+                mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
+            bc._packet(args, self.store)
+        return json.loads(out.getvalue())
+
+    # --- #1051: the wedge -----------------------------------------------------------------
+
+    def test_a_regenerated_repair_packet_never_strands_the_findings_it_still_demands(self):
+        """The wedge, end to end: a repair receipt is spliced into the deliverable stage, the repair packet
+        is then re-cut for a different lens, and the spliced receipt survives carrying its OLD digest.
+        Before the fix its findings were deleted while it kept demanding them, and `finding record` -- which
+        could only ever write against the LIVE packet -- had no way to satisfy the demand. The Build could
+        not leave finding-disposition, and the only escape found in practice was a full cold fan-out spent
+        on bookkeeping."""
+        self._deliverable_reviewed()
+        pkt = self._repair_packet(["usability"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-1"]), self.store)
+        # regenerate the repair packet for a DIFFERENT lens: the spliced receipt survives in the
+        # deliverable stage carrying the old packet digest, and still demands R-1.
+        self._repair_packet(["spec-conformance"], final=HEAD_B)
+        self.assertEqual(bc.review.missing_findings(self.state()), ["R-1"])
+        # the demand must be satisfiable -- this is the exact call that could not be made before.
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(argparse.Namespace(
+                id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern",
+                disposition="accepted-fixed", rationale="Fixed directly.", escalation_kind=None,
+                blocks_this_pr=False, handoff_summary="Repair concern"), self.store)
+        self.assertEqual(bc.review.missing_findings(self.state()), [])
+
+    def test_a_none_judgment_after_a_spliced_round_leaves_no_unrecordable_demand(self):
+        """`none` clears the repair packet entirely, so before the fix there was no current packet to
+        record against at all -- the same wedge in its worst form."""
+        self._deliverable_reviewed()
+        pkt = self._repair_packet(["usability"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), \
+                mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified directly.",
+                                                    lens=None, guidance=None), self.store)
+        self.assertIsNone(self.state()["repair"]["packet_digest"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_finding_record(argparse.Namespace(
+                id="R-2", stage="repair", lens="usability", severity="nit", summary="Minor.",
+                disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
+                blocks_this_pr=False, handoff_summary="Minor."), self.store)
+        self.assertEqual(bc.review.missing_findings(self.state()), [])
+
+    def test_a_deliverable_regeneration_never_orphans_a_repair_finding(self):
+        """The complementary leak, which the widen-the-filter approach would have left open: a DELIVERABLE
+        re-cut drops the spliced repair receipt from the preserved set, but the old per-branch filter keyed
+        on `f["stage"] != stage` and so left the repair finding behind. An orphan no receipt demands still
+        counted toward `blocks_this_pr` and still rendered a disagreement line into the PR body."""
+        self._deliverable_reviewed()
+        pkt = self._repair_packet(["usability"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-3"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(
+                id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
+                disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
+                blocks_this_pr=False, handoff_summary="Serious.",
+                operator_summary="A repair-stage concern, fixed."), self.store)
+        self.assertTrue(any(f["id"] == "R-3" for f in self.state()["findings"]))
+        self.assertTrue(bc.review.required_disagreement_lines(self.state()))
+        # A `none` judgment replaces the repair slot, so the ONLY receipt still demanding R-3 is the copy
+        # spliced into the deliverable stage. Re-cutting the deliverable packet drops that copy.
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), \
+                mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified.", lens=None,
+                                                    guidance=None), self.store)
+        self._deliverable_reviewed(lenses=("technical-integrity",), head=HEAD_C)
+        ids = [f["id"] for f in self.state()["findings"]]
+        self.assertNotIn("R-3", ids, "the repair finding outlived every receipt that demanded it")
+        self.assertEqual(bc.review.missing_findings(self.state()), [])
+        self.assertEqual(bc.review.required_disagreement_lines(self.state()), [])
+
+    def test_finding_record_refuses_cleanly_when_no_live_receipt_names_the_lens(self):
+        """Not a stack trace: `--stage repair` against an empty repair slot used to raise a bare KeyError,
+        because state["reviews"] holds only plan and deliverable."""
+        self._deliverable_reviewed()
+        with self.assertRaises(bc.CoordinatorError):
+            bc.cmd_finding_record(argparse.Namespace(
+                id="R-9", stage="repair", lens="usability", severity="nit", summary="x",
+                disposition="accepted-fixed", rationale="y", escalation_kind=None,
+                blocks_this_pr=False, handoff_summary="x"), self.store)
+
+    # --- #1000: reconcile ------------------------------------------------------------------
+
+    def _rebase_repo(self, diverge=False):
+        """A real repository, a real branch, and a real rebase onto an advanced base."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        def git(*a, check=True):
+            return subprocess.run(["git", "-C", str(tmp), *a], check=check,
+                                  capture_output=True, text=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(tmp)], check=True)
+        git("config", "user.email", "e@x"); git("config", "user.name", "n")
+        (tmp / "upstream.txt").write_text("one\n")
+        git("add", "-A"); git("commit", "-qm", "base")
+        base_before = git("rev-parse", "HEAD").stdout.strip()
+        git("checkout", "-q", "-b", "work")
+        (tmp / "mine.py").write_text("x = 1\n")
+        git("add", "-A"); git("commit", "-qm", "mine")
+        reviewed = git("rev-parse", "HEAD").stdout.strip()
+        git("checkout", "-q", "main")
+        (tmp / "upstream.txt").write_text("one\ntwo\n")
+        git("add", "-A"); git("commit", "-qm", "upstream moved")
+        base_after = git("rev-parse", "HEAD").stdout.strip()
+        git("checkout", "-q", "work")
+        git("rebase", "-q", "main")
+        if diverge:
+            # a real content change carried in with the rebase -- exactly the shape patch-id could not see
+            (tmp / "mine.py").write_text("    x = 1\n")
+            git("add", "-A"); git("commit", "-qm", "reindented during the rebase")
+        head = git("rev-parse", "HEAD").stdout.strip()
+        return tmp, base_before, reviewed, base_after, head
+
+    def _reconcile(self, tmp, base_before, reviewed, base_after, head):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": reviewed, "base_commit": base_before,
+             "packet_digest": "sha256:" + "7" * 64}))
+        self.store.mutate(lambda s: s.update(
+            {"pr_contract": {"commit": head, "body_digest": "sha256:" + "8" * 64, "complete": True}}))
+        out = io.StringIO()
+        with mock.patch.object(bc, "ROOT", tmp), \
+                mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after), \
+                mock.patch.object(bc.review_integrity, "snapshot", return_value=None), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_reconcile(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        return out.getvalue()
+
+    def test_an_unchanged_contribution_re_anchors_against_real_git(self):
+        """A real rebase onto a real advanced base: the branch's own contribution is untouched, so the
+        bindings move to the new head with no operator involvement and no repair round spent."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        message = self._reconcile(tmp, base_before, reviewed, base_after, head)
+        state = self.state()
+        self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
+        self.assertEqual(state["reviews"]["deliverable"]["base_commit"], base_after)
+        self.assertEqual(len(state["reconciles"]), 1)
+        self.assertTrue(state["reconciles"][0]["contribution_identical"])
+        self.assertEqual(state["reconciles"][0]["divergent_paths"], [])
+        self.assertEqual(state["repair_rounds"], [], "a clean re-anchor must not spend a repair round")
+        self.assertIn("unchanged", message)
+        # a body composed before the reconcile must not carry into readiness
+        self.assertIsNone(state["pr_contract"])
+
+    def test_a_reindented_line_is_divergent_even_though_patch_id_calls_it_identical(self):
+        """The finding that replaced the original comparator. `git patch-id --stable` strips whitespace
+        before hashing, so `x = 1` and `    x = 1` share an id -- in a Python tree a full semantic change
+        measuring as identical, and it was the sole safeguard on a free re-anchor. Exact tree entries see
+        it, and the divergent path routes back to `repair assess` rather than re-anchoring to head."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo(diverge=True)
+        message = self._reconcile(tmp, base_before, reviewed, base_after, head)
+        state = self.state()
+        entry = state["reconciles"][0]
+        self.assertFalse(entry["contribution_identical"])
+        self.assertEqual(entry["divergent_paths"], ["mine.py"])
+        # the weaker outcome carries MORE scrutiny: reviewed != head, so a repair judgment is still owed.
+        self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], base_after)
+        self.assertNotEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
+        self.assertIn("repair assess", message)
+
+    def test_patch_id_would_have_called_the_reindent_identical(self):
+        """Pins the reason the comparator is what it is, so nobody re-introduces patch-id as a
+        simplification. If git ever changes this, this test says so."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+        subprocess.run(["git", "-C", str(tmp), "config", "user.email", "e@x"], check=True)
+        subprocess.run(["git", "-C", str(tmp), "config", "user.name", "n"], check=True)
+        (tmp / "f.py").write_text("a\nb\nc\n")
+        subprocess.run(["git", "-C", str(tmp), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(tmp), "commit", "-qm", "s"], check=True)
+        def pid(text):
+            (tmp / "f.py").write_text(text)
+            diff = subprocess.run(["git", "-C", str(tmp), "diff"], capture_output=True, text=True).stdout
+            return subprocess.run(["git", "-C", str(tmp), "patch-id", "--stable"],
+                                  input=diff, capture_output=True, text=True).stdout.split()[0]
+        self.assertEqual(pid("a\nb\nx = 1\nc\n"), pid("a\nb\n    x = 1\nc\n"))
+
+    def test_reconcile_refuses_what_belongs_to_repair_assess(self):
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        # still on the branch: ordinary forward divergence
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": base_after, "base_commit": base_before}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after), \
+                self.assertRaisesRegex(bc.CoordinatorError, "repair assess"):
+            bc.cmd_reconcile(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        # orphaned but the base never moved: an amend, which is a real content change
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": reviewed, "base_commit": base_after}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after), \
+                self.assertRaisesRegex(bc.CoordinatorError, "repair assess"):
+            bc.cmd_reconcile(argparse.Namespace(plan=str(self.plan_path)), self.store)
+
+    def test_repair_assess_routes_a_rewritten_history_to_the_verb(self):
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": reviewed, "base_commit": base_before}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after), \
+                self.assertRaisesRegex(bc.CoordinatorError, "reconcile"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r", lens=None,
+                                                    guidance=None), self.store)
+
+    def test_an_unmeasurable_rewrite_refuses_the_free_path(self):
+        """A garbage-collected orphan cannot be compared. Fail closed: onto the base, not onto head."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self._reconcile(tmp, base_before, "f" * 40, base_after, head)
+        entry = self.state()["reconciles"][0]
+        self.assertFalse(entry["contribution_identical"])
+        self.assertTrue(entry["unmeasurable"])
+        self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], base_after)
+
+    def test_a_second_rewrite_can_still_reach_the_clean_path(self):
+        """`base_commit` is re-anchored too, so the two sides of the measurement stay the same width. Two
+        occurrences in one Build is the recorded case (#994 and #1049), not a hypothetical."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self._reconcile(tmp, base_before, reviewed, base_after, head)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["base_commit"], base_after)
+        tmp2, b2, r2, a2, h2 = self._rebase_repo()
+        self._reconcile(tmp2, b2, r2, a2, h2)
+        self.assertTrue(self.state()["reconciles"][-1]["contribution_identical"])
+
+    def test_the_reconcile_reaches_the_operator_in_the_pr_body(self):
+        """The disclosure must SAY what happened, not merely exist -- and the pre-existing repair line must
+        not be inverted into a false 'no repair was needed' claim."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self.store.mutate(lambda s: s.update({"repair": {
+            "reviewed_commit": base_before, "final_commit": reviewed, "summary": "3 files changed",
+            "judgment": "scoped", "rationale": "r", "lenses": ["usability"], "packet_digest": None,
+            "receipts": []}}))
+        self._reconcile(tmp, base_before, reviewed, base_after, head)
+        state = self.state()
+        entry = state["reconciles"][0]
+        # the repair record survives, so its truthful line survives with it
+        self.assertIsNotNone(state["repair"])
+        self.assertEqual(state["repair"]["summary"], "3 files changed")
+        self.assertTrue(entry["contribution_identical"])
+        self.assertEqual(entry["from_commit"], reviewed)
+        self.assertEqual(entry["to_commit"], head)
+
+    def test_reconciles_survive_a_handoff_round_trip_and_a_legacy_restore(self):
+        entry = {"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE, "base_after": HEAD_C,
+                 "contribution_identical": True, "divergent_paths": [], "unmeasurable": None}
+        value = {"build": {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE, "mode": "same-session"},
+                 "plan": self.state()["plan"], "approval": self.state()["approval"],
+                 "reviews": self.state()["reviews"], "finding_summaries": [],
+                 "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None,
+                 "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [],
+                 "reconciles": [entry]}
+        restored = bc._restore_base_state(value, "build-state.v1")
+        self.assertEqual(restored["reconciles"], [entry])
+        legacy = bc._restore_base_state({k: v for k, v in value.items() if k != "reconciles"},
+                                        "build-state.v1")
+        self.assertEqual(legacy["reconciles"], [])
