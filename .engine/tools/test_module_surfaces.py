@@ -129,5 +129,25 @@ class TestDeclinedSurfaceOwner(unittest.TestCase):
         self.assertIsNone(ms.declined_surface_owner(os.path.join(d, ".engine/docs/nope.md"), root=d))
 
 
+class TestGenerateCliHomeGuard(unittest.TestCase):
+    """The bare `module_surfaces.py generate` hand-run must refuse off-home: the registry lists EVERY module's
+    surfaces, so regenerating it from a deployment's reduced manifest set would erase declined modules'
+    ownership. The guard delegates to the positive-home, fail-closed derived_state.is_confirmed_home."""
+
+    def test_refuses_and_does_not_generate_when_home_is_not_confirmed(self):
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=False), \
+             mock.patch.object(ms, "generate") as gen:
+            code = ms._run_generate_cli()
+        self.assertEqual(code, 2)
+        gen.assert_not_called()
+
+    def test_generates_when_home_is_confirmed(self):
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=True), \
+             mock.patch.object(ms, "generate") as gen:
+            code = ms._run_generate_cli()
+        self.assertEqual(code, 0)
+        gen.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

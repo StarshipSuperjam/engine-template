@@ -483,7 +483,9 @@ def _changed_or_failed(member: DerivedMember, root: str, before: str, detail: st
     caller's crash cleanup — pr_reconcile's merge --abort/reset --hard)."""
     try:
         changed = _member_digest(member, root) != before
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001 — the digest resolves CONCRETE outputs, and a dynamic member's
+        # resolver reads manifests (a malformed one raises ValueError, not OSError); any such raise is a
+        # per-member 'failed', never a traceback that skips a caller's crash cleanup or aborts siblings.
         return MemberResult(member.path, "failed", False, "could not read regenerated output", error=repr(exc))
     return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
                         detail if changed else "already up to date")
@@ -498,7 +500,14 @@ def _regen_one_import(member: DerivedMember, root: Optional[str]) -> MemberResul
     if missing:
         return MemberResult(member.path, "skipped-absent", False,
                             "the tree does not carry this member's output(s) — not fabricated")
-    if _symlink_escape(member, scope_root):
+    try:
+        escaping = _symlink_escape(member, scope_root)
+    except Exception as exc:  # noqa: BLE001 — resolving CONCRETE outputs for the escape pre-check reads a
+        # dynamic member's manifests, which raise (ValueError) on a malformed/merge-conflicted file; convert to
+        # a per-member 'failed' so the never-swallowed-never-raise contract holds before any generator runs.
+        return MemberResult(member.path, "failed", False, "could not resolve outputs for symlink pre-check",
+                            error=repr(exc))
+    if escaping:
         return MemberResult(member.path, "skipped-symlink", False,
                             "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     gen = _resolve_generate(member)
@@ -522,7 +531,13 @@ def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberR
     missing = [o for o in member.outputs if not _output_exists(o, base)]
     if missing:
         return MemberResult(member.path, "skipped-absent", False, "the tree does not carry this member's output(s)")
-    if _symlink_escape(member, base):
+    try:
+        escaping = _symlink_escape(member, base)
+    except Exception as exc:  # noqa: BLE001 — same fail-closed contract as the import path: a malformed manifest
+        # under a dynamic member must not crash the whole subprocess regen and abort siblings.
+        return MemberResult(member.path, "failed", False, "could not resolve outputs for symlink pre-check",
+                            error=repr(exc))
+    if escaping:
         return MemberResult(member.path, "skipped-symlink", False,
                             "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     tool_path = os.path.join(base, ".engine", "tools", member.tool)

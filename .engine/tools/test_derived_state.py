@@ -6,6 +6,7 @@ positive-home scope, type-aware presence, the fail-closed verify normalizer, and
 with SYNTHETIC members where the current roster does not yet carry the shape (E2 registers the real ones)."""
 
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -311,10 +312,17 @@ class TestNonEngineOutputResolution(unittest.TestCase):
         # .engine/ (the Codex renders) resolved to a nonexistent path and always skipped-absent. Root-relative
         # resolution reaches it: the codex member is processed (not skipped-absent) under BOTH dispatch modes.
         codex = ".codex/agents"
-        for dispatch in ("import", "subprocess"):
-            result = {r.path: r for r in ds.regenerate([codex], dispatch=dispatch)}[codex]
-            self.assertIn(result.status, ("regenerated", "unchanged"),
-                          f"{dispatch} dispatch did not reach the non-.engine output: {result.status}")
+        try:
+            for dispatch in ("import", "subprocess"):
+                result = {r.path: r for r in ds.regenerate([codex], dispatch=dispatch)}[codex]
+                self.assertIn(result.status, ("regenerated", "unchanged"),
+                              f"{dispatch} dispatch did not reach the non-.engine output: {result.status}")
+        finally:
+            # this drives the REAL codex_gen against the ambient tree; if the committed renders ever legitimately
+            # differ from a fresh generation, restore them so the suite never leaves the working tree dirty
+            # (mirrors the restore its sibling digest test does — spec-conformance repair re-review).
+            subprocess.run(["git", "checkout", "--", ".codex/agents", ".agents/skills"],
+                           cwd=ds.validate.ROOT, capture_output=True)
 
     def test_symlink_guard_covers_tree_outputs_and_both_dispatches(self):
         # The symlink-escape guard is a shared pre-check over CONCRETE outputs, file and tree, in both
@@ -346,6 +354,65 @@ class TestRegenerate(unittest.TestCase):
         self.assertIsNotNone(results[graph].error)
         self.assertIn("generator exploded", results[graph].error)
         self.assertIn(results[".engine/self-map.md"].status, ("regenerated", "unchanged"))
+
+    def test_a_raise_resolving_a_dynamic_members_outputs_is_per_member_failed_not_a_crash(self):
+        # TI-R1: the symlink-escape PRE-CHECK resolves a member's CONCRETE outputs before any generator runs.
+        # For the dynamic setup-routes member that reads module manifests, and a malformed/merge-conflicted
+        # manifest raises ValueError (json) — NOT OSError. Pre-repair that raise sat outside every try/except and
+        # crashed the whole regenerate() loop (cmd_sync_artifacts before its _restore, and the bare CLI). It must
+        # instead be a per-member 'failed' that never aborts the sibling members regenerated in the same call.
+        import setup_route_gen
+        routes = ".claude/skills/engine-setup-routes"
+        self_map = ".engine/self-map.md"
+
+        def noop(root, primary_target):     # a sibling generator that writes nothing → 'unchanged', no dirty tree
+            return None
+
+        with mock.patch.object(setup_route_gen, "derive",
+                               side_effect=ValueError("malformed manifest: Expecting value")), \
+             mock.patch.object(ds, "_resolve_generate",
+                               side_effect=lambda m: noop if m.path == self_map else _real_resolve(m)):
+            results = {r.path: r for r in ds.regenerate([routes, self_map])}
+
+        self.assertEqual(results[routes].status, "failed")
+        self.assertIn("malformed manifest", results[routes].error or "")
+        # the sibling in the SAME regenerate() call still completed — the raise did not abort the loop
+        self.assertEqual(results[self_map].status, "unchanged")
+
+    def test_the_subprocess_dispatch_also_fails_closed_on_a_pre_check_raise(self):
+        # _symlink_escape is the shared pre-check for BOTH dispatch modes; the subprocess path must fail-closed
+        # the same way (pr_reconcile's merged-branch regen shells generators, so its cleanup must not be skipped).
+        import setup_route_gen
+        routes = ".claude/skills/engine-setup-routes"
+        with mock.patch.object(setup_route_gen, "derive", side_effect=ValueError("boom")):
+            result = {r.path: r for r in ds.regenerate([routes], dispatch="subprocess")}[routes]
+        self.assertEqual(result.status, "failed")
+        self.assertIn("boom", result.error or "")
+
+    def test_a_post_generation_digest_raise_is_a_per_member_failure(self):
+        # _changed_or_failed reads the digest AFTER the generator runs; that read resolves concrete outputs too,
+        # so a dynamic member's manifest going malformed between the 'before' and 'after' reads raises ValueError
+        # there. The pre-repair OSError-only catch let a ValueError escape and crash the loop; it is now caught.
+        self_map = ".engine/self-map.md"
+        real_digest = ds._member_digest
+        calls = {"n": 0}
+
+        def flaky(member, root):
+            if member.path == self_map:
+                calls["n"] += 1
+                if calls["n"] >= 2:          # the 'before' read succeeds; the 'after' read raises
+                    raise ValueError("manifest went malformed mid-regen")
+            return real_digest(member, root)
+
+        def noop(root, primary_target):
+            return None
+
+        with mock.patch.object(ds, "_member_digest", side_effect=flaky), \
+             mock.patch.object(ds, "_resolve_generate",
+                               side_effect=lambda m: noop if m.path == self_map else _real_resolve(m)):
+            r = {x.path: x for x in ds.regenerate([self_map])}[self_map]
+        self.assertEqual(r.status, "failed")
+        self.assertIn("manifest went malformed mid-regen", r.error or "")
 
     def test_changed_is_truthful_from_the_output_digest(self):
         # a generator that writes nothing new reports 'unchanged'; one that mutates the file reports
