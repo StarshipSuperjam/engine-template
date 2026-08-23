@@ -7424,7 +7424,7 @@
       },
       "slug": "build-handoff.v1",
       "source": {
-        "fingerprint": "sha256:0d99a0ea67c1f3a2bede0e8b0892d31c66333d1946c88190f5bd2cbbf0624672",
+        "fingerprint": "sha256:f0111e0d9d5a026f9ab2f3b0320bb18c83816c03f00fa7045eb8c386aa3c2a93",
         "path": ".engine/schemas/build-handoff.v1.json"
       },
       "status": "active",
@@ -7441,7 +7441,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:5b931f840b83553693ecf5fbc8b8b6a83ea2e4652004e155085b0eddfb4e032d",
+        "fingerprint": "sha256:453df11da4b5cd92457ac273173966fa85861be10c721342e490adb6a6e153b2",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7526,7 +7526,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:32f9e47922cf558b2b1ed3a7f23623691c63ef1f09e601dfada329d6ace89a0e",
+        "fingerprint": "sha256:cd7bb7e999e83da5e79aa2dba7bfa9e9f8daa1631558e6047366809b9b299201",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -7543,7 +7543,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:c0ff20b121b091e8bdb53ff908bf6ca2fdb0f6ae0f987e237b91444fa6232cbf",
+        "fingerprint": "sha256:6108725d8c2d4eae10c36744fa39f49a0c37e40a7329314154a363413d26347a",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9785,7 +9785,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:d50b3ba2ab48d587a85309c5a114f1264f11a78df9fe1b83900f2d059813c43c",
+        "fingerprint": "sha256:13bb082bdb54c41822240953056d6e593c0fe10444bb819c37255f3de491a4e7",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15488,7 +15488,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:a5858c67acd71b446d9bde8d8bfe00c2bb331388429d158c8b35a8dc6f870549",
+        "fingerprint": "sha256:c87d37881a4685042bdde5593cdea11c390c480a5ffb339623276e845fcf92e5",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
