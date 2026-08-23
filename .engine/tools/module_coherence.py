@@ -629,9 +629,11 @@ def block_eligible_registrations() -> list:
     green; it would fire the moment any owner declared a block on a non-eligible event or without its
     modes. (owes → the module manager: if the block-owner set grows past 2–3 it may refactor this
     consumer-side assembly to a registry-discovery pattern.)"""
+    import session_economy
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
             + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
-               dict(modes.MERGE_BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT)])
+               dict(modes.MERGE_BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT),
+               dict(session_economy.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:

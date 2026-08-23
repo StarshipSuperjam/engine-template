@@ -165,6 +165,8 @@ _FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py", ".engine/tools/team_switch
 # gate-vs-non-gate call is DERIVED from the hook's own code, not a hand-maintained allowlist that could rot.
 _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse block-budget member)
+    ".engine/tools/session_economy.py",  # the subagent-model / self-scheduling spend gate (PreToolUse
+    #                                    block-budget member); weakening it silently un-gates fan-out
     ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)
     ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
     ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
