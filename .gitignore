@@ -50,3 +50,13 @@ __pycache__/
 # BEGIN engine-managed block: mechanic-product-checkout - do not edit inside
 .engine/mechanic/
 # END engine-managed block: mechanic-product-checkout
+# The local plan library: durable, per-instance planning state — an operator's raw intent, the deliberation
+# behind it, and every revision of the plan it became. Deliberately never committed and never published: a
+# plan under discussion is the operator's own working thought, not a reviewable project artifact, and it may
+# name things that must not become public. A whole-directory block, so no file inside it is ever a tracked
+# surface. The store is durable and local because coordinator state kept in OS temp was observed to vanish
+# across a reboot; the trade is that recovery is workstation-only, which the plan-coordinator decision record
+# states plainly.
+# BEGIN engine-managed block: core-plan-library - do not edit inside
+.engine/plans/
+# END engine-managed block: core-plan-library
