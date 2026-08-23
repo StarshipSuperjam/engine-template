@@ -393,12 +393,49 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(entry["finding_ids"], sorted("F-" + x for x in
                          ["product-intent", "architecture", "feasibility", "risk-governance"]))
 
-    def test_a_reviewed_plan_is_frozen_against_revision(self):
+    def test_a_reviewed_plan_is_frozen_against_unescalated_revision(self):
         self.complete_panel()
         self.write_plan(plan("A materially different intent."))
-        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False)
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False, operator_change=None)
         with self.assertRaisesRegex(bc.CoordinatorError, "already been reviewed"):
             bc.cmd_plan_revise(args, self.store)
+        # The refusal must name the escalation path, not just say no: a session told only "you cannot revise"
+        # is a session nudged into building on against a plan it already doubts.
+        with self.assertRaisesRegex(bc.CoordinatorError, "--operator-change"):
+            bc.cmd_plan_revise(args, self.store)
+
+    def test_operator_authorized_change_revises_without_re_running_the_panel(self):
+        self.complete_panel()
+        reviewed = self.state()["plan"]["digest"]
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                  operator_change="Operator: the API shape changed; adjust and ship without re-review.")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(args, self.store)
+        state = self.state()
+        escalations = state["plan_change_escalations"]
+        self.assertEqual(len(escalations), 1)
+        self.assertEqual(escalations[0]["reviewed_plan_digest"], reviewed)
+        self.assertEqual(escalations[0]["plan_digest"], state["plan"]["digest"])
+        # The panel is NOT re-run: no plan-review packet is demanded of the new digest...
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(state)
+        self.assertNotIn("plan-review packet", status["required_evidence"])
+        # ...and the gap is disclosed rather than hidden.
+        self.assertTrue(any("not re-reviewed" in w and "API shape changed" in w for w in status["warnings"]))
+
+    def test_receipts_are_never_rebound_to_the_changed_plan(self):
+        # The escalation authorizes shipping an unreviewed delta; it must not forge review OF that delta.
+        pkt = self.complete_panel()
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
+                                                  operator_change="Operator: proceed."), self.store)
+        state = self.state()
+        self.assertEqual(state["reviews"]["plan"]["receipts"], [])
+        # The completed panel stays on record against the digest it actually read.
+        self.assertEqual([e["plan_digest"] for e in state["plan_panels"]], [pkt["plan_digest"]])
+        self.assertNotEqual(pkt["plan_digest"], state["plan"]["digest"])
 
     def test_revising_before_any_panel_is_untouched(self):
         # Iterating the plan to solid BEFORE cutting the first packet is the intended path.

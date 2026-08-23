@@ -203,7 +203,7 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "validation": None, "repair": None,
         # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
         # a cap a cold resume silently zeroes is a cap with a published bypass.
-        "plan_panels": [], "repair_rounds": [],
+        "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [],
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
@@ -366,6 +366,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     plan_waived = bool(plan_stage.get("waiver") and state.get("approval")
                         and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
                         and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
+    # An operator-authorized mid-flight plan change stands in for plan-review coverage of the NEW digest,
+    # so the Build neither wedges nor silently re-panels. It is a disclosure, never a proof of review.
+    plan_escalations = [e for e in state.get("plan_change_escalations", [])
+                        if e["plan_digest"] == state["plan"]["digest"]]
+    plan_waived = plan_waived or bool(plan_escalations)
     if plan_stage["packet_digest"] is None and not fast_path and not plan_waived:
         required_evidence.append("plan-review packet")
     elif not plan_waived:
@@ -412,8 +417,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         required_evidence.append("complete PR contract for the final commit")
     if state["plan"]["source"] == "session":
         warnings.append("plan is session-local; promote it before intentional cold-session handoff")
-    if plan_waived:
+    if plan_stage.get("waiver"):
         warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
+    for item in plan_escalations:
+        warnings.append("plan changed after review (operator-authorized, not re-reviewed): "
+                        + item["operator_change"])
     if plan:
         # An assumption's EFFECTIVE status is its authored plan status overlaid with any receipt-layer
         # disposition (StarshipSuperjam/engine-template#1014). A disposition never edits the plan, so the
@@ -681,11 +689,16 @@ def cmd_plan_revise(args, store: StateStore) -> None:
     # implementation; a plan the panel reveals as not-ready is scrapped and re-planned, not re-reviewed.
     # Iterating the plan freely BEFORE the first packet is the intended path and is untouched by this.
     panels = _completed_plan_panels(state)
-    if panels:
+    escalation = getattr(args, "operator_change", None)
+    if panels and not escalation:
         raise CoordinatorError(
-            f"this plan has already been reviewed by a completed panel ({len(panels)}); revising it now would "
-            "discard that review and require a second one. Disposition the panel's findings and fix them in "
-            "the implementation, or abandon this Build and start fresh from a re-planned intent.")
+            f"this plan has already been reviewed by a completed panel ({len(panels)}). There are three ways "
+            "forward and re-reviewing is not one of them. If the panel found something to FIX, disposition the "
+            "finding and fix it in the implementation -- no plan change is needed. If the PLAN itself must "
+            "change, that is the operator's call, not yours: stop, put the change and its consequences to them "
+            "in plain words, and record their decision with --operator-change. If the plan is wrong at its "
+            "root, abandon this Build and start fresh from a re-planned intent. What you must not do is carry "
+            "on building against a plan you already believe is flawed.")
     durable = state["plan"]["source"] == "issue"
     if durable:
         if not args.ack_visibility:
@@ -693,9 +706,25 @@ def cmd_plan_revise(args, store: StateStore) -> None:
     def change(current):
         if durable:
             _publish_issue(current["build"]["repository"], current["plan"]["durable_issue"], plan)
+        reviewed_digest = current["plan"]["digest"]
         _reset_after_revision(current, plan)
+        if escalation and panels:
+            # The receipt-layer escalation record, following the assumption-disposition precedent
+            # (StarshipSuperjam/engine-template#1014): a legitimate mid-flight correction must not be
+            # payable only by nuking the review chain, because that manufactures an incentive to carry on
+            # against a plan the session already doubts. The receipts are NOT re-bound -- they still attest
+            # exactly the plan they reviewed -- so nothing is laundered. What this records is that the
+            # operator authorized shipping a CHANGED plan without re-review, and _status discloses that gap
+            # at merge, where their consent actually lives.
+            current.setdefault("plan_change_escalations", []).append(
+                {"reviewed_plan_digest": reviewed_digest, "plan_digest": _digest(plan),
+                 "operator_change": escalation})
     store.mutate(change, from_revision=state["revision"])
-    print(f"revised plan to {_digest(plan)}; approval and review evidence were cleared")
+    if escalation and panels:
+        print(f"revised plan to {_digest(plan)} on recorded operator authority; the completed panel is NOT "
+              "re-run and the un-reviewed delta is disclosed at merge")
+    else:
+        print(f"revised plan to {_digest(plan)}; approval and review evidence were cleared")
 
 
 def cmd_approve(args, store: StateStore) -> None:
@@ -1589,7 +1618,8 @@ def _handoff(state: dict) -> dict:
              # Cadence ledgers cross the handoff boundary: a cold resume that zeroed them would hand the
              # continuing session a fresh free panel and fresh repair rounds. They carry digests, lens
              # names, finding ids and counts only -- nothing the redaction discipline above applies to.
-             "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", [])}
+             "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", []),
+             "plan_change_escalations": state.get("plan_change_escalations", [])}
     if is_v2:
         value["work"] = _bounded_work(state.get("work", {}))
     _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
@@ -1665,7 +1695,8 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", [])}
+            "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", []),
+            "plan_change_escalations": value.get("plan_change_escalations", [])}
 
 
 def _restore_work(work_map: dict) -> dict:
@@ -2449,7 +2480,7 @@ def parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
     promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); destination = promote.add_mutually_exclusive_group(required=True); destination.add_argument("--issue", type=int); destination.add_argument("--create-issue"); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
-    revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
+    revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing a mid-flight plan change. The completed panel is not re-run; the un-reviewed delta is disclosed at merge."); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
     migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
