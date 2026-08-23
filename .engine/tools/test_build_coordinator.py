@@ -2841,15 +2841,11 @@ class TestEvidenceDurability(CoordinatorCase):
 
     def test_the_assembler_passes_the_real_head_to_the_disclosure(self):
         """The wiring half of the seam: the pure function is correct, but nothing asserted the assembler
-        hands it the CURRENT head rather than some stale commit."""
-        seen = {}
-        state = self.state()
-        with mock.patch.object(bc, "_drift_line", side_effect=lambda s, h: seen.setdefault("head", h) or "x"):
-            bc._drift_line(state, HEAD_C)
-        self.assertEqual(seen["head"], HEAD_C)
+        hands it the CURRENT head rather than a stale commit. Pinned as source text, which is honest about
+        what it checks — patching the function and then calling it from the test would assert a mock
+        against itself and prove nothing about production."""
         import inspect
-        source = inspect.getsource(bc._assemble_evidence)
-        self.assertIn("_drift_line(state, head)", source)
+        self.assertIn("_drift_line(state, head)", inspect.getsource(bc._assemble_evidence))
 
     def test_repair_assess_refuses_legibly_when_the_anchor_is_unreadable(self):
         """A garbage-collected anchor produced a raw `Invalid revision range` from git."""
