@@ -11839,7 +11839,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:e50a6f7ecd134b47207e4a48b53aa7a500112d9f6e78a6d66c14c6f7819efcee",
+        "fingerprint": "sha256:a5ff73b021c1c5173f63fc527ce55ad621ef34f5918a03ce9f28617296eb943f",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -13398,7 +13398,7 @@
       },
       "slug": "module_surfaces",
       "source": {
-        "fingerprint": "sha256:75030be551e1dab55dd8c43018c50e1044a06a1beceef57c2ac0d9ecfa20c35d",
+        "fingerprint": "sha256:e570a42dd9d2c700584aa812fe9477d4a90dc65083b16cf3705fa98bc878f9b9",
         "path": ".engine/tools/module_surfaces.py"
       },
       "status": "active",
@@ -16063,12 +16063,13 @@
           "tool:module_coherence",
           "tool:module_manager",
           "tool:pr_reconcile",
-          "tool:self_map"
+          "tool:self_map",
+          "tool:setup_route_gen"
         ]
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:b156a7be5f2c61ab3bf55bef47562da4836c651e0fa4203f0fc825438101c983",
+        "fingerprint": "sha256:f2a5db1f790217b238c47364d21acc10b8a9d53167c1097476f4fd204a90ba5d",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -17492,7 +17493,7 @@
       },
       "slug": "test_module_surfaces",
       "source": {
-        "fingerprint": "sha256:633fa838899c1025dcd3fdaddd4d6b5af3b9314de6330c110351ca73e7e1ff29",
+        "fingerprint": "sha256:fd7d04e2036079fbf2e8cd27144d1c1fca5cb9430120b1e7622c544102532f80",
         "path": ".engine/tools/test_module_surfaces.py"
       },
       "status": "active",
