@@ -12795,7 +12795,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:aedd5b58b551dc78c01b02cc78fc67a2aa19963d14be4081a1d8b1c5cff05169",
+        "fingerprint": "sha256:c732d07896dfd6cabe8481832542338c86b81a7d5ede908b25d3f8ac5efe304e",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -17113,7 +17113,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:0f640a704798918dbc51078e0ab3fa15243f77e6a85e4c082b1be61f64fdd166",
+        "fingerprint": "sha256:b8a897ec137df58077254789932e264c828b8db77543ecd2a6dbecdd02da5027",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
