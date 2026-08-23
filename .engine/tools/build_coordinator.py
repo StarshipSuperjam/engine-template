@@ -366,14 +366,14 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     plan_waived = bool(plan_stage.get("waiver") and state.get("approval")
                         and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
                         and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
-    # An operator-authorized mid-flight plan change stands in for plan-review coverage of the NEW digest,
-    # so the Build neither wedges nor silently re-panels. It is a disclosure, never a proof of review.
-    plan_escalations = [e for e in state.get("plan_change_escalations", [])
-                        if e["plan_digest"] == state["plan"]["digest"]]
-    plan_waived = plan_waived or bool(plan_escalations)
-    if plan_stage["packet_digest"] is None and not fast_path and not plan_waived:
+    # An operator-authorized mid-flight plan change stands in for plan-review of the NEW digest -- and for
+    # nothing else. It is read from the SAME predicate the checkpoint/validate gate uses, so the two can
+    # never disagree, and it is kept OUT of plan_waived: folding it in there also suppressed reviewer-
+    # coverage refresh, relaxing lens coverage this change promised never to touch.
+    plan_escalation = review.plan_change_escalation(state)
+    if plan_stage["packet_digest"] is None and not fast_path and not plan_waived and not plan_escalation:
         required_evidence.append("plan-review packet")
-    elif not plan_waived:
+    elif not plan_waived and not plan_escalation:
         required_evidence.extend(f"plan-review receipt: {x}" for x in _missing_receipts(plan_stage))
     required_evidence.extend(f"finding disposition: {x}" for x in missing_findings)
     if blocking:
@@ -419,9 +419,9 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         warnings.append("plan is session-local; promote it before intentional cold-session handoff")
     if plan_stage.get("waiver"):
         warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
-    for item in plan_escalations:
+    if plan_escalation:
         warnings.append("plan changed after review (operator-authorized, not re-reviewed): "
-                        + item["operator_change"])
+                        + plan_escalation["operator_change"])
     if plan:
         # An assumption's EFFECTIVE status is its authored plan status overlaid with any receipt-layer
         # disposition (StarshipSuperjam/engine-template#1014). A disposition never edits the plan, so the
@@ -712,10 +712,11 @@ def cmd_plan_revise(args, store: StateStore) -> None:
             # The receipt-layer escalation record, following the assumption-disposition precedent
             # (StarshipSuperjam/engine-template#1014): a legitimate mid-flight correction must not be
             # payable only by nuking the review chain, because that manufactures an incentive to carry on
-            # against a plan the session already doubts. The receipts are NOT re-bound -- they still attest
-            # exactly the plan they reviewed -- so nothing is laundered. What this records is that the
-            # operator authorized shipping a CHANGED plan without re-review, and _status discloses that gap
-            # at merge, where their consent actually lives.
+            # against a plan the session already doubts. The revision CLEARS the plan receipts; they are
+            # neither carried forward nor re-pointed at the new digest, which would forge review of a delta
+            # nobody read. The completed panel stays on record in plan_panels against the digest it actually
+            # read. What this records is that the operator authorized shipping a CHANGED plan without
+            # re-review; that gap is disclosed in status AND published in the PR body, where consent lives.
             current.setdefault("plan_change_escalations", []).append(
                 {"reviewed_plan_digest": reviewed_digest, "plan_digest": _digest(plan),
                  "operator_change": escalation})
@@ -970,6 +971,17 @@ def _packet(args, store: StateStore | None) -> None:
         packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
+    # One panel per Build, enforced where the panel is actually CUT and not only where the plan is revised.
+    # An IDENTICAL plan-stage packet re-issued after a completed panel adds no reviewable difference -- the
+    # receipts it would carry already exist -- so the only thing it can buy is a second cold fan-out. A
+    # packet whose digest DIFFERS is a genuine re-review need (a reviewer contract moved, so that lens must
+    # run again) and stays free: refusing it would wall the legitimate case this cap explicitly preserves.
+    if stage == "plan" and unchanged and _completed_plan_panels(state):
+        raise CoordinatorError(
+            "the plan panel for this plan has already completed and this packet is identical to the one it "
+            "read, so re-issuing it can only re-run the panel. Its receipts already stand: disposition the "
+            "findings and fix them in the implementation, escalate a genuine plan change to the operator "
+            "with 'plan revise --operator-change', or abandon this Build and re-plan.")
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
     # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
     # implementation and drives no throwaway-copy execution, so it needs no baseline.
@@ -1426,7 +1438,14 @@ def cmd_repair_assess(args, store: StateStore) -> None:
     # merge" outcome this gate exists to prevent. Re-assessing the SAME divergence (upgrading a scoped
     # judgment to full, say) replaces its entry in place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
-    same = [r for r in rounds if r["reviewed_commit"] == reviewed and r["final_commit"] == head]
+    fanned_out = bool(prior and prior.get("packet_digest")
+                      and prior["reviewed_commit"] == reviewed and prior["final_commit"] == head)
+    # Replace in place ONLY when nothing was spent yet: no repair packet was cut for this same divergence,
+    # so this assess is the operator upgrading their judgment, not a second attempt. Once a packet exists
+    # the lenses were dispatched and that round cost full price, so a further assess is a NEW round even at
+    # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
+    same = ([] if fanned_out else
+            [r for r in rounds if r["reviewed_commit"] == reviewed and r["final_commit"] == head])
     prior_rounds = len(rounds) - len(same)
     guidance = getattr(args, "guidance", None)
     if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
@@ -2212,12 +2231,19 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # recorded no cold-review receipts) no lens ran, so naming the installed lenses as having "ran after"
     # would be a false claim in the PR body — the honesty defect this line must not commit. Key the sentence
     # on the recorded receipts, not on the installed set.
-    cold_review_ran = any(
-        state.get("reviews", {}).get(stage, {}).get("receipts", [])
-        for stage in ("plan", "deliverable"))
+    plan_review_ran = bool(state.get("reviews", {}).get("plan", {}).get("receipts", []))
+    cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     if cold_review_ran:
         lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
-        review_coverage = f"{depth} depth. Plan review ran before any code; the deliverable review ({lenses}) ran after."
+        if plan_review_ran:
+            plan_clause = "Plan review ran before any code"
+        else:
+            # An escalated plan change clears the plan receipts: the panel read an EARLIER plan. Claiming
+            # plan review ran for the shipped plan would be the exact false statement this block exists to
+            # avoid; the Escalation line above carries the operator's authorization verbatim.
+            plan_clause = ("The shipped plan was NOT reviewed — its panel read an earlier version and the "
+                           "change was authorized without re-review (see the escalation above)")
+        review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
     else:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
                            "plus the automatic checks (the full CI suite and self-tests).")
@@ -2267,6 +2293,21 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         f"{d['claim']} -> {d['resolved_as']} (self-attested, not re-reviewed) — basis: {d['basis']}"
         for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
+    # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
+    # an escalation to nobody -- the whole argument for these being real rather than a self-tick. Every round
+    # is listed, not just the latest, so a PR after three rounds cannot read like one after a single round.
+    cadence_escalations = []
+    for item in state.get("plan_change_escalations", []):
+        cadence_escalations.append(
+            f"the plan changed after its review panel and was NOT re-reviewed, on recorded operator "
+            f"authority: {item['operator_change']}")
+    rounds = state.get("repair_rounds", [])
+    for index, item in enumerate(rounds, start=1):
+        if item.get("guidance"):
+            cadence_escalations.append(
+                f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
+                f"operator guidance: {item['guidance']}")
+
     return {
         "closes": closes,
         "change_profile": change_profile,
@@ -2277,6 +2318,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "code_execution_line": code_execution_line,
         "disagreement_lines": review.required_disagreement_lines(state),
         "assumption_resolutions": assumption_resolutions,
+        "cadence_escalations": cadence_escalations,
         "drift_line": drift_line,
         "composition_marker": marker,
         # preserved marker blocks are extracted from the live body at apply time, where the write happens.

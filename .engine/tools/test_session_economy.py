@@ -5,6 +5,7 @@ The payload shapes here are the platform's contract, not the engine's, so the ca
 the ones asserting the gate ALLOWS what it does not recognize: a shape guess that is wrong must degrade to
 a no-op, never to a block.
 """
+import io
 import json
 import os
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hooks
 import session_economy as se
 
 
@@ -110,6 +112,45 @@ class TestFailsTowardAllow(GateCase):
         decision = se.handler(spawn("Explore", "opus"))
         self.assertEqual(decision["action"], "decide")
         self.assertNotEqual(decision.get("action"), "block")
+
+
+class TestThroughTheRealHookRunner(GateCase):
+    """The handler cases above prove the decision logic. These drive the SAME gate through hooks.run_hook,
+    which is what actually runs in a session — so the exit code, the stdout envelope, and the fail-open
+    harness are proven rather than assumed."""
+
+    def drive(self, payload, handler=None):
+        out, err = io.StringIO(), io.StringIO()
+        code = hooks.run_hook("PreToolUse", handler or se.handler,
+                              stdin=io.StringIO(json.dumps(payload)), stdout=out, stderr=err)
+        return code, out.getvalue()
+
+    def test_a_deny_is_exit_zero_with_the_structured_envelope_never_exit_two(self):
+        # exit 2 is read by the platform as a CRASH: the deny AND its reason are dropped.
+        code, out = self.drive(spawn("Explore", "opus"))
+        self.assertEqual(code, hooks.EXIT_PROCEED)
+        self.assertNotEqual(code, hooks.EXIT_BLOCK)
+        body = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual(body["hookEventName"], "PreToolUse")
+        self.assertEqual(body["permissionDecision"], "deny")
+        self.assertIn("cheap model", body["permissionDecisionReason"])
+
+    def test_an_allow_injects_nothing(self):
+        code, out = self.drive({"tool_name": "Read", "tool_input": {}})
+        self.assertEqual(code, hooks.EXIT_PROCEED)
+        self.assertEqual(out, "")
+
+    def test_a_crashing_gate_fails_open_and_never_blocks(self):
+        # The handler cases prove odd INPUT allows; only this proves a raising gate does not strand anyone.
+        with mock.patch.object(se, "cheap_models", side_effect=Exception("boom")):
+            code, _ = self.drive(spawn("Explore", "opus"))
+        self.assertNotEqual(code, hooks.EXIT_BLOCK)
+
+    def test_a_payload_the_platform_cannot_deliver_never_blocks(self):
+        out, err = io.StringIO(), io.StringIO()
+        code = hooks.run_hook("PreToolUse", se.handler,
+                              stdin=io.StringIO("not json at all"), stdout=out, stderr=err)
+        self.assertNotEqual(code, hooks.EXIT_BLOCK)
 
 
 class TestRegistration(unittest.TestCase):

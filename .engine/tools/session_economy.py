@@ -47,10 +47,11 @@ BLOCK_INVARIANT = {"event": "PreToolUse", "name": "session-economy-gate", "owner
 
 
 def disabled() -> bool:
-    """The operator's in-session escape, and deliberately an environment variable rather than a tunable: a
-    tunable is a pull request away, which is no use to someone a wrong deny has just stopped. It is also why
-    this is not a policy value — the tunables surface holds preferences, never enforcement switches. The
-    hook substrate carries the same shape for its own blocking cap."""
+    """The operator's escape, deliberately an environment variable rather than a tunable: the tunables
+    surface holds preferences and explicitly never enforcement switches, and its override file sits outside
+    the weakening guard on the strength of that. Honest limit: hooks inherit the LAUNCHING process's
+    environment, so this is not settable from inside the session a wrong deny just stopped — it governs
+    sessions started after it is set. That is a real cost of the choice, not a hidden one."""
     return os.environ.get(OFF_SWITCH, "").strip().lower() in {"off", "0", "false"}
 
 
@@ -64,12 +65,16 @@ def cheap_models() -> set:
         data = json.loads(BINDINGS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return accepted
-    mechanical = ((data.get("tiers") or {}).get("mechanical") or {}).get("model")
-    if isinstance(mechanical, str) and mechanical:
-        accepted.add(mechanical)
-    bounded = ((data.get("implementation_classes") or {}).get("bounded") or {}).get("claude") or {}
-    if isinstance(bounded.get("model"), str) and bounded["model"]:
-        accepted.add(bounded["model"])
+    tiers = data.get("tiers") or {}
+    # Deriving can only ever WIDEN what this gate accepts, so it is clamped: a model the bindings assign to
+    # the judgment tier is by definition not the cheap end of the fleet, and a retune that pointed the
+    # mechanical tier at it must not silently make this gate accept it.
+    judgment = (tiers.get("judgment") or {}).get("model")
+    candidates = [(tiers.get("mechanical") or {}).get("model"),
+                  ((data.get("implementation_classes") or {}).get("bounded") or {}).get("claude", {}).get("model")]
+    for model in candidates:
+        if isinstance(model, str) and model and model != judgment:
+            accepted.add(model)
     return accepted
 
 
@@ -88,8 +93,10 @@ def subagent_denial(tool_name, tool_input):
     return (f"A {kind} subagent must name a cheap model ({named}); this spawn named "
             f"{model!r}. A search or planning agent on an expensive model is spin-up cost for work the "
             "orchestrator should do inline — if the task genuinely needs stronger judgment, do it yourself "
-            "rather than delegating it. Relaunch with model set to one of those, or set "
-            f"{OFF_SWITCH}=off to disable this gate for the session.")
+            "rather than delegating it. Relaunch this spawn with model set to one of those. To switch the "
+            f"gate off entirely, set {OFF_SWITCH}=off in the environment (or the project settings' env "
+            "block); hooks read the launching process's environment, so that takes effect for sessions "
+            "started afterwards, not this one.")
 
 
 def wakeup_denial(tool_name):
@@ -98,7 +105,8 @@ def wakeup_denial(tool_name):
     return ("This session should not schedule its own wake-up. Each one re-reads the whole context, and "
             "observed builds spent consecutive wake-ups reporting nothing. Wait on a blocking check, or end "
             "the turn and let the operator resume; unattended work is fired by the platform scheduler, not "
-            f"arranged from inside a session. Set {OFF_SWITCH}=off if you genuinely need this.")
+            f"arranged from inside a session. To switch the gate off, set {OFF_SWITCH}=off in the "
+            "environment (or the project settings' env block), which applies to sessions started after.")
 
 
 def handler(payload: dict) -> dict:

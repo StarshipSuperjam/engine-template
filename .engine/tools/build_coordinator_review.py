@@ -118,6 +118,17 @@ def missing_findings(state: dict) -> list[str]:
         for finding in actual))
 
 
+def plan_change_escalation(state: dict) -> dict | None:
+    """The operator's recorded authorization to ship the CURRENT plan digest without re-reviewing the delta,
+    or None. Single-homed because two readers enforce on it -- the status render and the checkpoint/validate
+    gate -- and when only one of them knew, status reported plan review satisfied while the gate refused,
+    wedging the Build into exactly the re-panel this cap exists to prevent."""
+    for item in state.get("plan_change_escalations", []):
+        if item["plan_digest"] == state["plan"]["digest"]:
+            return item
+    return None
+
+
 def plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
     if plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick":
         return True, []
@@ -125,6 +136,8 @@ def plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
     waiver = stage.get("waiver")
     if waiver and state.get("approval") and waiver["plan_digest"] == state["plan"]["digest"] \
             and waiver["depth"] == state["approval"]["depth"]:
+        return True, []
+    if plan_change_escalation(state):
         return True, []
     missing = []
     if not stage.get("referent_digest") and not stage.get("packet_digest"):
