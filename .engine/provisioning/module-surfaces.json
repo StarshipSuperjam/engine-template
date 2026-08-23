@@ -1071,6 +1071,9 @@
   ".engine/policies/provider-exceptions.json": [
    "validators-core"
   ],
+  ".engine/policies/session-economy.md": [
+   "core"
+  ],
   ".engine/policies/spec-structure-integrity.md": [
    "product-design"
   ],
@@ -2064,6 +2067,9 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/session_economy.py": [
+   "core"
+  ],
   ".engine/tools/setup_route_drift_check.py": [
    "core"
   ],
@@ -2461,6 +2467,9 @@
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
+   "core"
+  ],
+  ".engine/tools/test_session_economy.py": [
    "core"
   ],
   ".engine/tools/test_setup_route_gen.py": [
