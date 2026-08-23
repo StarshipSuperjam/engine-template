@@ -47,6 +47,7 @@
     "engine/check/model-bindings-schema": "code",
     "engine/check/module-catalog-drift": "code",
     "engine/check/module-manifest": "code",
+    "engine/check/module-surfaces-drift": "code",
     "engine/check/ontology-authority-reservation": "code",
     "engine/check/operation-frontmatter": "code",
     "engine/check/operation-shape": "code",

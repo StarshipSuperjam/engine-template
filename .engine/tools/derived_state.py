@@ -9,28 +9,37 @@ for a derived file to be missed at one lifecycle boundary but not another. This 
 that set, so a new derived artifact registers in ONE place and reaches every boundary.
 
 Ownership boundary (honest scope): this registry owns the derived-committed files that the reconcile,
-upgrade, arrival, and release boundaries regenerate — self-map, knowledge graph, CI assurance catalogue,
-and the (optional) product-spec-matrix. It does NOT claim to be the only list of index files anywhere: sites that enumerate a
-DIFFERENT set for a different purpose (e.g. a CI-required-indexes gate, a PR-body copy) are left as-is; the
+upgrade, arrival, and release boundaries regenerate. It does NOT claim to be the only list of index files
+anywhere: sites that enumerate a DIFFERENT set for a DIFFERENT purpose — a CI-required-indexes gate that
+also serves as an upstream-travel LEAK boundary (`module_coherence._CI_REQUIRED_INDEXES`), a PR-body copy —
+are left as-is; binding a leak boundary to a lifecycle axis would silently widen what leaves the repo. The
 single-source test in `test_derived_state.py` binds only the consumers this module migrates.
 
+A member declares one or more `outputs`, each an exact `file` or a recursive `tree`; a `scope`
+(`home` / `deployed` / `both`) enforced INSIDE regenerate/verify/presence so no caller can forget it; the
+lifecycle boundaries it participates in (`reconcile` / `release` / `upgrade`); whether a tree output is
+`exclusive` (wholly generated, so prune-safe and prefix-ownable); and whether it is a `fork_guard_core`
+file (an always-present marker that a tree is an engine tree at all). Scope is judged POSITIVELY — a
+`home` member regenerates only where the write-target root's git origin is confidently the recorded home
+repository; an unplaceable origin is treated as DEPLOYED and the member is skipped, because regenerating a
+home-only catalog in a deployment would destroy information (e.g. a declined module's surface ownership).
+
 Two dispatch conventions are preserved, one per caller need:
-  - import   (default): calls the generator in-process. Sources are read through `validate.ENGINE_DIR`, so
-    a caller that has redirected that global (the upgrade tail, arrival) regenerates the tree it is working
-    on. Fast and unit-testable.
-  - subprocess         : shells the generator tool with the tree as `cwd`, so the child process initializes
-    its own `validate.ENGINE_DIR` from the tool's location. This is what `pr_reconcile` and the demos need
-    to regenerate a throwaway repo faithfully.
+  - import   (default): calls the generator in-process against the write-target root (default: the ambient
+    tree; the upgrade tail / arrival redirect it). Fast and unit-testable.
+  - subprocess         : shells the generator tool with the tree as `cwd`, so the child initializes its own
+    tree from the tool's location. This is what `pr_reconcile` and the demos need for a throwaway repo.
 
 Regeneration returns an EXPLICIT per-member result (never a swallowed exception, never a bare bool that
-hides which member failed). Callers on the hot upgrade/arrival path treat a `failed` result as ADVISORY —
-the downstream drift gate (self-map-drift / knowledge-coverage / the matrix's own check) remains the
-authority that refuses — so replacing the old silent swallow does not newly refuse an upgrade whose
-committed output is already canonical.
+hides which member failed) and reports `changed` from a byte digest of the outputs, not a log-message
+heuristic. Callers on the hot upgrade/arrival path treat a `failed` result as ADVISORY — the downstream
+drift gate remains the authority that refuses — so replacing the old silent swallow does not newly refuse
+an upgrade whose committed output is already canonical.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -39,46 +48,119 @@ from typing import Callable, Iterable, Optional
 
 import validate
 import engine_write
+import repo_identity
+
+
+@dataclass(frozen=True)
+class Output:
+    """One committed artifact a member owns. `kind` is an exact `file` or a recursive `tree` (a directory
+    whose contents are the artifact). `path` is repo-relative POSIX."""
+
+    kind: str   # "file" | "tree"
+    path: str
 
 
 @dataclass(frozen=True)
 class DerivedMember:
-    """One derived-committed artifact. Pure data; the generator/check callables are resolved lazily by
+    """One derived-committed member. Pure data; the generator/check callables are resolved lazily by
     `_resolve_generate` / `_resolve_check` (keyed on `path`) so the OPTIONAL product-design import stays
-    guarded and absent-is-expected."""
+    guarded and absent-is-expected. `path` is the stable member id/anchor; a single-file member's `path`
+    equals its one output path."""
 
-    path: str                              # repo-relative committed artifact, e.g. ".engine/self-map.md"
-    tool: str                              # CLI path under .engine/tools for subprocess dispatch
-    check_rule: str                        # the gating drift-check rule id
-    reconcile: bool                        # participates in pr_reconcile's spurious-conflict set
-    release: bool                          # regenerated in the release-cut PR
-    optional_module: Optional[str] = None  # importing module that must be present, else None (core)
+    path: str                                     # stable member id/anchor, e.g. ".engine/self-map.md"
+    tool: str                                     # CLI path under .engine/tools for subprocess dispatch
+    outputs: tuple[Output, ...]                   # the committed artifact(s) this member owns
+    check_rules: tuple[str, ...]                  # the gating drift-check rule id(s) — one check call covers all
+    reconcile: bool                               # participates in pr_reconcile's spurious-conflict set
+    release: bool                                 # regenerated in the release-cut PR
+    upgrade: bool                                 # regenerated in the engine-upgrade tail
+    scope: str = "both"                           # "home" | "deployed" | "both"
+    exclusive: bool = False                       # a tree output wholly generated → prune-safe, prefix-ownable
+    fork_guard_core: bool = False                 # an always-present file that marks a tree as an engine tree
+    dynamic: bool = False                         # concrete outputs are resolved at runtime (a per-module set)
+    optional_module: Optional[str] = None         # importing module that must be present, else None (core)
 
 
-# The roster. self-map, graph, and CI assurance are core and always present; the product-spec-matrix is supplied by the
-# OPTIONAL product-design module and derives from the deployment's own docs/spec, so it is present only where
-# both the module and a settled spec exist (see `_present`).
+def _file(path: str, tool: str, check_rule: str, *, reconcile: bool, release: bool, upgrade: bool,
+          scope: str = "both", fork_guard_core: bool = False,
+          optional_module: Optional[str] = None) -> DerivedMember:
+    """Construct a single-file member — the shape every pre-existing member has, kept trivially readable so
+    the roster reads the same as before the model grew."""
+    return DerivedMember(path, tool, (Output("file", path),), (check_rule,),
+                         reconcile=reconcile, release=release, upgrade=upgrade, scope=scope,
+                         exclusive=False, fork_guard_core=fork_guard_core, optional_module=optional_module)
+
+
+# The roster. self-map, graph, and CI assurance are core and always present (fork-guard-core); the
+# product-spec-matrix is supplied by the OPTIONAL product-design module and derives from the deployment's own
+# docs/spec, so it is present only where both the module and a settled spec exist (see `_present`).
 MEMBERS: tuple[DerivedMember, ...] = (
-    DerivedMember(".engine/self-map.md", "self_map.py",
-                  "engine/check/self-map-drift", reconcile=True, release=True),
-    DerivedMember(".engine/docs/ci-assurance.md", "ci_assurance.py",
-                  "engine/check/ci-assurance-drift", reconcile=True, release=True),
+    _file(".engine/self-map.md", "self_map.py", "engine/check/self-map-drift",
+          reconcile=True, release=True, upgrade=True, fork_guard_core=True),
+    _file(".engine/docs/ci-assurance.md", "ci_assurance.py", "engine/check/ci-assurance-drift",
+          reconcile=True, release=True, upgrade=True, fork_guard_core=True),
     # The graph fingerprints the assurance page, so assurance MUST regenerate before the graph.
-    DerivedMember(".engine/knowledge/graph.json", "knowledge_gen.py",
-                  "engine/check/knowledge-coverage", reconcile=True, release=True),
-    DerivedMember(".engine/product-spec-matrix.json", "product_design/obligation_matrix.py",
-                  "engine/check/product-spec-matrix", reconcile=True, release=False,
-                  optional_module="product-design"),
+    _file(".engine/knowledge/graph.json", "knowledge_gen.py", "engine/check/knowledge-coverage",
+          reconcile=True, release=True, upgrade=True, fork_guard_core=True),
+    _file(".engine/product-spec-matrix.json", "product_design/obligation_matrix.py",
+          "engine/check/product-spec-matrix", reconcile=True, release=False, upgrade=True,
+          optional_module="product-design"),
+    # The Codex renders — ONE member, two wholly-generated (exclusive) output trees, one generator/check pair
+    # spanning both. upgrade=False: the overlay delivers the renders whole, so a deployment's upgrade tail
+    # must not re-run (and now prune) them; they reconcile and sync, never regenerate at upgrade.
+    DerivedMember(".codex/agents", "codex_gen.py",
+                  outputs=(Output("tree", ".codex/agents/"), Output("tree", ".agents/skills/")),
+                  check_rules=("engine/check/codex-agent-coherence", "engine/check/codex-skill-coherence"),
+                  reconcile=True, release=False, upgrade=False, exclusive=True),
+    # The module catalog — a single generated file. reconcile+release, but NOT upgrade: its merge-preserving
+    # derive retains a manifest-less module's entry, which at the upgrade tail (which runs AFTER a dropped
+    # module's manifest is deleted) would resurrect a RETIRED module as a "declined" zombie add-on offer. The
+    # overlay delivers the release's fresh catalog instead; drift stays CI-gated by module-catalog-drift.
+    _file(".engine/provisioning/module-catalog.json", "module_catalog.py",
+          "engine/check/module-catalog-drift", reconcile=True, release=True, upgrade=False),
+    # The module-surfaces catalog — HOME-ONLY. It lists EVERY module's surfaces (generated where all are
+    # present), and a deployment ships it unchanged so it can recognise a declined module's surfaces; a
+    # deployment carries only a subset of manifests, so regenerating it there would ERASE the declined
+    # modules' ownership. scope="home" (positive-home) is the guard; reconcile=True lets it self-heal a
+    # spurious conflict at home; upgrade=False keeps it out of the deployment tail.
+    DerivedMember(".engine/provisioning/module-surfaces.json", "module_surfaces.py",
+                  outputs=(Output("file", ".engine/provisioning/module-surfaces.json"),),
+                  check_rules=("engine/check/module-surfaces-drift",),
+                  reconcile=True, release=True, upgrade=False, scope="home"),
+    # The generated setup routes — a DYNAMIC per-offerable-module set of SKILL.md files under the MIXED
+    # .claude/skills/ directory (which also holds authored skills). reconcile=False and exclusive=False: a
+    # conflict on a route classifies authored (needs-manual) rather than risk a prefix-owner staging a
+    # hand-authored skill. Static `outputs` is empty so owner_of never matches; the concrete files are
+    # resolved at runtime (dynamic=True) for presence, the change digest, and sync staging. verify+sync only.
+    DerivedMember(".claude/skills/engine-setup-routes", "setup_route_gen.py",
+                  outputs=(), check_rules=("engine/check/setup-route-drift",),
+                  reconcile=False, release=False, upgrade=False, exclusive=False, dynamic=True),
 )
 # Deliberately EXCLUDED — do not re-add without cause:
 #   - uv default-groups: a FRAGMENT of authored .engine/pyproject.toml (not a whole derived file), a
 #     different generator signature (sync_groups, an in-place line rewrite), and pyproject is a floor file.
 #     It keeps its own `uv-group-drift` check + `module_manager.sync_groups`.
-#   - .engine/provisioning/module-surfaces.json: a SOURCE-repo catalog regenerated when tool files change,
-#     NOT a per-deployment derived artifact (a deployment ships it unchanged so it can recognise a declined
-#     module's surfaces). Regenerated by module_surfaces.py at the integrate boundary, not by this substrate.
-#   - authored surface-catalog.json / module-catalog.json (source of truth, not generated).
+#   - authored surface-catalog.json (source of truth, not generated).
 #   - .engine/knowledge/index.sqlite (an uncommitted local cache that self-heals).
+
+# Declared regeneration order (topological): a generator must regenerate AFTER every generator whose output
+# it reads, and the knowledge graph — which fingerprints the catalogued surface directories and the
+# assurance page — regenerates LAST. This is asserted by test_derived_state, not left to roster order alone.
+# Order today: [self-map, ci-assurance, graph] with ci-assurance before graph. When the render/route/catalog
+# members join (E2), the order is: setup-routes → codex-renders → {catalogs, self-map, ci-assurance} → graph.
+# Order: setup routes and Codex renders FIRST (the routes are an input to the Codex skill render and to the
+# self-map; the renders are catalogued surfaces the graph content-hashes), then the single-file maps and
+# catalogs, then the knowledge graph LAST (it fingerprints the assurance page and every catalogued surface).
+_REGEN_ORDER: tuple[str, ...] = (
+    ".claude/skills/engine-setup-routes",
+    ".codex/agents",
+    ".engine/self-map.md",
+    ".engine/docs/ci-assurance.md",
+    ".engine/product-spec-matrix.json",
+    ".engine/provisioning/module-catalog.json",
+    ".engine/provisioning/module-surfaces.json",
+    ".engine/knowledge/graph.json",
+)
 
 
 @dataclass(frozen=True)
@@ -87,7 +169,7 @@ class MemberResult:
 
     path: str
     status: str            # regenerated | unchanged | skipped-absent | skipped-symlink
-                           #             | skipped-no-generator | failed
+                           #             | skipped-no-generator | skipped-out-of-scope | failed
     changed: bool
     detail: str
     error: Optional[str] = None
@@ -98,8 +180,8 @@ class DriftResult:
     """The per-member outcome of a verify pass."""
 
     path: str
-    check_rule: str
-    status: str            # in-sync | drift | skipped-absent | error
+    check_rule: str        # comma-joined when a member declares more than one
+    status: str            # in-sync | drift | skipped-absent | skipped-out-of-scope | error
     message: str
 
 
@@ -107,145 +189,363 @@ _DRIFT_SEVERITIES = {"hard", "serious", "blocking", "warn", "error"}
 
 
 # ---- generator / check resolution (lazy, optional-guarded) -----------------------------------------
+#
+# A resolver returns a NORMALIZED callable `fn(root, primary_target) -> raw` (or None when the member's
+# optional module is absent), absorbing each generator's differing signature at one seam so the regenerate
+# / verify drivers stay uniform. `primary_target` is the absolute path of the member's first output;
+# `root` is the write-target repo root. An unregistered member is a MAINTENANCE bug (roster and resolver
+# must stay in lockstep) and fails loud, never a silent skip.
 
 def _resolve_generate(member: DerivedMember) -> Optional[Callable]:
-    """The member's `generate(path=...)` callable, or None when its optional module is absent (expected).
-    An unregistered member is a MAINTENANCE bug (the roster and this resolver must stay in lockstep) and
-    fails loud, never a silent skip."""
     if member.path == ".engine/self-map.md":
         import self_map
-        return self_map.generate
+        return lambda root, primary_target: self_map.generate(path=primary_target)
     if member.path == ".engine/knowledge/graph.json":
         import knowledge_gen
-        return knowledge_gen.generate
+        return lambda root, primary_target: knowledge_gen.generate(path=primary_target)
     if member.path == ".engine/docs/ci-assurance.md":
         import ci_assurance
-        return ci_assurance.generate
+        return lambda root, primary_target: ci_assurance.generate(path=primary_target)
     if member.path == ".engine/product-spec-matrix.json":
         try:
             from product_design import obligation_matrix   # OPTIONAL: absent is EXPECTED → skip
         except ImportError:
             return None
-        return obligation_matrix.generate
+        return lambda root, primary_target: obligation_matrix.generate(path=primary_target)
+    if member.path == ".codex/agents":
+        import codex_gen
+        return lambda root, primary_target: codex_gen.generate(root=root)
+    if member.path == ".engine/provisioning/module-catalog.json":
+        import module_catalog
+        return lambda root, primary_target: module_catalog.generate(path=primary_target, root=root)
+    if member.path == ".engine/provisioning/module-surfaces.json":
+        import module_surfaces
+        return lambda root, primary_target: module_surfaces.generate(root=root)
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return lambda root, primary_target: setup_route_gen.generate(root=root)
     raise KeyError(f"derived_state member {member.path!r} has no generator — roster/resolver drift")
 
 
 def _resolve_check(member: DerivedMember) -> Optional[Callable]:
-    """The member's `check(path=...)` callable, or None when its optional module is absent."""
     if member.path == ".engine/self-map.md":
         import self_map
-        return self_map.check
+        return lambda root, primary_target: self_map.check(path=primary_target)
     if member.path == ".engine/knowledge/graph.json":
         import knowledge_gen
-        return knowledge_gen.check
+        return lambda root, primary_target: knowledge_gen.check(path=primary_target)
     if member.path == ".engine/docs/ci-assurance.md":
         import ci_assurance
-        return ci_assurance.check
+        return lambda root, primary_target: ci_assurance.check(path=primary_target)
     if member.path == ".engine/product-spec-matrix.json":
         try:
             from product_design import obligation_matrix
         except ImportError:
             return None
-        return obligation_matrix.check
+        return lambda root, primary_target: obligation_matrix.check(path=primary_target)
+    if member.path == ".codex/agents":
+        import codex_gen
+        return lambda root, primary_target: codex_gen.check(root=root)
+    if member.path == ".engine/provisioning/module-catalog.json":
+        import module_catalog
+        return lambda root, primary_target: module_catalog.check(path=primary_target, root=root)
+    if member.path == ".engine/provisioning/module-surfaces.json":
+        import module_surfaces
+        return lambda root, primary_target: module_surfaces.check(root=root)
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return lambda root, primary_target: setup_route_gen.check(root=root)
     raise KeyError(f"derived_state member {member.path!r} has no check — roster/resolver drift")
 
 
-# ---- selection --------------------------------------------------------------------------------------
+# ---- scope (positive-home, write-target-rooted) -----------------------------------------------------
 
-def _engine_dir(root: Optional[str]) -> str:
-    return validate.ENGINE_DIR if root is None else os.path.join(root, ".engine")
+def _scope_root(root: Optional[str]) -> str:
+    """The write-target repo root a scope decision is judged against. When `root` is explicit, use it; else
+    the ambient tree derived from `validate.ENGINE_DIR` — which the upgrade tail / arrival REDIRECT, so a
+    home-only member is judged against the tree it is actually being written into, not this process."""
+    return root if root is not None else os.path.dirname(validate.ENGINE_DIR)
 
 
-def _target(member: DerivedMember, engine_dir: str) -> str:
-    # ".engine/knowledge/graph.json" -> <engine_dir>/knowledge/graph.json
-    return os.path.join(engine_dir, *member.path.split("/")[1:])
+def is_confirmed_home(root: str) -> bool:
+    """POSITIVE home confirmation, read root-directly: the tree's on-disk git origin resolves AND equals the
+    `home_repository` its own manifest records. Unlike `repo_identity.is_home_repo`, which fails TOWARD home
+    for safety checks whose home-guess only costs an extra check, this fails toward DEPLOYED — the safe
+    direction when guessing home means a DESTRUCTIVE regeneration. Any unplaceable case (no origin, a
+    non-GitHub origin, an absent/malformed manifest) returns False. NOT memoized: the sole guard against the
+    one genuine data-loss hazard is judged fresh, never from a cache that a path-reuse could staleness.
+    Public so a home-only member's own drift check (module_surfaces.check) reuses the SAME predicate its
+    substrate regeneration is gated on, rather than duplicating the rule (which could drift)."""
+    own = repo_identity.origin_slug(root)          # total: None on any unreadable / non-GitHub origin
+    if not own:
+        return False
+    try:
+        home = repo_identity.home_repository(root)  # fail-LOUD on a malformed manifest → caught below
+    except Exception:  # noqa: BLE001 — an unreadable manifest cannot place the repo → NOT home (safe)
+        return False
+    return bool(home and repo_identity.slug_eq(own, home))
+
+
+def _in_scope(member: DerivedMember, root: str) -> bool:
+    if member.scope == "both":
+        return True
+    if member.scope == "home":
+        return is_confirmed_home(root)
+    if member.scope == "deployed":
+        return not is_confirmed_home(root)
+    raise ValueError(f"derived_state member {member.path!r} has unknown scope {member.scope!r}")
+
+
+# ---- selection & ownership --------------------------------------------------------------------------
+
+def _abspath(output_path: str, root: str) -> str:
+    """Root-relative resolution — the single convention for both dispatch paths. For an .engine/ output this
+    is byte-identical to the old `<engine_dir>/<tail>` form; it additionally reaches outputs outside .engine/."""
+    return os.path.join(root, output_path)
+
+
+def _output_exists(output: Output, root: str) -> bool:
+    abs_path = _abspath(output.path, root)
+    if output.kind == "file":
+        return os.path.isfile(abs_path)
+    # tree: a directory carrying at least one entry (an empty/absent dir is "not present")
+    if not os.path.isdir(abs_path):
+        return False
+    with os.scandir(abs_path) as entries:
+        return any(True for _ in entries)
+
+
+def _concrete_outputs(member: DerivedMember, root: str) -> tuple[Output, ...]:
+    """A member's actual committed output paths under `root`. For a static member this is `member.outputs`
+    verbatim. For a `dynamic` member (the setup routes, one SKILL.md per offerable module) the concrete set
+    is resolved from the tree at runtime — so presence, the change digest, and sync staging all address the
+    real files, while `owner_of` (which reads only the static `outputs`) still never claims them, keeping a
+    route conflict authored → needs-manual."""
+    if not member.dynamic:
+        return member.outputs
+    if member.path == ".claude/skills/engine-setup-routes":
+        import setup_route_gen
+        return tuple(Output("file", rel) for rel in sorted(setup_route_gen.derive(root)))
+    raise KeyError(f"derived_state dynamic member {member.path!r} has no output resolver — roster drift")
 
 
 def _present(member: DerivedMember, root: Optional[str]) -> bool:
-    """A member is present iff its committed file exists AND its generator is resolvable (its optional
-    module is installed). Gating on generator-resolvability — not mere file presence — is what keeps a
-    present-file / absent-generator deployment OUT of the reconcile set: such a conflict must classify
-    needs-manual and refuse, never append-merge and then discover the regen was skipped."""
-    target = _target(member, _engine_dir(root))
-    return os.path.isfile(target) and _resolve_generate(member) is not None
+    """A member is present iff it is in scope for this tree, its generator is resolvable (its optional module
+    is installed), AND every STATIC declared output exists (file → isfile, tree → non-empty dir). Gating on
+    scope + generator-resolvability + output-kind-aware existence — not a bare isfile — is what keeps a
+    home-only member OUT of a deployment's reconcile set and a present-file/absent-generator member OUT of
+    the spurious set (its conflict then classifies needs-manual and refuses). A `dynamic` member declares no
+    static output (its per-module set is the generator's business), so presence for it is scope + generator
+    only — a missing route is drift to regenerate, not an absence that skips it."""
+    scope_root = _scope_root(root)
+    if not _in_scope(member, scope_root):
+        return False
+    if _resolve_generate(member) is None:
+        return False
+    return all(_output_exists(o, scope_root) for o in member.outputs)
 
 
 def members(*, reconcile: Optional[bool] = None, release: Optional[bool] = None,
-            present_root: Optional[str] = None) -> tuple[DerivedMember, ...]:
-    """The registry, optionally filtered. `present_root` set → only members present (file + resolvable
-    generator) under that root. All-None → the full static roster."""
+            upgrade: Optional[bool] = None, present_root: Optional[str] = None) -> tuple[DerivedMember, ...]:
+    """The registry, optionally filtered by lifecycle flag and/or presence under a root. All-None → the full
+    static roster."""
     out = MEMBERS
     if reconcile is not None:
         out = tuple(m for m in out if m.reconcile is reconcile)
     if release is not None:
         out = tuple(m for m in out if m.release is release)
+    if upgrade is not None:
+        out = tuple(m for m in out if m.upgrade is upgrade)
     if present_root is not None:
         out = tuple(m for m in out if _present(m, present_root))
     return out
 
 
 def paths(**kw) -> tuple[str, ...]:
-    """The member paths — the single-source replacement for the old hard-coded tuples."""
-    return tuple(m.path for m in members(**kw))
+    """The member OUTPUT paths — the single-source replacement for the old hard-coded tuples. A member's
+    outputs are FLATTENED, so a multi-output member (e.g. the Codex renders) contributes each of its output
+    paths. For every single-file member `outputs == (path,)`, so this is byte-identical to the prior
+    one-path-per-member behavior."""
+    return tuple(o.path for m in members(**kw) for o in m.outputs)
+
+
+def fork_guard_core_paths() -> tuple[str, ...]:
+    """The always-present files that mark a tree as an engine tree at all — the fork-main / external-
+    contribution guard set. Derived from the `fork_guard_core` flag (never a hand-maintained literal), so it
+    stays registry-sourced AND cannot silently absorb a newly-added reconcilable member. A drift test binds
+    exactly this set."""
+    return tuple(o.path for m in MEMBERS if m.fork_guard_core for o in m.outputs)
+
+
+def owner_of(path: str) -> Optional[DerivedMember]:
+    """The member that owns a committed path, or None (an authored / non-owned path). Exact match for `file`
+    outputs; a directory-boundary-safe prefix match for `exclusive` `tree` outputs ONLY — a non-exclusive
+    tree (a mixed authored/generated directory) never prefix-owns, so a conflict there classifies authored
+    and refuses rather than risk staging an authored file. The boundary guard (`prefix + '/'`, plus the bare
+    directory itself) prevents `.codex/agents/` from owning a sibling `.codex/agents-x/…`."""
+    for m in MEMBERS:
+        for o in m.outputs:
+            if o.kind == "file" and o.path == path:
+                return m
+            if o.kind == "tree" and m.exclusive:
+                base = o.path.rstrip("/")
+                if path == base or path.startswith(base + "/"):
+                    return m
+    return None
 
 
 def _select(members_arg: Optional[Iterable[str]]) -> tuple[DerivedMember, ...]:
     if members_arg is None:
         return MEMBERS
     wanted = set(members_arg)
-    return tuple(m for m in MEMBERS if m.path in wanted)
+    # a member is selected if its id OR any of its output paths was named
+    return tuple(m for m in MEMBERS if m.path in wanted or any(o.path in wanted for o in m.outputs))
+
+
+# ---- change detection (truthful digest) -------------------------------------------------------------
+
+def _member_digest(member: DerivedMember, root: str) -> str:
+    """A stable digest of a member's committed output bytes — the truthful basis for `changed`, replacing
+    the old log-message heuristic (which the absorbed generators, returning lists, could never satisfy). A
+    tree hashes every file under it in sorted order; an absent output contributes a fixed marker. Uses the
+    CONCRETE outputs (a dynamic member's real per-module files), so `changed` is truthful for the routes too."""
+    h = hashlib.sha256()
+    for o in _concrete_outputs(member, root):
+        abs_path = _abspath(o.path, root)
+        h.update(("\x00" + o.path + "\x00").encode())
+        if o.kind == "file":
+            if os.path.isfile(abs_path):
+                try:
+                    with open(abs_path, "rb") as fh:
+                        h.update(fh.read())
+                except OSError:                      # a TOCTOU race or permission error is not a crash —
+                    h.update(b"\x03unreadable")       # mirror the tree branch (and _regen_one_* wraps this call)
+            else:
+                h.update(b"\x01absent")
+        else:
+            if os.path.isdir(abs_path):
+                for dirpath, _dirs, files in sorted(os.walk(abs_path)):
+                    for name in sorted(files):
+                        fp = os.path.join(dirpath, name)
+                        rel = os.path.relpath(fp, abs_path)
+                        h.update(("\x02" + rel + "\x02").encode())
+                        try:
+                            with open(fp, "rb") as fh:
+                                h.update(fh.read())
+                        except OSError:
+                            h.update(b"\x03unreadable")
+            else:
+                h.update(b"\x01absent")
+    return h.hexdigest()
 
 
 # ---- regeneration ----------------------------------------------------------------------------------
 
 def regenerate(members_arg: Optional[Iterable[str]] = None, *, root: Optional[str] = None,
                dispatch: str = "import") -> list[MemberResult]:
-    """Regenerate each requested member (default: all) and return an EXPLICIT per-member result. A
-    generator exception yields status='failed' with the error captured — never swallowed, never a raise
-    that aborts its siblings. import dispatch reads sources through validate.ENGINE_DIR (redirect it to
-    target another tree); subprocess dispatch shells each tool with the tree as cwd (pr_reconcile / demo
-    fidelity)."""
-    selected = _select(members_arg)
+    """Regenerate each requested member (default: all) IN DECLARED ORDER and return an EXPLICIT per-member
+    result. A generator exception yields status='failed' with the error captured — never swallowed, never a
+    raise that aborts its siblings. A member out of scope for this tree yields 'skipped-out-of-scope' and its
+    generator is never run. import dispatch regenerates in-process against the write-target root; subprocess
+    dispatch shells each tool with the tree as cwd (pr_reconcile / demo fidelity)."""
+    selected = _ordered(_select(members_arg))
     if dispatch == "subprocess":
         return [_regen_one_subprocess(m, root) for m in selected]
     if dispatch == "import":
-        return [_regen_one_import(m) for m in selected]
+        return [_regen_one_import(m, root) for m in selected]
     raise ValueError(f"unknown dispatch {dispatch!r} (expected 'import' or 'subprocess')")
 
 
-def _regen_one_import(member: DerivedMember) -> MemberResult:
-    target = _target(member, validate.ENGINE_DIR)
-    if not os.path.isfile(target):
+def _ordered(selected: tuple[DerivedMember, ...]) -> list[DerivedMember]:
+    """Selected members in declared regeneration order; any member not named in `_REGEN_ORDER` is a
+    maintenance bug (a new member must join the order) and sorts last loudly via its absence being caught by
+    the order test — here we simply keep declared order then append unknowns to stay total."""
+    rank = {p: i for i, p in enumerate(_REGEN_ORDER)}
+    return sorted(selected, key=lambda m: rank.get(m.path, len(rank)))
+
+
+def _symlink_escape(member: DerivedMember, root: str) -> Optional[str]:
+    """The first concrete output that is a symlink (or sits under one) escaping the tree, or None. Applied to
+    BOTH dispatch modes and to file AND tree outputs: regenerating THROUGH a live symlink would write outside
+    the tree, and the subprocess path (which pr_reconcile uses to regenerate a merged branch) is exactly where
+    the tree's shape can be influenced by content the operator did not author, so the guard must cover it too."""
+    for o in _concrete_outputs(member, root):
+        # rstrip the trailing slash a tree output carries: os.path.islink follows a path ending in '/', so
+        # the leaf-symlink check would miss a symlinked render directory without this.
+        if engine_write.write_through_symlink_reason(_abspath(o.path.rstrip("/"), root), root):
+            return o.path
+    return None
+
+
+def _changed_or_failed(member: DerivedMember, root: str, before: str, detail: str) -> MemberResult:
+    """Compute the post-regeneration result, treating a digest read failure as a per-member 'failed' rather
+    than a raise (TI: the digest read is a filesystem op that can race/EPERM; letting it escape would skip a
+    caller's crash cleanup — pr_reconcile's merge --abort/reset --hard)."""
+    try:
+        changed = _member_digest(member, root) != before
+    except Exception as exc:  # noqa: BLE001 — the digest resolves CONCRETE outputs, and a dynamic member's
+        # resolver reads manifests (a malformed one raises ValueError, not OSError); any such raise is a
+        # per-member 'failed', never a traceback that skips a caller's crash cleanup or aborts siblings.
+        return MemberResult(member.path, "failed", False, "could not read regenerated output", error=repr(exc))
+    return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
+                        detail if changed else "already up to date")
+
+
+def _regen_one_import(member: DerivedMember, root: Optional[str]) -> MemberResult:
+    scope_root = _scope_root(root)
+    if not _in_scope(member, scope_root):
+        return MemberResult(member.path, "skipped-out-of-scope", False,
+                            f"scope {member.scope!r} is not active in this tree — not regenerated")
+    missing = [o for o in member.outputs if not _output_exists(o, scope_root)]
+    if missing:
         return MemberResult(member.path, "skipped-absent", False,
-                            "the tree does not carry this index — not fabricated")
-    # os.path.isfile follows a symlink; refuse to regenerate THROUGH a live symlink (an out-of-tree write).
-    if engine_write.write_through_symlink_reason(target, validate.ROOT):
+                            "the tree does not carry this member's output(s) — not fabricated")
+    try:
+        escaping = _symlink_escape(member, scope_root)
+    except Exception as exc:  # noqa: BLE001 — resolving CONCRETE outputs for the escape pre-check reads a
+        # dynamic member's manifests, which raise (ValueError) on a malformed/merge-conflicted file; convert to
+        # a per-member 'failed' so the never-swallowed-never-raise contract holds before any generator runs.
+        return MemberResult(member.path, "failed", False, "could not resolve outputs for symlink pre-check",
+                            error=repr(exc))
+    if escaping:
         return MemberResult(member.path, "skipped-symlink", False,
-                            "target is a symlink out of the tree — regen skipped, drift gate backstops")
+                            "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     gen = _resolve_generate(member)
     if gen is None:
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"optional module {member.optional_module!r} absent — nothing to regenerate")
+    primary_target = _abspath(member.outputs[0].path, scope_root) if member.outputs else scope_root
     try:
-        finding = gen(path=target)
+        before = _member_digest(member, scope_root)
+        gen(scope_root, primary_target)
     except Exception as exc:  # noqa: BLE001 — surfaced as a per-member result, never a traceback
         return MemberResult(member.path, "failed", False, "regeneration raised", error=repr(exc))
-    message = (finding or {}).get("message", "") if isinstance(finding, dict) else ""
-    changed = "already up to date" not in message
-    return MemberResult(member.path, "regenerated" if changed else "unchanged", changed,
-                        message or "regenerated")
+    return _changed_or_failed(member, scope_root, before, "regenerated")
 
 
 def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberResult:
     base = root if root is not None else validate.ROOT
-    target = os.path.join(base, member.path)
-    if not os.path.isfile(target):
-        return MemberResult(member.path, "skipped-absent", False, "the tree does not carry this index")
+    if not _in_scope(member, base):
+        return MemberResult(member.path, "skipped-out-of-scope", False,
+                            f"scope {member.scope!r} is not active in this tree — not regenerated")
+    missing = [o for o in member.outputs if not _output_exists(o, base)]
+    if missing:
+        return MemberResult(member.path, "skipped-absent", False, "the tree does not carry this member's output(s)")
+    try:
+        escaping = _symlink_escape(member, base)
+    except Exception as exc:  # noqa: BLE001 — same fail-closed contract as the import path: a malformed manifest
+        # under a dynamic member must not crash the whole subprocess regen and abort siblings.
+        return MemberResult(member.path, "failed", False, "could not resolve outputs for symlink pre-check",
+                            error=repr(exc))
+    if escaping:
+        return MemberResult(member.path, "skipped-symlink", False,
+                            "an output is a symlink out of the tree — regen skipped, drift gate backstops")
     tool_path = os.path.join(base, ".engine", "tools", member.tool)
     if not os.path.isfile(tool_path):
         return MemberResult(member.path, "skipped-no-generator", False,
                             f"generator tool {member.tool} absent in the tree")
     try:
+        before = _member_digest(member, base)
         proc = subprocess.run([sys.executable, tool_path, "generate"], capture_output=True, text=True,
                               timeout=300, check=False, cwd=base)
     except Exception as exc:  # noqa: BLE001 — a hung (TimeoutExpired) or un-spawnable (OSError) generator is
@@ -257,34 +557,78 @@ def _regen_one_subprocess(member: DerivedMember, root: Optional[str]) -> MemberR
     if proc.returncode != 0:
         return MemberResult(member.path, "failed", False, "generator exited non-zero",
                             error=(proc.stderr or proc.stdout or "").strip()[:500])
-    return MemberResult(member.path, "regenerated", True, (proc.stdout or "regenerated").strip()[:200])
+    return _changed_or_failed(member, base, before, (proc.stdout or "regenerated").strip()[:200])
 
 
 # ---- verification ----------------------------------------------------------------------------------
 
+def _classify_finding(finding) -> Optional[bool]:
+    """Is ONE finding a drift signal? A bare string is a problem (drift); a finding dict is drift iff its
+    severity is a drift severity (so a generator's SOFT, disclosed-tolerance dict — e.g. a declined
+    module's kept route — is correctly NOT drift). Returns None for an unrecognized element type so the
+    caller can fail LOUD rather than silently treat it as clean."""
+    if isinstance(finding, str):
+        return True
+    if isinstance(finding, dict):
+        return finding.get("severity", "") in _DRIFT_SEVERITIES
+    return None
+
+
+def _normalize_verify(result) -> tuple[str, str]:
+    """Normalize a check's return — a finding dict, a list of findings/strings, or None — into
+    (status, message). Fail CLOSED: an unrecognized return type (or a list element of one) raises, which the
+    verify driver records as 'error' (a blocking status), never a false 'in-sync'. This is what stops a
+    list-returning generator (whose findings the old dict-only reader silently dropped) from reporting clean
+    over real drift. None / an empty collection is a legitimate 'no finding' → in-sync."""
+    if result is None:
+        return "in-sync", ""
+    if isinstance(result, dict):
+        drift = _classify_finding(result)
+        return ("drift" if drift else "in-sync"), str(result.get("message", "") or "")
+    if isinstance(result, (list, tuple)):
+        if not result:
+            return "in-sync", ""
+        any_drift = False
+        messages: list[str] = []
+        for element in result:
+            verdict = _classify_finding(element)
+            if verdict is None:
+                raise TypeError(f"verify: unrecognized finding element {type(element).__name__}")
+            any_drift = any_drift or bool(verdict)
+            messages.append(element if isinstance(element, str) else str(element.get("message", "") or ""))
+        return ("drift" if any_drift else "in-sync"), "; ".join(m for m in messages if m)
+    raise TypeError(f"verify: unrecognized check return type {type(result).__name__}")
+
+
 def verify(members_arg: Optional[Iterable[str]] = None, *, root: Optional[str] = None) -> list[DriftResult]:
-    """Run each member's drift check over the SAME roster regenerate() owns (so repair converges). Read
-    only. An absent member is 'skipped-absent'; a check raising is 'error'."""
+    """Run each member's drift check over the SAME roster regenerate() owns (so repair converges). Read only.
+    A member out of scope for this tree is 'skipped-out-of-scope' (a home-only catalog is silent in a
+    deployment); an absent member is 'skipped-absent'; a check raising OR returning an unrecognized type is
+    'error' (fail-closed, never a false in-sync)."""
     results: list[DriftResult] = []
     for member in _select(members_arg):
-        target = _target(member, _engine_dir(root))
-        if not os.path.isfile(target):
-            results.append(DriftResult(member.path, member.check_rule, "skipped-absent", "index not present"))
+        rule_id = ",".join(member.check_rules)
+        scope_root = _scope_root(root)
+        if not _in_scope(member, scope_root):
+            results.append(DriftResult(member.path, rule_id, "skipped-out-of-scope",
+                                       f"scope {member.scope!r} not active here"))
+            continue
+        if any(not _output_exists(o, scope_root) for o in member.outputs):
+            results.append(DriftResult(member.path, rule_id, "skipped-absent", "output(s) not present"))
             continue
         check = _resolve_check(member)
         if check is None:
-            results.append(DriftResult(member.path, member.check_rule, "skipped-absent",
+            results.append(DriftResult(member.path, rule_id, "skipped-absent",
                                        f"optional module {member.optional_module!r} absent"))
             continue
+        primary_target = _abspath(member.outputs[0].path, scope_root) if member.outputs else scope_root
         try:
-            finding = check(path=target)
-        except Exception as exc:  # noqa: BLE001
-            results.append(DriftResult(member.path, member.check_rule, "error", repr(exc)))
+            raw = check(scope_root, primary_target)
+            status, message = _normalize_verify(raw)
+        except Exception as exc:  # noqa: BLE001 — a raising or unrecognized-return check is fail-closed drift-error
+            results.append(DriftResult(member.path, rule_id, "error", repr(exc)))
             continue
-        severity = (finding or {}).get("severity", "") if isinstance(finding, dict) else ""
-        message = (finding or {}).get("message", "") if isinstance(finding, dict) else ""
-        status = "drift" if severity in _DRIFT_SEVERITIES else "in-sync"
-        results.append(DriftResult(member.path, member.check_rule, status, message or status))
+        results.append(DriftResult(member.path, rule_id, status, message or status))
     return results
 
 
@@ -309,6 +653,7 @@ def _cli(argv: list[str]) -> int:
     sub.add_parser("members", help="print the registry")
     p_regen = sub.add_parser("regenerate", help="regenerate all present members")
     p_regen.add_argument("--release", action="store_true", help="only the release-cut subset")
+    p_regen.add_argument("--upgrade", action="store_true", help="only the upgrade-tail subset")
     sub.add_parser("verify", help="report per-member drift (read-only)")
     sub.add_parser("repair", help="verify → regenerate drifted → re-verify")
     args = parser.parse_args(argv)
@@ -318,11 +663,19 @@ def _cli(argv: list[str]) -> int:
         for m in MEMBERS:
             here = "present here" if _present(m, validate.ROOT) else "not present here"
             roles = [r for r, on in (("reconciled on a spurious conflict", m.reconcile),
+                                     ("regenerated at upgrade", m.upgrade),
                                      ("refreshed at release", m.release)) if on]
-            print(f"  - {m.path} — {here}; {', '.join(roles)}; drift check: {m.check_rule}")
+            outs = ", ".join(f"{o.path}[{o.kind}]" for o in m.outputs)
+            scope = "" if m.scope == "both" else f" ({m.scope}-only)"
+            print(f"  - {m.path}{scope} → {outs} — {here}; {', '.join(roles)}; "
+                  f"drift check: {','.join(m.check_rules)}")
         return 0
     if args.cmd == "regenerate":
-        sel = paths(release=True) if args.release else None
+        sel: Optional[tuple[str, ...]] = None
+        if args.release:
+            sel = paths(release=True)
+        elif args.upgrade:
+            sel = paths(upgrade=True)
         results = regenerate(sel)
         for r in results:
             print(f"{r.status}\t{r.path}\t{r.detail}" + (f"\t{r.error}" if r.error else ""))

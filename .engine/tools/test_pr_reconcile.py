@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 
 import pr_reconcile
+import derived_state
 
 GRAPH = ".engine/knowledge/graph.json"
 SELFMAP = ".engine/self-map.md"
@@ -279,6 +280,47 @@ class TestReconcile(unittest.TestCase):
             self.assertEqual(r["reason"], "push-rejected")
             self.assertEqual(_git(work, "rev-parse", "HEAD").stdout.strip(), before)   # reset --hard restored
             self.assertFalse(_git(work, "status", "--porcelain").stdout.strip())
+
+
+class TestSpuriousClassification(unittest.TestCase):
+    """The registry-driven conflict classifier (E3): a conflicted path is spurious (regenerate-to-resolve)
+    only when a present-and-regenerable derived member owns it. Read-only over the real engine tree."""
+
+    ROOT = derived_state.validate.ROOT
+
+    def test_a_file_member_conflict_is_spurious(self):
+        self.assertTrue(pr_reconcile._is_spurious(".engine/knowledge/graph.json", self.ROOT))
+
+    def test_a_codex_render_inside_an_exclusive_tree_is_spurious(self):
+        # the file lives INSIDE the Codex render tree; path-set membership alone would miss it, owner_of's
+        # directory-boundary prefix catches it.
+        self.assertTrue(pr_reconcile._is_spurious(".codex/agents/engine-audit.toml", self.ROOT))
+        self.assertTrue(pr_reconcile._is_spurious(".agents/skills/engine-recall/SKILL.md", self.ROOT))
+
+    def test_an_authored_path_is_not_spurious(self):
+        self.assertFalse(pr_reconcile._is_spurious("src/app/main.py", self.ROOT))
+        self.assertFalse(pr_reconcile._is_spurious(".engine/tools/some_tool.py", self.ROOT))
+
+    def test_a_setup_route_conflict_is_not_spurious(self):
+        # setup routes live in the mixed .claude/skills/ and are reconcile-excluded (owner_of returns None),
+        # so a route conflict classifies authored → needs-manual, never staged by the executor.
+        self.assertFalse(pr_reconcile._is_spurious(
+            ".claude/skills/engine-setup-github-projects-sync/SKILL.md", self.ROOT))
+
+    def test_a_codex_sibling_past_the_boundary_is_not_spurious(self):
+        self.assertFalse(pr_reconcile._is_spurious(".codex/agents-x/foo.toml", self.ROOT))
+
+    def test_a_home_only_member_conflict_is_not_spurious_in_a_deployment(self):
+        # module-surfaces is home-scoped; in a non-home tree it is not present-regenerable, so a conflict
+        # there refuses rather than regenerating (which would erase declined-module ownership).
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=False):
+            self.assertFalse(pr_reconcile._is_spurious(
+                ".engine/provisioning/module-surfaces.json", self.ROOT))
+
+    def test_a_home_only_member_conflict_is_spurious_at_home(self):
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=True):
+            self.assertTrue(pr_reconcile._is_spurious(
+                ".engine/provisioning/module-surfaces.json", self.ROOT))
 
 
 class TestFetchRetry(unittest.TestCase):

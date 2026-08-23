@@ -636,6 +636,9 @@
   ".engine/check/module-manifest.json": [
    "validators-core"
   ],
+  ".engine/check/module-surfaces-drift.json": [
+   "validators-core"
+  ],
   ".engine/check/ontology-authority-reservation.json": [
    "validators-core"
   ],
@@ -1903,6 +1906,9 @@
    "core"
   ],
   ".engine/tools/module_surfaces.py": [
+   "core"
+  ],
+  ".engine/tools/module_surfaces_check.py": [
    "core"
   ],
   ".engine/tools/moment.py": [

@@ -1820,6 +1820,34 @@
       "type": "check"
     },
     {
+      "id": "check:module-surfaces-drift",
+      "kind": "custom/script",
+      "name": ".engine/check/module-surfaces-drift.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:module_surfaces_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "module-surfaces-drift",
+      "source": {
+        "fingerprint": "sha256:583f7dcadad7cc4124b556ff50bf0416f01733024fa94020629886f367b868eb",
+        "path": ".engine/check/module-surfaces-drift.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:ontology-authority-reservation",
       "kind": "custom/script",
       "name": ".engine/check/ontology-authority-reservation.json",
@@ -5885,7 +5913,7 @@
       },
       "slug": "eADR-0042-multi-writer-integration",
       "source": {
-        "fingerprint": "sha256:2f531e5d35cb08af7da295ca030cea0f1fa2c6ee42b7a341c85b554974936f9e",
+        "fingerprint": "sha256:dd96f5cad41129081718b9e8ed764fbc1c9807a461929fcf9195422a86ed0eb8",
         "path": ".engine/contracts/eADR-0042-multi-writer-integration.md"
       },
       "status": "accepted",
@@ -5925,7 +5953,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:bacdfe09e40d06b366dfa42e72626c6407d815c478ca6fc57f5de4f3e21eb409",
+        "fingerprint": "sha256:2a94f6c027c17aed9c80e7a0dbdc05f3d51572980d3100745631dde27bb8d4b2",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6314,7 +6342,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:320e272d24fd7aa2709e972d608a465b9b4f74c736ce7500ec2c59288cd4403a",
+        "fingerprint": "sha256:4da8651d1440d700d187852498f6217f6ff96c67bb20835f04a48bdbb2a8d3c9",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -6355,7 +6383,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:f925ef562ac4a83b27c59ed697191f849887df92977fd6fc7ceeb3953f7a48ca",
+        "fingerprint": "sha256:0a239d8c51e1d04864b09082ca0d605ecec240ad91a4820a33119fcc939f3104",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7474,7 +7502,7 @@
       },
       "slug": "build-state.v1",
       "source": {
-        "fingerprint": "sha256:831042c165092c80364b9069d97bc869ddd9bd6325ec962ae195b4df17fdf029",
+        "fingerprint": "sha256:3739e279c41964c7bbf8d52d42250a4b044f015c1226554b9bdc8747ba16358f",
         "path": ".engine/schemas/build-state.v1.json"
       },
       "status": "active",
@@ -7491,7 +7519,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:c9edc982fa6552f249409e5d3d5d8e4f8b779f790774ed4de1733a6b5a3970a3",
+        "fingerprint": "sha256:b169e6b3a0b0084b479eb15cf2fce2b0b293d61b1eeae937c129adf1565e7f4c",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9720,6 +9748,7 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
+          "tool:derived_state",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -9732,7 +9761,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:6d71a216d623905a392628699a0f8fbcee24e9cca9a9509aa15b91b0fadc016d",
+        "fingerprint": "sha256:0b37e6cdc0dd1430b9df13fc528c7c1dca6dd59d247c875bace295ed66bed649",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10279,7 +10308,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:c036aec8c59614c5fafd072eb083bd2e5c27207c29c34fd2c5135d740e413389",
+        "fingerprint": "sha256:e8f40608a76f68c6cd39b5dcaaaf1a0d36c14bba5a6c0a11d1eecd867d62e211",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -11827,10 +11856,15 @@
       "predicates": {
         "imports": [
           "tool:ci_assurance",
+          "tool:codex_gen",
           "tool:engine_write",
           "tool:knowledge_gen",
+          "tool:module_catalog",
+          "tool:module_surfaces",
           "tool:obligation_matrix",
+          "tool:repo_identity",
           "tool:self_map",
+          "tool:setup_route_gen",
           "tool:validate"
         ],
         "provided_by": [
@@ -11839,7 +11873,7 @@
       },
       "slug": "derived_state",
       "source": {
-        "fingerprint": "sha256:3cc4a95c683187a8634684f6643221fe234530e76af856976bad137123e0ee45",
+        "fingerprint": "sha256:a5ff73b021c1c5173f63fc527ce55ad621ef34f5918a03ce9f28617296eb943f",
         "path": ".engine/tools/derived_state.py"
       },
       "status": "active",
@@ -13331,7 +13365,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:205eb46f6a8b00031c8f0ab2a2b22774cd2e4d9f1069d8f14d64720874315cd6",
+        "fingerprint": "sha256:986c0efb1bd3c6810d6c13d2dcd2afc0fee922d3721a0c7af85948ae08a5af75",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -13373,7 +13407,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:62ef134c9e485bbc0ed9781fab636a6c8c1c5df8f0aa3ffb6535315b8b071395",
+        "fingerprint": "sha256:33b6876c87991dc9d25b5566d53f6fcca818be25a03ec0f937841e589d4acf30",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13388,6 +13422,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:derived_state",
           "tool:module_coherence",
           "tool:validate"
         ],
@@ -13397,11 +13432,35 @@
       },
       "slug": "module_surfaces",
       "source": {
-        "fingerprint": "sha256:e8fceb1549f7e667e402feed2c4626ff5f575a9adc65358e3a7b2230c50fc82c",
+        "fingerprint": "sha256:e570a42dd9d2c700584aa812fe9477d4a90dc65083b16cf3705fa98bc878f9b9",
         "path": ".engine/tools/module_surfaces.py"
       },
       "status": "active",
       "summary": "The module-surfaces registry — every file an engine MODULE provides, mapped to its owning module id.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:module_surfaces_check",
+      "name": ".engine/tools/module_surfaces_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_surfaces",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_surfaces_check",
+      "source": {
+        "fingerprint": "sha256:1ddd5c7e42cbd775782d4c032119050d243bffe04b5f7ed28d3d867c510e4c86",
+        "path": ".engine/tools/module_surfaces_check.py"
+      },
+      "status": "active",
+      "summary": "Module-surfaces drift gate — the thin custom/script entry for engine/check/module-surfaces-drift.",
       "type": "tool"
     },
     {
@@ -13687,7 +13746,7 @@
       },
       "slug": "pr_reconcile",
       "source": {
-        "fingerprint": "sha256:3d6baa33f8a550cd216f2ee39f60cfb39583e084569ce9d7f37af6a7cfe48dbe",
+        "fingerprint": "sha256:86234ffee042544d8f9421656ee2f5dca765d71906daaaff33aaecf538a07531",
         "path": ".engine/tools/pr_reconcile.py"
       },
       "status": "active",
@@ -13926,6 +13985,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:derived_state",
           "tool:engine_write",
           "tool:local_references",
           "tool:module_coherence",
@@ -13943,7 +14003,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:30b6945f600b46f349909a49064c2aff0925440cf29f3c79f2f77ea3cdbfd11e",
+        "fingerprint": "sha256:915caa749be45464fb74c7757ee70de3f3745004043ab69c713eba96bba07bf5",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -14586,7 +14646,7 @@
       },
       "slug": "setup_route_gen",
       "source": {
-        "fingerprint": "sha256:5f3850d6357207be768fcbc6babf7eef89ac7b1adfbce7c3f3d9cc96d90073ea",
+        "fingerprint": "sha256:08e5c90e43f421ff72a36551486ee8c90273f2a18cd59f72c36cd48e2c027124",
         "path": ".engine/tools/setup_route_gen.py"
       },
       "status": "active",
@@ -15371,13 +15431,14 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_github",
+          "tool:derived_state",
           "tool:module_coherence",
           "tool:spec_referent"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:0efbf2ef4d15e0b791f72b111b8a1cf238035d65bcf51d9b7b241d39a84ab15c",
+        "fingerprint": "sha256:fb2e5f2c4a215024692c03645b26ce8aedb1c901d537e0a9043b166aed05d14c",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15806,7 +15867,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:0a8b528be009e95633146e5c6a1ccb90a65bafae67cfe306f29340cf69774e9f",
+        "fingerprint": "sha256:85d5080b50295c53e719b9c715ae1077269ffa7f02756749d537032fb55f176d",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -16059,12 +16120,14 @@
           "tool:derived_state",
           "tool:module_coherence",
           "tool:module_manager",
-          "tool:pr_reconcile"
+          "tool:pr_reconcile",
+          "tool:self_map",
+          "tool:setup_route_gen"
         ]
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:69e357e66bbb002abbe979d8f78d3a254e4b24a7e03080ab07c8163443b6cef8",
+        "fingerprint": "sha256:f2a5db1f790217b238c47364d21acc10b8a9d53167c1097476f4fd204a90ba5d",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -17480,6 +17543,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:derived_state",
           "tool:module_surfaces",
           "tool:repo_identity",
           "tool:validate"
@@ -17487,7 +17551,7 @@
       },
       "slug": "test_module_surfaces",
       "source": {
-        "fingerprint": "sha256:03ef51df0435c33b003348c1e97b95ab26671f858f25613d80576339555d060e",
+        "fingerprint": "sha256:fd7d04e2036079fbf2e8cd27144d1c1fca5cb9430120b1e7622c544102532f80",
         "path": ".engine/tools/test_module_surfaces.py"
       },
       "status": "active",
@@ -17516,7 +17580,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d235b45ce7169291f058f30a6eae4b33e4b44d7014b4cdd3e2f01a84079976c1",
+        "fingerprint": "sha256:4d99ee5651934cfbcc1211f4ca36bd1508d7716f0b65e94424212c0666caac29",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17724,6 +17788,7 @@
         ],
         "tests": [
           "tool:demo_overlay_disclosure",
+          "tool:derived_state",
           "tool:module_coherence",
           "tool:module_manager",
           "tool:overlay_disclosure",
@@ -17735,7 +17800,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:4077dd48eecd22cc61a6b89b233632219883c8ff0a8dae1b4e2fccd180b1eac1",
+        "fingerprint": "sha256:bee0bd1f4c7f6b1d59e502ab3d9e74efb163e6913254536433286a632b5bef4d",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
@@ -17852,12 +17917,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:derived_state",
           "tool:pr_reconcile"
         ]
       },
       "slug": "test_pr_reconcile",
       "source": {
-        "fingerprint": "sha256:26997e77a5d990b4a47dff671933d850dc619482ccd1ee8ee2fab935b605e98e",
+        "fingerprint": "sha256:5fc8df19468feb43d972cc21e8ed9e08d8e4930472aaf9450d3f342fd3c13e9f",
         "path": ".engine/tools/test_pr_reconcile.py"
       },
       "status": "active",
@@ -18055,6 +18121,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:derived_state",
           "tool:issue_kind",
           "tool:module_coherence",
           "tool:module_manager",
@@ -18064,7 +18131,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:11ae4a5942e39b15b1fbb2ed8891c932327e981491c38e67685cc26efa3dd257",
+        "fingerprint": "sha256:c053c1d7b6a5343f76d78ea950e838f64303387a07c019c7eeda22d2959e6540",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

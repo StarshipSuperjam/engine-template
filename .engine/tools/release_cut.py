@@ -1783,6 +1783,14 @@ def _version_lines(applied: dict) -> list:
     return lines
 
 
+def _release_generated_surfaces() -> list:
+    """The generated surfaces the release cut refreshes — the derived-state registry's release subset, so
+    this disclosure names EXACTLY what `release.yml`'s `derived_state.py regenerate --release` regenerates and
+    can never drift from it (it once hard-coded `graph.json` + `self-map.md` while the cut refreshed more)."""
+    import derived_state
+    return list(derived_state.paths(release=True))
+
+
 def pr_section(header: str, summary: str, body_lines: list, impact: str) -> list:
     """One pull-request-body section in the repo template's shape — a **bold one-line summary**, its bullets,
     then the italic `*Impact:*` line — so the release body matches the form every engine pull request's body
@@ -2078,7 +2086,8 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
         (["- `product-version.json` — the recorded version of your product."] if product else
          ["- `.engine/engine.json` and each installed capability's `.engine/modules/<id>/manifest.json` — the "
           "recorded versions.",
-          "- `.engine/knowledge/graph.json` and `.engine/self-map.md` — the generated maps, refreshed to match."]),
+          "- " + ", ".join(f"`{p}`" for p in _release_generated_surfaces())
+          + " — the generated maps and catalogs, refreshed to match."]),
         "these are the only files this pull request changes.")
 
     out += pr_section(

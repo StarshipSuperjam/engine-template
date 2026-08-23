@@ -48,6 +48,7 @@
       ".engine/check/model-bindings-schema.json",
       ".engine/check/module-catalog-drift.json",
       ".engine/check/module-manifest.json",
+      ".engine/check/module-surfaces-drift.json",
       ".engine/check/ontology-authority-reservation.json",
       ".engine/check/operation-frontmatter.json",
       ".engine/check/operation-shape.json",

@@ -202,6 +202,16 @@ class TestDisclosureRegisters(unittest.TestCase):
                         "status": "renamed"}])
         self.assertEqual(r["overwrite"], [".engine/tools/boot.py"])
 
+    def test_the_widened_registry_did_not_change_the_regenerated_derived_set(self):
+        # E5 regression: the newly-registered members (Codex renders, provisioning catalogs) are upgrade=False,
+        # so REGENERATED_DERIVED (bound to paths(upgrade=True)) stays exactly the original four indexes — an
+        # upgrade delivers the new members whole (the overwrite register), never the calm 'rebuilt' register.
+        import derived_state
+        self.assertEqual(set(od.module_manager.REGENERATED_DERIVED), set(derived_state.paths(upgrade=True)))
+        for new_member in (".engine/provisioning/module-catalog.json",
+                           ".engine/provisioning/module-surfaces.json", ".codex/agents/"):
+            self.assertNotIn(new_member, od.module_manager.REGENERATED_DERIVED)
+
 
 class TestComment(unittest.TestCase):
     def test_overwrite_body_is_plain_non_blocking_and_routes_with_home(self):

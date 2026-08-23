@@ -1,0 +1,8 @@
+{
+  "id": "fixture-surface-mod",
+  "status": "optional",
+  "version": "1.0.0",
+  "provides": {
+    "src": ["src/fixture-surface.txt"]
+  }
+}

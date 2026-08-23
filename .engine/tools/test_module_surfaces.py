@@ -8,10 +8,12 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate            # noqa: E402
 import module_surfaces as ms  # noqa: E402
+import derived_state       # noqa: E402
 import repo_identity       # noqa: E402
 
 _CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
@@ -29,6 +31,49 @@ class TestRegistryInSync(unittest.TestCase):
         # A concrete anchor: the product-design operation a core runbook links to is owned by product-design.
         self.assertEqual(ms.load().get(os.path.join(".engine", "operations", "product-intake.md")),
                          ["product-design"])
+
+
+class TestDriftCheck(unittest.TestCase):
+    """The new drift check (a derived_state member's own gate). The BITE path is proven directly via _compare
+    against a seeded tree (a fixture tree has no confirmed-home origin, so the gated check would skip it); the
+    home GATE (silence off-home) is proven here as unit tests, per the deliberate split."""
+
+    def _tree(self, provides_file: str | None):
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, ".engine", "provisioning"))
+        os.makedirs(os.path.join(d, ".engine", "modules", "fx"))
+        os.makedirs(os.path.join(d, "src"))
+        with open(os.path.join(d, ".engine", "modules", "fx", "manifest.json"), "w") as fh:
+            json.dump({"id": "fx", "status": "optional", "version": "1.0.0",
+                       "provides": {"src": ["src/fx.txt"]}}, fh)
+        with open(os.path.join(d, "src", "fx.txt"), "w") as fh:
+            fh.write("surface")
+        surfaces = {} if provides_file is None else {"src/fx.txt": ["fx"]}
+        with open(os.path.join(d, ms.REGISTRY_REL), "w") as fh:
+            fh.write(ms._serialize(surfaces))
+        return d
+
+    def test_compare_bites_a_stale_registry(self):
+        d = self._tree(provides_file=None)                      # committed registry is EMPTY = stale
+        finding = ms._compare(d)
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("out of date", finding["message"])
+
+    def test_compare_is_silent_when_in_sync(self):
+        d = self._tree(provides_file="src/fx.txt")              # committed registry matches derive
+        self.assertIsNone(ms._compare(d))
+
+    def test_check_is_silent_off_home_even_when_stale(self):
+        # the home GATE: a stale registry in a NON-home tree returns None (no false drift in a deployment).
+        d = self._tree(provides_file=None)
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=False):
+            self.assertIsNone(ms.check(root=d))
+
+    def test_check_bites_when_confirmed_home(self):
+        d = self._tree(provides_file=None)
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=True):
+            self.assertIsNotNone(ms.check(root=d))
 
 
 class TestDeclinedSurfaceOwner(unittest.TestCase):
@@ -82,6 +127,26 @@ class TestDeclinedSurfaceOwner(unittest.TestCase):
     def test_a_path_no_module_owns_is_a_real_broken_link(self):
         d = self._root(packages=["core"], surfaces={".engine/operations/opt.md": ["opt-mod"]})
         self.assertIsNone(ms.declined_surface_owner(os.path.join(d, ".engine/docs/nope.md"), root=d))
+
+
+class TestGenerateCliHomeGuard(unittest.TestCase):
+    """The bare `module_surfaces.py generate` hand-run must refuse off-home: the registry lists EVERY module's
+    surfaces, so regenerating it from a deployment's reduced manifest set would erase declined modules'
+    ownership. The guard delegates to the positive-home, fail-closed derived_state.is_confirmed_home."""
+
+    def test_refuses_and_does_not_generate_when_home_is_not_confirmed(self):
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=False), \
+             mock.patch.object(ms, "generate") as gen:
+            code = ms._run_generate_cli()
+        self.assertEqual(code, 2)
+        gen.assert_not_called()
+
+    def test_generates_when_home_is_confirmed(self):
+        with mock.patch.object(derived_state, "is_confirmed_home", return_value=True), \
+             mock.patch.object(ms, "generate") as gen:
+            code = ms._run_generate_cli()
+        self.assertEqual(code, 0)
+        gen.assert_called_once()
 
 
 if __name__ == "__main__":

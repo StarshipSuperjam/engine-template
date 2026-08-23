@@ -57,15 +57,35 @@ import derived_state     # noqa: E402  (the derived-committed set + regeneration
 # (`_reconcile_members`): a member whose OPTIONAL generator is absent stays OUT of the spurious set, so its
 # conflict classifies authored (needs-manual) and refuses — never append-merged and then discovered to be
 # un-regenerable. `_CORE_MEMBERS` is the always-present core set that marks a tree as an engine
-# tree at all — the fork-main / external-contribution guard.
+# tree at all — the fork-main / external-contribution guard. It is the registry's `fork_guard_core` set
+# (the three always-present index FILES), NOT a filter over the reconcile roster: that filter would silently
+# absorb every newly-registered core reconcilable member — including a directory-output member like the Codex
+# renders, whose os.path.isfile guard would then judge every real engine tree a non-engine tree and disable
+# reconciliation. Sourcing it from the dedicated flag keeps it registry-owned and stable as the roster grows.
 MEMBERS = derived_state.paths(reconcile=True)
-_CORE_MEMBERS = tuple(m.path for m in derived_state.members(reconcile=True) if m.optional_module is None)
+_CORE_MEMBERS = derived_state.fork_guard_core_paths()
 
 
 def _reconcile_members(root: str) -> set:
-    """The present-and-regenerable reconcile members for THIS tree — F-risk-3: gate on generator-resolvability,
-    not mere file presence, so a present-file / absent-generator artifact stays OUT of the spurious set."""
+    """The present-and-regenerable reconcile members' OUTPUT paths for THIS tree — F-risk-3: gate on
+    generator-resolvability, not mere file presence, so a present-file / absent-generator artifact stays OUT
+    of the spurious set. These are the paths the executor stages (`git add`); a directory output (a Codex
+    render tree) is staged whole."""
     return set(derived_state.paths(reconcile=True, present_root=root))
+
+
+def _is_spurious(path: str, root: str) -> bool:
+    """True iff a conflicted `path` is owned by a derived member that is present AND regenerable in THIS tree
+    — so the conflict is spurious (a pure function of source; regenerate-to-resolve). Uses the registry's
+    `owner_of` (exact for a file output, directory-boundary prefix for an EXCLUSIVE tree output like the
+    Codex renders), then confirms the owning member is in the present-and-resolvable reconcile set. A path no
+    member owns, a path under a non-exclusive tree (a setup route in the mixed .claude/skills/), or a member
+    whose generator is absent / out of scope here all return False → the conflict classifies authored and the
+    reconcile refuses rather than append-merge a change it cannot regenerate."""
+    member = derived_state.owner_of(path)
+    if member is None:
+        return False
+    return member in set(derived_state.members(reconcile=True, present_root=root))
 
 # An inline identity so a merge/commit never fails for lack of a configured git user on the operator's machine.
 _IDENT = ["-c", "user.email=engine@local", "-c", "user.name=engine"]
@@ -239,8 +259,10 @@ def assess(*, root: str | None = None, default: str | None = None, fetch: bool =
     kind, paths = mt
     if kind == "clean":
         return {"status": "healthy", "base": base, "conflicted": []}
-    member_set = _reconcile_members(root)   # present + generator-resolvable only (F-risk-3)
-    authored = [p for p in paths if p not in member_set]
+    # A conflict is spurious only if EVERY conflicted path is owned by a present-and-regenerable derived
+    # member (exact file, or an exclusive Codex render tree by directory-boundary prefix — never a setup
+    # route in the mixed .claude/skills/). Any authored / unowned / out-of-scope path → refuse.
+    authored = [p for p in paths if not _is_spurious(p, root)]
     if authored:
         return {"status": "needs-manual", "reason": "authored-conflict", "base": base, "conflicted": paths}
     return {"status": "fixable", "base": base, "conflicted": paths}    # ⊆ members, non-empty → lossless
@@ -309,7 +331,9 @@ def _execute_bring_up_to_date(root: str, base: str, *, final_status: str) -> dic
     merged_clean = _ok([*_IDENT, "merge", "--no-ff", "--no-edit", base], root)
     if not merged_clean:
         conflicted = set(_unmerged(root))
-        if not conflicted or (conflicted - members_here):     # an authored / unexpected conflict appeared
+        # Each unmerged path must be owned by a present-and-regenerable member (a file inside a Codex render
+        # tree is owned by its exclusive-prefix member, so path-set membership alone would wrongly refuse it).
+        if not conflicted or any(not _is_spurious(p, root) for p in conflicted):
             return _refuse("unexpected-conflict")
         if not _regen_members(root):
             return _refuse("regen-failed")
@@ -378,10 +402,11 @@ def _plain_reconcile(apply: bool) -> int:
               "I'll offer to do this again.")
     elif status == "needs-manual" and reason == "authored-conflict":
         print("I stopped and left everything exactly as it was — nothing changed, no work lost. This one I "
-              "can't safely fix on my own: the two pieces of work changed the same actual content (not just "
-              "the engine's index files), and choosing between them is a real decision. Tell me which "
-              "direction you want, or ask me to walk you through the two versions in plain English — I'll do "
-              "the rest once you've chosen.")
+              "can't safely fix on my own: the conflict is on files I can't regenerate-to-resolve. If it is "
+              "real hand-written content, tell me which direction you want, or ask me to walk you through the "
+              "two versions in plain English. If it is a generated file the engine keeps out of auto-merge for "
+              "safety (a setup route lives beside hand-written skills), pick either side and I'll regenerate "
+              "the rest once you've chosen — no hand-written work is actually in conflict there.")
     elif status == "fixable" and not apply:
         print("This pull request is stuck on the engine's internal index files. I can fix it safely and keep "
               "both pieces of work (I reconcile it against the latest main and rebuild those files). Re-run "
@@ -415,8 +440,9 @@ def main(argv: list) -> int:
                   else "This branch is behind the latest main; I can bring it up to date and regenerate its "
                        "derived files (run with --apply).")
         elif status == "needs-manual" and r.get("reason") == "authored-conflict":
-            print("This branch conflicts with the latest main in your own edited files — that's a real "
-                  "decision for you, so I've left both untouched.")
+            print("This branch conflicts with the latest main on files I won't auto-resolve — real "
+                  "hand-written content, or a generated file the engine keeps out of auto-merge for safety. "
+                  "Either way it's your call, so I've left both untouched.")
         else:
             print(f"Could not prepare this branch ({r.get('reason', status)}); nothing was changed.")
         return 0 if status in ("healthy", "prepared") else 1

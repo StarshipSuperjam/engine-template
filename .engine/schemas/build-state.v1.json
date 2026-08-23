@@ -44,6 +44,7 @@
     },
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
     "assumption_dispositions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["claim", "resolved_as", "basis"], "properties": {"claim": {"type": "string", "minLength": 1}, "resolved_as": {"enum": ["verified", "accepted-risk"]}, "basis": {"type": "string", "minLength": 1}}}},
+    "artifact_sync": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "results"], "properties": {"commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "results": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "status", "changed"], "properties": {"path": {"type": "string"}, "status": {"type": "string"}, "changed": {"type": "boolean"}}}}}}]},
     "checkpoint": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/checkpoint"}]},
     "progress": {
       "type": "object", "additionalProperties": false, "required": ["current_item", "completed"],
