@@ -692,13 +692,14 @@ def cmd_plan_revise(args, store: StateStore) -> None:
     escalation = getattr(args, "operator_change", None)
     if panels and not escalation:
         raise CoordinatorError(
-            f"this plan has already been reviewed by a completed panel ({len(panels)}). There are three ways "
-            "forward and re-reviewing is not one of them. If the panel found something to FIX, disposition the "
-            "finding and fix it in the implementation -- no plan change is needed. If the PLAN itself must "
-            "change, that is the operator's call, not yours: stop, put the change and its consequences to them "
-            "in plain words, and record their decision with --operator-change. If the plan is wrong at its "
-            "root, abandon this Build and start fresh from a re-planned intent. What you must not do is carry "
-            "on building against a plan you already believe is flawed.")
+            "this plan has already been reviewed by a completed panel, and re-reviewing it is not one of the "
+            "ways forward. If you believe the PLAN itself is wrong, that is the operator's call, not yours: "
+            "stop now, put the change and its consequences to them in plain words, and record their decision "
+            "with --operator-change. If the plan is wrong at its root, abandon this Build and start fresh "
+            "from a re-planned intent. Only if what the panel found is an implementation matter -- the plan "
+            "still stands and the fix belongs in the code -- disposition the finding and carry on. Do not "
+            "take that last path to avoid the first: never keep building against a plan you believe is "
+            "flawed.")
     durable = state["plan"]["source"] == "issue"
     if durable:
         if not args.ack_visibility:

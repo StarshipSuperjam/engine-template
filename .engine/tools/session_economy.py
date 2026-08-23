@@ -90,8 +90,9 @@ def subagent_denial(tool_name, tool_input):
     if isinstance(model, str) and model.split("[")[0].strip() in accepted:
         return None
     named = " or ".join(sorted(accepted))
-    return (f"A {kind} subagent must name a cheap model ({named}); this spawn named "
-            f"{model!r}. A search or planning agent on an expensive model is spin-up cost for work the "
+    said = f"named {model!r}" if isinstance(model, str) and model else "named no model, so it would inherit yours"
+    return (f"A {kind} subagent must name a cheap model ({named}); this spawn {said}. "
+            "A search or planning agent on an expensive model is spin-up cost for work the "
             "orchestrator should do inline — if the task genuinely needs stronger judgment, do it yourself "
             "rather than delegating it. Relaunch this spawn with model set to one of those. To switch the "
             f"gate off entirely, set {OFF_SWITCH}=off in the environment (or the project settings' env "
