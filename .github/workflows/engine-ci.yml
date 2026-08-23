@@ -60,9 +60,16 @@ jobs:
       - name: Materialize the engine tool-runtime
         run: uv sync --directory .engine --frozen
       - name: Decide whether this run owes the full inventory
-        # UNCONDITIONED on purpose. It publishes its verdict to the job environment, which the two arms below
-        # condition on. It reads the event from $GITHUB_EVENT_PATH, never from an interpolated argument, and
-        # every failure inside it resolves toward the full inventory rather than toward reuse.
+        # UNCONDITIONED on purpose. It publishes its verdict as this step's OWN OUTPUT, which the two arms
+        # below condition on. The output is the point: a step's outputs can be written only by that step, so
+        # nothing the job runs afterwards — the self-test inventory very much included — can reach
+        # `steps.gate.outputs.mode` and change which arm runs. The job ENVIRONMENT cannot carry this: it is
+        # mutable across steps, and a later step that appends to $GITHUB_ENV rewrites what every subsequent
+        # step's condition reads. That is not hypothetical — it is the defect this workflow is repairing
+        # (StarshipSuperjam/engine-template#1043).
+        # It reads the event from $GITHUB_EVENT_PATH, never from an interpolated argument, and every failure
+        # inside it resolves toward the full inventory rather than toward reuse.
+        id: gate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -71,8 +78,9 @@ jobs:
         # The two arms are MUTUAL NEGATIONS of one value, so no third state can skip both. The platform treats
         # a skipped step as successful, so a pair of positive equalities would let an unexpected value produce
         # a green job with nothing run. The negation also defaults toward MORE work: anything that is not
-        # exactly `reuse` earns the full inventory.
-        if: env.ENGINE_CI_MODE != 'reuse'
+        # exactly `reuse` earns the full inventory — including the empty string a mistyped step reference
+        # would yield, so a broken reference costs work rather than skipping it.
+        if: steps.gate.outputs.mode != 'reuse'
         # The validator reads the PR body from $GITHUB_EVENT_PATH (.pull_request.body),
         # never from an interpolated shell argument.
         # It also reads the current body live from the API during CI, falling back to that
@@ -87,15 +95,31 @@ jobs:
           PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
         run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI
       - name: Run the self-tests (the checker-of-checkers)
-        if: env.ENGINE_CI_MODE != 'reuse'
+        # This step's OUTCOME is the full arm's completion evidence, read by the terminal step below. It is
+        # the right step to read: it is the arm's substantive work and, unlike the receipt steps, carries no
+        # event condition, so it reports honestly on a `push` to the default branch too.
+        id: selftests
+        if: steps.gate.outputs.mode != 'reuse'
         # -b (buffer): unittest captures each test's stdout/stderr and discards it on
         # success, replaying only a FAILING test's output. Keeps a green run's tail (the
         # `Ran N tests … OK` summary) from being buried under demo-test walkthrough output.
+        env:
+          # DECOY CONTROL FILES. This is the one step in the job that runs arbitrary code — the whole
+          # test inventory — so it is the one place the job's control plane needs protecting. The runner
+          # reads back the control file at the path IT generated; handing this step's child processes a
+          # different path means a test that writes one of these scribbles into a throwaway under
+          # RUNNER_TEMP and the real file is never touched. One edit at the actual trust boundary, covering
+          # every test module written from now on, rather than a convention each future author must recall.
+          GITHUB_ENV: ${{ runner.temp }}/decoy-github-env
+          GITHUB_OUTPUT: ${{ runner.temp }}/decoy-github-output
+          GITHUB_PATH: ${{ runner.temp }}/decoy-github-path
+          GITHUB_STATE: ${{ runner.temp }}/decoy-github-state
+          GITHUB_STEP_SUMMARY: ${{ runner.temp }}/decoy-github-step-summary
         run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
       - name: Write the full-suite receipt
         # Only after BOTH the validator and the inventory have passed, so the receipt is an attestation by
         # construction rather than by assertion — a failure above fails the job and skips this.
-        if: env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request'
+        if: steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"
@@ -103,7 +127,7 @@ jobs:
         # The ONLY upload in this workflow, and it is conditioned on the full arm. That is what makes artifact
         # presence the structural marker separating a genuine full run from a reuse run of the same workflow —
         # run metadata reports the event but not the action, so it cannot make that distinction itself.
-        if: env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request'
+        if: steps.gate.outputs.mode != 'reuse' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: engine-ci-receipt
@@ -115,25 +139,36 @@ jobs:
           # duplicate artifact name. The name must stay fixed (the discovery filter matches it exactly), so
           # overwrite — not a per-attempt name, which would silently break reuse.
           overwrite: true
-      - name: Record that the full arm completed
-        if: env.ENGINE_CI_MODE != 'reuse'
-        run: echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"
       - name: Re-check what an unchanged tree cannot settle
         # The reuse arm. It runs the checks whose verdict can change while the tree is unchanged — the
         # pull-request body rules, the product lock, branch protection, and the dependency-advisory screen —
         # as a BLOCKING gate, so a body edited to strip a required section, or a newly-published advisory against
         # an unchanged dependency, still turns this check red.
-        if: env.ENGINE_CI_MODE == 'reuse'
+        # This step's OUTCOME is the reuse arm's completion evidence, as the self-test step's is the full
+        # arm's.
+        id: metadata
+        if: steps.gate.outputs.mode == 'reuse'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
         run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata
-      - name: Record that the reuse arm completed
-        if: env.ENGINE_CI_MODE == 'reuse'
-        run: echo "ENGINE_CI_RAN=reuse" >> "$GITHUB_ENV"
       - name: Refuse a run in which no arm did any work
-        # UNCONDITIONED, and the last word. The arms above write their marker on finishing; this fails unless
-        # one of them did. Without it, a value the arms did not anticipate would skip both, every step would
-        # report as successful, and the frozen required context would go green having proven nothing.
+        # Carries NO CONDITION OF ITS OWN, and is the last word. Without it, a value the arms did not
+        # anticipate would skip both, every step would report as successful, and the frozen required context
+        # would go green having proven nothing.
+        #
+        # It is not literally unconditional: a step with no `if:` still carries the platform's implicit
+        # success() gate, so it does not run when an earlier step FAILED. That is the behaviour we want — a
+        # job already red needs no second refusal — and it is why this guards the SKIP case specifically.
+        #
+        # The completion evidence is the PLATFORM'S OWN verdict on each arm — `steps.<id>.outcome`, which
+        # only the runner writes and only for the step it names. An arm that ran reports `success`; one whose
+        # condition was false reports `skipped`. That is strictly better than a marker line an arm echoes
+        # about itself: it is bound to the arm step by identity rather than by ordering, and it cannot be
+        # forged by anything the job runs. Passing it in as step-level `env:` also shadows any value an
+        # earlier step pushed into the job environment under the same name.
+        env:
+          ENGINE_CI_FULL_RAN: ${{ steps.selftests.outcome }}
+          ENGINE_CI_REUSE_RAN: ${{ steps.metadata.outcome }}
         run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran

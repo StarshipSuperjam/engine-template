@@ -12,6 +12,7 @@ import datetime
 import io
 import json
 import os
+import re
 import sys
 import unittest
 import zipfile
@@ -21,6 +22,36 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ci_gatekeeper as gk  # noqa: E402
 import github_client  # noqa: E402
+
+# The runner's control files. A test that writes one of these while it still points at the runner's REAL file
+# is writing into the live job's control plane — which is exactly how StarshipSuperjam/engine-template#1043
+# shipped inert: two tests in this module invoked the gate CLI with $GITHUB_ENV unset-and-inherited, so the
+# self-test step appended a mode to the job environment and flipped the arm underneath a job that had already
+# done the work. They are removed from the environment for the whole module; a test that needs one points it
+# at its own temporary file.
+_RUNNER_CONTROL_FILES = ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY")
+
+# Set by the isolation regression below in the child it spawns, so the child skips that test rather than
+# recursing. Deliberately NOT selftest.py's ENGINE_NESTED_SELFTEST: the canonical local launcher sets that on
+# the child running the whole suite, so borrowing it would make this test skip on every local run and execute
+# only in CI — feedback in the one place a round trip is expensive.
+_ISOLATION_CHILD_ENV = "ENGINE_CI_GATEKEEPER_ISOLATION_CHILD"
+
+_CONTROL_FILE_ISOLATION = None
+
+
+def setUpModule():
+    global _CONTROL_FILE_ISOLATION
+    _CONTROL_FILE_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
+    _CONTROL_FILE_ISOLATION.start()
+    for var in _RUNNER_CONTROL_FILES:
+        os.environ.pop(var, None)
+
+
+def tearDownModule():
+    if _CONTROL_FILE_ISOLATION is not None:
+        _CONTROL_FILE_ISOLATION.stop()
+
 
 HEAD = "a" * 40
 BASE = "b" * 40
@@ -266,16 +297,21 @@ class TerminalAssertion(unittest.TestCase):
     """The unconditioned last step: a job where no arm ran must not report success."""
 
     def test_no_marker_refuses(self):
-        with mock.patch.dict(os.environ, {"ENGINE_CI_RAN": ""}, clear=False):
+        # Both names absent is what a job whose arms all skipped would present.
+        with mock.patch.dict(os.environ, {gk.FULL_RAN_ENV: "", gk.REUSE_RAN_ENV: ""}, clear=False):
             self.assertEqual(gk.main(["assert-ran"]), 1)
 
     def test_an_unexpected_marker_refuses(self):
-        with mock.patch.dict(os.environ, {"ENGINE_CI_RAN": "something-else"}, clear=False):
+        # Only the runner's own `success` counts. Anything else — a drifted value, a half-written
+        # expression — is not completion.
+        with mock.patch.dict(os.environ,
+                             {gk.FULL_RAN_ENV: "something-else", gk.REUSE_RAN_ENV: "skipped"}, clear=False):
             self.assertEqual(gk.main(["assert-ran"]), 1)
 
     def test_each_real_arm_passes(self):
-        for arm in (gk.MODE_FULL, gk.MODE_REUSE):
-            with self.subTest(arm=arm), mock.patch.dict(os.environ, {"ENGINE_CI_RAN": arm}, clear=False):
+        for arm, env in ((gk.MODE_FULL, {gk.FULL_RAN_ENV: "success", gk.REUSE_RAN_ENV: "skipped"}),
+                         (gk.MODE_REUSE, {gk.FULL_RAN_ENV: "skipped", gk.REUSE_RAN_ENV: "success"})):
+            with self.subTest(arm=arm), mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(gk.main(["assert-ran"]), 0)
 
 
@@ -465,32 +501,130 @@ class Disclosures(unittest.TestCase):
         with open(summary, encoding="utf-8") as fh:
             self.assertIn("900", fh.read())
 
-    def test_the_verdict_is_published_to_the_environment_not_a_step_output(self):
-        # Reading a step output would require the producing step to carry an `id:`, which the assurance
-        # generator's step-key allowlist refuses — and that refusal is a structural defence this Build does
-        # not widen, since the required gate must not grow a shape the published catalogue cannot describe.
+    def test_the_verdict_is_published_as_a_step_output_and_never_to_the_job_environment(self):
+        # The inversion of the test this replaces. The job environment is a single mutable store every later
+        # step re-reads, so a verdict published there can be rewritten by anything the job runs afterwards —
+        # which is precisely how the arm flipped mid-job in StarshipSuperjam/engine-template#1043. A step
+        # output can be written only by the step that owns it. Both files are real here, so "the environment
+        # file is untouched" is an observation rather than an absence.
         import tempfile
 
         with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as fh:
             envfile = fh.name
+        with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as fh:
+            outfile = fh.name
         self.addCleanup(os.unlink, envfile)
+        self.addCleanup(os.unlink, outfile)
         with mock.patch.object(gk, "decide", return_value=(gk.MODE_FULL, gk.REASON_CODE_EVENT, None)), \
              mock.patch.object(gk, "_load_event", return_value=event("opened")), \
-             mock.patch.dict(os.environ, {"GITHUB_ENV": envfile, "GITHUB_OUTPUT": ""}, clear=False):
+             mock.patch.dict(os.environ, {"GITHUB_ENV": envfile, "GITHUB_OUTPUT": outfile}, clear=False):
             self.assertEqual(gk.main(["decide"]), 0)
+        with open(outfile, encoding="utf-8") as fh:
+            self.assertIn(f"{gk.MODE_OUTPUT_KEY}={gk.MODE_FULL}", fh.read())
         with open(envfile, encoding="utf-8") as fh:
-            written = fh.read()
-        self.assertIn(f"{gk.MODE_ENV}={gk.MODE_FULL}", written)
+            self.assertEqual(fh.read(), "", "the gate must never write the job environment")
 
-    def test_the_branch_value_and_the_completion_marker_are_different_names(self):
+    def test_the_publisher_refuses_a_value_that_is_not_a_known_mode(self):
+        # This helper is the sole author of the channel the arm decision travels on, so it validates rather
+        # than trusting its caller. A newline in particular would inject a second output key.
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as fh:
+            outfile = fh.name
+        self.addCleanup(os.unlink, outfile)
+        with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": outfile}, clear=False):
+            for bad in ("", "FULL", "reuse\nmode=full", "full extra"):
+                with self.assertRaises(ValueError):
+                    gk._publish_mode(bad)
+        with open(outfile, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "", "a refused value must reach the channel not at all")
+
+    def test_the_branch_value_and_the_completion_markers_are_different_names(self):
         # A marker written by the decision step would prove only that the decision ran. The terminal
-        # assertion must read something an ARM wrote, or it cannot tell "an arm finished" from "we decided".
-        self.assertNotEqual(gk.MODE_ENV, gk.RAN_ENV)
+        # assertion must read something an ARM produced, or it cannot tell "an arm finished" from "we
+        # decided". The arm evidence is the runner's own per-step outcome, carried under these two names.
+        self.assertNotIn(gk.MODE_OUTPUT_KEY, (gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV))
+        self.assertNotEqual(gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV)
+
+    def test_the_terminal_assertion_refuses_unless_exactly_one_arm_succeeded(self):
+        # `skipped` is what the runner reports for the arm whose condition was false, and the empty string is
+        # what a reference that resolves to nothing yields. Neither is completion. Both succeeding means the
+        # arms stopped being mutually exclusive — work was done, but the branch structure is broken.
+        cases = {
+            ("success", "skipped"): 0,
+            ("skipped", "success"): 0,
+            ("skipped", "skipped"): 1,
+            ("", ""): 1,
+            ("failure", "skipped"): 1,
+            ("cancelled", "cancelled"): 1,
+            ("success", "success"): 1,
+        }
+        for (full, reuse), expected in cases.items():
+            with self.subTest(full=full, reuse=reuse):
+                with mock.patch.dict(os.environ,
+                                     {gk.FULL_RAN_ENV: full, gk.REUSE_RAN_ENV: reuse}, clear=False):
+                    self.assertEqual(gk.main(["assert-ran"]), expected)
 
     def test_full_disclosure_states_why_reuse_did_not_happen(self):
         line = gk.full_disclosure(gk.REASON_REFUSED, {"refusals": [{"run_id": 901, "why": "different-tree"}]})
         self.assertIn(gk.REASON_REFUSED, line)
         self.assertIn("different-tree", line)
+
+
+@unittest.skipIf(os.environ.get(_ISOLATION_CHILD_ENV) == "1",
+                 "the child this test spawns must not spawn its own")
+class RunnerControlPlaneIsolation(unittest.TestCase):
+    """Running this module leaves every runner control file exactly as it found it.
+
+    The regression for StarshipSuperjam/engine-template#1043. Immutable step outputs already make the ARM
+    unreachable; this holds the broader property the workflow's decoy block also defends.
+
+    What it proves, stated precisely rather than generously: that this module's isolation is present and
+    effective. The child's own `setUpModule` removes the five names before any test runs, so no individual
+    test can reach the fabricated files — which means this does NOT certify that each test is independently
+    well-behaved. It fails exactly when the isolation is weakened or dropped, and dropping it is how #1043
+    happened, so that is the regression worth having. Confirmed by experiment rather than assumed: disabling
+    the pop makes this fail on GITHUB_OUTPUT, written by the two tests that drive the `decide` verb.
+
+    A child process rather than an in-process runner, for one reason: running this module's own suite from
+    inside one of its tests would re-enter the very setUpModule/tearDownModule fixture under test while it is
+    already active, nesting the patch on itself. A fresh interpreter sidesteps that, matches how CI invokes
+    the suite, and costs well under a second against an inventory of several thousand tests."""
+
+    def test_running_this_module_leaves_every_runner_control_file_untouched(self):
+        import subprocess
+        import tempfile
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        with tempfile.TemporaryDirectory() as tmp:
+            # Seeded with content, so "unchanged" is a real comparison rather than two empty files agreeing.
+            before = {}
+            env = {**os.environ, _ISOLATION_CHILD_ENV: "1", "PYTHONPATH": here}
+            for var in _RUNNER_CONTROL_FILES:
+                path = os.path.join(tmp, var.lower())
+                marker = f"# {var} sentinel — the job's control plane, not a scratch file\n"
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(marker)
+                before[var] = marker
+                env[var] = path
+
+            proc = subprocess.run(
+                [sys.executable, "-m", "unittest", "test_ci_gatekeeper", "-v"],
+                cwd=here, env=env, capture_output=True, text=True, timeout=600,
+            )
+
+            # Proof of work, not just proof of absence: a child that failed to start, crashed on import, or
+            # collected nothing would leave the files untouched too and pass vacuously.
+            self.assertEqual(proc.returncode, 0,
+                             f"the child suite must pass\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
+            match = re.search(r"^Ran (\d+) tests?", proc.stderr, re.MULTILINE)
+            self.assertIsNotNone(match, f"could not read a test count from the child\n{proc.stderr}")
+            self.assertGreater(int(match.group(1)), 1, "the child collected almost nothing; it proved nothing")
+
+            for var in _RUNNER_CONTROL_FILES:
+                with open(env[var], encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), before[var],
+                                     f"a test in this module wrote the runner's {var}")
 
 
 if __name__ == "__main__":

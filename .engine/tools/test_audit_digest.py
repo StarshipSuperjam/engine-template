@@ -36,25 +36,28 @@ def _errors(schema, instance):
     return list(validate.Draft202012Validator(schema).iter_errors(instance))
 
 
-_GITHUB_ENV_ISOLATION = None
+_RUN_IDENTITY_ISOLATION = None
 
 
 def setUpModule():
+    # NAME MATTERS HERE: this isolates the run-IDENTITY variables below. It has nothing to do with
+    # $GITHUB_ENV, the runner's mutable control file — an earlier name suggested otherwise and led readers to
+    # believe this module wrote the live job's control plane, which it never has.
     # seal() reads GITHUB_SHA/GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT from the environment to record run identity.
     # Under CI those ARE set, which would non-deterministically stamp audited_sha/run_id into digests these
     # tests build and reason about — e.g. a hand-rebuilt header that omits them then fails its own seal
     # (a green-locally / red-in-CI trap). Isolate the whole module from them so every test runs as a local
     # run by default; the tests that exercise env-reading set their own values via mock.patch.dict.
-    global _GITHUB_ENV_ISOLATION
-    _GITHUB_ENV_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
-    _GITHUB_ENV_ISOLATION.start()
+    global _RUN_IDENTITY_ISOLATION
+    _RUN_IDENTITY_ISOLATION = mock.patch.dict(os.environ, {}, clear=False)
+    _RUN_IDENTITY_ISOLATION.start()
     for var in ("GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
         os.environ.pop(var, None)
 
 
 def tearDownModule():
-    if _GITHUB_ENV_ISOLATION is not None:
-        _GITHUB_ENV_ISOLATION.stop()
+    if _RUN_IDENTITY_ISOLATION is not None:
+        _RUN_IDENTITY_ISOLATION.stop()
 
 
 def _scratch(d):
