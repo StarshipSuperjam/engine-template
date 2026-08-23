@@ -184,6 +184,12 @@ def _empty_review() -> dict:
             "waiver": None}
 
 
+# After this many repair rounds on one deliverable, the next round stops for operator guidance. Two is
+# the operator's chosen threshold: enough for an honest fix-and-verify cycle plus one follow-up, before
+# a loop that is not converging keeps spending. It caps neither review coverage nor lens count.
+_REPAIR_ROUND_ESCALATION = 2
+
+
 def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
                    mode: str = "same-session") -> dict:
     state = {
@@ -195,6 +201,9 @@ def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue
         "approval": None, "reviews": {"plan": _empty_review(), "deliverable": _empty_review()},
         "findings": [], "checkpoint": None, "progress": {"current_item": None, "completed": []},
         "validation": None, "repair": None,
+        # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
+        # a cap a cold resume silently zeroes is a cap with a published bypass.
+        "plan_panels": [], "repair_rounds": [],
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
@@ -666,6 +675,17 @@ def cmd_plan_revise(args, store: StateStore) -> None:
     if _digest(plan) == state["plan"]["digest"]:
         print("plan content is unchanged; existing evidence remains current")
         return
+    # One design-review panel per Build. A completed panel FREEZES the plan: revising it here would
+    # invalidate all four receipts and force a second cold panel, which is the single largest source of
+    # Build spend and is never the right answer. Panel findings are dispositioned and fixed during
+    # implementation; a plan the panel reveals as not-ready is scrapped and re-planned, not re-reviewed.
+    # Iterating the plan freely BEFORE the first packet is the intended path and is untouched by this.
+    panels = _completed_plan_panels(state)
+    if panels:
+        raise CoordinatorError(
+            f"this plan has already been reviewed by a completed panel ({len(panels)}); revising it now would "
+            "discard that review and require a second one. Disposition the panel's findings and fix them in "
+            "the implementation, or abandon this Build and start fresh from a re-planned intent.")
     durable = state["plan"]["source"] == "issue"
     if durable:
         if not args.ack_visibility:
@@ -992,6 +1012,26 @@ def cmd_review_waive(args, store: StateStore) -> None:
     print("recorded explicit operator waiver of retrospective plan review; no review receipt was synthesized")
 
 
+def _record_plan_panel(state: dict, stage: dict) -> None:
+    """Upsert this plan digest's panel entry as its receipts land. Keyed BY PLAN DIGEST, so a single
+    lens re-run forced by a changed reviewer contract re-completes the SAME entry rather than reading as
+    a second panel. Carries the lenses and finding ids so a later reader knows what the panel actually
+    found, not merely that one occurred."""
+    digest = state["plan"]["digest"]
+    entry = next((e for e in state.setdefault("plan_panels", []) if e["plan_digest"] == digest), None)
+    if entry is None:
+        entry = {"plan_digest": digest, "depth": state["approval"]["depth"], "lenses": [],
+                 "finding_ids": [], "complete": False}
+        state["plan_panels"].append(entry)
+    entry["lenses"] = sorted({r["lens"] for r in stage["receipts"]})
+    entry["finding_ids"] = sorted({fid for r in stage["receipts"] for fid in r.get("finding_ids", [])})
+    entry["complete"] = bool(stage.get("reviewer_contracts")) and not review.missing_receipts(stage)
+
+
+def _completed_plan_panels(state: dict) -> list:
+    return [e for e in state.get("plan_panels", []) if e.get("complete")]
+
+
 def cmd_review_record(args, store: StateStore) -> None:
     finding_ids = sorted(set(args.finding or []))
     def change(state):
@@ -1036,6 +1076,8 @@ def cmd_review_record(args, store: StateStore) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
+            if args.stage == "plan":
+                _record_plan_panel(state, target)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
@@ -1318,15 +1360,25 @@ def cmd_sync_artifacts(args, store: StateStore) -> None:
                       "regenerated": [r.path for r in results if r.changed]}, indent=2, sort_keys=True))
 
 
+def _repair_round_complete(repair: dict | None) -> bool:
+    """Whether a repair round finished the re-review it asked for. A `none` judgment requests no lenses
+    and so never satisfies this -- it terminates the loop without re-review rather than completing one.
+    Single-homed because two readers need it and a second copy could drift: the reviewed-commit advance
+    below, and the round ledger. A drift would surface only on a third round, which is exactly the path
+    the escalation gate creates."""
+    if not repair or repair["judgment"] == "none":
+        return False
+    return not [lens for lens in repair["lenses"]
+                if lens not in {receipt["lens"] for receipt in repair["receipts"]}]
+
+
 def cmd_repair_assess(args, store: StateStore) -> None:
     head = _head()
     state = store.read()
     revision = state["revision"]
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     prior = state["repair"]
-    if prior and prior["judgment"] != "none" and not [
-        lens for lens in prior["lenses"] if lens not in {receipt["lens"] for receipt in prior["receipts"]}
-    ]:
+    if _repair_round_complete(prior):
         reviewed = prior["final_commit"]
     if not reviewed:
         raise CoordinatorError("deliverable review has not recorded a reviewed commit")
@@ -1338,10 +1390,30 @@ def cmd_repair_assess(args, store: StateStore) -> None:
         raise CoordinatorError("a scoped judgment must name at least one --lens")
     if args.judgment == "full":
         lenses = [item["lens"] for item in _required(_protocol(), "deliverable", "thorough", _installed("deliverable"))]
+    # A round is counted when it STARTS, and counted irrespective of judgment. Counting only completed
+    # scoped/full rounds would leave two holes: an abandoned fan-out costs full price yet would count
+    # zero, and gating only the reviewed path would make `none` -- "no re-review needed" -- the
+    # frictionless exit at the exact moment cost pressure peaks, which is the "accept the breaks and
+    # merge" outcome this gate exists to prevent. Re-assessing the SAME divergence (upgrading a scoped
+    # judgment to full, say) replaces its entry in place rather than counting twice.
+    rounds = list(state.get("repair_rounds", []))
+    same = [r for r in rounds if r["reviewed_commit"] == reviewed and r["final_commit"] == head]
+    prior_rounds = len(rounds) - len(same)
+    guidance = getattr(args, "guidance", None)
+    if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
+        raise CoordinatorError(
+            f"{prior_rounds} repair rounds have already run on this deliverable. A third is the point to stop "
+            "and bring the operator in: summarise plainly what keeps failing and what you propose (narrow the "
+            "re-review, accept-track the residual findings, or keep going), then record their answer with "
+            "--guidance. That text is published in the PR body, so the operator sees at merge whether they "
+            "were actually consulted. This is a discipline prompt backed by their merge, not a wall.")
+    entry = {"reviewed_commit": reviewed, "final_commit": head, "judgment": args.judgment,
+             "lenses": lenses, "guidance": guidance}
+    rounds = [r for r in rounds if r not in same] + [entry]
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": []}
-    store.mutate(lambda s: s.update({"repair": repair}), from_revision=revision)
+    store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
 
 
@@ -1513,7 +1585,11 @@ def _handoff(state: dict) -> dict:
              "build": state["build"], "plan": state["plan"],
              "approval": state["approval"], "reviews": state["reviews"], "finding_summaries": summaries,
              "progress": state["progress"], "validation": validation, "repair": repair, "preflights": preflights,
-             "pr_contract": state["pr_contract"]}
+             "pr_contract": state["pr_contract"],
+             # Cadence ledgers cross the handoff boundary: a cold resume that zeroed them would hand the
+             # continuing session a fresh free panel and fresh repair rounds. They carry digests, lens
+             # names, finding ids and counts only -- nothing the redaction discipline above applies to.
+             "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", [])}
     if is_v2:
         value["work"] = _bounded_work(state.get("work", {}))
     _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
@@ -1588,7 +1664,8 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
                          for f in value["finding_summaries"]],
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
-            "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None}
+            "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
+            "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", [])}
 
 
 def _restore_work(work_map: dict) -> dict:
@@ -2389,7 +2466,7 @@ def parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
-    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
+    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
     export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.add_argument("--publish", action="store_true"); export.add_argument("--ack-visibility", action="store_true"); export.set_defaults(func=cmd_handoff_export)

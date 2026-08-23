@@ -370,6 +370,64 @@ class TestReviewAndFindings(CoordinatorCase):
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
                                   code_execution="none")
 
+    # --- one design panel per Build (cost-cadence cap) ---------------------------------
+
+    def complete_panel(self):
+        """Run the plan panel and receipt every lens, as a real Build does."""
+        pkt = self.packet("plan")
+        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
+        return pkt
+
+    def test_first_plan_panel_is_free_and_is_recorded_with_what_it_found(self):
+        self.complete_panel()
+        panels = self.state()["plan_panels"]
+        self.assertEqual(len(panels), 1)
+        entry = panels[0]
+        self.assertTrue(entry["complete"])
+        self.assertEqual(entry["plan_digest"], self.state()["plan"]["digest"])
+        self.assertEqual(entry["lenses"], ["architecture", "feasibility", "product-intent", "risk-governance"])
+        # The ack-free freeze still needs the panel's substance on record: a later reader must be able to
+        # see what it found, not merely that one ran.
+        self.assertEqual(entry["finding_ids"], sorted("F-" + x for x in
+                         ["product-intent", "architecture", "feasibility", "risk-governance"]))
+
+    def test_a_reviewed_plan_is_frozen_against_revision(self):
+        self.complete_panel()
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False)
+        with self.assertRaisesRegex(bc.CoordinatorError, "already been reviewed"):
+            bc.cmd_plan_revise(args, self.store)
+
+    def test_revising_before_any_panel_is_untouched(self):
+        # Iterating the plan to solid BEFORE cutting the first packet is the intended path.
+        self.write_plan(plan("A materially different intent."))
+        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(args, self.store)
+        self.assertEqual(self.state()["plan_panels"], [])
+
+    def test_a_contract_forced_lens_rerun_is_not_a_second_panel(self):
+        # A changed reviewer persona moves that lens's contract but NOT the plan digest. Re-running the one
+        # lens must re-complete the SAME entry, never read as a fresh panel.
+        self.complete_panel()
+        pkt = self.packet("plan")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "architecture", ["F-again"]), self.store)
+        panels = self.state()["plan_panels"]
+        self.assertEqual(len(panels), 1)
+        self.assertEqual(panels[0]["plan_digest"], self.state()["plan"]["digest"])
+
+    def test_an_incomplete_panel_does_not_freeze_the_plan(self):
+        pkt = self.packet("plan")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(pkt, "architecture", []), self.store)
+        self.assertFalse(self.state()["plan_panels"][0]["complete"])
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False), self.store)
+
     def test_packet_contains_exact_plan_raw_intent_and_digest(self):
         packet = self.packet()
         self.assertEqual(packet["plan"], plan())
@@ -763,6 +821,72 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_status_requires_validation_for_current_head(self):
         self.test_validation_becomes_stale_when_head_changes()
+
+    # --- repair-round escalation (never a cap on review coverage) ----------------------
+
+    def assess(self, judgment, head, lens=None, guidance=None, reviewed=None):
+        ns = argparse.Namespace(judgment=judgment, rationale="Round rationale.", lens=lens, guidance=guidance)
+        with mock.patch.object(bc, "_head", return_value=head), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             mock.patch.object(bc, "_required", return_value=[{"lens": "usability"}]), \
+             mock.patch.object(bc, "_installed", return_value=["usability"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_repair_assess(ns, self.store)
+
+    def receipt_round(self, head):
+        """Finish the current round's lenses so the next assess advances to a new commit pair. The receipts
+        are schema-faithful on purpose: a thin fake would pass here while the real shape failed."""
+        def change(s):
+            digest = "sha256:" + "3" * 64
+            s["repair"]["receipts"] = [
+                {"lens": x, "packet_digest": digest, "referent_digest": digest,
+                 "lens_packet_digest": digest, "commit": head, "finding_ids": [],
+                 "code_execution": "none"}
+                for x in s["repair"]["lenses"]]
+        self.store.mutate(change)
+
+    def test_a_none_judgment_still_counts_toward_escalation(self):
+        # The defect this closes: gating only scoped/full made "no re-review needed" the FRICTIONLESS exit
+        # at the moment cost pressure peaks -- the accept-the-breaks-and-merge outcome.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("none", HEAD_B)
+        self.assertEqual(len(self.state()["repair_rounds"]), 1)
+        self.assertEqual(self.state()["repair_rounds"][0]["judgment"], "none")
+
+    def test_a_third_round_of_any_judgment_stops_for_operator_guidance(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
+        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
+        self.assertEqual(len(self.state()["repair_rounds"]), 2)
+        with mock.patch.object(bc, "_head", return_value="d" * 40), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="scoped", rationale="r",
+                                                    lens=["usability"], guidance=None), self.store)
+        # ...and the free `none` exit is gated at the same point, not left open.
+        with mock.patch.object(bc, "_head", return_value="d" * 40), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r",
+                                                    lens=None, guidance=None), self.store)
+
+    def test_recorded_guidance_allows_the_next_round_and_is_kept(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
+        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
+        self.assess("scoped", "d" * 40, lens=["usability"], guidance="Operator: narrow to usability and ship.")
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 3)
+        self.assertEqual(rounds[-1]["guidance"], "Operator: narrow to usability and ship.")
+
+    def test_reassessing_the_same_divergence_replaces_its_round(self):
+        # Upgrading a scoped judgment to full on the SAME reviewed/final pair is one round, not two.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.assess("full", HEAD_B)
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0]["judgment"], "full")
 
     def test_none_repair_judgment_is_valid_for_small_change(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))

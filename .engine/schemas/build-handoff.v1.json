@@ -5,6 +5,8 @@
   "additionalProperties": false,
   "required": ["schema_version", "build", "plan", "approval", "reviews", "finding_summaries", "progress", "validation", "repair", "preflights", "pr_contract"],
   "properties": {
+    "plan_panels": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth", "lenses", "finding_ids", "complete"], "properties": {"plan_digest": {"type": "string"}, "depth": {"type": "string"}, "lenses": {"type": "array", "items": {"type": "string"}}, "finding_ids": {"type": "array", "items": {"type": "string"}}, "complete": {"type": "boolean"}}}},
+    "repair_rounds": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_commit", "final_commit", "judgment", "lenses"], "properties": {"reviewed_commit": {"type": "string"}, "final_commit": {"type": "string"}, "judgment": {"enum": ["none", "scoped", "full"]}, "lenses": {"type": "array", "items": {"type": "string"}}, "guidance": {"type": ["string", "null"]}}}},
     "schema_version": {"const": "build-handoff.v1"},
     "build": {"type": "object"},
     "plan": {
