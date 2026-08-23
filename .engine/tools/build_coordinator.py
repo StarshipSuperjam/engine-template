@@ -1555,12 +1555,16 @@ def _effective_reviewed(state: dict) -> str | None:
     prior = state["repair"]
     if _repair_round_complete(prior):
         final = prior["final_commit"]
-        head = _head()
-        # Demoted only on POSITIVE proof that the commit is off the branch: readable, and not an ancestor
-        # of head. An unreadable commit proves nothing -- treating "cannot tell" as "orphaned" would change
-        # the anchor on a failed probe, which is the wrong direction to fail in.
-        orphaned = final and final != head and _commit_present(final) and not _is_ancestor(final, head)
-        if not orphaned:
+        # SUPERSESSION retires a repair anchor, not orphanhood. A rebase orphans the round's final commit,
+        # but the commit stays readable and is still exactly what was last reviewed, so it remains the
+        # right thing to measure a rewrite FROM -- demoting it merely because it left the branch made
+        # `reconcile` compare against a pre-repair commit, reporting the round's own files as divergent
+        # and denying the clean re-anchor to precisely the Build that had repaired before rebasing.
+        # Once a reconcile has re-anchored past that commit, the deliverable binding it wrote is newer and
+        # the repair record is history; anchoring on it there made `repair assess` measure `orphan..head`,
+        # a span carrying the upstream commits the rebase pulled in, and burn a fabricated round.
+        superseded = any(item["from_commit"] == final for item in state.get("reconciles", []))
+        if not superseded:
             return final
     return reviewed
 
@@ -1630,7 +1634,10 @@ def cmd_reconcile(args, store: StateStore) -> None:
     identical = unmeasurable is None and not divergent
     entry = {"from_commit": reviewed, "to_commit": head, "base_before": base_before,
              "base_after": base_after, "contribution_identical": identical,
-             "divergent_paths": divergent, "unmeasurable": unmeasurable}
+             "divergent_paths": divergent, "unmeasurable": unmeasurable,
+             # Where the binding ACTUALLY landed. On the divergent path it moves only as far as the new
+             # base, so a disclosure that assumed `to_commit` would overstate what was re-anchored.
+             "anchored_to": head if identical else base_after}
     # Re-capture the checkout baseline: the rewrite this verb has just recorded as legitimate would
     # otherwise surface as advisory integrity drift against a snapshot taken before it.
     checkout_baseline = review_integrity.snapshot(str(ROOT))
@@ -1681,7 +1688,19 @@ def cmd_repair_assess(args, store: StateStore) -> None:
             "history was rewritten — `reviewed..head` would summarise upstream commits, not your work. "
             "Run `reconcile` first to re-anchor the review bindings; it will hand this back to you with a "
             "diff that spans the branch as it actually stands.")
-    summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
+    try:
+        summary = _must_run(["git", "diff", "--shortstat", f"{reviewed}..{head}"]).strip() or "no textual diff"
+    except CoordinatorError as exc:
+        # Derived from the real failure rather than a pre-check, so this cannot disagree with what git
+        # actually did. A garbage-collected anchor otherwise surfaced as a raw "Invalid revision range".
+        if not _commit_present(reviewed):
+            raise CoordinatorError(
+                f"the commit this review stands on (`{reviewed[:12]}`) is no longer readable in this "
+                "checkout, so the reviewed-to-final divergence cannot be measured. Recover it (fetch the "
+                "branch, or restore it from a reflog) and re-run; if it is genuinely gone, re-run the "
+                "deliverable review against the current head rather than recording a judgment on a span "
+                "that cannot be computed.") from exc
+        raise
     lenses = sorted(set(args.lens or []))
     if args.judgment == "none" and lenses:
         raise CoordinatorError("a none judgment cannot request review lenses")
@@ -2471,25 +2490,39 @@ def _drift_line(state: dict, head: str) -> str:
     correction two clauses later."""
     repair = state.get("repair")
     reconciles = state.get("reconciles", [])
-    if reconciles:
-        first, last = reconciles[0], reconciles[-1]
-        line = (f"reviewed `{first['from_commit'][:12]}`, submitted `{head[:12]}` — this branch's history "
-                f"was rewritten after review")
+    if not reconciles:
         if repair and repair.get("final_commit"):
-            line += f", and a post-review repair ran before it ({repair['summary']})"
-        line += ". Review bindings were re-anchored"
-        for item in reconciles:
-            detail = ("the branch's own contribution was verified unchanged on exact tree entries"
-                      if item["contribution_identical"] else
-                      (item["unmeasurable"] or "the contribution differs at: "
-                       + ", ".join(item["divergent_paths"])))
-            line += (f" from `{item['from_commit'][:12]}` to `{item['to_commit'][:12]}` "
-                     f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
-        return line + "."
+            return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
+                    f"{repair['summary']}")
+        return "no post-review repair was needed; the reviewed and submitted commits are the same."
+    # The commit the review actually started from. A reconcile's `from_commit` is the commit it re-anchored
+    # -- after a completed repair round that is the round's OUTPUT, not the original reviewed commit -- so
+    # leading with it would put a commit that was never reviewed from scratch under the label the operator
+    # reads first, which is the defect this line already had once.
+    origin = (repair or {}).get("reviewed_commit") or reconciles[0]["from_commit"]
+    last = reconciles[-1]
+    line = (f"reviewed `{origin[:12]}`, submitted `{head[:12]}` — this branch's history was rewritten "
+            f"after review")
     if repair and repair.get("final_commit"):
-        return (f"reviewed `{repair['reviewed_commit'][:12]}`, submitted `{repair['final_commit'][:12]}` — "
-                f"{repair['summary']}")
-    return "no post-review repair was needed; the reviewed and submitted commits are the same."
+        # Order is READ from state, never assumed: a repair record whose reviewed commit is the last
+        # reconcile's new base was created BY that reconcile handing the session back to `repair assess`,
+        # so it ran after the rewrite. Asserting "before" unconditionally got the divergent flow -- the one
+        # this verb deliberately routes sessions into -- backwards.
+        after = repair["reviewed_commit"] == last.get("anchored_to", last["base_after"])
+        when = "afterwards" if after else "before it"
+        what = ("no re-review was judged necessary" if repair.get("judgment") == "none"
+                else f"{repair['summary']}")
+        line += f", and a post-review repair ran {when} ({what})"
+    clauses = []
+    for item in reconciles:
+        detail = ("the branch's own contribution was verified unchanged on exact tree entries"
+                  if item["contribution_identical"] else
+                  (item["unmeasurable"] or "the contribution differs at: "
+                   + ", ".join(item["divergent_paths"])))
+        anchored = item.get("anchored_to", item["to_commit"])
+        clauses.append(f"from `{item['from_commit'][:12]}` to `{anchored[:12]}` "
+                       f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
+    return line + ". Review bindings were re-anchored " + "; then ".join(clauses) + "."
 
 
 def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data: dict) -> dict:

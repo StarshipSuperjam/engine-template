@@ -2435,7 +2435,7 @@ class TestEvidenceDurability(CoordinatorCase):
 
     # --- #1000: reconcile ------------------------------------------------------------------
 
-    def _rebase_repo(self, diverge=False):
+    def _rebase_repo(self, diverge=False, repair_commit=False):
         """A real repository, a real branch, and a real rebase onto an advanced base."""
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
@@ -2458,6 +2458,10 @@ class TestEvidenceDurability(CoordinatorCase):
         (tmp / "mine.py").write_text("x = 1\n")
         git("add", "-A"); git("commit", "-qm", "mine")
         reviewed = git("rev-parse", "HEAD").stdout.strip()
+        if repair_commit:
+            (tmp / "repairfix.py").write_text("y = 2\n")
+            git("add", "-A"); git("commit", "-qm", "repair round output")
+            reviewed = git("rev-parse", "HEAD").stdout.strip()
         git("checkout", "-q", "main")
         (tmp / "upstream.txt").write_text("one\ntwo\n")
         git("add", "-A"); git("commit", "-qm", "upstream moved")
@@ -2471,9 +2475,10 @@ class TestEvidenceDurability(CoordinatorCase):
         head = git("rev-parse", "HEAD").stdout.strip()
         return tmp, base_before, reviewed, base_after, head
 
-    def _reconcile(self, tmp, base_before, reviewed, base_after, head):
+    def _reconcile(self, tmp, base_before, reviewed, base_after, head, deliverable_reviewed=None):
+        anchor = deliverable_reviewed or reviewed
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
-            {"reviewed_commit": reviewed, "base_commit": base_before,
+            {"reviewed_commit": anchor, "base_commit": base_before,
              "packet_digest": "sha256:" + "7" * 64}))
         self.store.mutate(lambda s: s.update(
             {"pr_contract": {"commit": head, "body_digest": "sha256:" + "8" * 64, "complete": True}}))
@@ -2694,11 +2699,96 @@ class TestEvidenceDurability(CoordinatorCase):
                  "repair": None, "findings": []}
         demanded = bc.review.demanded_findings(state)
         self.assertEqual(len(demanded["X-1"]), 2)
-        state["findings"] = [{"id": "X-1", "stage": "plan", "lens": "usability",
+        # Recorded under the FIRST receipt iterated, not the last: the old last-wins map kept the LAST
+        # one's key, so a fixture using `usability` here passes against the defect and proves nothing.
+        state["findings"] = [{"id": "X-1", "stage": "plan", "lens": "architecture",
                               "packet_digest": "sha256:" + "1" * 64,
-                              "lens_packet_digest": "sha256:" + "b" * 64, "commit": None}]
+                              "lens_packet_digest": "sha256:" + "a" * 64, "commit": None}]
         self.assertEqual(bc.review.missing_findings(state), [])
         self.assertEqual(len(bc.review.surviving_findings(state)), 1)
+
+    def test_a_repair_round_before_the_rewrite_still_reaches_the_clean_path(self):
+        """The over-correction the repair review caught: demoting the round's final commit merely because
+        a rebase orphaned it made `reconcile` measure against a PRE-repair commit, so the round's own files
+        read as divergent and the Build that had repaired before rebasing was denied the clean re-anchor --
+        the very cost the demotion was introduced to prevent."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo(repair_commit=True)
+        self.store.mutate(lambda s: s.update({"repair": {
+            "reviewed_commit": base_before, "final_commit": reviewed, "summary": "1 file changed",
+            "judgment": "scoped", "rationale": "r", "lenses": [], "packet_digest": None, "receipts": []}}))
+        # the deliverable binding is the PRE-repair commit, as it is until a round's receipts land
+        self._reconcile(tmp, base_before, base_before, base_after, head, deliverable_reviewed=base_before)
+        entry = self.state()["reconciles"][0]
+        self.assertEqual(entry["from_commit"], reviewed, "the round's output is what was last reviewed")
+        self.assertTrue(entry["contribution_identical"],
+                        f"the repair round's own files read as divergent: {entry['divergent_paths']}")
+        self.assertEqual(self.state()["repair_rounds"], [])
+
+    def test_the_disclosure_reads_the_repair_ordering_from_state(self):
+        """The line stated an ordering it had no way to know, and got the divergent flow -- the one the verb
+        deliberately routes sessions into -- backwards: there the repair runs AFTER the rewrite."""
+        after = {"repair": {"reviewed_commit": HEAD_C, "final_commit": HEAD_B, "summary": "2 files",
+                            "judgment": "none", "rationale": "r", "lenses": [], "packet_digest": None,
+                            "receipts": []},
+                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
+                                 "base_after": HEAD_C, "contribution_identical": False,
+                                 "divergent_paths": ["x.py"], "unmeasurable": None,
+                                 "anchored_to": HEAD_C}]}
+        line = bc._drift_line(after, HEAD_B)
+        self.assertIn("ran afterwards", line)
+        self.assertNotIn("ran before it", line)
+        # a `none` judgment is not described as a repair that was reviewed
+        self.assertIn("no re-review was judged necessary", line)
+        # the binding moved only as far as the new base, so the clause must not claim it reached head
+        self.assertIn(f"to `{HEAD_C[:12]}`", line)
+
+    def test_the_disclosure_leads_with_the_commit_the_review_started_from(self):
+        """A reconcile's from_commit is the commit it re-anchored; after a completed repair round that is
+        the round's OUTPUT, so leading with it put a never-reviewed-from-scratch commit under the label the
+        operator reads first."""
+        state = {"repair": {"reviewed_commit": BASE, "final_commit": HEAD_A, "summary": "3 files changed",
+                            "judgment": "scoped", "rationale": "r", "lenses": [], "packet_digest": None,
+                            "receipts": []},
+                 "reconciles": [{"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE,
+                                 "base_after": HEAD_C, "contribution_identical": True,
+                                 "divergent_paths": [], "unmeasurable": None, "anchored_to": HEAD_B}]}
+        line = bc._drift_line(state, HEAD_B)
+        self.assertTrue(line.startswith(f"reviewed `{BASE[:12]}`"), line)
+        self.assertIn("ran before it", line)
+
+    def test_two_rewrites_read_as_two_clauses(self):
+        state = {"repair": None, "reconciles": [
+            {"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE, "base_after": HEAD_C,
+             "contribution_identical": True, "divergent_paths": [], "unmeasurable": None,
+             "anchored_to": HEAD_B},
+            {"from_commit": HEAD_B, "to_commit": HEAD_C, "base_before": HEAD_C, "base_after": HEAD_A,
+             "contribution_identical": False, "divergent_paths": ["foo.py"], "unmeasurable": None,
+             "anchored_to": HEAD_A}]}
+        line = bc._drift_line(state, HEAD_C)
+        self.assertIn("); then from", line, "successive rewrites ran together with no clause boundary")
+
+    def test_the_assembler_passes_the_real_head_to_the_disclosure(self):
+        """The wiring half of the seam: the pure function is correct, but nothing asserted the assembler
+        hands it the CURRENT head rather than some stale commit."""
+        seen = {}
+        state = self.state()
+        with mock.patch.object(bc, "_drift_line", side_effect=lambda s, h: seen.setdefault("head", h) or "x"):
+            bc._drift_line(state, HEAD_C)
+        self.assertEqual(seen["head"], HEAD_C)
+        import inspect
+        source = inspect.getsource(bc._assemble_evidence)
+        self.assertIn("_drift_line(state, head)", source)
+
+    def test_repair_assess_refuses_legibly_when_the_anchor_is_unreadable(self):
+        """A garbage-collected anchor produced a raw `Invalid revision range` from git."""
+        tmp, base_before, reviewed, base_after, head = self._rebase_repo()
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"reviewed_commit": "f" * 40, "base_commit": base_after}))
+        with mock.patch.object(bc, "ROOT", tmp), mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_base", return_value=base_after), \
+                self.assertRaisesRegex(bc.CoordinatorError, "no longer readable"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r", lens=None,
+                                                    guidance=None), self.store)
 
     def test_reconciles_survive_a_handoff_round_trip_and_a_legacy_restore(self):
         entry = {"from_commit": HEAD_A, "to_commit": HEAD_B, "base_before": BASE, "base_after": HEAD_C,
