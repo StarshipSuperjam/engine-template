@@ -23,8 +23,9 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import validate   # noqa: E402
-import wiring      # noqa: E402
+import validate       # noqa: E402
+import wiring         # noqa: E402
+import ci_assurance   # noqa: E402
 
 MODULE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "module.v1.json"))
 WIRES_ENUM = set(MODULE_SCHEMA["properties"]["wires"]["items"]["properties"]["type"]["enum"])
@@ -1141,6 +1142,91 @@ class TestWorkflowsDeriveTheDefaultBranch(unittest.TestCase):
         # the conformance-feed step must hand conformance_sweep the same default so its baseline read keys off
         # the real branch (a literal "main" 404s the baseline on a `master` repo, stale-flagging every row).
         self.assertIn("GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}", wf)
+
+
+class TestEngineCiReuseGateStructure(unittest.TestCase):
+    """The branch structure that makes engine-ci's second route to green safe (StarshipSuperjam/engine-template#1042).
+
+    A reuse run skips the self-test inventory, so the only thing between an unexpected branch value and a green
+    check that proved nothing is this structure: two arms that are mutual negations of one marker, a terminal
+    step that fails unless an arm recorded completion, an upload only a full run performs, and a reuse arm that
+    actually runs the metadata suite. GitHub treats a skipped step as successful, so these are the pins that
+    keep a loosening of any of that from passing silently. They read the workflow as parsed YAML, so a
+    reformat that preserves meaning does not trip them but a semantic change does."""
+
+    def _wf(self):
+        return ci_assurance.load_workflow()
+
+    def _steps(self):
+        return self._wf()["jobs"]["engine-ci"]["steps"]
+
+    def _sole_step(self, needle):
+        matches = [s for s in self._steps()
+                   if needle in (str(s.get("run", "")) + " " + str(s.get("uses", "")))]
+        self.assertEqual(len(matches), 1,
+                         f"expected exactly one step mentioning {needle!r}, got {len(matches)}")
+        return matches[0]
+
+    def test_no_top_level_concurrency_group(self):
+        # A concurrency group on a required check can cancel a run; the engine treats a cancelled required check
+        # as a durable not-passing state that nothing re-runs. Deliberately absent.
+        self.assertNotIn("concurrency", self._wf())
+
+    def test_no_job_level_condition(self):
+        self.assertNotIn("if", self._wf()["jobs"]["engine-ci"])
+
+    def test_no_step_carries_a_continue_on_error_escape(self):
+        for step in self._steps():
+            self.assertNotIn("continue-on-error", step,
+                             f"step {step.get('name')!r} carries a continue-on-error escape")
+
+    def test_the_two_arms_are_mutual_negations_of_the_mode_marker(self):
+        full = [s for s in self._steps() if s.get("if") == "env.ENGINE_CI_MODE != 'reuse'"]
+        reuse = [s for s in self._steps() if s.get("if") == "env.ENGINE_CI_MODE == 'reuse'"]
+        self.assertTrue(full, "no full-arm step conditions on `env.ENGINE_CI_MODE != 'reuse'`")
+        self.assertTrue(reuse, "no reuse-arm step conditions on `env.ENGINE_CI_MODE == 'reuse'`")
+
+    def test_the_decision_step_is_unconditioned(self):
+        decide = self._sole_step("ci_gatekeeper.py decide")
+        self.assertNotIn("if", decide, "the decision step must run on every event, unconditioned")
+
+    def test_the_terminal_assertion_is_unconditioned_and_reads_a_distinct_completion_marker(self):
+        term = self._sole_step("ci_gatekeeper.py assert-ran")
+        self.assertNotIn("if", term, "the terminal assert-ran step must carry no condition")
+        # The completion marker the terminal reads (ENGINE_CI_RAN) is a DIFFERENT variable than the one the arms
+        # branch on (ENGINE_CI_MODE): a marker proving only that the decision ran must never be mistaken for
+        # proof that an arm ran. Each arm writes the completion marker as its last act.
+        runs = "\n".join(str(s.get("run", "")) for s in self._steps())
+        self.assertIn("ENGINE_CI_RAN=full", runs)
+        self.assertIn("ENGINE_CI_RAN=reuse", runs)
+
+    def test_the_terminal_assertion_is_the_last_step(self):
+        # assert-ran's safety rests on running AFTER both arms' completion-marker writes — true only because it
+        # is physically last. A step inserted between an arm and the terminal, or the terminal moved earlier,
+        # would defeat it without tripping the unconditioned/marker pins above; this pins the position too.
+        last = self._steps()[-1]
+        self.assertIn("ci_gatekeeper.py assert-ran", str(last.get("run", "")),
+                      "the final job step must be the terminal assert-ran")
+
+    def test_only_a_full_run_uploads_the_receipt_and_it_overwrites(self):
+        uploads = [s for s in self._steps() if "upload-artifact" in str(s.get("uses", ""))]
+        self.assertEqual(len(uploads), 1, "there must be exactly one artifact upload step")
+        up = uploads[0]
+        self.assertEqual(up.get("if"), "env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request'",
+                         "the upload must carry the full-arm condition, so artifact presence marks a full run")
+        self.assertIn(up.get("with", {}).get("overwrite"), (True, "true"),
+                      "the upload must overwrite: a re-run of a full run re-executes it, and artifacts are "
+                      "per-run not per-attempt, so without overwrite the re-run fails on a duplicate name")
+
+    def test_the_reuse_arm_runs_the_metadata_suite(self):
+        step = self._sole_step("--suite CI-metadata")
+        self.assertEqual(step.get("if"), "env.ENGINE_CI_MODE == 'reuse'",
+                         "the metadata suite must be the reuse arm's blocking gate")
+
+    def test_permissions_are_exactly_the_four_read_scopes(self):
+        self.assertEqual(self._wf().get("permissions"),
+                         {"contents": "read", "pull-requests": "read",
+                          "statuses": "read", "actions": "read"})
 
 
 class TestDanglingShortcutRefusal(_Redirected):

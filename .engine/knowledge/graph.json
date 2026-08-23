@@ -1186,12 +1186,13 @@
       },
       "slug": "dependency-review",
       "source": {
-        "fingerprint": "sha256:af31490e488b4ff074d46d8d63823cf1c7d8faf989efa33c1b8d003a0c2cb076",
+        "fingerprint": "sha256:30f793765d539f405218da77c0906b7226a0934868e93ac86044ce3af8d36baa",
         "path": ".engine/check/dependency-review.json"
       },
       "status": "active",
       "suites": [
         "CI",
+        "CI-metadata",
         "pre-close",
         "pre-commit"
       ],
@@ -2178,12 +2179,13 @@
       },
       "slug": "pr-behaviors-declared",
       "source": {
-        "fingerprint": "sha256:d4298deb0896bb5e446dfd56c6f6e10c8d63756c770d0661e0bd3b0cfa1c988a",
+        "fingerprint": "sha256:51f3c4e8a1e34d5bef287807a05d025925d9a5e984bd94a8bef92d5afe1c02a6",
         "path": ".engine/check/pr-behaviors-declared.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "soft",
       "type": "check"
@@ -2203,12 +2205,13 @@
       },
       "slug": "pr-body-completeness",
       "source": {
-        "fingerprint": "sha256:fc1b86a18b523532f2952e756d4caad3858ae2b3621c8b90a149ac009dbcd8a2",
+        "fingerprint": "sha256:2ea94537f4371b1a17706402a6a326bcbb4ab2fa622cf39d048e241e7f1bdc04",
         "path": ".engine/check/pr-body-completeness.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2231,12 +2234,13 @@
       },
       "slug": "pr-release-impact",
       "source": {
-        "fingerprint": "sha256:6640faa568aaead0c409e2029d1fd707ce2241828052c88ec798a436c7520df3",
+        "fingerprint": "sha256:21fe702a600144bba5d20ce49a610bfb1f855f09cf701fa92b3b5b69d8c33d9f",
         "path": ".engine/check/pr-release-impact.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2319,12 +2323,13 @@
       },
       "slug": "product-lock-integrity",
       "source": {
-        "fingerprint": "sha256:73583037806461a1f34850416da7011f8b744571414bd270a502db87fde78c4f",
+        "fingerprint": "sha256:04bddffe31db773b6baf00b334f5809657ba10878e416caa43cadf5da71ba88c",
         "path": ".engine/check/product-lock-integrity.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -2435,12 +2440,13 @@
       },
       "slug": "protection",
       "source": {
-        "fingerprint": "sha256:e0ac22acf5b213c0aab82c87fe020e6c870bbcb374a2067ed6ccad1ea7d51a42",
+        "fingerprint": "sha256:fee4a36e8675ebc04a530c130e9a822ca1d152e1b34f7f106a95292579a36975",
         "path": ".engine/check/protection.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "CI-metadata"
       ],
       "tier": "hard",
       "type": "check"
@@ -3527,7 +3533,7 @@
       },
       "slug": "engine-develop-engine",
       "source": {
-        "fingerprint": "sha256:83eb358d6c8f8d6e083c308a0ab78fa25cbafa1225e55938a60cbe4c4d00b8aa",
+        "fingerprint": "sha256:6d2c2324863d472b2c269c1fd5520a3a135ef18c904588c4520ce40f2e0ad852",
         "path": ".agents/skills/engine-develop-engine/SKILL.md"
       },
       "status": "active",
@@ -5947,7 +5953,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:f4e3403869246a49f71cc406dd3377d2c1d76ef8571c47d167d7455f155c8e25",
+        "fingerprint": "sha256:2a94f6c027c17aed9c80e7a0dbdc05f3d51572980d3100745631dde27bb8d4b2",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6126,7 +6132,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2557d0abf48e492a4ba6dde4b38088496d65159c1d8768665bc7bb5dd8665527",
+        "fingerprint": "sha256:9b20d6aaf8f797a746d244f2e46a1fcaf19ad478bb4ea79c230d62d69272fa74",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6377,7 +6383,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:87e66ebeecc5eadc513662c8e4dfe9a39e747f5619ab9ff227b6fec7d462aa19",
+        "fingerprint": "sha256:0a239d8c51e1d04864b09082ca0d605ecec240ad91a4820a33119fcc939f3104",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6617,7 +6623,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:b52fcdd58b4b836520b48f0296436062e31d4a4a5d69c5eb431cb1895337ad62",
+        "fingerprint": "sha256:a7f489a88893a0b8e085acd033dd7603ad6b7964458710779fe3163d0df7162d",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -6897,7 +6903,7 @@
       },
       "slug": "owned-product-build",
       "source": {
-        "fingerprint": "sha256:27a0fb73858fcbd5ebce40f5d8c51750b693ae3e4e5b5ae2f5d73d5d4a97ed63",
+        "fingerprint": "sha256:520d4c220d0998a8f13ff7d59478660ab528a92399b377ac5394c6113ab43626",
         "path": ".engine/operations/owned-product-build.md"
       },
       "status": "active",
@@ -8040,7 +8046,7 @@
       },
       "slug": "suites.v1",
       "source": {
-        "fingerprint": "sha256:6f4b17fd62d17c02b90c6e8dc555b1c609e71d0c678ccd84284f8d7af9d5d255",
+        "fingerprint": "sha256:60ee34a330dba308034a3404c78ab3ea53e79c23df51ae203b3a99846f779566",
         "path": ".engine/schemas/suites.v1.json"
       },
       "status": "active",
@@ -8282,12 +8288,13 @@
           "module:core"
         ],
         "routes_to": [
-          "operation:engine-development"
+          "operation:engine-development",
+          "operation:owned-product-build"
         ]
       },
       "slug": "engine-develop-engine",
       "source": {
-        "fingerprint": "sha256:b3c0087775bc4f8295fd2a18e035e9176ac4f92361c12f2cbab8639b2a9dc1cb",
+        "fingerprint": "sha256:1b7a5a4b8cb62259acfb75ceb5905beb6b9c76baa41675f89c3ca946906b78e3",
         "path": ".claude/skills/engine-develop-engine/SKILL.md"
       },
       "status": "active",
@@ -10130,7 +10137,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:2d02b86b46e716d45c3e928ad8fcff3e26c71d6d61282e41a65cbbfa89c79bee",
+        "fingerprint": "sha256:f76cdfaf87b5f1062bf13e9ff093ecef9025140a3b85bade97e07e4becbb2146",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10159,6 +10166,33 @@
       },
       "status": "active",
       "summary": "Thin finding.v1 adapter for engine/check/ci-assurance-drift.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": true,
+      "id": "tool:ci_gatekeeper",
+      "name": ".engine/tools/ci_gatekeeper.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:ci_assurance",
+          "tool:github_client",
+          "tool:issue_event",
+          "tool:moment",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ci_gatekeeper",
+      "source": {
+        "fingerprint": "sha256:b79bee2a86b4d37f4db5605a66ba435d057521255f69544e40faee74fd5a460f",
+        "path": ".engine/tools/ci_gatekeeper.py"
+      },
+      "status": "active",
+      "summary": "ci_gatekeeper — decide whether an engine-ci run owes the full inventory or may reuse an earlier proof.",
       "type": "tool"
     },
     {
@@ -12249,7 +12283,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:03fbb24d35d93d46e153cd37d5b3bb5bae8c8529412cf9f5b492dcbdf68c655c",
+        "fingerprint": "sha256:695d4fd55b3c9a4f671932c980bc19be958e222f34f1cd95d8cb6757d86cf781",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -13331,7 +13365,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:29ece19ef3f210a15b4c4557d3ab708103e2c5922d74ec23756a78e3116c86ac",
+        "fingerprint": "sha256:986c0efb1bd3c6810d6c13d2dcd2afc0fee922d3721a0c7af85948ae08a5af75",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -15731,11 +15765,35 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:c77630062a9e815417352d1d422fe4fdabb5ab2b77ffa36284f4fdeff7abe9b3",
+        "fingerprint": "sha256:fc9adef0c2dbd17b56b28854b5b58a007bc513bff9d873012c6af9aeb84849c6",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
       "summary": "Tests for the generated Engine CI assurance catalogue and its fail-closed drift gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_ci_gatekeeper",
+      "name": ".engine/tools/test_ci_gatekeeper.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:ci_gatekeeper",
+          "tool:github_client"
+        ]
+      },
+      "slug": "test_ci_gatekeeper",
+      "source": {
+        "fingerprint": "sha256:78ec7768341881cd7520cfe0b31634fa9b518577c34cb539b3670db979c519e5",
+        "path": ".engine/tools/test_ci_gatekeeper.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the engine-ci gatekeeper: the mode decision, receipt provenance, and fail-closed degradation.",
       "type": "tool"
     },
     {
@@ -18383,7 +18441,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:ff0c0bd71d8d3ffab88e32e605f7f1f15d380573a97521a8792da78d3add98dc",
+        "fingerprint": "sha256:87fc2fe43a62fed4d7124e29c93c889b5bcdda909612f23c8bd73529dec5ecab",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
@@ -18741,7 +18799,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:3346d65b90f550cb26101c51b68d1f36b7ea95c968509e69747799abba37860a",
+        "fingerprint": "sha256:807b5f448f6b7f5e36dc2a775d1469a55660038bbfa5b6ef680b08bca02412d1",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -19347,13 +19405,14 @@
           "module:core"
         ],
         "tests": [
+          "tool:ci_assurance",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:f45a6521cd73ae4d6cdb1e1e87b425f198ee83e6ba3706060e3b0aca1aac2dd5",
+        "fingerprint": "sha256:1da0049c2f42bc4219dd77a8a237552c2929cf1cadce326c53aef8800cc38500",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -19567,7 +19626,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:f47ccea8db0dbede62b10526ad8baf2b348b9918139d4706eb7c5980ae34f99c",
+        "fingerprint": "sha256:d434290429de338fb233f08124792f91526ab99c35a895162845164f70cf5572",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
