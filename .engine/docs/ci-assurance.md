@@ -8,7 +8,7 @@ title: What Engine CI verifies
 
 The `engine-ci` badge reports the latest `main` push run of the workflow described here. On a **main push**, green means the checked revision completed every non-optional workflow step: it materialized the pinned Engine runtime, ran the declared CI validator suite, and ran the discovered self-test modules. Checks that require pull-request context can disclose that their live witness is unavailable on a push; green does not turn that absence into pull-request evidence.
 
-On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event context. Green means its hard findings were clear and its self-tests passed for that run. Branch protection, other workflows, and the operator's merge decision are separate controls; this catalogue documents only [engine-ci](../../.github/workflows/engine-ci.yml).
+On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event context. Green means EITHER a full run happened here — every hard CI rule clear and every discovered self-test module run against this revision — OR a receipt from an earlier successful full run of this workflow was verified in its place, bound to the identical checked-out tree and named with its source run in that run's summary. A reuse run is not a lighter full run: it re-runs only the CI rules whose verdict can change while the tree is unchanged — the pull-request body rules, the product-design lock, branch protection, and the dependency-advisory screen — and skips the rest of the CI rules and the entire self-test inventory, which a tree already judged cannot change. New or changed code always runs full; only an event that cannot have changed the tree may reuse, and a receipt is honoured for at most 14 days. Branch protection, other workflows, and the operator's merge decision are separate controls; this catalogue documents only [engine-ci](../../.github/workflows/engine-ci.yml).
 
 ### The assurance claim
 
@@ -23,17 +23,18 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | Surface | Total |
 | --- | ---: |
 | Workflow triggers | 2 |
-| Executable workflow steps | 5 |
+| Executable workflow steps | 12 |
 | CI validator rules | 81 (76 hard, 5 soft) |
+| CI rules re-run on a metadata-only event (reuse) | 6 |
 | Dedicated hard custom-check proofs | 41 |
 | Disclosed proof exceptions | 3 |
-| Discovered self-test modules | 176 |
+| Discovered self-test modules | 177 |
 
 ### When it runs
 
 Workflow: `engine-ci` · job: `engine-ci` · runner: `ubuntu-latest`
 
-Permissions: `contents: read`, `pull-requests: read`, `statuses: read`.
+Permissions: `actions: read`, `contents: read`, `pull-requests: read`, `statuses: read`.
 
 | Event | Scope |
 | --- | --- |
@@ -49,8 +50,15 @@ A step is gating unless `continue-on-error` is true. The condition column record
 | 1 | Check out the revision | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` | none | always when prior steps succeed | gating |
 | 2 | Set up uv (pinned) | `astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d` | with: version=0.11.8 | always when prior steps succeed | gating |
 | 3 | Materialize the engine tool-runtime | `uv sync --directory .engine --frozen` | none | always when prior steps succeed | gating |
-| 4 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | always when prior steps succeed | gating |
-| 5 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | none | always when prior steps succeed | gating |
+| 4 | Decide whether this run owes the full inventory | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} | always when prior steps succeed | gating |
+| 5 | Run the seed validator (CI suite) | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 6 | Run the self-tests (the checker-of-checkers) | `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 7 | Write the full-suite receipt | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py emit-receipt --out "$RUNNER_TEMP/receipt.json"` | env: GITHUB_REPOSITORY=${{ github.repository }} | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
+| 8 | Upload the full-suite receipt | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | with: if-no-files-found=error, name=engine-ci-receipt, overwrite=True, path=${{ runner.temp }}/receipt.json, retention-days=30 | env.ENGINE_CI_MODE != 'reuse' && github.event_name == 'pull_request' | gating |
+| 9 | Record that the full arm completed | `echo "ENGINE_CI_RAN=full" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE != 'reuse' | gating |
+| 10 | Re-check what an unchanged tree cannot settle | `uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata` | env: GITHUB_REPOSITORY=${{ github.repository }}, GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}, PROTECTED_BRANCH=${{ github.event.repository.default_branch }} | env.ENGINE_CI_MODE == 'reuse' | gating |
+| 11 | Record that the reuse arm completed | `echo "ENGINE_CI_RAN=reuse" >> "$GITHUB_ENV"` | none | env.ENGINE_CI_MODE == 'reuse' | gating |
+| 12 | Refuse a run in which no arm did any work | `uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py assert-ran` | none | always when prior steps succeed | gating |
 
 ### Verification by Engine module
 
@@ -96,6 +104,7 @@ These summaries are parsed from module docstrings and report declared test inten
 | [`.engine/tools/test_checkout_auto_update.py`](../../.engine/tools/test_checkout_auto_update.py) | Focused tests for bounded, default-on session-start checkout catch-up. |
 | [`.engine/tools/test_checkout_health.py`](../../.engine/tools/test_checkout_health.py) | Tests for checkout_health — the stranded-checkout detector (issue StarshipSuperjam/engine-template#80). Lock the behaviours a non-engineer cannot read code to verify: a healthy folder reads CLEAR, a folder stuck off its branch or missing the engine's files reads STRANDED (with the right reason), and a folder the detector cannot resolve degrades QUIETLY to None (never a false alarm, never a crash). Fixtures are throwaway git repos (the 27d collision-check pattern) so the detection is proven offline and deterministically. |
 | [`.engine/tools/test_ci_assurance.py`](../../.engine/tools/test_ci_assurance.py) | Tests for the generated Engine CI assurance catalogue and its fail-closed drift gate. These tests pin deterministic rendering, safe workflow parsing, static (never imported) unittest discovery, Markdown escaping, module grouping, proof classifications, malformed-input refusal, and the artifact warrant. |
+| [`.engine/tools/test_ci_gatekeeper.py`](../../.engine/tools/test_ci_gatekeeper.py) | Self-tests for the engine-ci gatekeeper: the mode decision, receipt provenance, and fail-closed degradation. The load-bearing cases here are the ones that would let the frozen `engine-ci` context report success without the inventory having run for the tree being merged — a receipt from another workflow, another pull request, another tree, or no genuine full run at all — and the enumeration case that would silently destroy the saving by picking a reuse run as its own evidence source. |
 | [`.engine/tools/test_close.py`](../../.engine/tools/test_close.py) | Self-tests for close: the turn-close Stop disposition gate + ambient-capture trigger. Run: uv run --directory .engine --frozen -- python tools/selftest.py Each test locks one load-bearing law, faking only the network (the demo-fidelity rule): the ephemeral session-keyed record round-trips and degrades SAFE; the gate HOLDS a turn while a recorded finding is undispositioned and ENDS it once dispositioned; a forced continuation (stop_hook_active, under BOTH platform readings) logs the leftover down telemetry's promotion path and proceeds — never re-blocks, never deadlocks, never loses a finding; the fail-open DIRECTION is to let the turn end (an unreadable record / a crash never HOLDS the turn); the source_id is content-derived so a recurring concern dedups to one Issue across turns; the ambient-capture trigger relays the turn delta into memory's ledger LIVE (memory has shipped), and any fault — including a repo without the memory module — is a no-op that never gates the handler; a repeated disposition loop stays legible (the loop-line on the 2nd+ block, a pre-announcement on the approach to the cap); routine is satisfiable non-interactively; and the block invariant sits on a block-eligible event. The deliverable-gate cold review attests each test's assertion matches its name. |
 | [`.engine/tools/test_close_linkage_preflight.py`](../../.engine/tools/test_close_linkage_preflight.py) | Tests for close_linkage_preflight — the submit-time close-linkage consistency pre-flight (StarshipSuperjam/engine-template#361). These lock the load-bearing behavior the deliverable gate attests: - the pure parse (body closes: same-repo vs cross-repo, the comma-trap leftover, occurrence counts; the deliberate line-leading close; the `Part of #N` read through the exact Scope/Out-of-scope headings; the commit-message closes); - the defang transformation: minimal keyword-only removal, byte-identical elsewhere, and the surface-not-guess fallback (a code-fenced/duplicate occurrence, or a not-honored occurrence, is never defanged); - classify: scope-contradiction surfaces; an accidental body close defangs+discloses; a deliberate-close or a commit-sourced close surfaces instead; comma-trap; cross-repo out-of-reach; a clean PR is silent; - the gh/git boundary (the injected subprocess seam): the `--json closingIssuesReferences` read, the graphql fallback, and the fail-closed RAISE -> the could-not-read line (never a false clean); - the dispatch (demo returns clean; the check verb; usage errors). Run: uv run --directory .engine --frozen -- python tools/selftest.py |
 | [`.engine/tools/test_codex_gen.py`](../../.engine/tools/test_codex_gen.py) | Self-tests for the Codex render tool (codex_gen.py) — the pipeline five enforcement surfaces depend on. These pin the render transforms (typed-prefix rewrite, session-flag strip, routing lines, the read-only floor and no-model rule) and give the render-sync drift gate its fail-side witnesses: a hand-edited render, a stale render, and an orphaned render must each be caught. Run: uv run --directory .engine --frozen -- python tools/selftest.py |

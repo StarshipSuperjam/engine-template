@@ -22,7 +22,10 @@ class TestWorkflowExtraction(unittest.TestCase):
         triggers, steps = assurance.workflow_facts(assurance.load_workflow())
         self.assertEqual({row["event"] for row in triggers}, {"push", "pull_request"})
         self.assertIn("main", next(row["detail"] for row in triggers if row["event"] == "push"))
-        self.assertEqual(len(steps), 5)
+        # The two-route gate (StarshipSuperjam/engine-template#1042): checkout, uv, materialize, decide,
+        # full-arm validator + self-tests + emit + upload + marker, reuse-arm validator + marker, terminal
+        # assert-ran — twelve executable steps.
+        self.assertEqual(len(steps), 12)
         self.assertIn("validate.py --suite CI", " ".join(str(row["command"]) for row in steps))
         self.assertTrue(all(not row["continue"] for row in steps))
         self.assertIn("version=0.11.8", " ".join(row["details"] for row in steps))

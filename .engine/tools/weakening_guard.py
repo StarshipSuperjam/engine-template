@@ -194,6 +194,17 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     #                                    and no other on-disk floored correlate to surface it. Same criterion as
     #                                    mechanic_build.py above: a live runtime gate whose weakening is
     #                                    otherwise invisible, so it routes through the guardrail-ack.
+    ".engine/tools/ci_gatekeeper.py",  # decides whether the frozen engine-ci context may report success
+    #                                    WITHOUT running the self-test inventory in that run, by verifying a
+    #                                    receipt from an earlier full run of the identical checked-out tree.
+    #                                    A one-line weakening — returning reuse on a discovery failure,
+    #                                    dropping the workflow-file-path filter that is the entire anti-forgery
+    #                                    step, or comparing a receipt field against another receipt field
+    #                                    instead of against this run's own tree — mints a green on evidence
+    #                                    nothing earned, with NO on-disk floored correlate any check catches.
+    #                                    Same criterion as the two above: a unit test is the wrong instrument
+    #                                    (the same PR can flip the belt AND its test), so it routes through the
+    #                                    guardrail-ack.
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
@@ -346,6 +357,9 @@ _HARD_EXACT = (
     ".engine/tools/team_switch.py",
     ".engine/tools/mechanic_build.py",
     ".engine/tools/repo_identity.py",
+    # the reuse gate: it decides whether engine-ci may report success without running the inventory in that
+    # run, so a one-line flip toward reuse forges a green the same way an unconditional ack forges consent:
+    ".engine/tools/ci_gatekeeper.py",
     # the meta-check that makes demoting validate.py and the check scripts honest — it must itself block:
     ".engine/tools/hard_check_bite_check.py",
     # check scripts with a recorded not-applicable bite declaration — the meta-check has NO witness for

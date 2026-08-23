@@ -196,7 +196,8 @@ class TestCiAuthorExempt(unittest.TestCase):
         # The positive of test_exempt_only_in_blocking_gate_suite: the gate keys on the
         # blocking-gate CONTEXT, not the literal name "CI", so a differently-named blocking-gate
         # suite ALSO exempts. Locks the plan-gate decision to gate on `gates`, future-proofing a
-        # second blocking-gate suite. (Today CI is the only one — so this needs a synthetic suite.)
+        # second blocking-gate suite. (This uses a synthetic suite rather than the real CI-metadata one so the
+        # test does not couple to that suite's live membership.)
         self._install(suites=("release-gate",))
         saved = validate.load_suites
         validate.load_suites = lambda: {"release-gate": {"trigger": "x", "context": "blocking-gate"}}
@@ -1803,8 +1804,9 @@ class TestShapeKind(unittest.TestCase):
 
 class TestSuiteContextGating(unittest.TestCase):
     """The locked tier-vs-context law: a hard finding fails the run ONLY in a
-    blocking-gate context (CI). A suites.json that mislabeled CI's context would
-    silently un-gate the merge — this is the test that would catch that."""
+    blocking-gate context (CI and CI-metadata carry it; the advisory suites do not).
+    A suites.json that mislabeled a gate's context would silently un-gate the merge —
+    this is the test that would catch that."""
     def setUp(self):
         self._rules, self._reg, self._suites = (
             validate.load_rules, dict(validate.REGISTRY), validate.SUITES_PATH)
@@ -3298,6 +3300,198 @@ class TestGuardRuleIsolation(unittest.TestCase):
         schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
         errs = list(validate.Draft202012Validator(schema).iter_errors(self._guard_rule()))
         self.assertEqual(errs, [])
+
+
+CLASSIFICATION_PATH = os.path.join(validate.ENGINE_DIR, "check-classification.json")
+
+
+class TestMetadataSuiteClassification(unittest.TestCase):
+    """Which checks re-run when engine-ci reuses an earlier full-suite proof.
+
+    A reuse run does NOT re-run the self-test inventory, so its green rests on two things: a receipt attesting
+    the identical checked-out tree, and these checks — the ones whose verdict can change while the tree is
+    unchanged. Get this roster wrong in the shrinking direction and a pull request whose body was edited to
+    strip a required section goes green on a proof that never saw the edit."""
+
+    def _classification(self):
+        return validate.load_json(CLASSIFICATION_PATH)["classification"]
+
+    def _ci_rules(self):
+        return {r["id"]: r for r in validate.load_rules() if "CI" in r.get("suites", [])}
+
+    def test_every_ci_rule_is_classified_exactly_once(self):
+        # The forcing function: a rule added to the CI suite with no answer here turns this red, so the
+        # question is settled when the rule is written rather than inferred later from a field that cannot
+        # carry it — a target context is documentary for most rules and does not separate live from tree state.
+        self.assertEqual(sorted(self._classification()), sorted(self._ci_rules()))
+
+    def test_classification_values_are_closed(self):
+        self.assertLessEqual(set(self._classification().values()), {"metadata", "code"})
+
+    def test_metadata_rules_join_the_metadata_suite_and_keep_ci(self):
+        # Keeping CI is load-bearing: the generated assurance catalogue filters on the literal "CI", so
+        # dropping it would silently shrink the published roster of what the merge gate checks.
+        ci = self._ci_rules()
+        for rid, kind in self._classification().items():
+            if kind != "metadata":
+                continue
+            suites = ci[rid].get("suites", [])
+            self.assertIn("CI-metadata", suites, f"{rid} is classified metadata but does not join the suite")
+            self.assertIn("CI", suites, f"{rid} dropped its CI membership")
+
+    def test_code_rules_stay_out_of_the_metadata_suite(self):
+        ci = self._ci_rules()
+        for rid, kind in self._classification().items():
+            if kind == "code":
+                self.assertNotIn("CI-metadata", ci[rid].get("suites", []),
+                                 f"{rid} is classified code-only but re-runs on a metadata event")
+
+    def test_every_live_state_rule_is_classified_metadata(self):
+        # The independent cross-check, so the classification cannot drift quietly in the unsafe direction. A
+        # rule reaches live state — state that can change while the tree does not — in one of two statically
+        # detectable ways: it is handed an API token (pass_token), or its target context is the pull-request
+        # body, the pull-request diff, or branch protection. Either way it cannot be code-only, whatever the
+        # file says. Keying on pass_token as WELL as the context is what catches a live-state rule whose context
+        # label is something else — the dependency-advisory screen (context 'product-dependency-changes', which
+        # consults GitHub's advisory database at request time) is exactly that case, and a context-only allowlist
+        # was blind to it.
+        #
+        # This cross-check is a NET WITH KNOWN GAPS, not a proof: it is a sufficient forcing function for the two
+        # channels the engine's checks currently use to reach live state, not a decision procedure for "touches
+        # only the tree." A future rule that reaches live state some other way — an unauthenticated network read,
+        # a token pulled from the ambient environment rather than declared via pass_token, or a file CI populates
+        # each run — would slip it, and (the `path not in target` clause below) so would a rule reading BOTH a
+        # live context and a committed path. Such a rule is still caught by the primary forcing function (every
+        # CI rule must be classified, above) which rests on human judgement. Completeness is defence-in-depth
+        # across both, not this proxy alone; a new check author must classify honestly, not assume this net.
+        live_contexts = {"pull-request-body", "pull-request-diff", "branch-protection"}
+        classification = self._classification()
+        for rid, rule in self._ci_rules().items():
+            target = rule.get("target") or {}
+            reaches_live = (rule.get("params", {}).get("pass_token") is True
+                            or (target.get("context") in live_contexts and "path" not in target))
+            if reaches_live:
+                self.assertEqual(classification.get(rid), "metadata",
+                                 f"{rid} reaches live state but is classified code-only")
+
+    def test_the_metadata_suite_is_not_empty(self):
+        # A defence-in-depth floor. validate.py exits 0 on a suite that selects no rules, so an empty
+        # CI-metadata would let the reuse arm report green having checked nothing. The live-state cross-check
+        # above already forces the live-state rules in, but assert the floor directly so the guarantee does not
+        # rest on that inference alone.
+        members = [r["id"] for r in validate.load_rules() if "CI-metadata" in r.get("suites", [])]
+        self.assertTrue(members, "CI-metadata selects no rules; a reuse run would check nothing")
+
+    def test_the_metadata_suite_is_a_blocking_gate(self):
+        # One word decides whether its hard findings bite. Declared with any other context the reuse arm would
+        # run these checks, let a hard finding fire, and still exit zero — an unearned green.
+        suites = validate.load_json(validate.SUITES_PATH)["suites"]
+        self.assertEqual(suites["CI-metadata"]["context"], "blocking-gate")
+
+    def test_a_hard_finding_in_the_metadata_suite_fails_the_run(self):
+        rules, reg = validate.load_rules, dict(validate.REGISTRY)
+        try:
+            validate.load_rules = lambda: [{"id": "synthetic", "kind": "synthetic", "tier": "hard",
+                                            "suites": ["CI-metadata"], "params": {}}]
+            validate.REGISTRY["synthetic"] = lambda rule, ctx: (False, [validate.finding("hard", "boom")])
+            self.assertEqual(_run_quiet("CI-metadata", {}), 1)
+        finally:
+            validate.load_rules = rules
+            validate.REGISTRY.clear()
+            validate.REGISTRY.update(reg)
+
+    def test_the_metadata_suite_is_a_subset_of_ci(self):
+        for rule in validate.load_rules():
+            if "CI-metadata" in rule.get("suites", []):
+                self.assertIn("CI", rule.get("suites", []))
+
+
+class TestReuseGateIsGuarded(unittest.TestCase):
+    """The tool that decides whether engine-ci may go green without running the inventory.
+
+    Its weakening has no on-disk correlate a reviewer would notice — returning reuse on a discovery failure,
+    or dropping the workflow-file-path filter, mints a green on evidence nothing earned while the diff looks
+    like an ordinary refactor. A unit test is the wrong instrument on its own, because the same pull request
+    can flip the belt and its test together; the guardrail acknowledgement is what makes the change deliberate."""
+
+    GATEKEEPER = ".engine/tools/ci_gatekeeper.py"
+
+    def test_the_reuse_gate_is_guarded_at_the_hard_tier(self):
+        self.assertTrue(weakening_guard.is_guardrail(self.GATEKEEPER),
+                        "the blanket .engine/tools/ prefix no longer confers guarded status, so the reuse "
+                        "gate must join an enforcement floor explicitly")
+        self.assertIn(self.GATEKEEPER, weakening_guard._HARD_EXACT)
+
+    def test_modifying_the_reuse_gate_is_hard_not_a_disclosure(self):
+        # The distinction that matters: a soft finding is a note on the pull request, a hard one holds the
+        # guard check red until the operator deliberately acknowledges it.
+        self.assertEqual(weakening_guard.classify(self.GATEKEEPER, "modified", instance_guards=(set(), ())),
+                         "hard")
+
+    def test_removing_the_reuse_gate_is_hard(self):
+        self.assertEqual(weakening_guard.classify(self.GATEKEEPER, "removed", instance_guards=(set(), ())),
+                         "hard")
+
+    # The engine modules the gate is allowed to reach. Each was reviewed for where its logic sits:
+    #   github_client — dumb transport only, pinned by test_ci_gatekeeper asserting it names no workflow
+    #                   path, artifact name, or success literal, so no trust predicate can live there
+    #   ci_assurance  — the inventory discovery the receipt attests, so the receipt and the published
+    #                   catalogue name the same roster rather than two quietly diverging ones
+    #   issue_event   — the existing event-loading seam, rather than a tenth reader of the event payload
+    #   validate      — the repository root only
+    #   moment        — the engine's one time seam (utc_now/to_z/parse_z), so the receipt's timestamp is
+    #                   formatted and parsed through the shared UTC-wire helper, never a hand-rolled strftime
+    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment"})
+
+    def test_the_gate_grows_no_unreviewed_helper(self):
+        # The StarshipSuperjam/engine-template#895 shape: guarding the file but not the logic it calls. If the
+        # decision or the verification moves into a new module, guarding this file alone stops meaning
+        # anything — so a new import turns this red until someone decides, deliberately, where that logic
+        # belongs and how it is guarded.
+        import ast
+
+        source = _read_text(os.path.join(validate.ENGINE_DIR, "tools", "ci_gatekeeper.py"))
+        reached = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                reached.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                reached.add(node.module.split(".")[0])
+        engine_modules = {m for m in reached
+                          if os.path.exists(os.path.join(validate.ENGINE_DIR, "tools", f"{m}.py"))}
+        self.assertLessEqual(
+            engine_modules, self._PERMITTED_IMPORTS,
+            "the reuse gate reached a new engine module: decide where its logic belongs, guard it at least "
+            "as strongly as the gate, and add it here with the reason")
+
+
+class TestAssuranceCatalogueSentences(unittest.TestCase):
+    """The two sentences of the generated CI-assurance catalogue that carry the safety claim, pinned as literal
+    strings (StarshipSuperjam/engine-template#1042). The catalogue is regenerated from the workflow and a hard
+    drift check compares it byte-for-byte, so these pins are the human-meaning backstop under that mechanical
+    check: an edit that regenerates a catalogue whose safety sentences no longer say what they must turns these
+    red, rather than silently publishing a truthful-looking page that misdescribes what a green check proves."""
+
+    def _catalogue(self):
+        return _read_text(os.path.join(validate.ENGINE_DIR, "docs", "ci-assurance.md"))
+
+    def test_the_default_branch_sentence_is_present(self):
+        # A main-push run is never a reuse run, so its green keeps its full meaning; the catalogue must still
+        # say so plainly.
+        self.assertIn(
+            "green means the checked revision completed every non-optional workflow step",
+            self._catalogue())
+
+    def test_the_pull_request_sentence_distinguishes_reuse_from_a_lighter_full_run(self):
+        self.assertIn(
+            "A reuse run is not a lighter full run: it re-runs only the CI rules whose verdict can change "
+            "while the tree is unchanged",
+            self._catalogue())
+
+
+def _read_text(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 if __name__ == "__main__":

@@ -316,6 +316,9 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
 
     hard = sum(rule.get("tier") == "hard" for rule, _relpath in rules)
     soft = len(rules) - hard
+    # The rules a reuse run re-runs: those whose verdict can change while the tree is unchanged. Derived from
+    # the suite membership rather than stated in prose, so the number cannot drift away from the actual roster.
+    metadata_rules = sum("CI-metadata" in (rule.get("suites") or []) for rule, _relpath in rules)
     classified_ci_rules = [row for rows in grouped_rules.values() for row in rows]
     dedicated, exception_count = _proof_totals(classified_ci_rules)
     out = [
@@ -328,9 +331,16 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
         "Checks that require pull-request context can disclose that their live witness is unavailable on a push; "
         "green does not turn that absence into pull-request evidence.", "",
         "On a **pull request**, the same workflow runs against the proposed revision and supplies pull-request event "
-        "context. Green means its hard findings were clear and its self-tests passed for that run. Branch protection, "
-        "other workflows, and the operator's merge decision are separate controls; this catalogue documents only "
-        f"{_link(WORKFLOW_REL, 'engine-ci')}.", "",
+        "context. Green means EITHER a full run happened here — every hard CI rule clear and every discovered "
+        "self-test module run against this revision — OR a receipt from an earlier successful full run of this "
+        "workflow was verified in its place, bound to the identical checked-out tree and named with its source run "
+        "in that run's summary. A reuse run is not a lighter full run: it re-runs only the CI rules whose verdict "
+        "can change while the tree is unchanged — the pull-request body rules, the product-design lock, branch "
+        "protection, and the dependency-advisory screen — and skips the rest of the CI rules and the entire "
+        "self-test inventory, which a tree already judged cannot change. New or changed code always runs full; "
+        "only an event that cannot have changed the tree may reuse, and a receipt is honoured for at most 14 days. "
+        "Branch protection, other workflows, and the operator's merge decision are separate controls; this "
+        f"catalogue documents only {_link(WORKFLOW_REL, 'engine-ci')}.", "",
         "### The assurance claim", "",
         "This page shows the **declared and exercised CI surface**: workflow triggers and steps, validator rules, "
         "their enforcement tiers and proof carriers, installed-module ownership, and statically discovered self-test "
@@ -347,6 +357,7 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
         f"| Workflow triggers | {len(triggers)} |",
         f"| Executable workflow steps | {len(steps)} |",
         f"| CI validator rules | {len(rules)} ({hard} hard, {soft} soft) |",
+        f"| CI rules re-run on a metadata-only event (reuse) | {metadata_rules} |",
         f"| Dedicated hard custom-check proofs | {dedicated} |",
         f"| Disclosed proof exceptions | {exception_count} |",
         f"| Discovered self-test modules | {len(tests)} |", "",

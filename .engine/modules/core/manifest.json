@@ -126,8 +126,9 @@
     "foundation": [
       ".engine/build-orchestration-obligations.json",
       ".engine/build-protocol.json",
-      ".engine/suites.json",
-      ".engine/self-map.md"
+      ".engine/check-classification.json",
+      ".engine/self-map.md",
+      ".engine/suites.json"
     ],
     "provisioning": [
       ".engine/provisioning/first-run-assets.json",

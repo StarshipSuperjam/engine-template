@@ -1,9 +1,25 @@
 {
   "$schema": "./schemas/suites.v1.json",
   "suites": {
-    "CI": { "trigger": "CI", "context": "blocking-gate" },
-    "pre-commit": { "trigger": "pre-commit", "context": "local-nudge" },
-    "pre-close": { "trigger": "pre-close", "context": "local-nudge" },
-    "audit-prep": { "trigger": "audit-prep", "context": "report-only" }
+    "CI": {
+      "trigger": "CI",
+      "context": "blocking-gate"
+    },
+    "pre-commit": {
+      "trigger": "pre-commit",
+      "context": "local-nudge"
+    },
+    "pre-close": {
+      "trigger": "pre-close",
+      "context": "local-nudge"
+    },
+    "audit-prep": {
+      "trigger": "audit-prep",
+      "context": "report-only"
+    },
+    "CI-metadata": {
+      "trigger": "CI",
+      "context": "blocking-gate"
+    }
   }
 }
