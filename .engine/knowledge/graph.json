@@ -10953,7 +10953,7 @@
       },
       "slug": "demo_959_finalize_ready_transition",
       "source": {
-        "fingerprint": "sha256:af3b791ec2b66b47ff51bbc9aac154b92ea94812ac8db02c2a4f08409fc64304",
+        "fingerprint": "sha256:fe48bf24c5cc6f3e7e657f4d4c994153961789cd62541ae6a6c96e090c8dd85b",
         "path": ".engine/tools/demo_959_finalize_ready_transition.py"
       },
       "status": "active",
@@ -11281,6 +11281,30 @@
       },
       "status": "active",
       "summary": "Demo — first-run provisioning creates the COMPLETE set of labels the engine's guards depend on.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_dag_admission",
+      "name": ".engine/tools/demo_dag_admission.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_dag_admission",
+      "source": {
+        "fingerprint": "sha256:b30076b7fbea77b6917e1130d6e27ac3b61b4f4b325474cd1d6c975ed8a88a8b",
+        "path": ".engine/tools/demo_dag_admission.py"
+      },
+      "status": "active",
+      "summary": "Demo — the scheduler refuses work that is not ready, and advances the item that unblocks the most.",
       "type": "tool"
     },
     {
@@ -11618,6 +11642,30 @@
       },
       "status": "active",
       "summary": "Behavioral demo — the upgrade-overwrite disclosure, end to end.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_plan_to_ready_pr",
+      "name": ".engine/tools/demo_plan_to_ready_pr.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_plan_to_ready_pr",
+      "source": {
+        "fingerprint": "sha256:b771986a8305a49049cc87801cfa2bc9df420d7a03b5434b46d75ee88d06f623",
+        "path": ".engine/tools/demo_plan_to_ready_pr.py"
+      },
+      "status": "active",
+      "summary": "Demo — a plan goes from written, to sealed, to built, to a pull request ready for you to merge.",
       "type": "tool"
     },
     {
@@ -12633,7 +12681,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:75e683e81c41b4d6ef300fd21e6934f0aa21942649ac80c18b560c9c4e73577f",
+        "fingerprint": "sha256:ba78685222ca388e5bfe2b95c0890f04df5899b342522e6f19cd6673c4506c03",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",

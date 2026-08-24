@@ -1503,6 +1503,9 @@
   ".engine/tools/demo_control_plane_labels.py": [
    "core"
   ],
+  ".engine/tools/demo_dag_admission.py": [
+   "core"
+  ],
   ".engine/tools/demo_derived_reconcile.py": [
    "core"
   ],
@@ -1543,6 +1546,9 @@
    "core"
   ],
   ".engine/tools/demo_overlay_disclosure.py": [
+   "core"
+  ],
+  ".engine/tools/demo_plan_to_ready_pr.py": [
    "core"
   ],
   ".engine/tools/demo_pr_reconcile.py": [
