@@ -621,6 +621,169 @@ def cmd_reopen(args) -> int:
     return 0
 
 
+# --- revision and transport ---------------------------------------------------
+
+def cmd_revise(args) -> int:
+    """The ONE verb that mints a revision. Nothing else writes a revision file, ever.
+
+    A single minting path is what makes the ledger trustworthy: if a second route existed, a revision
+    could reach disk without a compare-and-swap, without validation, or without a ledger entry, and
+    the chain would be sound-looking and wrong.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    document = json.loads(core.input_text(args.document))
+    record = library.read_record(slug)
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed and a seal is terminal; `clone` it into a new plan to keep working")
+    expected = args.expect_revision if args.expect_revision is not None else record["current"]["revision"]
+    updated = library.append_revision(slug, document, expected_revision=expected)
+    plan_projection.project_library(library)
+    print(f"revision {updated['current']['revision']} of {updated['plan_id']}")
+    print(f"  digest {updated['current']['plan_digest']}")
+    if plan_store.approval_is_stale(updated):
+        print("\nthe approval covered an earlier revision and this plan was never reviewed, so the "
+              "approval no longer speaks for the head: preview and approve again.")
+    elif updated.get("plan_review"):
+        print("\nthis revision folds a fix in after the review. The panel does NOT re-run; the seal "
+              "will ask for one proportional judgment of the delta.")
+    return 0
+
+
+def cmd_clone(args) -> int:
+    """Start a new plan from an existing one. The way past a seal, and the only way.
+
+    A clone mints a NEW id and carries NO approvals, no review, no seal — because none of that
+    evidence was granted for this document. Carrying it forward would let a fresh plan inherit a
+    reviewed-ness nobody granted it, which is precisely the laundering the seal exists to prevent.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    document = dict(library.head(slug))
+    source_id = document["plan_id"]
+    document["plan_id"] = plan_store.mint_plan_id()
+    document["revision"] = 1
+    document["title"] = args.title or f"{document['title']} (continued)"
+    document["created_at"] = document["revised_at"] = _now()
+    document["revision_note"] = args.reason
+    document.pop("program", None)
+    new_slug = library.create(document, intake={
+        "provenance": f"cloned from {source_id} at revision {library.read_record(slug)['current']['revision']}: "
+                      f"{args.reason}",
+        "predecessors": [f"{source_id} — {library.read_record(slug)['title']}"]})
+    plan_projection.project_library(library)
+    print(f"cloned {source_id} into {document['plan_id']} at {library.plan_dir(new_slug)}")
+    print("It carries no approval, no review and no seal — none of that was granted for this document.")
+    return 0
+
+
+def build_bundle(library: plan_store.PlanLibrary, slug: str) -> dict:
+    """A plan as a self-contained, self-verifying local bundle.
+
+    Carries the record and every readable revision. A redacted revision travels as its ledger entry
+    only — the body was excised on purpose and an export that resurrected it would defeat the
+    redaction, which is the one thing a transport format must not do.
+    """
+    record = library.read_record(slug)
+    revisions = {}
+    for entry in record["ledger"]:
+        if "redacted" in entry:
+            continue
+        revisions[str(entry["revision"])] = library.read_revision(slug, entry["revision"])
+    bundle = {"schema_version": "plan-bundle.v1", "record": record, "revisions": revisions}
+    bundle["bundle_digest"] = core.digest({"record": record, "revisions": revisions})
+    return bundle
+
+
+def cmd_export(args) -> int:
+    library = _library(args)
+    slug = _select(library, args.plan)
+    bundle = build_bundle(library, slug)
+    path = Path(args.output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    core.atomic_write(path, json.dumps(bundle, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+                      mode=plan_store.FILE_MODE)
+    redacted = [e["revision"] for e in bundle["record"]["ledger"] if "redacted" in e]
+    print(f"exported {bundle['record']['plan_id']} to {path} ({len(bundle['revisions'])} revision(s))")
+    print(f"  bundle digest {bundle['bundle_digest']}")
+    if redacted:
+        print(f"  revision(s) {', '.join(str(r) for r in redacted)} travel as ledger entries only; "
+              "their bodies were redacted and are not resurrected here.")
+    print("\nThis is a local file. Nothing was uploaded, and moving it is your decision — it holds the "
+          "plan in full.")
+    return 0
+
+
+def cmd_import(args) -> int:
+    """Read a bundle back, verifying every digest before anything reaches the library.
+
+    Verification is not ceremony here. A bundle is the one way a plan crosses a trust boundary — a
+    backup, another machine, a colleague — so it is the one place where bytes claiming to be a plan
+    have not already been proven to be one.
+    """
+    library = _library(args)
+    bundle = json.loads(core.input_text(args.bundle))
+    if bundle.get("schema_version") != "plan-bundle.v1":
+        raise PlanCoordinatorError(
+            f"not a plan bundle (schema_version {bundle.get('schema_version')!r})")
+    record, revisions = bundle["record"], bundle["revisions"]
+    recomputed = core.digest({"record": record, "revisions": revisions})
+    if recomputed != bundle.get("bundle_digest"):
+        raise PlanCoordinatorError(
+            f"the bundle does not match its own digest (recorded {bundle.get('bundle_digest')}, found "
+            f"{recomputed}); it was altered after export and is not trustworthy")
+    for entry in record["ledger"]:
+        if "redacted" in entry:
+            continue
+        body = revisions.get(str(entry["revision"]))
+        if body is None:
+            raise PlanCoordinatorError(
+                f"the bundle's ledger claims revision {entry['revision']} but carries no body for it")
+        actual = core.digest(body)
+        if actual != entry["plan_digest"]:
+            raise PlanCoordinatorError(
+                f"revision {entry['revision']} does not match its recorded digest (recorded "
+                f"{entry['plan_digest']}, found {actual})")
+        plan_contract.validate_document(body)
+
+    existing = next((s for s in library.slugs()
+                     if library.read_record(s)["plan_id"] == record["plan_id"]), None)
+    if existing:
+        # A collision is only benign when the content is genuinely identical. Otherwise two different
+        # plans share an id, and every later reference to that id becomes ambiguous.
+        if build_bundle(library, existing)["bundle_digest"] == bundle["bundle_digest"]:
+            print(f"{record['plan_id']} is already here and identical; nothing to do.")
+            return 0
+        raise PlanCoordinatorError(
+            f"a DIFFERENT plan with id {record['plan_id']} is already in this library ({existing}). "
+            "Importing would leave two plans sharing an id and make every later reference to it "
+            "ambiguous. Clone the incoming plan under a new id, or remove the local one first.")
+
+    slug = record["slug"]
+    plan_dir = library.plan_dir(slug)
+    plan_store.ensure_dir(plan_dir, within=library.root)
+    plan_store.ensure_dir(plan_dir / plan_store.REVISIONS_DIRNAME, within=library.root)
+    for entry in record["ledger"]:
+        if "redacted" in entry:
+            continue
+        core.atomic_write(plan_dir / entry["snapshot"],
+                          json.dumps(revisions[str(entry["revision"])], indent=2, sort_keys=True,
+                                     ensure_ascii=False) + "\n",
+                          durable=True, mode=plan_store.FILE_MODE)
+    core.atomic_write(plan_dir / plan_store.RECORD_FILENAME,
+                      json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+                      durable=True, mode=plan_store.FILE_MODE)
+    problems = library.verify_chain(slug)
+    if problems:
+        raise PlanCoordinatorError("the imported plan does not verify after writing: "
+                                   + "; ".join(problems))
+    plan_projection.project_library(library)
+    print(f"imported {record['plan_id']} as {slug} "
+          f"({len(revisions)} revision(s), every digest verified)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="plan_coordinator.py",
@@ -703,6 +866,28 @@ def build_parser() -> argparse.ArgumentParser:
     reopen = sub.add_parser("reopen", help="undo a retirement or abandonment (never a seal)")
     reopen.add_argument("plan")
     reopen.set_defaults(func=cmd_reopen)
+
+    revise = sub.add_parser("revise", help="mint the next revision — the only verb that writes one")
+    revise.add_argument("plan")
+    revise.add_argument("--document", required=True)
+    revise.add_argument("--expect-revision", type=int,
+                        help="the head you believe you are building on; refused if it moved")
+    revise.set_defaults(func=cmd_revise)
+
+    clone = sub.add_parser("clone", help="start a new plan from this one — the way past a seal")
+    clone.add_argument("plan")
+    clone.add_argument("--reason", required=True)
+    clone.add_argument("--title")
+    clone.set_defaults(func=cmd_clone)
+
+    export = sub.add_parser("export", help="write a self-verifying local bundle (uploads nothing)")
+    export.add_argument("plan")
+    export.add_argument("--output", required=True)
+    export.set_defaults(func=cmd_export)
+
+    importer = sub.add_parser("import", help="read a bundle back, verifying every digest first")
+    importer.add_argument("--bundle", required=True)
+    importer.set_defaults(func=cmd_import)
     return parser
 
 

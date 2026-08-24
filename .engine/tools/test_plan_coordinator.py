@@ -663,6 +663,203 @@ class Closing(_Surface):
         self.assertIn("already retired", err)
 
 
+class Revise(_Governed):
+    def test_revise_mints_the_next_revision(self):
+        slug, _ = self._plan()
+        code, out, _ = self.run_command("revise", slug, "--document",
+                                        self._write_document(_document(revision=2)))
+        self.assertEqual(code, 0)
+        self.assertIn("revision 2", out)
+        self.assertEqual(self.lib.read_record(slug)["current"]["revision"], 2)
+
+    def test_a_stale_expected_head_is_refused_and_writes_nothing(self):
+        slug, _ = self._plan()
+        self.run_command("revise", slug, "--document", self._write_document(_document(revision=2)))
+        before = {p.name: p.read_bytes() for p in sorted((self.root / slug).rglob("*")) if p.is_file()}
+        code, _, err = self.run_command("revise", slug, "--document",
+                                        self._write_document(_document(revision=2, title="Clobber")),
+                                        "--expect-revision", "1")
+        self.assertEqual(code, 2)
+        self.assertIn("another session revised this plan", err)
+        after = {p.name: p.read_bytes() for p in sorted((self.root / slug).rglob("*")) if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_revising_a_sealed_plan_is_refused_and_points_at_clone(self):
+        slug, _ = self._to_reviewed()
+        self.run_command("seal", slug)
+        code, _, err = self.run_command("revise", slug, "--document",
+                                        self._write_document(_document(revision=2)))
+        self.assertEqual(code, 2)
+        self.assertIn("clone", err)
+
+    def test_revising_after_a_review_says_the_panel_does_not_re_run(self):
+        slug, _ = self._to_reviewed()
+        out = self.run_command("revise", slug, "--document",
+                               self._write_document(_document(revision=2)))[1]
+        self.assertIn("does NOT re-run", out)
+        self.assertIn("proportional judgment", out)
+
+    def test_revising_before_a_review_says_the_approval_no_longer_speaks(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        out = self.run_command("revise", slug, "--document",
+                               self._write_document(_document(revision=2)))[1]
+        self.assertIn("approve again", out)
+
+    def test_only_two_functions_can_mint_a_revision_identity(self):
+        # A second minting route could put a NEW revision on disk without a compare-and-swap, without
+        # validation, or without a ledger entry — sound-looking and wrong. `import` also writes
+        # revision files, but it mints nothing: it replays revisions that already exist with digests
+        # it verified first, which is why this pins the MINTING helper rather than the act of writing.
+        import ast
+        source = Path(plan_store.__file__).read_text(encoding="utf-8")
+        minters = [node.name for node in ast.walk(ast.parse(source))
+                   if isinstance(node, ast.FunctionDef) and node.name != "_snapshot_name"
+                   and any(isinstance(child, ast.Attribute) and child.attr == "_snapshot_name"
+                           for child in ast.walk(node))]
+        self.assertEqual(sorted(minters), ["append_revision", "create"])
+
+
+class Clone(_Governed):
+    def test_a_clone_carries_no_approval_review_or_seal(self):
+        slug, document = self._to_reviewed()
+        self.run_command("seal", slug)
+        code, out, _ = self.run_command("clone", slug, "--reason", "the shape needs rethinking")
+        self.assertEqual(code, 0)
+        new_slug = next(s for s in self.lib.slugs() if s != slug)
+        record = self.lib.read_record(new_slug)
+        self.assertIsNone(record["approval"])
+        self.assertIsNone(record["plan_review"])
+        self.assertIsNone(record["seal"])
+        self.assertNotEqual(record["plan_id"], document["plan_id"])
+        self.assertEqual(record["current"]["revision"], 1)
+
+    def test_a_clone_records_where_it_came_from(self):
+        slug, document = self._plan()
+        self.run_command("clone", slug, "--reason", "forking the approach")
+        new_slug = next(s for s in self.lib.slugs() if s != slug)
+        intake = self.lib.read_record(new_slug)["intake"]
+        self.assertIn(document["plan_id"], intake["provenance"])
+        self.assertIn("forking the approach", intake["provenance"])
+
+    def test_a_clone_takes_a_new_title_when_given_one(self):
+        slug, _ = self._plan()
+        self.run_command("clone", slug, "--reason", "r", "--title", "A different approach entirely")
+        new_slug = next(s for s in self.lib.slugs() if s != slug)
+        self.assertEqual(self.lib.read_record(new_slug)["title"], "A different approach entirely")
+
+
+class Transport(_Governed):
+    def _bundle_path(self, name="bundle.json") -> str:
+        return str(Path(self._tmp.name) / name)
+
+    def _other_library(self) -> tuple[Path, plan_store.PlanLibrary]:
+        root = Path(self._tmp.name) / "elsewhere"
+        return root, plan_store.PlanLibrary(root)
+
+    def _import_into(self, root: Path, bundle: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = plan_coordinator.main(["--library", str(root), "import", "--bundle", bundle])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_plan_round_trips_with_every_digest_verified(self):
+        slug, document = self._to_reviewed()
+        for revision in (2, 3):
+            self.lib.append_revision(slug, _document(revision=revision), expected_revision=revision - 1)
+        path = self._bundle_path()
+        self.assertEqual(self.run_command("export", slug, "--output", path)[0], 0)
+
+        root, other = self._other_library()
+        code, out, _ = self._import_into(root, path)
+        self.assertEqual(code, 0, out)
+        self.assertIn("every digest verified", out)
+
+        imported = other.resolve(document["plan_id"])
+        self.assertEqual(other.read_record(imported)["current"]["revision"], 3)
+        self.assertEqual(other.head(imported), self.lib.head(slug))
+        self.assertEqual(other.verify_chain(imported), [])
+        # The gate evidence travels too — a bundle that lost the review would silently un-review a plan.
+        self.assertIsNotNone(other.read_record(imported)["plan_review"])
+
+    def test_export_uploads_nothing_and_says_so(self):
+        slug, _ = self._plan()
+        out = self.run_command("export", slug, "--output", self._bundle_path())[1]
+        self.assertIn("Nothing was uploaded", out)
+
+    def test_a_tampered_bundle_is_refused(self):
+        slug, _ = self._plan()
+        path = self._bundle_path()
+        self.run_command("export", slug, "--output", path)
+        bundle = json.loads(Path(path).read_text(encoding="utf-8"))
+        bundle["revisions"]["1"]["title"] = "Tampered in transit"
+        Path(path).write_text(json.dumps(bundle), encoding="utf-8")
+        root, _ = self._other_library()
+        code, _, err = self._import_into(root, path)
+        self.assertEqual(code, 2)
+        self.assertIn("does not match its own digest", err)
+
+    def test_a_bundle_with_a_swapped_revision_body_is_refused(self):
+        # Digest recomputed over the whole bundle AND per revision, so re-stamping the outer digest
+        # is not enough to smuggle a changed revision through.
+        slug, _ = self._plan()
+        path = self._bundle_path()
+        self.run_command("export", slug, "--output", path)
+        bundle = json.loads(Path(path).read_text(encoding="utf-8"))
+        bundle["revisions"]["1"]["title"] = "Swapped"
+        bundle["bundle_digest"] = plan_coordinator.core.digest(
+            {"record": bundle["record"], "revisions": bundle["revisions"]})
+        Path(path).write_text(json.dumps(bundle), encoding="utf-8")
+        root, _ = self._other_library()
+        code, _, err = self._import_into(root, path)
+        self.assertEqual(code, 2)
+        self.assertIn("does not match its recorded digest", err)
+
+    def test_re_importing_an_identical_plan_is_a_no_op(self):
+        slug, _ = self._plan()
+        path = self._bundle_path()
+        self.run_command("export", slug, "--output", path)
+        code, out, _ = self.run_command("import", "--bundle", path)
+        self.assertEqual(code, 0)
+        self.assertIn("already here and identical", out)
+
+    def test_a_colliding_but_different_plan_is_refused(self):
+        slug, _ = self._plan()
+        path = self._bundle_path()
+        self.run_command("export", slug, "--output", path)
+        self.lib.append_revision(slug, _document(revision=2, title="Diverged locally"),
+                                 expected_revision=1)
+        code, _, err = self.run_command("import", "--bundle", path)
+        self.assertEqual(code, 2)
+        self.assertIn("DIFFERENT plan", err)
+        self.assertIn("ambiguous", err)
+
+    def test_a_redacted_body_is_not_resurrected_by_a_round_trip(self):
+        # The one thing a transport format must not do.
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        self.lib.redact_revision(slug, 1, reason="raw intent held a credential")
+        path = self._bundle_path()
+        out = self.run_command("export", slug, "--output", path)[1]
+        self.assertIn("not resurrected", out)
+        bundle = json.loads(Path(path).read_text(encoding="utf-8"))
+        self.assertNotIn("1", bundle["revisions"])
+
+        root, other = self._other_library()
+        self.assertEqual(self._import_into(root, path)[0], 0)
+        imported = other.slugs()[0]
+        self.assertIn("redacted", other.read_record(imported)["ledger"][0])
+        self.assertEqual(other.verify_chain(imported), [])
+
+    def test_a_file_that_is_not_a_bundle_is_named_as_such(self):
+        path = self._bundle_path("nonsense.json")
+        Path(path).write_text(json.dumps({"schema_version": "something-else"}), encoding="utf-8")
+        code, _, err = self.run_command("import", "--bundle", path)
+        self.assertEqual(code, 2)
+        self.assertIn("not a plan bundle", err)
+
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
         self.assertEqual(set(plan_coordinator.DEPTHS), {"light", "standard", "thorough"})
