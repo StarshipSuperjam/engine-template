@@ -53,8 +53,15 @@ of every routine fire; the build's actual work follows the distributed-implement
 6. **Advance one chunk within the scope-lock.** Run coordinator `status --plan <durable-plan>`; its progress
    block names completed items, current item, the next ready work item, and `N of M`. Treat that item's
    intended paths as scope posture, not an infallible path wall. Run `checkpoint` before committing to begin
-   that item. After the commit exists, run `checkpoint --complete-item <id>` again so the recorded completing
-   commit is the new commit, not its parent. Update the bounded handoff, push the open pull request, and report
+   that item. How the item is then completed depends on the plan's version, and the coordinator refuses the
+   wrong one rather than guessing:
+   - **A build-plan.v2 plan** completes only through the work verbs. After the commit exists, run
+     `work result` and then `work integrate --item <id> --attempt <attempt> --commit <sha>`, which records
+     the integration commit that IS the completion. `checkpoint --complete-item` is refused here.
+   - **A legacy build-plan.v1 plan** completes as before: run `checkpoint --complete-item <id>` again after
+     the commit exists, so the recorded completing commit is the new commit, not its parent.
+
+   Update the bounded handoff, push the open pull request, and report
    “commit X landed — N of M planned done.” The coordinator refuses completing a work item that is not the next
    ready one (for a serial plan, the next in the graph's ready order; a legacy v1 plan's refusal says
    "next incomplete"). Never

@@ -208,5 +208,123 @@ class TestGlobDisjointness(unittest.TestCase):
     def test_metachar_leading_pattern_conflicts_with_everything(self):
         self.assertTrue(dag._pair_conflict("*", "docs/readme.md"))
 
+
+class TestAdmissionRankingAndDeferrals(unittest.TestCase):
+    """Ranking is computed from the graph, and every omission carries one of four reasons."""
+
+    def test_critical_path_counts_the_longest_downstream_chain(self):
+        # long -> mid -> tail is a chain of three; short unblocks nothing.
+        p = plan([item("long"), item("mid", ["long"]), item("tail", ["mid"]), item("short")])
+        self.assertEqual(dag.critical_path_lengths(p),
+                         {"long": 3, "mid": 2, "tail": 1, "short": 1})
+
+    def test_rank_is_critical_path_descending_then_lexical(self):
+        p = plan([item("zeta"), item("alpha"), item("deep"), item("under", ["deep"])])
+        # deep unblocks one node, so it outranks the three sinks; the sinks tie and sort by id.
+        self.assertEqual(dag.admission_rank(p), ["deep", "alpha", "under", "zeta"])
+
+    def test_array_order_changes_no_scheduling_outcome(self):
+        forward = [item("deep"), item("under", ["deep"]), item("alpha"), item("zeta")]
+        p_forward, p_reversed = plan(forward), plan(list(reversed(forward)))
+        empty = state({})
+        self.assertEqual(dag.admission_rank(p_forward), dag.admission_rank(p_reversed))
+        self.assertEqual(dag.critical_path_lengths(p_forward), dag.critical_path_lengths(p_reversed))
+        self.assertEqual(dag.claimable_set(p_forward, empty), dag.claimable_set(p_reversed, empty))
+        self.assertEqual(dag.admission_plan(p_forward, empty), dag.admission_plan(p_reversed, empty))
+        self.assertEqual(dag.next_ready(p_forward, empty), dag.next_ready(p_reversed, empty))
+
+    def test_dependency_deferral(self):
+        p = plan([item("a"), item("b", ["a"])])
+        deferred = dag.admission_plan(p, state({}))["deferred"]
+        self.assertEqual([(d["id"], d["kind"]) for d in deferred], [("b", dag.DEFER_DEPENDENCY)])
+        self.assertIn("waiting on a", deferred[0]["reason"])
+
+    def test_held_resource_deferral(self):
+        p = plan([item("a", resources=["db"]), item("b", resources=["db"])],
+                 mode="conditional", max_concurrency=2)
+        admission = dag.admission_plan(p, state({"a": node(claim=claim(["db"]))}))
+        self.assertEqual(admission["admitted"], [])
+        self.assertEqual([(d["id"], d["kind"]) for d in admission["deferred"]],
+                         [("b", dag.DEFER_HELD_RESOURCE)])
+        self.assertIn("node a holds", admission["deferred"][0]["reason"])
+
+    def test_selected_node_conflict_deferral(self):
+        # Two free slots and nothing held: the pass admits the higher-ranked node and defers its
+        # same-pass rival on the conflict, rather than pretending both could run at once.
+        p = plan([item("a", resources=["db"]), item("b", resources=["db"])],
+                 mode="conditional", max_concurrency=2)
+        admission = dag.admission_plan(p, state({}))
+        self.assertEqual(admission["admitted"], ["a"])
+        self.assertEqual([(d["id"], d["kind"]) for d in admission["deferred"]],
+                         [("b", dag.DEFER_SELECTED_CONFLICT)])
+        self.assertIn("admitted earlier in this pass", admission["deferred"][0]["reason"])
+
+    def test_capacity_deferral(self):
+        p = plan([item("a"), item("b")])          # serial: one slot for two independent roots
+        admission = dag.admission_plan(p, state({}))
+        self.assertEqual(admission["admitted"], ["a"])
+        self.assertEqual([(d["id"], d["kind"]) for d in admission["deferred"]],
+                         [("b", dag.DEFER_CAPACITY)])
+
+    def test_capacity_reason_distinguishes_real_occupancy_from_pass_exhaustion(self):
+        # With no slot actually occupied, saying "all slots are in use" contradicts the slot count
+        # status prints directly above the deferral line. The two situations get different sentences.
+        p = plan([item("a"), item("b")])
+        empty = state({})
+        self.assertEqual(dag.slots_in_use(p, empty), 0)
+        pass_exhausted = dag.admission_plan(p, empty)["deferred"][0]["reason"]
+        self.assertIn("this pass filled the last", pass_exhausted)
+        self.assertIn("a", pass_exhausted)                      # names who took the slot
+        self.assertNotIn("are in use", pass_exhausted)
+        busy = state({"a": node(claim=claim())})
+        really_busy = dag.admission_plan(p, busy)["deferred"][0]["reason"]
+        self.assertEqual(dag.slots_in_use(p, busy), 1)
+        self.assertIn("all 1 worker slot(s) are in use", really_busy)
+
+    def test_a_capacity_deferred_node_is_still_claimable(self):
+        # Eligibility is not selection: the scheduler would advance "a", but a direct claim on "b"
+        # stays permitted while a slot is free. Ranking orders the frontier; it never seizes the
+        # orchestrator's choice of what to work on.
+        p = plan([item("a"), item("b")])
+        self.assertEqual(dag.claimable_set(p, state({})), ["a", "b"])
+
+    def test_returned_but_unintegrated_frees_the_slot_and_keeps_the_resources(self):
+        p = plan([item("a", resources=["db"]), item("b", resources=["db"]), item("c")],
+                 mode="conditional", max_concurrency=2)
+        returned = {"a": node(claim=claim(["db"]),
+                              result={"attempt_id": ATTEMPT, "outcome": "returned"})}
+        # The slot is free (a returned node occupies no worker), so c is admitted...
+        self.assertEqual(dag.slots_in_use(p, state(returned)), 0)
+        admission = dag.admission_plan(p, state(returned))
+        self.assertIn("c", admission["admitted"])
+        # ...while a's resources stay reserved, so b is still held off.
+        self.assertEqual([(d["id"], d["kind"]) for d in admission["deferred"]],
+                         [("b", dag.DEFER_HELD_RESOURCE)])
+
+    def test_integration_releases_successors_in_critical_path_order(self):
+        p = plan([item("root"), item("deep", ["root"]), item("under", ["deep"]), item("flat", ["root"])])
+        integrated = {"root": node(integration={"attempt_id": ATTEMPT, "commit": SHA})}
+        # Both successors become ready; the one carrying the longer tail is advanced first.
+        self.assertEqual(dag.ready_set(p, state(integrated)), ["deep", "flat"])
+        self.assertEqual(dag.next_ready(p, state(integrated)), "deep")
+        self.assertEqual(dag.admission_plan(p, state(integrated))["admitted"], ["deep"])
+
+    def test_a_deep_chain_does_not_exhaust_the_python_stack(self):
+        # critical_path_lengths walks a topological order rather than recursing, so a chain far longer
+        # than the interpreter's recursion limit answers instead of raising RecursionError.
+        depth = 2000
+        items = [item("n0")] + [item(f"n{i}", [f"n{i - 1}"]) for i in range(1, depth)]
+        lengths = dag.critical_path_lengths(plan(items))
+        self.assertEqual(lengths["n0"], depth)
+        self.assertEqual(lengths[f"n{depth - 1}"], 1)
+
+    def test_next_ready_ignores_capacity_and_held_resources(self):
+        # "Next" answers which item to advance, so a busy slot must not change it.
+        p = plan([item("a"), item("b"), item("c")])
+        busy = {"c": node(claim=claim())}
+        self.assertEqual(dag.next_ready(p, state({})), "a")
+        self.assertEqual(dag.next_ready(p, state(busy)), "a")
+
+
 if __name__ == "__main__":
     unittest.main()

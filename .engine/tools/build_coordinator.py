@@ -73,6 +73,42 @@ _digest = core.digest
 # version rule has one home now that the Plan Coordinator reads it too.
 _plan_version = dag.plan_version
 
+# A v2 node's completion is earned at `work integrate`, which records the integration commit BC-27
+# requires. `checkpoint --complete-item` writes the same progress entry with no such evidence, so on a
+# DAG Build it is a published bypass of the graph's own completion rule. The flag stays for v1, whose
+# only completion path it is.
+_V2_COMPLETE_ITEM_REFUSAL = (
+    "checkpoint --complete-item cannot complete a work item on a build-plan.v2 Build: completion is "
+    "earned by `work result` and then `work integrate`, which records the integration commit on the PR "
+    "branch. Checkpoint still records the note and the current item — drop the flag. The flag remains "
+    "only for a legacy build-plan.v1 Build, whose sole completion path it is.")
+
+# The mid-flight refusal. A snapshot written before this change can carry v2 completions that no
+# integration ever earned; every gate reading them would be reading a bypass. The remedy is to earn or
+# withdraw them — never to rebind, which on a live draft PR discards the Build's whole evidence trail.
+_UNEARNED_COMPLETION_REMEDY = (
+    "earn each one with `work integrate --item <id> --attempt <attempt> --commit <sha>` (claim the node "
+    "first if no attempt returned), or `work reject`/`work abandon` the node and let the graph re-derive "
+    "it. Do NOT rebind the plan: a rebind on a live Build discards the recorded evidence rather than "
+    "repairing it.")
+
+
+def _unearned_completions(state: dict) -> list[str]:
+    """Work-item ids recorded complete on a v2 snapshot without the integration evidence BC-27 requires.
+
+    Read-only and plan-free, so every caller — the two gates and the status render — asks the same
+    question of the same field. Empty for a v1 snapshot: there `progress.completed` IS the completion
+    record and has no integration to disagree with.
+    """
+    if state.get("schema_version") != "build-state.v2":
+        return []
+    unearned = []
+    for entry in state["progress"]["completed"]:
+        integration = ((state.get("work") or {}).get(entry["id"]) or {}).get("integration") or {}
+        if integration.get("commit") != entry.get("commit"):
+            unearned.append(entry["id"])
+    return unearned
+
 
 def _plan(path: str) -> dict:
     """Read a Build plan document from `path` and validate it.
@@ -312,8 +348,7 @@ def _next_incomplete(plan: dict, state: dict) -> str | None:
     is "next" to advance — only dependency readiness does.
     """
     if _plan_version(plan) == "build-plan.v2":
-        ready = dag.ready_set(plan, state)
-        return ready[0] if ready else None
+        return dag.next_ready(plan, state)
     ordered = [item["id"] for item in plan["work_items"]]
     completed = {item["id"] for item in state["progress"]["completed"]}
     return next((item for item in ordered if item not in completed), None)
@@ -340,9 +375,22 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "failure": {"class": failure.get("class"), "disposition": failure.get("disposition"),
                         "reason": failure.get("reason")} if failure else None,
         }
+    # Computed once and threaded: the ranking is a pure function of the graph, and four derivations
+    # below want the same answer.
+    lengths = dag.critical_path_lengths(plan)
+    rank = dag.admission_rank(plan, lengths)
+    admission = dag.admission_plan(plan, state, rank)
     return {
         "ready": dag.ready_set(plan, state),
-        "claimable": dag.claimable_set(plan, state),
+        "claimable": dag.claimable_set(plan, state, rank),
+        # What this pass would actually select, capped by free slots — a subset of claimable.
+        "admitted": admission["admitted"],
+        # Every node the pass passed over, with which of the four reasons applied. Read-only detail: a
+        # session should be able to see why the scheduler chose as it did without running a verb that
+        # refuses to find out.
+        "deferred": admission["deferred"],
+        "admission_rank": rank,
+        "critical_path": lengths,
         "slots_in_use": dag.slots_in_use(plan, state),
         "max_concurrency": parallelism.get("max_concurrency", 1),
         "resource_holders": dag.resource_holders(plan, state),
@@ -460,6 +508,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         warnings.extend(resolved_notes)
     if trivial_violations:
         judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
+    # Surfaced rather than refused: `status` is what a session runs to find out WHY it is stuck, so the
+    # snapshot that the two gates will refuse must still be readable and must name its own remedy here.
+    unearned = _unearned_completions(state)
+    if unearned:
+        judgments.append("completions recorded without integration evidence (" + ", ".join(unearned)
+                         + "); " + _UNEARNED_COMPLETION_REMEDY)
     # Advisory artifact-preparation line: a recorded sync receipt whose commit is no longer HEAD means the
     # tree moved since the last sync, so derived artifacts may be stale. Advisory only — validate's read-only
     # pre-gate and CI's drift checks are the authority; this just tells a session to re-sync before validating.
@@ -800,7 +854,19 @@ def cmd_status(args, store: StateStore) -> None:
         w = result["work"]
         print(f"Work graph: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
         print("  ready (unordered): " + (", ".join(w["ready"]) or "none"))
-        print("  claimable now: " + (", ".join(w["claimable"]) or "none"))
+        print("  claimable now (a direct claim is permitted, in admission order): "
+              + (", ".join(w["claimable"]) or "none"))
+        if "admitted" in w:
+            print("  this pass would admit: " + (", ".join(w["admitted"]) or "none"))
+        deferred = w.get("deferred", [])
+        for entry in deferred:
+            # A deferred node can also be claimable: deferral describes what the scheduler's own pass
+            # would pick, never what a direct claim is allowed to do. Saying so on the line itself,
+            # because a session reading two lists that both name the same node cannot otherwise tell.
+            note = " (still claimable directly)" if entry["id"] in w["claimable"] else ""
+            print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}{note}")
+        if deferred:
+            print("  why a node was passed over, in full: `work frontier --plan <plan.json>`")
         for node_id in sorted(w["nodes"]):
             node = w["nodes"][node_id]
             line = f"  {node_id}: {node['state']} (attempt {node['attempt_count']})"
@@ -1264,6 +1330,11 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         plan_ready, missing_review = _plan_review_ready(state, plan)
         if not plan_ready:
             raise CoordinatorError("implementation cannot begin before plan review: " + "; ".join(missing_review))
+        unearned = _unearned_completions(state)
+        if unearned:
+            raise CoordinatorError(
+                "this v2 snapshot records completions no integration earned (" + ", ".join(unearned)
+                + "); " + _UNEARNED_COMPLETION_REMEDY)
         items = {item["id"]: item for item in plan["work_items"]}
         if note["work_item"] not in items:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
@@ -1275,6 +1346,8 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
             raise CoordinatorError(f"Routine must advance the next {noun} work item {next_item}")
         if args.complete_item:
+            if _plan_version(plan) == "build-plan.v2":
+                raise CoordinatorError(_V2_COMPLETE_ITEM_REFUSAL)
             if args.complete_item not in items:
                 raise CoordinatorError(f"completed work item {args.complete_item} is not in the approved plan")
             if args.complete_item not in completed:
@@ -1315,6 +1388,30 @@ def cmd_validate(args, store: StateStore) -> None:
     plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
     if not plan_ready:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
+    unearned = _unearned_completions(state)
+    if unearned:
+        raise CoordinatorError(
+            "this v2 snapshot records completions no integration earned (" + ", ".join(unearned)
+            + "); " + _UNEARNED_COMPLETION_REMEDY)
+    # A DAG Build's validation is evidence about the WHOLE graph, so it cannot be earned while a node is
+    # still outstanding: a green suite over a half-built graph reads at merge as though the plan were
+    # done. The roster lives only in the plan, so a v2 snapshot must be handed the approved plan here —
+    # the same exact-artifact discipline `checkpoint` and `status` already keep (BC-11).
+    if state.get("schema_version") == "build-state.v2":
+        if not getattr(args, "plan", None):
+            raise CoordinatorError(
+                "final validation of a build-plan.v2 Build needs the approved plan to know its node "
+                "roster — re-run with `validate --plan <plan.json>`")
+        plan = _plan(args.plan)
+        _assert_plan(state, plan)
+        outstanding = [f"{node_id} ({node['state']})"
+                       for node_id, node in sorted(dag.derive_lifecycle(plan, state).items())
+                       if node["state"] != dag.COMPLETE]
+        if outstanding:
+            raise CoordinatorError(
+                "final validation cannot become evidence while a work item is unintegrated: "
+                + "; ".join(outstanding)
+                + ". Integrate every node first — focused verification is the tool for a partial graph.")
     # Fail-fast pre-gate (read-only), BEFORE the expensive StableCommit run: if a derived artifact is stale,
     # refuse naming the exact remedy rather than spending the full CI suite + self-tests only to go red on a
     # drift check. This is NOT a new hard hold (eADR-0041) — it is a cheap early refusal; CI's drift checks
@@ -2221,19 +2318,22 @@ def _node_work(state: dict, node_id: str) -> dict:
 
 
 def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> str:
-    """The specific reason a ready-or-not node is not claimable, so the refusal is actionable."""
+    """The specific reason a node is not claimable, so the refusal is actionable.
+
+    Read out of the SAME admission derivation `status` and `work frontier` render, so a refusal can
+    never disagree with the deferral reason a session was just shown. Only a node that is neither a
+    candidate nor deferred falls back to its derived state.
+    """
+    deferral = next((entry for entry in dag.admission_plan(plan, state)["deferred"]
+                     if entry["id"] == node_id), None)
+    if deferral:
+        detail = f"{deferral['kind']} — {deferral['reason']}"
+        if deferral["kind"] == dag.DEFER_CAPACITY:
+            detail += "; free one by integrating, rejecting, or abandoning a claim"
+        return detail + " (see `work frontier --plan <plan.json>` for the whole admission picture)"
     st = node.get("state")
-    if st != dag.READY:
-        reasons = "; ".join(node.get("reasons") or [])
-        return f"it is {st}" + (f" ({reasons})" if reasons else "")
-    max_concurrency = plan.get("parallelism", {}).get("max_concurrency", 1)
-    if dag.slots_in_use(plan, state) >= max_concurrency:
-        return f"all {max_concurrency} worker slot(s) are in use — free one by integrating, rejecting, or abandoning a claim"
-    item = work.node_item(plan, node_id)
-    for holder_id, held in dag.resource_holders(plan, state).items():
-        if holder_id != node_id and dag.resources_conflict(item, held):
-            return f"its paths or resources conflict with node {holder_id}, which currently holds them"
-    return "admission is currently blocked"
+    reasons = "; ".join(node.get("reasons") or [])
+    return f"it is {st}" + (f" ({reasons})" if reasons else "")
 
 
 def cmd_work_packet(args, store: StateStore) -> None:
@@ -2261,6 +2361,49 @@ def cmd_work_packet(args, store: StateStore) -> None:
     packet["preview"] = {"state": node.get("state"), "reasons": node.get("reasons", []),
                          "claimable_now": claimable, "refusal_reason": refusal}
     print(json.dumps(packet))
+
+
+def cmd_work_frontier(args, store: StateStore) -> None:
+    """Read-only projection of the admission decision: what is admitted, what waits, and why.
+
+    Writes NOTHING — no mutate, no store write, no GitHub call. It exists so a session can ask what
+    the scheduler would do, and why it passed a node over, without spending a claim to find out.
+    """
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    state = store.read()
+    _assert_plan(state, plan)
+    lengths = dag.critical_path_lengths(plan)
+    rank = dag.admission_rank(plan, lengths)
+    admission = dag.admission_plan(plan, state, rank)
+    parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
+    projection = {
+        "admitted": admission["admitted"],
+        "claimable": dag.claimable_set(plan, state, rank),
+        "deferred": admission["deferred"],
+        "admission_rank": rank,
+        "critical_path": lengths,
+        "ready": dag.ready_set(plan, state),
+        "next_ready": dag.next_ready(plan, state, rank),
+        "slots_in_use": dag.slots_in_use(plan, state),
+        "max_concurrency": parallelism.get("max_concurrency", 1),
+        "resource_holders": dag.resource_holders(plan, state),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(projection, indent=2, sort_keys=True))
+        return
+    print(f"Frontier: {projection['slots_in_use']} of {projection['max_concurrency']} worker slot(s) in use")
+    print("  admitted (admission order): " + (", ".join(projection["admitted"]) or "none"))
+    print("  claimable (a direct claim is permitted): " + (", ".join(projection["claimable"]) or "none"))
+    for entry in projection["deferred"]:
+        # Same reconciliation the status render makes, and it matters more here: this verb is where a
+        # session is sent to understand the admission decision, so a node named on both the claimable
+        # line and a deferral line must say on the spot that the two do not disagree.
+        note = " (still claimable directly)" if entry["id"] in projection["claimable"] else ""
+        print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}{note}")
+    print("  rank (critical path desc, then id): "
+          + ", ".join(f"{node_id}[{projection['critical_path'][node_id]}]"
+                      for node_id in projection["admission_rank"]))
 
 
 def cmd_work_claim(args, store: StateStore) -> None:
@@ -2412,12 +2555,27 @@ def cmd_work_integrate(args, store: StateStore) -> None:
         nw["integration"] = {"attempt_id": args.attempt, "commit": args.commit,
                              "focused_verification": args.verification_input.strip()}
         nw["claim"] = None  # integration releases the reserved resources
-        completed = {entry["id"] for entry in state["progress"]["completed"]}
-        if args.item not in completed:
+        # `work integrate` is the SOLE writer of a v2 completion, so it owns this entry outright: a
+        # pre-existing one is corrected to the integration commit rather than skipped. Skipping was
+        # what made the mid-flight refusal unrecoverable — a snapshot carrying an unearned completion
+        # (the shape `checkpoint --complete-item` used to write) kept its stale commit through the
+        # entire documented remedy, so the gate never cleared and the Build deadlocked.
+        existing = next((entry for entry in state["progress"]["completed"]
+                         if entry["id"] == args.item), None)
+        if existing is None:
             state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
+            return None
+        corrected = existing["commit"]
+        existing["commit"] = args.commit
+        return corrected
 
-    _work_mutate(store, change)
+    corrected = _work_mutate(store, change)
     print(f"integrated {args.item} at {args.commit}; focused verification recorded")
+    if corrected and corrected != args.commit:
+        # An operator running this to escape the unearned-completion refusal should see that the
+        # correction happened, not just that an integration did.
+        print(f"corrected the recorded completion for {args.item}: was {corrected[:12]}, "
+              f"now the integration commit {args.commit[:12]}")
 
 
 _CLAIM_FILL_GUIDANCE = (
@@ -2880,7 +3038,7 @@ def parser() -> argparse.ArgumentParser:
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
-    validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
+    validate = sub.add_parser("validate"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
@@ -2897,6 +3055,7 @@ def parser() -> argparse.ArgumentParser:
     cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
     capply = contract_p.add_parser("apply"); capply.add_argument("--plan", required=True); capply.add_argument("--claim", required=True); capply.add_argument("--source-body-digest", required=True); capply.add_argument("--ack-visibility", action="store_true"); capply.add_argument("--json", action="store_true"); capply.set_defaults(func=cmd_contract_apply)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
+    wfrontier = work_p.add_parser("frontier"); wfrontier.add_argument("--plan", required=True); wfrontier.add_argument("--json", action="store_true"); wfrontier.set_defaults(func=cmd_work_frontier)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
     wattach = work_p.add_parser("attach"); wattach.add_argument("--item", required=True); wattach.add_argument("--attempt", required=True); wattach.add_argument("--worker-ref", required=True); wattach.set_defaults(func=cmd_work_attach)

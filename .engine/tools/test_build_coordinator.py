@@ -1803,9 +1803,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
             self.assertIn("no draft PR is", external)
 
-    def test_runbook_stays_within_the_250_line_cap(self):
+    def test_runbook_stays_within_its_line_cap(self):
+        # A ratchet against bloat, kept with no slack: it sat at exactly 250 and moved to 251 when the v2
+        # completion path had to be taught (a Routine session following the old text would reach for a verb
+        # the coordinator now refuses). Raise it only for instruction a session cannot work without, and
+        # only by what that instruction actually costs.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 250)
+        self.assertLessEqual(len(text.splitlines()), 251)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -1855,7 +1859,9 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_short_runbook_preserves_the_quality_and_authority_gates(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.split()), 3063)
+        # Same ratchet as the line cap: 3063 -> 3081, the measured cost of teaching the v2 completion path
+        # and validate's node-roster flag. The preservation-source ratio (448/6296) is unchanged.
+        self.assertLessEqual(len(text.split()), 3081)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges"):
             self.assertIn(phrase, text)
@@ -2022,6 +2028,210 @@ class TestPlanV2Ingest(CoordinatorCase):
         # The home repo still dogfoods v1: the continuation-evidence demand is deployed-only.
         self._bind(plan(), source="issue", issue=11, home=True)
         self.assertEqual(self.state()["schema_version"], "build-state.v1")
+
+
+class TestV2CompletionGate(CoordinatorCase):
+    """A v2 completion can only be earned at `work integrate` (BC-27).
+
+    The second writer this closes — `checkpoint --complete-item` — appended the same completion entry
+    with no integration evidence, so the graph's completion rule had a published bypass. These cases
+    pin the refusal, the untouched v1 island, the four readers of `progress.completed`, and the
+    mid-flight snapshot that already carries an unearned entry.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.v2 = plan_v2()
+        self.write_plan(self.v2)
+        state = bc._initial_state("owner/repo", 7, BASE, "issue", self.v2, 11)
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
+                                         "referent_digest": "sha256:" + "2" * 64})
+        self.store = bc.StateStore(str(Path(self.temp.name) / "v2-gate.json"))
+        self.store.create(state)
+
+    def _note(self, work_item="shared"):
+        note = {"objective": "x", "current_work": "x", "work_item": work_item, "assumptions": [],
+                "non_goals": [], "planned_scope": [".engine/tools/shared.py"],
+                "remaining_verification": ["tests"], "judgment": "aligned"}
+        path = Path(self.temp.name) / f"note-{work_item}.json"
+        path.write_text(json.dumps(note), encoding="utf-8")
+        return str(path)
+
+    def _checkpoint(self, complete_item=None, work_item="shared"):
+        args = argparse.Namespace(plan=str(self.plan_path), input=self._note(work_item),
+                                  complete_item=complete_item, json=False)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_assert_spec_boundary", return_value={}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_checkpoint(args, self.store)
+
+    def _inject_unearned(self, node_id="shared"):
+        """Write the completion the removed writer used to write: an id and a commit, no integration."""
+        self.store.mutate(lambda s: s["progress"]["completed"].append({"id": node_id, "commit": HEAD_A}))
+
+    def test_complete_item_is_refused_on_a_v2_plan_and_names_the_work_verbs(self):
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self._checkpoint(complete_item="shared")
+        message = str(caught.exception)
+        self.assertIn("work result", message)
+        self.assertIn("work integrate", message)
+        self.assertEqual(self.state()["progress"]["completed"], [])
+
+    def test_checkpoint_without_the_flag_still_records_the_note(self):
+        self._checkpoint()
+        state = self.state()
+        self.assertEqual(state["checkpoint"]["work_item"], "shared")
+        self.assertEqual(state["progress"]["completed"], [])
+
+    def test_the_v1_island_keeps_the_flag(self):
+        # v1's only completion path is untouched: same call, same recorded completing commit.
+        self.write_plan(plan())
+        state = bc._initial_state("owner/repo", 7, BASE, "session", plan(), None)
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
+                                         "referent_digest": "sha256:" + "2" * 64})
+        self.store = bc.StateStore(str(Path(self.temp.name) / "v1-island.json"))
+        self.store.create(state)
+        self._checkpoint(complete_item="W1", work_item="W1")
+        self.assertEqual(self.state()["progress"]["completed"], [{"id": "W1", "commit": HEAD_A}])
+
+    def test_an_injected_completion_derives_no_completion_and_holds_validation(self):
+        self._inject_unearned()
+        lifecycle = bc.dag.derive_lifecycle(self.v2, self.state())
+        self.assertNotEqual(lifecycle["shared"]["state"], bc.dag.COMPLETE)
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        message = str(caught.exception)
+        self.assertIn("no integration earned", message)
+        self.assertIn("work integrate", message)
+        self.assertIn("Do NOT rebind", message)
+
+    def test_an_injected_completion_also_holds_the_checkpoint_gate(self):
+        self._inject_unearned()
+        with self.assertRaisesRegex(bc.CoordinatorError, "no integration earned"):
+            self._checkpoint()
+
+    def test_the_four_readers_of_completed_progress_are_unchanged(self):
+        # progress.completed keeps its field, its schema requirement, and all four readers; only the
+        # second WRITER is gone. Each reader is exercised against an injected entry.
+        self._inject_unearned()
+        state = self.state()
+        # 1. the handoff ancestry check still refuses a completing commit the live PR head does not contain.
+        handoff = bc._handoff(state)
+        path = Path(self.temp.name) / "v2-handoff.json"
+        path.write_text(json.dumps(handoff), encoding="utf-8")
+        restored = bc.StateStore(str(Path(self.temp.name) / "v2-restored.json"))
+        failed = types.SimpleNamespace(returncode=1, stdout="", stderr="")
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={"number": 7, "state": "OPEN", "headRefOid": HEAD_A}), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_run", return_value=failed), \
+                self.assertRaisesRegex(bc.CoordinatorError, "not contained by the live PR head"):
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+        # 2. the retrospective plan-review waiver still treats progress as prospective work — driven
+        # through the real reader in its own case below, since the waiver refuses earlier on this
+        # fixture's recorded plan-review evidence.
+        # 3. the status render still reports it.
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_installed", return_value=[]):
+            status = bc._status(state, self.v2)
+        self.assertEqual(status["progress"]["completed"], ["shared"])
+        self.assertTrue(any("no integration" in j or "without integration evidence" in j
+                            for j in status["engineering_judgment"]))
+        # 4. handoff publication still carries it.
+        self.assertIn("shared", json.dumps(bc._handoff(state)))
+
+    def test_the_retrospective_waiver_still_reads_injected_progress_as_prospective_work(self):
+        # Reader 2 of progress.completed, exercised through cmd_review_waive itself. The waiver's
+        # earlier guards refuse a Build that already has plan-review evidence, so this case builds a
+        # snapshot that reaches the progress condition and nothing else.
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            state = bc._initial_state("owner/repo", 7, BASE, "session", self.v2, None)
+            state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+            store = bc.StateStore(str(Path(self.temp.name) / "waiver.json"))
+            store.create(state)
+            store.mutate(lambda s: s["progress"]["completed"].append({"id": "shared", "commit": HEAD_A}))
+            args = argparse.Namespace(stage="plan", adopted_commit=HEAD_A, reason="adopted work")
+            with self.assertRaisesRegex(bc.CoordinatorError, "prospective coordinator progress"):
+                bc.cmd_review_waive(args, store)
+
+    def test_the_documented_remedy_actually_clears_the_gate(self):
+        # The refusal is only half the requirement: the remedy it names must WORK. An unearned
+        # completion is repaired by integrating the node for real, and the gate must then clear —
+        # otherwise the mid-flight refusal is a permanent deadlock on exactly the snapshots it exists
+        # to rescue, which is what shipped before this case was written.
+        self._inject_unearned()
+        self.assertEqual(bc._unearned_completions(self.state()), ["shared"])
+        claim = bc.work.new_claim("1" * 32, HEAD_A, "/tmp/wt", [], {"executor_class": "builder",
+                                 "provider": "claude", "model": "sonnet", "effort": "medium", "inline": False})
+        item = next(i for i in self.v2["work_items"] if i["id"] == "shared")
+        payload = {"outcome": "returned", "base_sha": HEAD_A,
+                   "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                                "verification_results": ["focused tests green"]}}
+        def stage_returned_attempt(state):
+            nw = state["work"].setdefault("shared", bc.work.empty_node())
+            nw["attempt_count"] = 1
+            nw["claim"] = claim
+            nw["latest_result"] = bc.work.bind_result(nw, item, "1" * 32, HEAD_A, payload)
+        self.store.mutate(stage_returned_attempt)
+        args = argparse.Namespace(item="shared", attempt="1" * 32, commit=HEAD_B,
+                                  verification_input="focused tests green")
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_work_integrate(args, self.store)
+        # The correction is announced: an operator recovering from the refusal must see that a stale
+        # completion was rewritten, not just that an integration happened.
+        self.assertIn("corrected the recorded completion for shared", out.getvalue())
+        self.assertIn(HEAD_A[:12], out.getvalue())
+        state = self.state()
+        # The stale entry is corrected in place, not left beside the new integration evidence.
+        self.assertEqual(state["progress"]["completed"], [{"id": "shared", "commit": HEAD_B}])
+        self.assertEqual(bc._unearned_completions(state), [])
+
+    def test_validation_is_refused_while_a_node_is_unintegrated(self):
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
+        message = str(caught.exception)
+        self.assertIn("unintegrated", message)
+        self.assertIn("shared", message)
+        self.assertIn("adapter", message)
+
+    def test_v2_validation_without_the_plan_names_the_flag(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, r"validate --plan"):
+            bc.cmd_validate(argparse.Namespace(plan=None), self.store)
+
+    def test_v1_validation_needs_no_plan(self):
+        # The v1 snapshot has no node roster to check, so its validate contract is unchanged: it reaches
+        # the drift pre-gate with no --plan, exactly as before.
+        state = bc._initial_state("owner/repo", 7, BASE, "session", plan(), None)
+        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
+                                         "referent_digest": "sha256:" + "2" * 64})
+        self.store = bc.StateStore(str(Path(self.temp.name) / "v1-validate.json"))
+        self.store.create(state)
+        drift = types.SimpleNamespace(path="x", status="drift")
+        with mock.patch.object(bc, "_derived_drift", return_value=[drift]), \
+                self.assertRaisesRegex(bc.CoordinatorError, "derived artifacts are stale"):
+            bc.cmd_validate(argparse.Namespace(plan=None), self.store)
+
+    def test_the_governance_record_registers_the_hold(self):
+        text = (bc.ROOT / ".engine" / "contracts" / "eADR-0041-build-coordinator-behavior.md").read_text(encoding="utf-8")
+        self.assertIn("| A v2 work item is unintegrated, or is recorded complete without its integration commit |", text)
+        self.assertIn("TestV2CompletionGate", text)
+
+    def test_no_runbook_instructs_the_refused_mechanic_for_v2(self):
+        operations = bc.ROOT / ".engine" / "operations"
+        routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
+        orchestration = (operations / "build-orchestration.md").read_text(encoding="utf-8")
+        # Every surviving mention of the flag is scoped: it appears only in a v1 sentence, or in a
+        # sentence saying it is refused. A bare instruction to run it would fail here.
+        for line in routine.splitlines() + orchestration.splitlines():
+            if "--complete-item" in line:
+                self.assertTrue("v1" in line or "refused" in line,
+                                "unscoped --complete-item instruction: " + line.strip())
+        self.assertIn("work integrate", routine)
+        self.assertIn("work integrate", orchestration)
 
 
 class TestV1Migration(CoordinatorCase):
