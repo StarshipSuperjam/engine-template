@@ -1691,7 +1691,10 @@ status: locked
             "id": row["id"], "digest": row["digest"], "text": row["text"],
             "how_verified": row["how_verified"], "disposition": "not_applicable", "reason": ""
         }
-        with self.assertRaisesRegex(bc.CoordinatorError, "not valid"):
+        # The message now names the field and the constraint rather than reporting the whole object
+        # as "not valid under any of the given schemas": a `oneOf` error is descended into, so an
+        # author reading this refusal is told which value to fix.
+        with self.assertRaisesRegex(bc.CoordinatorError, r"criteria\.0\.reason: '' should be non-empty"):
             bc._validate(value, bc.PLAN_SCHEMA)
 
     def test_changed_criterion_invalidates_approval(self):

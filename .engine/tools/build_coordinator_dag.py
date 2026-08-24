@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Pure derivation over a (build-plan.v2, build-state.v2) pair for the Build coordinator.
 
-This module holds the graph and admission logic with no I/O: it validates the static implementation
-DAG, derives each node's lifecycle from evidence, and computes the ready and claimable sets and the
-resource-occupancy view. It imports only ``build_coordinator_core`` (for the shared error type); it
-never imports the CLI, touches git or GitHub, or writes state. Both ``build_coordinator`` (the CLI)
-and later coordinator services consume it, so the ready-set/refusal logic lives in exactly one place.
+This module holds the graph and admission logic with no I/O: it validates a plan document, validates
+the static implementation DAG, derives each node's lifecycle from evidence, and computes the ready
+and claimable sets and the resource-occupancy view. It imports only ``build_coordinator_core`` (for
+the shared error type and the schema validator); it never imports the CLI, touches git or GitHub, or
+writes state. Both ``build_coordinator`` (the CLI) and later coordinator services consume it, so the
+ready-set/refusal logic lives in exactly one place.
 """
 from __future__ import annotations
 
@@ -20,6 +21,41 @@ CoordinatorError = core.CoordinatorError
 
 def _work_items(plan: dict) -> list[dict]:
     return plan["work_items"]
+
+
+# The plan document's schema version, or v1 when unstated (the historical default).
+def plan_version(plan: dict) -> str:
+    return plan.get("schema_version", "build-plan.v1")
+
+
+def validate_plan_document(value: dict, plan_schemas: dict) -> str:
+    """THE single authority on whether a Build plan document is valid. Returns its schema version.
+
+    Three layers, in this order, because each presupposes the last: the schema for the declared
+    version, work-item-id uniqueness (which no schema expresses — JSON Schema cannot state
+    uniqueness over a derived key), and, for v2, graph closure and acyclicity.
+
+    It lives HERE, in the pure layer, rather than in the CLI, because it now has two callers with a
+    hard reason to agree: ``build_coordinator._plan`` applies it at ``plan bind``, and
+    ``plan_contract`` applies it to the payload nested inside an ``engine-plan.v1`` revision before
+    a plan may be sealed. A second, re-expressed copy would let a plan seal cleanly and then fail at
+    bind — the two coordinators holding different notions of a valid payload, which is exactly the
+    failure the sealed handoff exists to make impossible. `plan_schemas` is passed in (the same
+    dependency-injection shape ``github.durable_plan`` already uses) so this layer stays free of
+    filesystem constants while the version->schema map keeps its single home in the CLI module.
+    """
+    version = plan_version(value)
+    schema = plan_schemas.get(version)
+    if schema is None:
+        raise CoordinatorError(
+            f"unrecognized Build plan version {version!r}; expected " + " or ".join(sorted(plan_schemas)))
+    core.validate(value, schema)
+    ids = [item["id"] for item in value["work_items"]]
+    if len(ids) != len(set(ids)):
+        raise CoordinatorError("Build plan work-item ids must be unique")
+    if version == "build-plan.v2":
+        validate_dag(value)
+    return version
 
 
 def validate_dag(plan: dict) -> None:

@@ -484,7 +484,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:cdfdb5403eb4b659c656c0a274ab945d7bee5202f4190bec65da0a33d17054d4",
+        "fingerprint": "sha256:0830d378a283cf2e5c77795c83949d84efaf83b4f6e80022ca6a117fbf2ca5d9",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -984,7 +984,8 @@
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up"
+          "contract:eADR-0043-default-on-clean-checkout-catch-up",
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-frontmatter",
@@ -1053,7 +1054,8 @@
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up"
+          "contract:eADR-0043-default-on-clean-checkout-catch-up",
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-shape",
@@ -1123,7 +1125,8 @@
           "contract:eADR-0040-guardrail-ack-two-tier",
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up"
+          "contract:eADR-0043-default-on-clean-checkout-catch-up",
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-threshold",
@@ -5155,7 +5158,7 @@
       },
       "slug": "eADR-0003-ship-the-substrate-not-the-data",
       "source": {
-        "fingerprint": "sha256:5151e714d73e05b9a4409476e6b50a94b7c3b4d5a77fdf757e6ac54ce246838a",
+        "fingerprint": "sha256:c22c5f261c4ae46f6725e58a4b06edd7f282bccb226e407de466729b58068ed3",
         "path": ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md"
       },
       "status": "accepted",
@@ -5595,7 +5598,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:4c5d9afd420cf8733cd5565b4dd33b0acfd4255db53cc4d567336f52fb11bb9a",
+        "fingerprint": "sha256:b2ed32c618b32926922f81b837052a4ebed6e9d7bbdfc838e68d843697b4f5db",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -5895,7 +5898,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:c7cf5d015fda272dc5492ba7ee1b3ed05c8f1dda2c4e876974d9eef0e077f89c",
+        "fingerprint": "sha256:8d432485992d5f044410dbf5a55b0a55b606a77d2856536831025ffb53e4e7ca",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -5942,6 +5945,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0044-plan-coordinator-local-library",
+      "name": ".engine/contracts/eADR-0044-plan-coordinator-local-library.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0044-plan-coordinator-local-library",
+      "source": {
+        "fingerprint": "sha256:48f33c04a8ae86f6ff71b420374014f0e3a9e8d4131680e07b0585dd1869fe9c",
+        "path": ".engine/contracts/eADR-0044-plan-coordinator-local-library.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:ci-assurance",
       "name": ".engine/docs/ci-assurance.md",
       "owner": "core",
@@ -5955,7 +5978,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:8ebcfd1c47c15534e2d784a8b2d1beacbb3113769d42735acf095964d41aabba",
+        "fingerprint": "sha256:8240016af3c99f2fc16bb107542fd5bdf4a37f1d56743a23e9252bca78b7ecd3",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6135,7 +6158,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:5c21dee599e4381c4b9febf6e3d001941a21fccaf80f2b5451ed07ba8c160c76",
+        "fingerprint": "sha256:7921585e685bec61db059a7982f6cfd6714641d9d7f2caf27b436fd328396cc8",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -7720,6 +7743,40 @@
       "type": "schema"
     },
     {
+      "id": "schema:engine-plan.v1",
+      "name": ".engine/schemas/engine-plan.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-plan.v1",
+      "source": {
+        "fingerprint": "sha256:18a333408d47855b81a3e978236d588f57cc0a38082591163ad40130fff2f29a",
+        "path": ".engine/schemas/engine-plan.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:engine-program.v1",
+      "name": ".engine/schemas/engine-program.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-program.v1",
+      "source": {
+        "fingerprint": "sha256:710f3b6fd5897a5d847ed9301637cf6eb62ae15916e3934ffeb948149100fc4a",
+        "path": ".engine/schemas/engine-program.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:engine.v1",
       "name": ".engine/schemas/engine.v1.json",
       "owner": "core",
@@ -7885,6 +7942,23 @@
       "source": {
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:plan-record.v1",
+      "name": ".engine/schemas/plan-record.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan-record.v1",
+      "source": {
+        "fingerprint": "sha256:246f15daad1e646aef56d00a1f9397027dba9ed331d027d5e7a46d80abcfc1e7",
+        "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -9819,7 +9893,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:5163db3a284eac5a7ea574d6dd5a0d4e1b59fd27bd0814bc5b0994af676246e6",
+        "fingerprint": "sha256:5d4b44040b48a8a4c9eabf511c56ae2c1c8b8ab1d6593ea6397c12877314c293",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9863,7 +9937,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:672dac61f87636b9b972004a1b7b51579d1ba1982e6d3a18924fad85b1f84fdd",
+        "fingerprint": "sha256:ad0bcd2ff463e76d6af9a197b9790ded66db98b884dad2cbe93080d640237601",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9886,7 +9960,7 @@
       },
       "slug": "build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:7d9f97080f0b092b09471d28201333c0c1b36d9e1e714e71dcf2f1222d1afc25",
+        "fingerprint": "sha256:7be16c400d830ca117db03e5b41359bd7d0b2112520b1866264a10885503203e",
         "path": ".engine/tools/build_coordinator_dag.py"
       },
       "status": "active",
@@ -13741,6 +13815,134 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:plan_contract",
+      "name": ".engine/tools/plan_contract.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_coordinator_dag"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan_contract",
+      "source": {
+        "fingerprint": "sha256:ba11751cfb2dbc49a08c9f854757eaf19e9b00b31d58056698f450fe4aff4e24",
+        "path": ".engine/tools/plan_contract.py"
+      },
+      "status": "active",
+      "summary": "The engine-plan.v1 contract: what a plan revision is, and what makes one valid.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:plan_coordinator",
+      "name": ".engine/tools/plan_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:moment",
+          "tool:plan_contract",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan_coordinator",
+      "source": {
+        "fingerprint": "sha256:4f8a3b0e1fbfa9acb0b1ee34180192f7e469c7a12b7e0a7d5ef70e599ff719e3",
+        "path": ".engine/tools/plan_coordinator.py"
+      },
+      "status": "active",
+      "summary": "The Plan Coordinator: the Build Coordinator's upstream peer.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:plan_program",
+      "name": ".engine/tools/plan_program.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:moment",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan_program",
+      "source": {
+        "fingerprint": "sha256:adc18c4aaa42e021e4c728083b990a35d4150df7964fdb0bdec141240f6803e0",
+        "path": ".engine/tools/plan_program.py"
+      },
+      "status": "active",
+      "summary": "Multi-PR programs: an ordered set of plans, and one mechanical guarantee about what they owe.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:plan_projection",
+      "name": ".engine/tools/plan_projection.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:plan_contract",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan_projection",
+      "source": {
+        "fingerprint": "sha256:5369b159800e3997e23cc7e743697ea1ae7084c6c9dfa61d551c8642e9d0271b",
+        "path": ".engine/tools/plan_projection.py"
+      },
+      "status": "active",
+      "summary": "Readable projections of the plan library: PLAN.md per plan, INDEX.md and index.json over all of them.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:plan_store",
+      "name": ".engine/tools/plan_store.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:checkout_health",
+          "tool:moment",
+          "tool:plan_contract"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan_store",
+      "source": {
+        "fingerprint": "sha256:9b71d7ccf7eb957ec8b0c69e28fb58f26303e35d1b6dcca484cbf7f733f89f04",
+        "path": ".engine/tools/plan_store.py"
+      },
+      "status": "active",
+      "summary": "The durable local plan library: where plans live, and what it takes to trust what is there.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:policy_override_check",
@@ -15550,7 +15752,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:c27b3d2d72c3cbc36d1615d732d7bce93e3722110917bf25fdfb3ad49e9513b1",
+        "fingerprint": "sha256:b4adea0f8b590604f13cfba0164ebeafdb2e618079b4e2a5d4713bf0041aad0d",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17969,6 +18171,160 @@
       },
       "status": "active",
       "summary": "Unit tests for pins.py — durable operator intent as a record-type in the one substrate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_contract",
+      "name": ".engine/tools/test_plan_contract.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_dag",
+          "tool:plan_contract"
+        ]
+      },
+      "slug": "test_plan_contract",
+      "source": {
+        "fingerprint": "sha256:fe1f4c3d1fb2c11da23ed3d02b5a5e0c784c922d367e2e20426001428242b19c",
+        "path": ".engine/tools/test_plan_contract.py"
+      },
+      "status": "active",
+      "summary": "Tests for plan_contract — the engine-plan.v1 contract.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_coordinator",
+      "name": ".engine/tools/test_plan_coordinator.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:plan_coordinator",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store",
+          "tool:test_plan_store"
+        ]
+      },
+      "slug": "test_plan_coordinator",
+      "source": {
+        "fingerprint": "sha256:635f13ba7ce025d0f74f724d64966cde4f6e1ace8bda7615a4454063a4b69bb0",
+        "path": ".engine/tools/test_plan_coordinator.py"
+      },
+      "status": "active",
+      "summary": "Tests for plan_coordinator — the command surface over the plan library.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_dogfood",
+      "name": ".engine/tools/test_plan_dogfood.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:plan_contract",
+          "tool:plan_coordinator",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store"
+        ]
+      },
+      "slug": "test_plan_dogfood",
+      "source": {
+        "fingerprint": "sha256:61f4c6bf53165294ac62bafd28419e2bd793d7011b1dcf5b90df907e959409ba",
+        "path": ".engine/tools/test_plan_dogfood.py"
+      },
+      "status": "active",
+      "summary": "The dogfood: the plan for THIS pull request, driven end to end through the coordinator it builds.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_program",
+      "name": ".engine/tools/test_plan_program.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:plan_program",
+          "tool:plan_store",
+          "tool:test_plan_store"
+        ]
+      },
+      "slug": "test_plan_program",
+      "source": {
+        "fingerprint": "sha256:31f8d8c2f9f6664527e0d87ee1442d75d6fbee63be9189bc80970afc12562a9d",
+        "path": ".engine/tools/test_plan_program.py"
+      },
+      "status": "active",
+      "summary": "Tests for plan_program — the multi-PR program object.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_projection",
+      "name": ".engine/tools/test_plan_projection.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:plan_projection",
+          "tool:plan_store",
+          "tool:test_plan_store"
+        ]
+      },
+      "slug": "test_plan_projection",
+      "source": {
+        "fingerprint": "sha256:5743849bc8d70c63f3248aaf389275d162dd8da61756e0dd4249117267aee7c2",
+        "path": ".engine/tools/test_plan_projection.py"
+      },
+      "status": "active",
+      "summary": "Tests for plan_projection — the generated, rebuildable views over the plan library.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_store",
+      "name": ".engine/tools/test_plan_store.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_core",
+          "tool:checkout_health",
+          "tool:plan_contract",
+          "tool:plan_store"
+        ]
+      },
+      "slug": "test_plan_store",
+      "source": {
+        "fingerprint": "sha256:0f86e9422905dd292c10c6d10d6a96ff79fed1d2fa27258e4a35327e0083190c",
+        "path": ".engine/tools/test_plan_store.py"
+      },
+      "status": "active",
+      "summary": "Tests for plan_store — the durable local plan library.",
       "type": "tool"
     },
     {

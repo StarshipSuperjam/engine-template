@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "engine-plan.v1 — one immutable revision of a plan under deliberation, wrapping the exact Build payload",
+  "description": "The plan document the Plan Coordinator mints, revises, and eventually seals. It is JSON and only JSON: there is no YAML working copy, no uncheckpointed-edit state, and no checkpoint verb — a revision is minted whole by `revise` and never edited in place, so the digest over its canonical form is the plan's identity. Two halves. The DELIBERATION half is the reasoning a Build cannot reconstruct: what problem this solves, the strongest case against doing it, the alternatives and why each was disposed of, how it could fail, and what remains undecided. The BUILD half is `build_plan` — the byte-exact payload the Build Coordinator will consume at `plan bind`, carried whole rather than re-derived, so a sealed plan and the Build it authorizes can never describe different work. NOTE ON `build_plan`, and please do not 'improve' it: it is deliberately typed as a bare object here with no properties, no required list, and no additionalProperties rule. Its authority belongs to the Build Coordinator, not to this schema — plan_contract.validate_document delegates to build_coordinator_dag.validate_plan_document, which applies the coordinator's own three layers (its schema for the declared version, work-item-id uniqueness, and DAG closure) against the same code path `plan bind` runs. Re-expressing any of those rules here would create a second notion of a valid payload that could drift from the first, and the drift would surface as a plan that seals cleanly and then fails at bind.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "title", "revision", "created_at", "revised_at", "intent", "deliberation", "build_plan"],
+  "properties": {
+    "schema_version": {"const": "engine-plan.v1"},
+    "plan_id": {
+      "type": "string",
+      "pattern": "^pln_[0-9a-f]{12}$",
+      "description": "Minted once at `init` and never reissued — not by revision, not by retitling, not by clone (a clone mints its own). The folder slug is a convenience for humans; this is the identity."
+    },
+    "title": {"type": "string", "minLength": 1},
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic from 1. Revisions are immutable and every one is kept: the ledger is the record of how the plan got here, and a reader who only ever sees the head cannot tell a settled decision from a reversed one."
+    },
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "revised_at": {"$ref": "#/$defs/timestamp"},
+    "revision_note": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What changed in this revision and why — written for the operator reading the ledger months later, not for the tool."
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "interpretation", "source"],
+      "properties": {
+        "raw": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the operator actually said, kept verbatim. Never tidied, never paraphrased into the interpretation: the gap between the two is exactly what a reviewer needs to see."
+        },
+        "interpretation": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/intent_source"}
+      }
+    },
+    "deliberation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["problem_frame", "case_against", "alternatives", "failure_modes", "unresolved_decisions"],
+      "properties": {
+        "problem_frame": {"type": "string", "minLength": 1},
+        "case_against": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The strongest honest argument for NOT doing this, stated at its full weight. A plan that cannot state one has not been deliberated; a decoy here is worse than an empty field, because it launders the absence of thought."
+        },
+        "alternatives": {"type": "array", "items": {"$ref": "#/$defs/alternative"}},
+        "failure_modes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "unresolved_decisions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "Open questions the operator still owes an answer to. The array may be non-empty for as long as the plan is a draft; the seal refuses while any entry remains, which is the whole point of recording them."
+        }
+      }
+    },
+    "operator_decisions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/operator_decision"},
+      "description": "Decisions the operator made by name, kept so a later session cannot quietly re-litigate a settled call."
+    },
+    "intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance"],
+      "properties": {
+        "provenance": {"type": "string", "minLength": 1},
+        "predecessors": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "description": "Where this plan came from when it did not start here — an imported native Claude or Codex plan, or prose drafts that preceded it. Groundwork, not authority: an import lands as an unapproved draft with its gaps marked as gaps."
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program_id"],
+      "properties": {
+        "program_id": {"type": "string", "pattern": "^prg_[0-9a-f]{12}$"},
+        "predecessor_plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+        "carried_obligations": {"type": "array", "items": {"$ref": "#/$defs/carried_obligation"}}
+      },
+      "description": "Optional linkage into a multi-PR program (engine-program.v1). Absent for a standalone plan, and absent is the normal case — a plan is per-Build, and a program is a deliberate act, never inferred from resemblance."
+    },
+    "build_plan": {
+      "type": "object",
+      "description": "The exact Build payload, carried whole. Intentionally unconstrained here — see the note in this schema's own description before adding any rule to this object."
+    }
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "intent_source": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "direct"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "issue"], "properties": {"kind": {"const": "issue"}, "issue": {"type": "integer", "minimum": 1}}}
+      ],
+      "description": "Mirrors build-plan.v2's own intent_source shape, because an unattended (Routine) Build still draws its AUTHORIZATION from a durable Issue even once the plan authority is local."
+    },
+    "alternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["option", "disposition", "reason"],
+      "properties": {
+        "option": {"type": "string", "minLength": 1},
+        "disposition": {"enum": ["chosen", "rejected", "deferred", "superseded"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "operator_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "recorded"],
+      "properties": {
+        "decision": {"type": "string", "minLength": 1},
+        "recorded": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "carried_obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "state"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "statement": {"type": "string", "minLength": 1},
+        "state": {"enum": ["carried", "satisfied", "released"]},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "description": "An obligation handed forward from a predecessor plan. `released` is the escape hatch and it costs a stated reason — the guarantee is not that obligations are always met, only that one can never be dropped silently."
+    }
+  }
+}

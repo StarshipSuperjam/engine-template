@@ -2,9 +2,18 @@
 
 This module knows JSON, git, private artifacts, and atomic snapshot storage. It
 does not know plans, reviewers, specifications, GitHub workflow, or CLI phases.
+
+Two stores ride these primitives: the Build coordinator's own `StateStore`
+(deliberately non-durable, in OS temp, one Build's current facts) and the Plan
+Coordinator's durable local library (`plan_store`). They differ in exactly the
+ways they should — where they may live, and how hard they try to survive a
+power cut — and agree on everything else, because the locking, the
+compare-and-swap, and the atomic-replace idiom are free functions here rather
+than a second copy that drifts.
 """
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -20,6 +29,128 @@ from typing import Any, Callable
 
 class CoordinatorError(Exception):
     pass
+
+
+# The platform durability barrier. On Darwin a bare os.fsync returns once the bytes reach the drive's
+# write cache, which a power cut can still lose; fcntl.F_FULLFSYNC forces them to stable storage.
+# Absent on other platforms, where os.fsync is the floor.
+#
+# The memory ledger holds an equivalent private pair, and that duplication is deliberate: the ledger
+# belongs to the OPTIONAL memory-substrate module, whose files are DELETED when an operator declines
+# it, and core may not depend on something that can be uninstalled. Six lines of platform primitive
+# is the right price for that independence; the payload validator, which had a real drift risk, was
+# genuinely shared instead.
+_F_FULLFSYNC = getattr(fcntl, "F_FULLFSYNC", None)
+
+
+def durable_fsync(fd) -> bool:
+    """Flush `fd` to stable storage as durably as the platform allows. True when a flush succeeded.
+
+    Guarded throughout: an fsync fault must never crash past a caller's lock release, so it degrades
+    rather than aborting a critical section that still leaves intact data on disk. But degrading
+    SILENTLY is worse than either — a full disk or a failing drive would then be indistinguishable
+    from a durable write, and the caller would report success for data that is not on the platter.
+    So the outcome is returned, and `atomic_write(durable=True)` turns a total failure into a visible
+    one.
+    """
+    if _F_FULLFSYNC is not None:
+        try:
+            fcntl.fcntl(fd, _F_FULLFSYNC)
+            return True
+        except OSError:
+            pass          # fall through to the portable floor rather than giving up
+    try:
+        os.fsync(fd)
+        return True
+    except OSError:
+        return False
+
+
+def fsync_dir(path: Path | str) -> bool:
+    """fsync a directory so a rename within it survives a crash. True when a flush succeeded.
+
+    `os.replace` is atomic with respect to readers, which is an ordering guarantee, not a durability
+    one: without this the new file can be on the platter while the directory entry pointing at it is
+    not. Best-effort — some platforms and filesystems legitimately refuse to fsync a directory fd, so
+    a False here is not on its own evidence of a failing disk, and callers treat it as weaker news
+    than a failed file flush.
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        return durable_fsync(fd)
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def exclusive_lock(lock_path: Path):
+    """Hold an exclusive advisory lock on a sibling lock file for the duration of the block.
+
+    A sibling rather than the data file itself, because the data file is replaced by rename on every
+    write: a lock held on the old inode would guard nothing once the rename landed.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield handle
+    finally:
+        handle.close()
+
+
+def assert_revision(actual: int, expected: int | None, what: str, remedy: str) -> None:
+    """The compare-and-swap guard both stores enforce: a writer that read revision N may only write
+    over revision N. Refusing here is what makes a lost update impossible rather than unlikely — the
+    stale writer is told to reload, and NOTHING it holds is written.
+
+    `remedy` is the caller's own words for how to recover, because the two stores recover differently
+    and a generic phrase would send an operator to the wrong command.
+    """
+    if expected is not None and actual != expected:
+        raise CoordinatorError(f"{what} revision is {actual}, not expected {expected}; {remedy}")
+
+
+def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | None = None) -> None:
+    """Write `text` to `path` so a reader sees either the whole old file or the whole new one.
+
+    Write to a temp file in the SAME directory (a cross-filesystem rename is not atomic), flush,
+    fsync, rename over the target. With `durable`, use the platform barrier and fsync the containing
+    directory afterwards, so the write survives a power cut and not merely a process crash — the
+    difference between a store that is atomic and one that is actually durable. `mode` is applied
+    explicitly with os.chmod rather than left to mkstemp, so permissions do not depend on umask.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            if durable:
+                if not durable_fsync(handle.fileno()):
+                    # Every flush the platform offers failed. Refusing here is the point: the rename
+                    # has not happened, so the previous contents are intact, and the caller is told
+                    # the write did not become durable instead of being handed a false success for
+                    # data that is not on the platter.
+                    raise CoordinatorError(
+                        f"refusing to complete a durable write to {path}: the filesystem would not "
+                        "flush it to stable storage. The previous contents are untouched. This "
+                        "usually means the disk is full or failing — check it before retrying.")
+            else:
+                os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+        if durable:
+            # A directory flush that the platform declines is normal on some filesystems, so this one
+            # is not fatal — the file itself is already durable, and only the rename's ordering is
+            # at risk. Not worth refusing a write over; worth not pretending it happened either.
+            fsync_dir(path.parent)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 
 def json_file(path: Path) -> Any:
@@ -45,8 +176,52 @@ def validate(instance: Any, schema_path: Path) -> None:
         raise CoordinatorError("the Engine runtime is missing jsonschema; run this tool through uv") from exc
     errors = sorted(Draft202012Validator(json_file(schema_path)).iter_errors(instance), key=lambda e: list(e.path))
     if errors:
-        where = ".".join(str(p) for p in errors[0].path) or "document"
-        raise CoordinatorError(f"{schema_path.stem} rejected {where}: {errors[0].message}")
+        error = _most_specific(errors[0])
+        where = ".".join(str(p) for p in error.absolute_path) or "document"
+        raise CoordinatorError(f"{schema_path.stem} rejected {where}: {error.message}")
+
+
+def _most_specific(error) -> Any:
+    """Descend into a failed `oneOf`/`anyOf` to the sub-error that actually names the problem.
+
+    Without this, any field typed `oneOf(null, {...})` — which is every optional gate on a plan
+    record — reports "{the entire object dumped as a Python dict} is not valid under any of the given
+    schemas". That is true, useless, and lands on precisely the fields an operator hand-authors, so a
+    mistyped digest or a misspelled severity gives them nothing to act on.
+
+    Choosing the right branch is the whole difficulty, and it takes two rules in this order.
+
+    DEPTH decides first: the branch whose error reached furthest into the document is the one the
+    author plainly meant, so a `oneOf(null, {...})` reports the field inside the object rather than
+    "this is not of type null".
+
+    At EQUAL depth two tie-breaks apply, in order. A branch that failed only because the value is the
+    wrong KIND entirely — `type` against a `null` or scalar branch — is a discriminator saying "you
+    did not mean this branch", never a complaint about the branch that was meant; it loses to any
+    substantive error. This matters more than it sounds: a missing required field or an unexpected
+    extra key on an optional object is reported AT that object's own path, tying with the null
+    branch's "not of type null", and without this rule the useless message wins on a coin toss.
+    Then a const/enum failure loses to anything else, for the same discriminator reason.
+
+    Applying either tie-break before depth would be wrong: a genuinely misspelled enum value deep
+    inside the right branch is exactly the error worth showing.
+    """
+    while getattr(error, "context", None):
+        error = max(error.context, key=_specificity)
+    return error
+
+
+# Wrong-kind-entirely, in descending order of "this is just the wrong branch": a `type` mismatch
+# against a null/scalar alternative says nothing about the object the author actually wrote.
+_DISCRIMINATOR_VALIDATORS = ("type", "const", "enum")
+
+
+def _specificity(error) -> tuple:
+    """Rank one candidate branch error: deeper is better, and a discriminator failure is worse."""
+    validator = getattr(error, "validator", None)
+    return (len(list(error.absolute_path)),
+            validator not in _DISCRIMINATOR_VALIDATORS,
+            validator not in ("const", "enum"))
 
 
 def canonical(value: Any) -> bytes:
@@ -190,10 +365,7 @@ class StateStore:
         self.expected_revision = expected_revision
 
     def _locked(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = self.lock.open("a+", encoding="utf-8")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return handle
+        return exclusive_lock(self.lock)
 
     def _schema_for(self, state: dict) -> Path:
         """Resolve the schema for one state document.
@@ -227,23 +399,15 @@ class StateStore:
             state = json_file(self.path)
             validate(state, self._schema_for(state))
             expected = self.expected_revision if self.expected_revision is not None else from_revision
-            if expected is not None and state["revision"] != expected:
-                raise CoordinatorError(f"snapshot revision is {state['revision']}, not expected {expected}; reload status")
+            assert_revision(state["revision"], expected, "snapshot", "reload status")
             result = change(state)
             state["revision"] += 1
             self._write(state)
             return result
 
     def _write(self, state: dict) -> None:
+        # Atomic but deliberately NOT durable: this snapshot lives in OS temp by construction (see
+        # __init__), holds one Build's current facts, and is expected not to survive a reboot. The
+        # durable store is plan_store, and the difference is a design choice, not an oversight.
         validate(state, self._schema_for(state))
-        fd, temp_name = tempfile.mkstemp(prefix=self.path.name + ".", dir=self.path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(state, handle, indent=2, sort_keys=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_name, self.path)
-        finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
+        atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n")
