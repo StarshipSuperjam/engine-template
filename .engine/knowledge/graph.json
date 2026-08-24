@@ -5978,7 +5978,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:f3e72cf31b8347a8fe41e67e9cbf3b099b0c0e2e419c2d47e35c36140969b474",
+        "fingerprint": "sha256:d58e7f59b9dca832fe2e8c4595810fdd84b650fce4280e434e1ece551e02eef4",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -13813,6 +13813,7 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:moment",
           "tool:plan_contract",
           "tool:plan_projection",
           "tool:plan_store"
@@ -13823,7 +13824,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:da8b3ea887a97932628eb0c0b2be7e144002edd9c52e3770860c09ba3c5e263f",
+        "fingerprint": "sha256:5a97ec1b422c023fa5ba0d65cfa43be4cb05631b6037c81c1a895228ad04be4b",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -13839,6 +13840,7 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:moment",
           "tool:plan_store"
         ],
         "provided_by": [
@@ -13847,7 +13849,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:a48cb738d6e5cd9e6ca6fa6bcef3032857c6fb46d24162fe50ae7708c1065949",
+        "fingerprint": "sha256:bce21aa12be657fa6935f34e6ce6bf282959d2732456647a4532d9650d78cb31",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13889,6 +13891,7 @@
         "imports": [
           "tool:build_coordinator_core",
           "tool:checkout_health",
+          "tool:moment",
           "tool:plan_contract"
         ],
         "provided_by": [
@@ -13897,7 +13900,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:d5c96d957132f8a6893120a3515de83954fdffa014dbb3352475b19f9fa7e532",
+        "fingerprint": "sha256:c379398f1df9c2a211328edd451b430edde9ab42a4f959050665e6a870373782",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",

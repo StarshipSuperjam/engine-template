@@ -25,13 +25,13 @@ something pops from.
 """
 from __future__ import annotations
 
-import datetime as _dt
 import json
 from pathlib import Path
 import re
 import secrets
 
 import build_coordinator_core as core
+import moment
 import plan_store
 
 ProgramError = plan_store.PlanStoreError
@@ -45,8 +45,7 @@ RECORD_FILENAME = "record.json"
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$")
 
 
-def _now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+_now = moment.utc_now
 
 
 def mint_program_id() -> str:

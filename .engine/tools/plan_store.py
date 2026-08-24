@@ -34,7 +34,6 @@ unreadable exactly when a messy working tree makes them most needed.
 """
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 from pathlib import Path
@@ -44,6 +43,7 @@ import subprocess
 
 import build_coordinator_core as core
 import checkout_health
+import moment
 import plan_contract
 
 PlanStoreError = core.CoordinatorError
@@ -77,8 +77,9 @@ _SYNCED_MARKERS = (
 _NETWORK_FSTYPES = ("nfs", "smbfs", "cifs", "afpfs", "webdav", "fuse.sshfs", "ftp", "9p")
 
 
-def _now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+# The wire timestamp shape has one home in the engine (moment), so a store cannot drift into its own
+# format or its own idea of "now".
+_now = moment.utc_now
 
 
 def ensure_dir(path: Path, *, within: Path | None = None) -> None:

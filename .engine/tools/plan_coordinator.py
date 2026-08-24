@@ -26,13 +26,13 @@ reindex, doctor). The governance verbs and the terminal seal live alongside it.
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
 import difflib
 import json
 from pathlib import Path
 import sys
 
 import build_coordinator_core as core
+import moment
 import plan_contract
 import plan_projection
 import plan_store
@@ -49,8 +49,7 @@ DEPTHS = {
 }
 
 
-def _now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+_now = moment.utc_now
 
 
 def _library(args) -> plan_store.PlanLibrary:
