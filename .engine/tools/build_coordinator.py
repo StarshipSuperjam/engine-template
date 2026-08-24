@@ -348,8 +348,7 @@ def _next_incomplete(plan: dict, state: dict) -> str | None:
     is "next" to advance — only dependency readiness does.
     """
     if _plan_version(plan) == "build-plan.v2":
-        ready = dag.ready_set(plan, state)
-        return ready[0] if ready else None
+        return dag.next_ready(plan, state)
     ordered = [item["id"] for item in plan["work_items"]]
     completed = {item["id"] for item in state["progress"]["completed"]}
     return next((item for item in ordered if item not in completed), None)
@@ -376,9 +375,18 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "failure": {"class": failure.get("class"), "disposition": failure.get("disposition"),
                         "reason": failure.get("reason")} if failure else None,
         }
+    admission = dag.admission_plan(plan, state)
     return {
         "ready": dag.ready_set(plan, state),
         "claimable": dag.claimable_set(plan, state),
+        # What this pass would actually select, capped by free slots — a subset of claimable.
+        "admitted": admission["admitted"],
+        # Every node the pass passed over, with which of the four reasons applied. Read-only detail: a
+        # session should be able to see why the scheduler chose as it did without running a verb that
+        # refuses to find out.
+        "deferred": admission["deferred"],
+        "admission_rank": dag.admission_rank(plan),
+        "critical_path": dag.critical_path_lengths(plan),
         "slots_in_use": dag.slots_in_use(plan, state),
         "max_concurrency": parallelism.get("max_concurrency", 1),
         "resource_holders": dag.resource_holders(plan, state),
@@ -842,7 +850,11 @@ def cmd_status(args, store: StateStore) -> None:
         w = result["work"]
         print(f"Work graph: {w['slots_in_use']} of {w['max_concurrency']} worker slot(s) in use")
         print("  ready (unordered): " + (", ".join(w["ready"]) or "none"))
-        print("  claimable now: " + (", ".join(w["claimable"]) or "none"))
+        print("  claimable now (admission order): " + (", ".join(w["claimable"]) or "none"))
+        if "admitted" in w:
+            print("  this pass would admit: " + (", ".join(w["admitted"]) or "none"))
+        for entry in w.get("deferred", []):
+            print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}")
         for node_id in sorted(w["nodes"]):
             node = w["nodes"][node_id]
             line = f"  {node_id}: {node['state']} (attempt {node['attempt_count']})"
@@ -2294,19 +2306,22 @@ def _node_work(state: dict, node_id: str) -> dict:
 
 
 def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> str:
-    """The specific reason a ready-or-not node is not claimable, so the refusal is actionable."""
+    """The specific reason a node is not claimable, so the refusal is actionable.
+
+    Read out of the SAME admission derivation `status` and `work frontier` render, so a refusal can
+    never disagree with the deferral reason a session was just shown. Only a node that is neither a
+    candidate nor deferred falls back to its derived state.
+    """
+    deferral = next((entry for entry in dag.admission_plan(plan, state)["deferred"]
+                     if entry["id"] == node_id), None)
+    if deferral:
+        detail = f"{deferral['kind']} — {deferral['reason']}"
+        if deferral["kind"] == dag.DEFER_CAPACITY:
+            detail += "; free one by integrating, rejecting, or abandoning a claim"
+        return detail
     st = node.get("state")
-    if st != dag.READY:
-        reasons = "; ".join(node.get("reasons") or [])
-        return f"it is {st}" + (f" ({reasons})" if reasons else "")
-    max_concurrency = plan.get("parallelism", {}).get("max_concurrency", 1)
-    if dag.slots_in_use(plan, state) >= max_concurrency:
-        return f"all {max_concurrency} worker slot(s) are in use — free one by integrating, rejecting, or abandoning a claim"
-    item = work.node_item(plan, node_id)
-    for holder_id, held in dag.resource_holders(plan, state).items():
-        if holder_id != node_id and dag.resources_conflict(item, held):
-            return f"its paths or resources conflict with node {holder_id}, which currently holds them"
-    return "admission is currently blocked"
+    reasons = "; ".join(node.get("reasons") or [])
+    return f"it is {st}" + (f" ({reasons})" if reasons else "")
 
 
 def cmd_work_packet(args, store: StateStore) -> None:
@@ -2334,6 +2349,43 @@ def cmd_work_packet(args, store: StateStore) -> None:
     packet["preview"] = {"state": node.get("state"), "reasons": node.get("reasons", []),
                          "claimable_now": claimable, "refusal_reason": refusal}
     print(json.dumps(packet))
+
+
+def cmd_work_frontier(args, store: StateStore) -> None:
+    """Read-only projection of the admission decision: what is admitted, what waits, and why.
+
+    Writes NOTHING — no mutate, no store write, no GitHub call. It exists so a session can ask what
+    the scheduler would do, and why it passed a node over, without spending a claim to find out.
+    """
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    state = store.read()
+    _assert_plan(state, plan)
+    admission = dag.admission_plan(plan, state)
+    parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
+    projection = {
+        "admitted": admission["admitted"],
+        "claimable": dag.claimable_set(plan, state),
+        "deferred": admission["deferred"],
+        "admission_rank": dag.admission_rank(plan),
+        "critical_path": dag.critical_path_lengths(plan),
+        "ready": dag.ready_set(plan, state),
+        "next_ready": dag.next_ready(plan, state),
+        "slots_in_use": dag.slots_in_use(plan, state),
+        "max_concurrency": parallelism.get("max_concurrency", 1),
+        "resource_holders": dag.resource_holders(plan, state),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(projection, indent=2, sort_keys=True))
+        return
+    print(f"Frontier: {projection['slots_in_use']} of {projection['max_concurrency']} worker slot(s) in use")
+    print("  admitted (admission order): " + (", ".join(projection["admitted"]) or "none"))
+    print("  claimable (a direct claim is permitted): " + (", ".join(projection["claimable"]) or "none"))
+    for entry in projection["deferred"]:
+        print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}")
+    print("  rank (critical path desc, then id): "
+          + ", ".join(f"{node_id}[{projection['critical_path'][node_id]}]"
+                      for node_id in projection["admission_rank"]))
 
 
 def cmd_work_claim(args, store: StateStore) -> None:
@@ -2970,6 +3022,7 @@ def parser() -> argparse.ArgumentParser:
     cpreview = contract_p.add_parser("preview"); cpreview.add_argument("--plan", required=True); cpreview.add_argument("--claim", required=True); cpreview.add_argument("--output"); cpreview.add_argument("--json", action="store_true"); cpreview.set_defaults(func=cmd_contract_preview)
     capply = contract_p.add_parser("apply"); capply.add_argument("--plan", required=True); capply.add_argument("--claim", required=True); capply.add_argument("--source-body-digest", required=True); capply.add_argument("--ack-visibility", action="store_true"); capply.add_argument("--json", action="store_true"); capply.set_defaults(func=cmd_contract_apply)
     work_p = sub.add_parser("work").add_subparsers(dest="work_command", required=True)
+    wfrontier = work_p.add_parser("frontier"); wfrontier.add_argument("--plan", required=True); wfrontier.add_argument("--json", action="store_true"); wfrontier.set_defaults(func=cmd_work_frontier)
     wpacket = work_p.add_parser("packet"); wpacket.add_argument("--item", required=True); wpacket.add_argument("--provider", choices=["claude", "codex"], required=True); wpacket.add_argument("--plan", required=True); wpacket.add_argument("--worktree"); wpacket.set_defaults(func=cmd_work_packet)
     wclaim = work_p.add_parser("claim"); wclaim.add_argument("--item", required=True); wclaim.add_argument("--provider", choices=["claude", "codex"], required=True); wclaim.add_argument("--plan", required=True); wclaim.add_argument("--worktree", required=True); wclaim.set_defaults(func=cmd_work_claim)
     wattach = work_p.add_parser("attach"); wattach.add_argument("--item", required=True); wattach.add_argument("--attempt", required=True); wattach.add_argument("--worker-ref", required=True); wattach.set_defaults(func=cmd_work_attach)

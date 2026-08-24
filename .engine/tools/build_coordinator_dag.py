@@ -326,27 +326,130 @@ def ready_set(plan: dict, state: dict) -> list[str]:
     return sorted(node_id for node_id, node in lifecycle.items() if node["state"] == READY)
 
 
-def claimable_set(plan: dict, state: dict) -> list[str]:
-    """The ready nodes that admission currently permits a fresh claim on.
+# The four reasons a candidate node can be left out of an admission pass. Every omission carries one,
+# so `status` and `work frontier` can say why a node was passed over instead of leaving a session to
+# infer it from an empty set.
+DEFER_DEPENDENCY = "dependency"
+DEFER_HELD_RESOURCE = "held-resource"
+DEFER_SELECTED_CONFLICT = "selected-node-conflict"
+DEFER_CAPACITY = "capacity"
 
-    A ready node is claimable only when a worker slot is free under the plan's max_concurrency AND its
-    resources do not conflict with any resources a DIFFERENT node currently holds. The
-    holder_id == node_id guard is defensive: a node in ready_set has no active claim (an active claim
-    derives claimed/returned/failed/recovery_required, never ready), so it is never its own holder
-    today; the guard keeps the intent explicit if the state machine ever lets a node be ready while a
-    claim of its own persists (an explicit retry that reserved resources across the boundary).
+
+def critical_path_lengths(plan: dict) -> dict:
+    """node id -> the longest chain of work reachable from it, counted in nodes and including itself.
+
+    Computed from the plan graph ALONE — never from state and never from array position — so it is the
+    same number for the same graph however the work_items array happens to be ordered, and a node that
+    unblocks a long tail outranks one that unblocks nothing.
+    """
+    items = _work_items(plan)
+    dependents: dict[str, list[str]] = {item["id"]: [] for item in items}
+    for item in items:
+        for dep in item.get("depends_on", []):
+            dependents[dep].append(item["id"])
+    lengths: dict[str, int] = {}
+
+    def resolve(node_id: str) -> int:
+        if node_id not in lengths:
+            # The plan is validated acyclic before this runs (validate_plan_document), so the recursion
+            # terminates; a sink is length 1.
+            lengths[node_id] = 1 + max((resolve(child) for child in dependents[node_id]), default=0)
+        return lengths[node_id]
+
+    for item in items:
+        resolve(item["id"])
+    return lengths
+
+
+def admission_rank(plan: dict) -> list[str]:
+    """Every node id in deterministic admission order: critical path descending, then id ascending.
+
+    Total and deterministic — a lexical tie-break means two graphs that differ only in array order
+    produce the identical ranking.
+    """
+    lengths = critical_path_lengths(plan)
+    return sorted(lengths, key=lambda node_id: (-lengths[node_id], node_id))
+
+
+def admission_plan(plan: dict, state: dict) -> dict:
+    """The one admission derivation: which nodes a fresh claim is permitted on, and why the rest wait.
+
+    Greedy over `admission_rank`: each candidate is admitted unless a DIFFERENT node already holds
+    conflicting resources, a node admitted earlier in this same pass conflicts with it, or no worker
+    slot is left. Dependency-blocked nodes are candidates too — they are reported as deferred on
+    dependency grounds rather than silently omitted.
+
+    The holder_id == node_id guard is defensive: a node in ready_set has no active claim (an active
+    claim derives claimed/returned/failed/recovery_required, never ready), so it is never its own
+    holder today; the guard keeps the intent explicit if the state machine ever lets a node be ready
+    while a claim of its own persists (an explicit retry that reserved resources across the boundary).
     """
     parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
     max_concurrency = parallelism.get("max_concurrency", 1)
-    if slots_in_use(plan, state) >= max_concurrency:
+    free_slots = max_concurrency - slots_in_use(plan, state)
+    lifecycle = derive_lifecycle(plan, state)
+    by_id = {item["id"]: item for item in _work_items(plan)}
+    holders = resource_holders(plan, state)
+    admitted: list[str] = []
+    deferred: list[dict] = []
+    for node_id in admission_rank(plan):
+        node = lifecycle[node_id]
+        if node["state"] == BLOCKED:
+            deferred.append({"id": node_id, "kind": DEFER_DEPENDENCY,
+                             "reason": "; ".join(node["reasons"]) or "dependencies are not integrated"})
+            continue
+        if node["state"] != READY:
+            continue  # in flight or complete: not a candidate this pass, and visible in the node map
+        item = by_id[node_id]
+        blocker = next((holder_id for holder_id, held in holders.items()
+                        if holder_id != node_id and resources_conflict(item, held)), None)
+        if blocker:
+            deferred.append({"id": node_id, "kind": DEFER_HELD_RESOURCE,
+                             "reason": f"node {blocker} holds conflicting paths or resources"})
+            continue
+        selected = next((other for other in admitted if resources_conflict(item, by_id[other])), None)
+        if selected:
+            deferred.append({"id": node_id, "kind": DEFER_SELECTED_CONFLICT,
+                             "reason": f"conflicts with {selected}, admitted earlier in this pass"})
+            continue
+        if free_slots <= 0:
+            deferred.append({"id": node_id, "kind": DEFER_CAPACITY,
+                             "reason": f"all {max_concurrency} worker slot(s) are in use"})
+            continue
+        admitted.append(node_id)
+        free_slots -= 1
+    return {"admitted": admitted, "deferred": deferred}
+
+
+def next_ready(plan: dict, state: dict) -> str | None:
+    """The single ready node the scheduler would advance next.
+
+    Ranked, but deliberately NOT filtered by capacity or resource holds: a busy slot or a held
+    resource must not change WHICH item is next to advance — only dependency readiness and rank do.
+    """
+    ready = set(ready_set(plan, state))
+    return next((node_id for node_id in admission_rank(plan) if node_id in ready), None)
+
+
+def claimable_set(plan: dict, state: dict) -> list[str]:
+    """The ready nodes a fresh claim is PERMITTED on right now, in admission order.
+
+    Eligibility, not selection — and the distinction is deliberate. Membership is exactly the
+    pre-ranking rule (a worker slot free under max_concurrency, and no conflict with a resource a
+    different node holds), so ranking never takes away the orchestrator's freedom to claim any ready,
+    non-conflicting node. What ranking changed is the ORDER: the first entry is the node the scheduler
+    would advance, where the order used to be lexical-for-stability and carried no priority.
+
+    `admission_plan()["admitted"]` is the narrower question — which nodes this pass would actually
+    select, capped by the free slots and with same-pass conflicts resolved. A node can be claimable
+    and not admitted; claiming it is still allowed.
+    """
+    parallelism = plan.get("parallelism", {"mode": "serial", "max_concurrency": 1})
+    if slots_in_use(plan, state) >= parallelism.get("max_concurrency", 1):
         return []
     by_id = {item["id"]: item for item in _work_items(plan)}
     holders = resource_holders(plan, state)
-    claimable = []
-    for node_id in ready_set(plan, state):
-        item = by_id[node_id]
-        conflict = any(holder_id != node_id and resources_conflict(item, held)
-                       for holder_id, held in holders.items())
-        if not conflict:
-            claimable.append(node_id)
-    return sorted(claimable)
+    ready = set(ready_set(plan, state))
+    return [node_id for node_id in admission_rank(plan) if node_id in ready
+            and not any(holder_id != node_id and resources_conflict(by_id[node_id], held)
+                        for holder_id, held in holders.items())]

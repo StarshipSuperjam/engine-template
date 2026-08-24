@@ -106,7 +106,10 @@ class TestWorkClaims(WorkCase):
                         {"outcome": "returned", "base_sha": HEAD_A, "evidence": {"changed_paths": ["x"]}})
 
     def test_claim_refusal_names_the_cause(self):
-        with self.assertRaisesRegex(bc.CoordinatorError, "not claimable now: it is blocked"):
+        # The refusal now carries the typed deferral kind and its detail, read out of the same
+        # admission derivation that `status` and `work frontier` render — so a refusal and the
+        # deferral reason a session was just shown can never disagree.
+        with self.assertRaisesRegex(bc.CoordinatorError, "not claimable now: dependency — waiting on shared"):
             self.claim("adapter")  # blocked on shared
 
     def test_packet_preview_reports_claimability(self):
@@ -115,7 +118,10 @@ class TestWorkClaims(WorkCase):
             bc.cmd_work_packet(args, self.store)
         preview = json.loads(out.getvalue())["preview"]
         self.assertFalse(preview["claimable_now"])
-        self.assertIn("blocked", preview["refusal_reason"])
+        self.assertEqual(preview["state"], "blocked")
+        self.assertIn("dependency", preview["refusal_reason"])
+
+
 
     def test_result_verb_guards_with_compare_and_swap(self):
         packet = self.claim("shared")   # revision advances to 2
@@ -182,6 +188,71 @@ class TestWorkClaims(WorkCase):
             bc.cmd_work_attach(args, stale)
 
 
+class TestFrontierProjection(WorkCase):
+    """`work frontier` explains the admission decision and changes nothing."""
+
+    def frontier(self, as_json=True):
+        args = argparse.Namespace(plan=str(self.plan_path), json=as_json)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_work_frontier(args, self.store)
+        return json.loads(out.getvalue()) if as_json else out.getvalue()
+
+    def test_frontier_writes_nothing(self):
+        before_revision = self.state()["revision"]
+        before_bytes = Path(self.state_path).read_bytes()
+        self.frontier()
+        self.assertEqual(self.state()["revision"], before_revision)
+        self.assertEqual(Path(self.state_path).read_bytes(), before_bytes)
+
+    def test_frontier_names_the_admitted_node_and_every_deferral(self):
+        projection = self.frontier()
+        self.assertEqual(projection["admitted"], ["shared"])
+        self.assertEqual(projection["next_ready"], "shared")
+        self.assertEqual([(d["id"], d["kind"]) for d in projection["deferred"]],
+                         [("adapter", dag.DEFER_DEPENDENCY)])
+        self.assertEqual(projection["critical_path"], {"shared": 2, "adapter": 1})
+        self.assertEqual(projection["admission_rank"], ["shared", "adapter"])
+
+    def test_frontier_refuses_a_plan_that_is_not_the_approved_one(self):
+        other = plan_v2(objective="A different graph entirely")
+        path = Path(self.temp.name) / "other.json"
+        path.write_text(json.dumps(other), encoding="utf-8")
+        args = argparse.Namespace(plan=str(path), json=True)
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not match"):
+            bc.cmd_work_frontier(args, self.store)
+
+    def test_frontier_human_render_carries_the_deferral_reason(self):
+        text = self.frontier(as_json=False)
+        self.assertIn("deferred adapter: dependency", text)
+        self.assertIn("shared[2]", text)
+
+    def test_the_claim_verb_recomputes_the_frontier_under_the_lock(self):
+        # The frontier the claim enforces is derived INSIDE store.mutate — from the state re-read
+        # under the lock, not from anything the caller sampled earlier. Proved by moving the graph
+        # underneath a claim that was admissible at call time: a sibling claim lands first (taking
+        # the only serial slot), and the second claim is refused on the re-read state.
+        self.write_plan(plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])]))
+        os.remove(self.state_path)
+        self.store = bc.StateStore(self.state_path)
+        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
+        self.store.create(state)
+        self.assertEqual(dag.claimable_set(self.plan_value, self.state()), ["a", "b"])
+        self.claim("a")
+        with self.assertRaisesRegex(bc.CoordinatorError, "capacity"):
+            self.claim("b")
+
+    def test_no_new_constraint_reaches_the_plan_validator_or_the_v2_schema(self):
+        # Ranking and deferrals are DERIVED; they add no rule about what a valid plan is. A
+        # conditional plan at max_concurrency 1 was sealable before this change and still validates —
+        # narrowing it would invalidate already-sealed records on read (plan_contract validates
+        # through this same single-homed function).
+        value = plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", ["a"])],
+                        mode="conditional", max_concurrency=1)
+        dag.validate_plan_document(value, bc.PLAN_SCHEMAS)
+        path = Path(self.temp.name) / "conditional.json"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        self.assertEqual(bc._plan(str(path))["parallelism"], {"mode": "conditional", "max_concurrency": 1})
 class TestResultEdges(WorkCase):
     def test_worker_failed_report_records_failure_and_derives_failed(self):
         packet = self.claim("shared")
