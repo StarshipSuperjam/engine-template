@@ -5955,7 +5955,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:f3e72cf31b8347a8fe41e67e9cbf3b099b0c0e2e419c2d47e35c36140969b474",
+        "fingerprint": "sha256:8ebcfd1c47c15534e2d784a8b2d1beacbb3113769d42735acf095964d41aabba",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -8021,6 +8021,40 @@
       "source": {
         "fingerprint": "sha256:d1f8026d48fd942e840be321c08abbda1d64a62de733a19a2e7de4df07ae789f",
         "path": ".engine/schemas/provisioning-catalog.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:selftest-run-record.v1",
+      "name": ".engine/schemas/selftest-run-record.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest-run-record.v1",
+      "source": {
+        "fingerprint": "sha256:fc5891fa602ced24fdb6c51c1f00c79eafc1c358755dc766710ff6c8ce5ffc17",
+        "path": ".engine/schemas/selftest-run-record.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:selftest-selection.v1",
+      "name": ".engine/schemas/selftest-selection.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest-selection.v1",
+      "source": {
+        "fingerprint": "sha256:9146f08c2917f4b9248001cb896ae0e53dd7ac31f4a263b60645db5cb9d14cd2",
+        "path": ".engine/schemas/selftest-selection.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -14596,17 +14630,44 @@
       "name": ".engine/tools/selftest.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:selftest_select"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:1811b818851e10a9c90bcb848a6e5f42938940fb91349dad51d0c585a08454f7",
+        "fingerprint": "sha256:362e5f74599717734d83b42f11d620c59b2abec4754465bc573a00e1213da810",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
       "summary": "Run the full self-test suite once, legibly — the canonical local full-suite launcher.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:selftest_select",
+      "name": ".engine/tools/selftest_select.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:knowledge_gen",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_select",
+      "source": {
+        "fingerprint": "sha256:601033fbbde5fb129aa2c1dfc4c921fe4317b88750a41c01acbc1d6acc8c2478",
+        "path": ".engine/tools/selftest_select.py"
+      },
+      "status": "active",
+      "summary": "Decide which self-test modules a set of changes can affect — conservatively, and never by guessing.",
       "type": "tool"
     },
     {
@@ -18917,12 +18978,13 @@
           "module:core"
         ],
         "tests": [
-          "tool:selftest"
+          "tool:selftest",
+          "tool:validate"
         ]
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:297221c9c47977a77e06a012158ac715da96018314761ccdbb8087f12a6bcafd",
+        "fingerprint": "sha256:c9138dab3182dc82ce87baf17f31c9134ab68603e18e9f1c17f94b3d20864ea0",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
@@ -18954,6 +19016,30 @@
       },
       "status": "active",
       "summary": "Hermeticity guards for the deployed self-test suite (engine-template #753).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_selftest_select",
+      "name": ".engine/tools/test_selftest_select.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:selftest_select",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_selftest_select",
+      "source": {
+        "fingerprint": "sha256:58ea197f2ea688aa7be200c8656e0b83ebb68a95f35c755e4274b3f627684b8a",
+        "path": ".engine/tools/test_selftest_select.py"
+      },
+      "status": "active",
+      "summary": "Regression fixture for the affected-test selector (selftest_select.py).",
       "type": "tool"
     },
     {
