@@ -205,6 +205,72 @@ class TestPlanAndSnapshot(CoordinatorCase):
         with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
             bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)
 
+    @staticmethod
+    def _from_issue(number=770, profile=None):
+        value = plan()
+        value["intent_source"] = {"kind": "issue", "issue": number}
+        if profile:
+            value["profile"] = profile
+        return value
+
+    def _bind_ok(self, value, **over):
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        with self.sealed(value=value), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_bind(self.bind_args(**over), self.store)
+
+    def test_an_unattended_bind_refuses_an_issue_the_sealed_plan_does_not_name(self):
+        """The replacement for the old Issue-carries-the-plan digest equality. With the plan held
+        locally the Issue and the plan are two artifacts, so an unrelated open Issue paired with an
+        arbitrary sealed plan must authorize nothing — and the refusal names both numbers, because the
+        operator's next move is deciding which of the two was the mistake."""
+        with self.sealed(value=self._from_issue(770, "routine")), \
+                self.assertRaisesRegex(bc.CoordinatorError, r"Issue #999 does not authorize this plan"):
+            bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=999), self.store)
+
+    def test_an_unattended_bind_refuses_a_plan_that_names_no_issue_at_all(self):
+        # The other half of the same hole: an Issue supplied against a plan with direct intent has
+        # nothing to correspond to, so supplying it proved nothing.
+        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+            bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)
+
+    def test_the_matching_issue_authorizes_an_unattended_bind_and_is_recorded(self):
+        self._bind_ok(self._from_issue(770, "routine"), mode="unattended", issue=770)
+        self.assertEqual(self.state()["plan"]["authorizing_issue"], 770)
+        self.assertEqual(self.state()["build"]["mode"], "unattended")
+
+    def test_neither_artifact_substitutes_for_the_other(self):
+        """Stated as the property rather than as two more incidental cases: supplying the Issue does
+        not excuse a plan that never named it, and holding a sealed plan does not excuse a missing
+        Issue. Each half is refused in its own words, so a session cannot satisfy one by producing the
+        other."""
+        with self.sealed(value=self._from_issue(770, "routine")), \
+                self.assertRaisesRegex(bc.CoordinatorError, "durable Issue for authorization"):
+            bc.cmd_plan_bind(self.bind_args(mode="unattended"), self.store)     # the plan alone
+        with self.sealed(), self.assertRaisesRegex(bc.CoordinatorError, "names no authorizing Issue"):
+            bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=770), self.store)   # the Issue alone
+
+    def test_a_mismatched_issue_is_refused_in_an_interactive_bind_too(self):
+        # --issue stays optional same-session (the operator is present), but one supplied in ANY mode
+        # must still correspond: a mismatch is a mistake worth catching wherever it is made.
+        with self.sealed(value=self._from_issue(770)), \
+                self.assertRaisesRegex(bc.CoordinatorError, r"sealed against Issue #770"):
+            bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
+
+    def test_an_interactive_bind_still_needs_no_issue(self):
+        self._bind_ok(self._from_issue(770))
+        self.assertIsNone(self.state()["plan"]["authorizing_issue"])
+
+    def test_the_profile_rule_is_reported_before_the_authorization_rule(self):
+        # A trivial plan bound unattended breaks both rules at once. The profile one is the root cause
+        # — no Issue could have made this bind legal — so reporting the other would send the operator
+        # hunting for the right Issue number for a Build that was never going to be unattended.
+        value = plan(); value["profile"] = "trivial"
+        with self.sealed(value=value), self.assertRaisesRegex(bc.CoordinatorError, "same-session only"):
+            bc.cmd_plan_bind(self.bind_args(mode="unattended", issue=None), self.store)
+
     def test_bind_refuses_a_v1_payload_and_names_the_way_forward(self):
         with self.sealed(value=plan_v1()), self.assertRaisesRegex(bc.CoordinatorError, "v1 no longer enters a Build"):
             bc.cmd_plan_bind(self.bind_args(), self.store)

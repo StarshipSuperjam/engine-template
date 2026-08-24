@@ -37,6 +37,11 @@ of every routine fire; the build's actual work follows the distributed-implement
 4. **Restore the Build from git, the sealed plan in the local library, and the exported handoff, then decide
    which of three situations holds.** The plan is the sealed `build-plan.v2` payload in the library — reviewed,
    settled and read-only — and the Issue is what AUTHORIZES this unattended run, not where the plan lives.
+   They are two separate artifacts now, so `plan bind` proves they are about the same work rather than
+   assuming it: the Issue passed with `--issue` must be the one the sealed plan's own recorded intent names.
+   A stale or unrelated open Issue paired with an arbitrary sealed plan authorizes nothing, and neither half
+   substitutes for the other — a plan without its Issue cannot run unattended, and an Issue without its plan
+   has nothing to run.
    Progress is not written back into the plan: completed item/commit pairs live in the coordinator snapshot
    and the exported handoff, corroborated by git. The next item is derived from those three sources.
    - **The sealed plan is missing, unsealed, or changed** — there is no authority to build against: exit

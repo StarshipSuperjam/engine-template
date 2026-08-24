@@ -7009,7 +7009,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:2ae601a704f48cd859d48727d3586cac6cdc983d1dd5030e6656d0a7aa290c50",
+        "fingerprint": "sha256:f761aba85ca3a6512e3d4d9e34c8394ca8385f6a55361248ce51fe933a6d1d37",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -7532,7 +7532,7 @@
       },
       "slug": "build-plan.v2",
       "source": {
-        "fingerprint": "sha256:179db290d0c687dd146f4b6b2059d46469fb7d4ce9bddfde2b319a655fba5036",
+        "fingerprint": "sha256:d7720fc1b0d2b7dad0116da89411ff556ba4f424830150e14f1524112fcbe2a2",
         "path": ".engine/schemas/build-plan.v2.json"
       },
       "status": "active",
@@ -9913,7 +9913,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7e826cabd67f673e0f73f0d992959e911accd68cd6707f8f9d407be2f89fe864",
+        "fingerprint": "sha256:c4dcdba3f79790292033d43b5fd13d6dee75733cdcc16c0eb8621d03d74b711c",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15777,7 +15777,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:d7bacf071e912f2e0dace165989ea9b8f2f564aed30174e2b45ddf3aa0150f10",
+        "fingerprint": "sha256:754c2265bf9d2d6a58a6bd546b8255e9956d21c9c5c040489bfd102ed9a2cf3f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15848,12 +15848,14 @@
           "module:core"
         ],
         "tests": [
-          "tool:build_coordinator_dag"
+          "tool:build_coordinator",
+          "tool:build_coordinator_dag",
+          "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:af803fd9403115828e351022b2742f4921273e6aaa3f33ad587ac5216f0af6c2",
+        "fingerprint": "sha256:81d1c8b67dfb2ca95c741a141b7a836d594a7859045f64f6084f3ebe6c4fedab",
         "path": ".engine/tools/test_build_coordinator_dag.py"
       },
       "status": "active",

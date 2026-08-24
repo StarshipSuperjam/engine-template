@@ -326,5 +326,47 @@ class TestAdmissionRankingAndDeferrals(unittest.TestCase):
         self.assertEqual(dag.next_ready(p, state(busy)), "a")
 
 
+class RoutineShapeRule(unittest.TestCase):
+    """The schema rule the unattended correspondence check leans on.
+
+    A routine plan's intent must have come from an Issue. That used to be the authority itself — the
+    durable Issue CARRIED the plan, so an Issue-derived intent was how an unattended Build proved it
+    held the right one, and bind compared digests. It is a SHAPE rule now, and the real work is done
+    by build_coordinator's correspondence check. What it still guarantees is that there IS a reference
+    for that check to compare against: without it a routine plan could be sealed naming no Issue, and
+    every unattended bind of it would then have nothing to check and would have to either refuse
+    always or trust anything.
+    """
+
+    @staticmethod
+    def _plan(intent_source, profile=None):
+        from test_build_coordinator import plan as build_plan
+        value = build_plan()
+        value["intent_source"] = dict(intent_source)
+        if profile:
+            value["profile"] = profile
+        return value
+
+    @staticmethod
+    def _schemas():
+        import build_coordinator as bc
+        return bc.PLAN_SCHEMAS
+
+    def test_a_routine_plan_whose_intent_is_direct_is_refused(self):
+        with self.assertRaises(dag.CoordinatorError):
+            dag.validate_plan_document(self._plan({"kind": "direct"}, "routine"), self._schemas())
+
+    def test_a_routine_plan_that_names_its_issue_validates(self):
+        value = self._plan({"kind": "issue", "issue": 770}, "routine")
+        self.assertEqual(dag.validate_plan_document(value, self._schemas()), "build-plan.v2")
+
+    def test_the_rule_binds_only_the_routine_profile(self):
+        # A normal plan may be authored from an Issue or from a direct instruction — the interactive
+        # operator is the authorization there, so nothing about its shape is forced.
+        for intent in ({"kind": "direct"}, {"kind": "issue", "issue": 770}):
+            self.assertEqual(dag.validate_plan_document(self._plan(intent), self._schemas()),
+                             "build-plan.v2")
+
+
 if __name__ == "__main__":
     unittest.main()

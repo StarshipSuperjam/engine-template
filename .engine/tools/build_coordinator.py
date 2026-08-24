@@ -604,6 +604,56 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
               "proceeds and the plan's record simply does not name this PR.", file=sys.stderr)
 
 
+def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
+    """Two artifacts, two authorities, and a check that they are about the same work.
+
+    Until the plan moved into the local library these were one thing: the durable Issue CARRIED the
+    plan, so an unattended Build that had the Issue necessarily had the plan, and `plan bind` proved it
+    by comparing digests. That equality is what the split removes, and deleting it without replacing it
+    would have quietly widened unattended authority — any open Issue plus any sealed plan would have
+    started a Build on work nobody connected the two to.
+
+    So the guarantee is rebuilt rather than dropped, in the only form two separate artifacts can carry
+    it: CORRESPONDENCE. The Issue remains the AUTHORIZATION — the durable, operator-visible record that
+    this work may run unattended — and the sealed plan remains the PLAN AUTHORITY, the reviewed document
+    that says what the work is. Neither substitutes for the other, and an unattended bind must show that
+    the one names the other. A stale Issue, an unrelated Issue, or an Issue the plan has never heard of
+    authorizes nothing.
+
+    The plan's own `intent_source` is the reference, because it was fixed when the plan was sealed: the
+    Issue number in it was reviewed and then locked, so it cannot be chosen at bind time to match
+    whatever Issue is convenient. Only the `--issue` argument is free to vary, and this is what pins it.
+
+    Interactive Builds keep their shape — `--issue` stays optional there, since a same-session Build is
+    authorized by the operator being present — but an Issue supplied in ANY mode must still correspond,
+    because a mismatch is a mistake worth catching wherever it happens.
+    """
+    intent = plan["intent_source"]
+    reference = intent["issue"] if intent["kind"] == "issue" else None
+    if mode == "unattended":
+        if issue is None:
+            raise CoordinatorError(
+                "unattended Builds require a durable Issue for authorization. The sealed plan is the "
+                "PLAN — what the work is — and it does not authorize its own unattended execution; the "
+                "Issue is the durable, operator-visible record that this work may run with nobody "
+                "watching. Pass it with --issue.")
+        if reference is None:
+            raise CoordinatorError(
+                "this sealed plan names no authorizing Issue, so there is nothing for --issue to "
+                f"correspond to and no way to show that Issue #{issue} is about this work. An "
+                "unattended Build needs both halves: a plan whose recorded intent came from an Issue, "
+                "and that same Issue supplied here. Bind it same-session instead, or plan the "
+                "unattended work from the Issue that authorizes it.")
+    if issue is not None and reference is not None and issue != reference:
+        raise CoordinatorError(
+            f"Issue #{issue} does not authorize this plan: the plan was sealed against Issue "
+            f"#{reference}, and an Issue that is not the one the plan was written from cannot vouch "
+            "for it. This is the check that replaced the old Issue-carries-the-plan equality — with "
+            "the plan held locally the two are separate artifacts, so bind proves they are about the "
+            "same work rather than assuming it. Supply the Issue the plan names, or bind a plan "
+            "written from the Issue you meant.")
+
+
 def cmd_plan_bind(args, store: StateStore) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
@@ -617,12 +667,16 @@ def cmd_plan_bind(args, store: StateStore) -> None:
             "the v1 migration decision rather than migrating a sealed plan, whose seal a migration "
             "would invalidate.")
     issue = args.issue
-    if mode == "unattended" and issue is None:
-        raise CoordinatorError("unattended Builds require a durable Issue for authorization")
+    # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
+    # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
+    # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the
+    # authorization failure there would send the operator hunting for the right Issue number for a
+    # Build that was never going to be unattended.
     if plan["profile"] == "trivial" and mode != "same-session":
         raise CoordinatorError("trivial Builds are same-session only")
     if plan["profile"] == "routine" and mode != "unattended":
         raise CoordinatorError("routine plans require unattended mode and durable Issue authority")
+    _check_authorization(plan, issue, mode)
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
