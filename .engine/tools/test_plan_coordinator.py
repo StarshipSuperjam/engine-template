@@ -1423,6 +1423,85 @@ class LedgerDiagnostics(_Governed):
         out = self.run_command("reopen", slug)[1]
         self.assertIn("was abandoned", out)
 
+class MarkerRobustness(_Governed):
+    """The intent marker is read by the integrity check, so anything that can appear beside it must
+    not be able to take that check down."""
+
+    def _redactable(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        return slug
+
+    def test_a_malformed_marker_is_ignored_rather_than_crashing_the_integrity_check(self):
+        # A cloud-sync "conflicted copy" is the obvious source, on exactly the volumes the store
+        # already warns about. A check that raises takes the whole plan's diagnostics with it.
+        slug = self._redactable()
+        for name in (".redacting-000001 (conflicted copy)", ".redacting-", ".redacting-abc",
+                     ".redacting-000001.tmp"):
+            (self.root / slug / "revisions" / name).write_text("x", encoding="utf-8")
+        self.assertEqual(self.lib.verify_chain(slug), [])
+        self.assertEqual(self.lib.interrupted_redactions(slug), [])
+        self.assertEqual(self.run_command("validate", slug)[0], 0)
+
+    def test_a_malformed_marker_does_not_crash_recover_either(self):
+        slug = self._redactable()
+        (self.root / slug / "revisions" / ".redacting-nonsense").write_text("x", encoding="utf-8")
+        code, out, err = self.run_command("recover", slug)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Traceback", err)
+        self.assertIn("Nothing to recover", out)
+
+    def test_a_leftover_marker_on_a_COMPLETED_redaction_is_not_reported_as_unfinished(self):
+        # The very last step is clearing the marker. A crash there leaves a redaction that genuinely
+        # finished, and reporting it as unfinished would send an operator to rotate a credential that
+        # was in fact excised.
+        slug = self._redactable()
+        self.lib.redact_revision(slug, 1, reason="a credential")
+        self.lib._write_intent(slug, {"revision": 1}, "stale")
+        self.assertEqual(self.lib.verify_chain(slug), [])
+
+    def test_a_marker_on_a_revision_whose_body_survives_is_still_reported(self):
+        # The safe direction must keep working: marked in the record but the body still on disk is a
+        # genuinely unfinished redaction and must not be swallowed by the rule above.
+        slug = self._redactable()
+        with mock.patch.object(plan_store.PlanLibrary, "_unlink_body", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self.lib.redact_revision(slug, 1, reason="a credential")
+        self.assertTrue(any("began and did not finish" in p for p in self.lib.verify_chain(slug)))
+
+
+class ImportToleratesADamagedNeighbour(_Governed):
+    def test_a_corrupt_unrelated_record_does_not_block_an_import(self):
+        slug, _ = self._plan(plan_id="pln_aaaaaaaaaaaa", title="Healthy plan")
+        (self.root / slug / "record.json").write_text("{ not json", encoding="utf-8")
+
+        source_root = Path(self._tmp.name) / "source"
+        source = plan_store.PlanLibrary(source_root)
+        source.create(_document(plan_id="pln_bbbbbbbbbbbb", title="Incoming plan"))
+        bundle = str(Path(self._tmp.name) / "b.json")
+        with contextlib.redirect_stdout(io.StringIO()):
+            plan_coordinator.main(["--library", str(source_root), "export",
+                                   source.slugs()[0], "--output", bundle])
+
+        code, out, err = self.run_command("import", "--bundle", bundle)
+        self.assertEqual(code, 0, err)
+        self.assertIn("pln_bbbbbbbbbbbb", out)
+        # And the incompleteness of the collision check is disclosed, not swallowed.
+        self.assertIn("that check is incomplete", err)
+        self.assertIn(slug, err)
+
+    def test_a_healthy_library_imports_without_any_warning(self):
+        source_root = Path(self._tmp.name) / "source"
+        source = plan_store.PlanLibrary(source_root)
+        source.create(_document(plan_id="pln_bbbbbbbbbbbb", title="Incoming plan"))
+        bundle = str(Path(self._tmp.name) / "b.json")
+        with contextlib.redirect_stdout(io.StringIO()):
+            plan_coordinator.main(["--library", str(source_root), "export",
+                                   source.slugs()[0], "--output", bundle])
+        code, _, err = self.run_command("import", "--bundle", bundle)
+        self.assertEqual(code, 0)
+        self.assertNotIn("incomplete", err)
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
         self.assertEqual(set(plan_coordinator.DEPTHS), {"light", "standard", "thorough"})

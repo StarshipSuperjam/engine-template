@@ -407,7 +407,16 @@ class PlanLibrary:
         head_rev = record["current"]["revision"]
         if not any(e["revision"] == head_rev for e in record["ledger"]):
             problems.append(f"the record's head points at revision {head_rev}, which is not in the ledger")
+        marked = {e["revision"] for e in record["ledger"] if "redacted" in e}
         for revision in self.interrupted_redactions(slug):
+            entry = next((e for e in record["ledger"] if e["revision"] == revision), None)
+            body_present = bool(entry) and (self.plan_dir(slug) / entry["snapshot"]).exists()
+            if revision in marked and not body_present:
+                # Marked AND the body is gone: the redaction finished and only the marker's own
+                # removal did not. Reporting that as unfinished would send an operator to rotate a
+                # credential that was in fact excised — over-cautious, but this claims every window
+                # reads truthfully, and a warning nobody can act on erodes the ones they should.
+                continue
             problems.append(
                 f"the redaction of revision {revision} began and did not finish, so its body may still "
                 f"be on disk even if the record says otherwise. Re-run `redact` on revision {revision} "
@@ -631,11 +640,23 @@ class PlanLibrary:
     def interrupted_redactions(self, slug: str) -> list:
         """Revisions whose redaction began and did not finish. A crash cannot hide one: the intent
         marker outlives it, so `verify_chain` can say 'interrupted, re-run redact' instead of either
-        reporting corruption or quietly vouching that a secret is gone."""
+        reporting corruption or quietly vouching that a secret is gone.
+
+        A marker whose name does not parse is IGNORED rather than raising. The glob can catch things
+        this store never wrote — a cloud-sync client's "conflicted copy" of a marker being the
+        obvious one, on exactly the volumes `volume_warning` exists to complain about. An integrity
+        check that crashes on a stray file takes the whole plan's diagnostics down with it, which is
+        strictly worse than overlooking a file that is not a marker.
+        """
         directory = self.plan_dir(slug) / REVISIONS_DIRNAME
         if not directory.is_dir():
             return []
-        return sorted(int(p.name.rsplit("-", 1)[1]) for p in directory.glob(".redacting-*"))
+        found = []
+        for path in directory.glob(".redacting-*"):
+            suffix = path.name[len(".redacting-"):]
+            if suffix.isdigit():
+                found.append(int(suffix))
+        return sorted(found)
 
     @staticmethod
     def _unlink_body(path: Path) -> None:

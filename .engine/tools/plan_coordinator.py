@@ -817,8 +817,21 @@ def cmd_import(args) -> int:
                 f"{entry['plan_digest']}, found {actual})")
         plan_contract.validate_document(body)
 
-    existing = next((s for s in library.slugs()
-                     if library.read_record(s)["plan_id"] == record["plan_id"]), None)
+    existing, unreadable = None, []
+    for candidate in library.slugs():
+        try:
+            if library.read_record(candidate)["plan_id"] == record["plan_id"]:
+                existing = candidate
+                break
+        except PlanCoordinatorError:
+            # A bit-rotted neighbour must not block an import that has nothing to do with it. But the
+            # collision check is now incomplete, so say so instead of quietly proceeding as though it
+            # had passed.
+            unreadable.append(candidate)
+    if unreadable:
+        print(f"warning: could not read {len(unreadable)} plan record(s) while checking for an id "
+              f"collision ({', '.join(unreadable)}), so that check is incomplete. Run `doctor` to see "
+              "what is wrong with them.", file=sys.stderr)
     if existing:
         # A collision is only benign when the content is genuinely identical. Otherwise two different
         # plans share an id, and every later reference to that id becomes ambiguous.
