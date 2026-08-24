@@ -213,8 +213,7 @@ class StateStore(core.StateStore):
 
 def _empty_review() -> dict:
     return {"packet_digest": None, "referent_digest": None, "required_lenses": [], "installed_lenses": [],
-            "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None,
-            "waiver": None}
+            "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
 
 
 # After this many repair rounds on one deliverable, the next round stops for operator guidance. Two is
@@ -235,12 +234,12 @@ def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: s
                  "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
                  "spec_digest": None, "authorizing_issue": issue, "profile": plan["profile"],
                  "bound_head": _head()},
-        "approval": None, "reviews": {"plan": _empty_review(), "deliverable": _empty_review()},
+        "approval": None, "reviews": {"deliverable": _empty_review()},
         "findings": [], "checkpoint": None, "progress": {"current_item": None, "completed": []},
         "validation": None, "repair": None,
         # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
         # a cap a cold resume silently zeroes is a cap with a published bypass.
-        "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [], "reconciles": [],
+        "repair_rounds": [], "plan_change_escalations": [], "reconciles": [],
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
@@ -268,12 +267,12 @@ def _issue_body(repo: str, issue: int) -> str:
 # the v1 sunset in the successor plan removes them together with the v1 schemas they serve.
 
 
-def _installed(stage: str) -> list[dict]:
-    return review.installed(ROOT, stage)
+def _installed() -> list[dict]:
+    return review.installed(ROOT)
 
 
-def _required(protocol: dict, stage: str, depth: str, installed: list[dict]) -> list[dict]:
-    return review.required(protocol, stage, depth, installed)
+def _required(protocol: dict, depth: str, installed: list[dict]) -> list[dict]:
+    return review.required(protocol, depth, installed)
 
 
 def _missing_findings(state: dict) -> list[str]:
@@ -284,24 +283,10 @@ def _missing_receipts(stage: dict) -> list[str]:
     return review.missing_receipts(stage)
 
 
-def _plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
-    ready, missing = review.plan_review_ready(state, plan)
-    stage = state["reviews"]["plan"]
-    waiver = stage.get("waiver")
-    trivial = plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick"
-    # The escalation belongs in this bypass too: a revision empties reviewer_contracts, so the freshness
-    # comparison below can never be satisfied afterwards and would wall the Build permanently. It carries no
-    # depth binding (unlike a waiver) because it is recorded at the moment a revision CLEARS approval, so
-    # there is no depth to bind -- the operator re-approves depth immediately after, as their own act.
-    if waiver or trivial or not state.get("approval") or review.plan_change_escalation(state):
-        return ready, missing
-    current = _required(_protocol(), "plan", state["approval"]["depth"], _installed("plan"))
-    recorded = {item["lens"]: (item["path"], item["digest"])
-                for item in stage.get("reviewer_contracts", [])}
-    changed = [item["lens"] for item in current
-               if recorded.get(item["lens"]) != (item["path"], item["digest"])]
-    missing.extend(f"refresh plan-review contract: {lens}" for lens in changed)
-    return not missing, missing
+# `_plan_review_ready` is gone, and with it the checkpoint and validate gates that called it. A Build
+# can no longer begin against an unreviewed plan, because it can no longer BEGIN against an unsealed one:
+# `plan bind` refuses anything without a seal, and a seal refuses a review that does not cover its
+# approved depth. The gate did not weaken; it moved upstream of the Build entirely.
 
 
 def _trivial_violations(state: dict, plan: dict) -> list[str]:
@@ -388,7 +373,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     head = _head()
     required_evidence, judgments, warnings = [], [], []
     unresolved_assumptions: list[str] = []
-    plan_stage, delivery = state["reviews"]["plan"], state["reviews"]["deliverable"]
+    delivery = state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
     blocking = [f["id"] for f in review.live_findings(state) if f["blocks_this_pr"]]
 
@@ -398,21 +383,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     trivial_violations = _trivial_violations(state, plan) if plan else []
     if plan and state["approval"]:
         _assert_spec_current(state, plan)
-    plan_waived = bool(plan_stage.get("waiver") and state.get("approval")
-                        and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
-                        and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
-    # An operator-authorized mid-flight plan change stands in for plan-review of the NEW digest -- and for
-    # nothing else. FOUR readers decide whether plan review is satisfied -- this evidence line, the plan-
-    # coverage refresh line, the plan_ready phase driver, and the _plan_review_ready wrapper the
-    # checkpoint/validate gate calls -- and every one of them must consult the same predicate. Two earlier
-    # attempts at this fixed a subset and left the Build wedged into a forced re-panel of a settled plan,
-    # each time behind a green test that stopped at a helper instead of the derived phase. It is kept OUT of
-    # plan_waived deliberately: folding it in also suppressed plan-review coverage refresh.
+    # Plan review is no longer a Build-side gate at all. It happened before this Build existed, on the plan
+    # side, and the seal is the receipt: a Build cannot bind an unsealed plan, and a seal refuses a review
+    # that does not cover its approved depth. What survives here is the DISCLOSURE of an operator-authorized
+    # mid-flight divergence from that seal, because that is the one case where the sealed record no longer
+    # describes what is being built.
     plan_escalation = review.plan_change_escalation(state)
-    if plan_stage["packet_digest"] is None and not fast_path and not plan_waived and not plan_escalation:
-        required_evidence.append("plan-review packet")
-    elif not plan_waived and not plan_escalation:
-        required_evidence.extend(f"plan-review receipt: {x}" for x in _missing_receipts(plan_stage))
     required_evidence.extend(f"finding disposition: {x}" for x in missing_findings)
     if blocking:
         judgments.append("resolve or deliberately re-disposition findings blocking this PR: " + ", ".join(blocking))
@@ -438,20 +414,16 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     protocol = _protocol()
     if state["approval"]:
         depth = state["approval"]["depth"]
-        current_plan = _required(protocol, "plan", depth, _installed("plan"))
-        current_delivery = _required(protocol, "deliverable", depth, _installed("deliverable"))
+        current_delivery = _required(protocol, depth, _installed())
         def contracts_current(current, recorded):
             actual = {item["lens"]: (item["path"], item["digest"])
                       for item in recorded.get("reviewer_contracts", [])}
             return all(actual.get(item["lens"]) == (item["path"], item["digest"]) for item in current)
-        plan_coverage_current = contracts_current(current_plan, plan_stage)
         delivery_coverage_current = contracts_current(current_delivery, delivery)
-        if not plan_coverage_current and not plan_waived and not plan_escalation:
-            required_evidence.append("refresh plan-review coverage for the currently installed reviewers")
         if delivery["packet_digest"] and not delivery_coverage_current:
             required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
     else:
-        plan_coverage_current = delivery_coverage_current = True
+        delivery_coverage_current = True
     passed = {x["id"] for x in state["preflights"] if x["commit"] == head and x["passed"]}
     required_preflights = [x for x in protocol["preflights"] if x["required"]]
     required_evidence.extend(f"green preflight: {x['id']}" for x in required_preflights if x["id"] not in passed)
@@ -460,8 +432,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if state["plan"].get("diverged_from_seal"):
         warnings.append(f"the executed plan differs from the sealed plan {state['plan']['plan_id']}; the "
                         "seal records what was reviewed, not what is being built")
-    if plan_stage.get("waiver"):
-        warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
     if plan_escalation:
         warnings.append("plan changed after review (operator-authorized, not re-reviewed): "
                         + plan_escalation["operator_change"])
@@ -510,9 +480,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                         + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
-    plan_ready = fast_path or plan_waived or bool(plan_escalation) or (
-        (plan_stage.get("referent_digest") or plan_stage["packet_digest"])
-        is not None and not _missing_receipts(plan_stage) and plan_coverage_current)
     dispositions_ready = not missing_findings and not blocking
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
@@ -525,8 +492,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
 
     if not approval_ready:
         phase, next_one, available = "planning", "approve the plan and review depth", []
-    elif not plan_ready:
-        phase, next_one, available = "plan-review", "prepare or complete the plan review", []
     elif not dispositions_ready:
         phase, next_one, available = "finding-disposition", None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
@@ -730,7 +695,7 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
                           "spec_digest": None, "profile": plan["profile"], "bound_head": _head(),
                           "diverged_from_seal": True})
     state["approval"] = None
-    state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
+    state["reviews"] = {"deliverable": _empty_review()}
     state["findings"] = []
     # Assumption dispositions are cycle-bound evidence, like findings and review receipts: a plan revision
     # re-authors the premises and re-reviews from scratch, so a stale disposition must not survive to silently
@@ -806,7 +771,7 @@ def cmd_approve(args, store: StateStore) -> None:
     def change(state):
         _assert_plan(state, plan)
         if state["approval"] and state["approval"]["depth"] != args.depth:
-            state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
+            state["reviews"] = {"deliverable": _empty_review()}
             state["findings"] = []
             state["validation"] = state["repair"] = state["pr_contract"] = None
             state["preflights"] = []
@@ -900,19 +865,17 @@ def cmd_depths(args, store: "StateStore | None") -> None:
     Needs no Build state (it reads the protocol, the installed personas, and the shipped/operator effort)."""
     import agent_bindings  # lazy: keep the coordinator's common path import-light, as cmd_validate does
     protocol = _protocol()
-    plan_roster = _installed("plan")
-    deliverable_roster = _installed("deliverable")
+    deliverable_roster = _installed()
     bindings = _bindings()
     efforts = {depth: agent_bindings.depth_effort(depth, bindings, root=str(ROOT))
                for depth in review.DEPTH_ORDER}
-    offered = review.available_depths(protocol, plan_roster, deliverable_roster, efforts)
+    offered = review.available_depths(protocol, deliverable_roster, efforts)
     detail = {}
     for depth in review.DEPTH_ORDER:
         detail[depth] = {
             "offered": depth in offered,
             "effort": efforts[depth],
-            "plan_lenses": [item["lens"] for item in _required(protocol, "plan", depth, plan_roster)],
-            "deliverable_lenses": [item["lens"] for item in _required(protocol, "deliverable", depth, deliverable_roster)],
+            "deliverable_lenses": [item["lens"] for item in _required(protocol, depth, deliverable_roster)],
         }
     if args.json:
         print(json.dumps({"available": offered, "depths": detail}, indent=2, sort_keys=True))
@@ -920,13 +883,12 @@ def cmd_depths(args, store: "StateStore | None") -> None:
     print("Available review depths (only those that add coverage or effort over a lighter one):")
     for depth in offered:
         d = detail[depth]
-        if not d["plan_lenses"] and not d["deliverable_lenses"]:
+        if not d["deliverable_lenses"]:
             print(f"  {depth}: no cold reviewers — your own read plus the automatic checks")
         else:
             effort = d["effort"] or "session default"
             # Name the lenses, not just their count, so the operator can see WHICH reviewer a heavier depth adds.
             print(f"  {depth}: reviewer effort {effort}")
-            print(f"      plan lenses: {', '.join(d['plan_lenses']) or 'none'}")
             print(f"      deliverable lenses: {', '.join(d['deliverable_lenses']) or 'none'}")
     collapsed = [depth for depth in review.DEPTH_ORDER if depth not in offered]
     if collapsed:
@@ -955,19 +917,23 @@ def _packet(args, store: StateStore | None) -> None:
     impact = json.loads(_input(args.impact)) if args.impact else {}
     protocol = _protocol()
     stage = args.stage
-    roster_stage = "plan" if stage == "plan" else "deliverable"
+    if stage == "plan":
+        raise CoordinatorError(
+            "the Build Coordinator runs one review, and it is the deliverable review. Plan review "
+            "happens on the plan side before the seal — `plan_coordinator.py review packet` — and a "
+            "Build cannot start on a plan that has not been through it.")
     installed = [item if isinstance(item, dict) else {
         "lens": item, "path": f"test-reviewer/{item}.md", "digest": _digest(item.encode())
-    } for item in _installed(roster_stage)]
+    } for item in _installed()]
     installed_names = [item["lens"] for item in installed]
     if getattr(args, "standalone", False):
         if stage == "repair":
-            raise CoordinatorError("standalone packets support plan or deliverable review, not repair state")
+            raise CoordinatorError("standalone packets support deliverable review, not repair state")
         canonical_spec = _canonical_spec(plan, repository=args.repository, check_issue=True)
-        required_contracts = _required(protocol, stage, args.depth, installed)
+        required_contracts = _required(protocol, args.depth, installed)
         required = [item["lens"] for item in required_contracts]
-        commit = None if stage == "plan" else args.commit
-        if stage == "deliverable" and (not commit or not args.base):
+        commit = args.commit
+        if not commit or not args.base:
             raise CoordinatorError("standalone deliverable packets require --commit and --base")
         packet_root = Path.cwd().resolve()
         stable = core.StableCommit(packet_root, "standalone deliverable review-packet construction") if commit else None
@@ -1020,10 +986,10 @@ def _packet(args, store: StateStore | None) -> None:
         if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
             raise CoordinatorError("green validation for the repaired commit is required before re-review")
     else:
-        required_contracts = _required(protocol, stage, state["approval"]["depth"], installed)
+        required_contracts = _required(protocol, state["approval"]["depth"], installed)
         required = [item["lens"] for item in required_contracts]
-        commit = None if stage == "plan" else _head()
-        if stage == "deliverable" and (not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"])):
+        commit = _head()
+        if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
             raise CoordinatorError("green validation for the current commit is required before deliverable review")
     stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
     if stable:
@@ -1038,17 +1004,15 @@ def _packet(args, store: StateStore | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
-    if stage != "plan":
-        declarations = _hard_check_declarations()
-        path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
-        referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
-                                                "for_lens": "spec-conformance"}
+    declarations = _hard_check_declarations()
+    path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
+    referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
+                                            "for_lens": "spec-conformance"}
     referent_digest = _digest(referent)
     contracts = review.lens_packets(referent_digest, required_contracts)
     packet = {**referent, "referent_digest": referent_digest, "reviewer_contracts": contracts}
     packet["packet_digest"] = _digest(packet)
-    if stage != "plan":
-        packet["artifacts"] = {"hard_check_declarations": {"path": path}}
+    packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
     # NOT gated here, by operator decision after a packet-level cap wedged the Build twice: it refused the
@@ -1058,9 +1022,8 @@ def _packet(args, store: StateStore | None) -> None:
     # followed a plan revision invalidating its receipts. A session voluntarily re-cutting an unchanged
     # packet was never the failure mode, and the operator's merge remains the wall.
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
-    # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
-    # implementation and drives no throwaway-copy execution, so it needs no baseline.
-    checkout_baseline = review_integrity.snapshot(str(ROOT)) if stage != "plan" else None
+    # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947).
+    checkout_baseline = review_integrity.snapshot(str(ROOT))
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
@@ -1078,7 +1041,7 @@ def _packet(args, store: StateStore | None) -> None:
             target.update({"packet_digest": packet["packet_digest"], "referent_digest": referent_digest,
                            "required_lenses": required, "installed_lenses": installed_names,
                            "reviewer_contracts": contracts, "receipts": preserved_receipts, "reviewed_commit": commit,
-                           "base_commit": packet["base_commit"], "waiver": None})
+                           "base_commit": packet["base_commit"]})
         # A finding lives exactly as long as a receipt still demands it -- derived, for BOTH branches, from
         # the single home in `review` rather than from a per-branch stage filter. The two old filters keyed
         # on `f["stage"] != stage`, which cut both ways: a repair regeneration deleted findings whose
@@ -1102,51 +1065,12 @@ def _packet(args, store: StateStore | None) -> None:
     _emit_packet(packet, args)
 
 
-def cmd_review_waive(args, store: StateStore) -> None:
-    if args.stage != "plan":
-        raise CoordinatorError("only retrospective plan review may be waived; deliverable review remains required")
-    def change(state):
-        if not state["approval"]:
-            raise CoordinatorError("approve the Build gate before recording an operator review waiver")
-        stage = state["reviews"]["plan"]
-        if stage["packet_digest"] or stage["receipts"] or any(f["stage"] == "plan" for f in state["findings"]):
-            raise CoordinatorError("plan review already started; disposition its findings instead of erasing evidence with a waiver")
-        if state["build"]["mode"] != "same-session" or state["plan"].get("profile") != "normal":
-            raise CoordinatorError("retrospective plan-review waiver is limited to same-session normal adoption")
-        if args.adopted_commit != state["plan"].get("bound_head") or args.adopted_commit != _head():
-            raise CoordinatorError("the waiver must bind the plan-bound adopted commit at current HEAD")
-        if state["progress"]["completed"] or state["checkpoint"]:
-            raise CoordinatorError("the Build has prospective coordinator progress; retrospective waiver is not applicable")
-        adoption_diff = _run(["git", "diff", "--quiet", f"{state['build']['base_at_bind']}..{args.adopted_commit}"])
-        if adoption_diff.returncode == 0:
-            raise CoordinatorError("retrospective waiver requires already-existing implementation to adopt")
-        if adoption_diff.returncode != 1:
-            raise CoordinatorError("could not verify the retrospective adoption diff")
-        stage.update({"packet_digest": None, "referent_digest": None,
-                      "required_lenses": [], "installed_lenses": [], "reviewer_contracts": [],
-                      "receipts": [], "reviewed_commit": None, "base_commit": None,
-                      "waiver": {"plan_digest": state["plan"]["digest"],
-                                 "depth": state["approval"]["depth"], "reason": args.reason,
-                                 "adopted_commit": args.adopted_commit}})
-        state["findings"] = [f for f in state["findings"] if f["stage"] != "plan"]
-    store.mutate(change)
-    print("recorded explicit operator waiver of retrospective plan review; no review receipt was synthesized")
-
-
-def _record_plan_panel(state: dict, stage: dict) -> None:
-    """Upsert this plan digest's panel entry as its receipts land. Keyed BY PLAN DIGEST, so a single
-    lens re-run forced by a changed reviewer contract re-completes the SAME entry rather than reading as
-    a second panel. Carries the lenses and finding ids so a later reader knows what the panel actually
-    found, not merely that one occurred."""
-    digest = state["plan"]["digest"]
-    entry = next((e for e in state.setdefault("plan_panels", []) if e["plan_digest"] == digest), None)
-    if entry is None:
-        entry = {"plan_digest": digest, "depth": state["approval"]["depth"], "lenses": [],
-                 "finding_ids": [], "complete": False}
-        state["plan_panels"].append(entry)
-    entry["lenses"] = sorted({r["lens"] for r in stage["receipts"]})
-    entry["finding_ids"] = sorted({fid for r in stage["receipts"] for fid in r.get("finding_ids", [])})
-    entry["complete"] = bool(stage.get("reviewer_contracts")) and not review.missing_receipts(stage)
+# `review waive` is gone. Its precondition — a Build that started before its plan was reviewed — became
+# unreachable when the seal became the only door: a sealed plan HAS been reviewed to its approved depth,
+# and an unsealed one cannot bind at all. A waiver for a gate that cannot fail is not a safety valve; it
+# is a bypass looking for a reason, so it leaves with the gate. Deliverable review was never waivable and
+# still is not. `_record_plan_panel` and the `plan_panels` ledger go with it: a Build-side panel ledger
+# that can never gain an entry is a field nobody can read anything true out of.
 
 
 def cmd_review_record(args, store: StateStore) -> None:
@@ -1183,7 +1107,11 @@ def cmd_review_record(args, store: StateStore) -> None:
                 if target.get("base_commit"):
                     delivery["base_commit"] = target["base_commit"]
         else:
-            target = state["reviews"][args.stage]
+            if args.stage != "deliverable":
+                raise CoordinatorError(
+                    "the Build Coordinator records one review, and it is the deliverable review; plan "
+                    "review is recorded on the plan side, before the seal")
+            target = state["reviews"]["deliverable"]
             if target["packet_digest"] != args.packet_digest:
                 raise CoordinatorError("receipt does not match the current review packet")
             if args.lens not in target["required_lenses"]:
@@ -1199,8 +1127,6 @@ def cmd_review_record(args, store: StateStore) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
-            if args.stage == "plan":
-                _record_plan_panel(state, target)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
@@ -1235,8 +1161,7 @@ def cmd_finding_record(args, store: StateStore) -> None:
         if live_offers:
             packet = live["packet_digest"]
             lens_packet_digest = contract["lens_packet_digest"]
-            commit = None if args.stage == "plan" else (
-                live["final_commit"] if args.stage == "repair" else live["reviewed_commit"])
+            commit = live["final_commit"] if args.stage == "repair" else live["reviewed_commit"]
         elif by_receipt:
             receipt = by_receipt[1]
             packet = receipt["packet_digest"]
@@ -1321,9 +1246,6 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         _assert_spec_boundary(state, plan, allow_same_session_offline=True)
         if not state["approval"]:
             raise CoordinatorError("the Build gate is not approved")
-        plan_ready, missing_review = _plan_review_ready(state, plan)
-        if not plan_ready:
-            raise CoordinatorError("implementation cannot begin before plan review: " + "; ".join(missing_review))
         unearned = _unearned_completions(state)
         if unearned:
             raise CoordinatorError(
@@ -1379,9 +1301,6 @@ def _derived_drift() -> list:
 def cmd_validate(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
-    plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
-    if not plan_ready:
-        raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
     unearned = _unearned_completions(state)
     if unearned:
         raise CoordinatorError(
@@ -1795,7 +1714,7 @@ def cmd_repair_assess(args, store: StateStore) -> None:
     if args.judgment == "scoped" and not lenses:
         raise CoordinatorError("a scoped judgment must name at least one --lens")
     if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "deliverable", "thorough", _installed("deliverable"))]
+        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
     # A round is counted when it STARTS, and counted irrespective of judgment. Counting only completed
     # scoped/full rounds would leave two holes: an abandoned fan-out costs full price yet would count
     # zero, and gating only the reviewed path would make `none` -- "no re-review needed" -- the
@@ -2003,7 +1922,7 @@ def _handoff(state: dict) -> dict:
              # Cadence ledgers cross the handoff boundary: a cold resume that zeroed them would hand the
              # continuing session a fresh free panel and fresh repair rounds. They carry digests, lens
              # names, finding ids and counts only -- nothing the redaction discipline above applies to.
-             "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", []),
+             "repair_rounds": state.get("repair_rounds", []),
              "plan_change_escalations": state.get("plan_change_escalations", []),
              "reconciles": state.get("reconciles", [])}
     if is_v2:
@@ -2070,7 +1989,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", []),
+            "repair_rounds": value.get("repair_rounds", []),
             "plan_change_escalations": value.get("plan_change_escalations", []),
             "reconciles": value.get("reconciles", [])}
 
@@ -2604,19 +2523,75 @@ def _assert_claim_findings(state: dict, claim: dict) -> None:
             + " (re-run `contract template` against current state, or reconcile the finding ids)")
 
 
+def _sealed_plan_review(state: dict) -> dict | None:
+    """The plan review recorded on the SEALED PLAN, read from the library at compose time.
+
+    This is where plan-review evidence lives now, and reading it here rather than mirroring it into
+    build-state is what makes the disclosure immune to the supersession rule: a finding that no live
+    Build receipt demands loses its weight in `surviving_findings`, and a plan finding has no Build
+    receipt at all. Structural immunity rather than a flag to remember to set.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return None
+    try:
+        library = _library()
+        record = library.read_record(library.resolve(plan_id))
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return None
+    return record.get("plan_review")
+
+
 def _plan_review_clause(state: dict) -> str:
-    """The PR body's one sentence about whether the SHIPPED plan was reviewed. Its own named seam because
-    four distinct situations reach it and each needs a different true sentence -- keying on receipt-
-    emptiness alone told a waived Build that its panel had read an earlier plan and pointed it at an
-    escalation line that did not exist, swapping one false statement for another."""
-    if state.get("reviews", {}).get("plan", {}).get("receipts"):
-        return "Plan review ran before any code"
-    if state.get("reviews", {}).get("plan", {}).get("waiver"):
-        return "No plan review ran — the operator explicitly waived it for this Build"
-    if review.plan_change_escalation(state):
-        return ("The shipped plan was NOT reviewed — its panel read an earlier version and the change was "
-                "authorized without re-review (see the escalation above)")
-    return "No plan review is recorded for the shipped plan"
+    """The PR body's one sentence about whether the SHIPPED plan was reviewed.
+
+    Its own named seam because distinct situations reach it and each needs a different true sentence.
+    """
+    plan_review = _sealed_plan_review(state)
+    diverged = state.get("plan", {}).get("diverged_from_seal")
+    depth = (state.get("approval") or {}).get("depth", "the approved")
+    if plan_review and diverged:
+        return (f"The sealed plan was reviewed at {depth} depth by "
+                + ", ".join(plan_review.get("lenses", [])) +
+                ", but what was BUILT differs from it on recorded operator authority (see the "
+                "escalation above), so the review does not cover the delta")
+    if plan_review:
+        return ("Plan review ran before any code, on the plan side: "
+                + ", ".join(plan_review.get("lenses", [])) + " read the sealed plan")
+    if diverged:
+        return ("The shipped plan differs from the sealed plan on recorded operator authority, and no "
+                "cold plan review is recorded for either")
+    return ("No cold plan review is recorded — the plan was sealed at a depth that runs no plan lenses, "
+            "so the operator's own read is its review")
+
+
+def _plan_finding_lines(state: dict) -> list[str]:
+    """The sealed plan review's findings and their dispositions, for the merge surface.
+
+    A plan review that found blocking problems must be VISIBLE at merge, whatever was decided about
+    them. Rendered from the plan record, so nothing in the Build's own receipt bookkeeping can strip
+    them.
+    """
+    plan_review = _sealed_plan_review(state)
+    lines = []
+    for finding in (plan_review or {}).get("findings", []):
+        disposition = finding.get("disposition") or "undispositioned"
+        summary = finding.get("operator_summary") or finding["summary"]
+        blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
+        lines.append(f"- **Plan finding `{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
+                     f"{disposition}){blocks}. {summary}")
+    return lines
+
+
+def _plan_disagreement_lines(state: dict) -> list[str]:
+    """A blocking plan finding that was NOT left blocking is a disagreement the operator must meet."""
+    plan_review = _sealed_plan_review(state)
+    lines = []
+    for finding in (plan_review or {}).get("findings", []):
+        if finding["severity"] == "blocking" and not finding.get("blocks_this_pr"):
+            summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
+            lines.append(f"- Plan-review disagreement `{finding['id']}`: {summary}")
+    return lines
 
 
 def _drift_line(state: dict, head: str) -> str:
@@ -2720,10 +2695,10 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # recorded no cold-review receipts) no lens ran, so naming the installed lenses as having "ran after"
     # would be a false claim in the PR body — the honesty defect this line must not commit. Key the sentence
     # on the recorded receipts, not on the installed set.
-    plan_review_ran = bool(state.get("reviews", {}).get("plan", {}).get("receipts", []))
+    plan_review_ran = bool(_sealed_plan_review(state))
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     if cold_review_ran:
-        lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+        lenses = ", ".join(sorted(x["lens"] for x in _installed())) or "no installed deliverable lenses"
         plan_clause = _plan_review_clause(state)
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
     else:
@@ -2733,8 +2708,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
     # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
     # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
-    receipts = [r for stage in ("plan", "deliverable")
-                for r in state.get("reviews", {}).get(stage, {}).get("receipts", [])]
+    receipts = list(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
     if missing:
         raise CoordinatorError(
@@ -2779,16 +2753,13 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # packet level was removed, a session could escalate and then cut a fresh panel on the new plan, which
     # made the body assert both "Plan review ran before any code" and "was NOT re-reviewed" about the same
     # plan. The authorization is disclosed either way; only the claim about review is conditional.
-    re_reviewed = bool(state.get("reviews", {}).get("plan", {}).get("receipts"))
     for item in state.get("plan_change_escalations", []):
-        if re_reviewed:
-            cadence_escalations.append(
-                f"the plan changed after its review panel, on recorded operator authority, and was "
-                f"subsequently re-reviewed: {item['operator_change']}")
-        else:
-            cadence_escalations.append(
-                f"the plan changed after its review panel and was NOT re-reviewed, on recorded operator "
-                f"authority: {item['operator_change']}")
+        # A plan is sealed before a Build starts and a seal is terminal, so a mid-Build change is ALWAYS
+        # a change the panel did not read. There is no re-reviewed arm any more, because there is no way
+        # to re-review a sealed plan.
+        cadence_escalations.append(
+            f"the executed plan differs from the sealed plan its panel read, on recorded operator "
+            f"authority and without re-review: {item['operator_change']}")
     rounds = state.get("repair_rounds", [])
     for index, item in enumerate(rounds, start=1):
         if item.get("guidance"):
@@ -2804,7 +2775,8 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "spec_steps": spec_steps,
         "review_coverage": review_coverage,
         "code_execution_line": code_execution_line,
-        "disagreement_lines": review.required_disagreement_lines(state),
+        "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
+        "plan_finding_lines": _plan_finding_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
         "drift_line": drift_line,
@@ -3015,11 +2987,10 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
-    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
-    waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
+    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
-    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
+    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)

@@ -3,30 +3,35 @@
   "validation_commands": [
     {
       "id": "engine-ci",
-      "label": "Engine CI — the full mechanical check suite",
-      "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/validate.py", "--suite", "CI"]
+      "label": "Engine CI \u2014 the full mechanical check suite",
+      "command": [
+        "uv",
+        "run",
+        "--directory",
+        ".engine",
+        "--frozen",
+        "--",
+        "python",
+        "tools/validate.py",
+        "--suite",
+        "CI"
+      ]
     },
     {
       "id": "engine-selftest",
-      "label": "Engine self-tests — the full behavioural self-test run",
-      "command": ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"]
+      "label": "Engine self-tests \u2014 the full behavioural self-test run",
+      "command": [
+        "uv",
+        "run",
+        "--directory",
+        ".engine",
+        "--frozen",
+        "--",
+        "python",
+        "tools/selftest.py"
+      ]
     }
   ],
-  "plan_review": {
-    "quick": [],
-    "standard": [
-      "product-intent",
-      "architecture",
-      "feasibility",
-      "risk-governance"
-    ],
-    "thorough": [
-      "product-intent",
-      "architecture",
-      "feasibility",
-      "risk-governance"
-    ]
-  },
   "deliverable_review": {
     "quick": [],
     "standard": [

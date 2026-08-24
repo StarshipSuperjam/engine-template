@@ -91,6 +91,13 @@ class _Dogfood(unittest.TestCase):
         self.lib = plan_store.PlanLibrary(self.root)
         self.addCleanup(self._tmp.cleanup)
 
+    def _packet_digest(self, slug):
+        """The digest of the packet the coordinator would really cut for this plan's head."""
+        import plan_coordinator
+        import plan_projection
+        return plan_coordinator.core.digest(
+            plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+
 
 class TheSeededPlanIsReal(_Dogfood):
     def test_it_validates_as_engine_plan_v1_unconditionally(self):
@@ -163,15 +170,24 @@ class TheFullDistance(_Dogfood):
         _run(library + ["review", "record", slug,
                         "--lens", "architecture", "--lens", "feasibility",
                         "--lens", "product-intent", "--lens", "risk-governance",
-                        "--packet-digest", self.lib.read_record(slug)["current"]["plan_digest"],
+                        # The receipt names the PACKET it read, and `review record` now re-renders and
+                        # compares — the plan digest is a different thing and no longer stands in for it.
+                        "--packet-digest", self._packet_digest(slug),
                         "--findings", str(findings_file)])
         return slug, document
 
     def _dispose_all(self, slug):
         for finding in self.lib.read_record(slug)["plan_review"]["findings"]:
             disposition, rationale = DISPOSITIONS[finding["id"]]
-            _run(["--library", str(self.root), "finding", "dispose", slug,
-                  "--id", finding["id"], "--disposition", disposition, "--rationale", rationale])
+            argv = ["--library", str(self.root), "finding", "dispose", slug,
+                    "--id", finding["id"], "--disposition", disposition, "--rationale", rationale]
+            # A BLOCKING finding that is not left blocking owes the operator a sentence they can read at
+            # merge — the disclosure rule that arrived with the panel. The dogfood walks the real path, so
+            # it pays the same price a real session does.
+            if finding["severity"] == "blocking":
+                argv += ["--operator-summary",
+                         f"{finding['id']} was raised as blocking and answered before the seal: {rationale}"]
+            _run(argv)
 
     def test_a_blocking_finding_leaves_an_editable_draft_and_no_seal(self):
         import plan_coordinator

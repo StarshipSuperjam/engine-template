@@ -115,11 +115,11 @@
     },
     {
       "id": "BO-14",
-      "intent": "Run cold plan review before implementation at approved coverage.",
+      "intent": "Run cold plan review at approved coverage before implementation \u2014 now upstream of the Build, where the seal refuses a review that does not cover its approved depth and a Build cannot bind an unsealed plan.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_checkpoint_requires_completed_plan_review"
+      "anchor": "test_the_plan_gate_and_its_waiver_are_both_unreachable"
     },
     {
       "id": "BO-15",

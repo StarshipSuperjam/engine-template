@@ -252,7 +252,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
         state = self.state()
         self.assertEqual(state["build"], before)
         self.assertIsNone(state["approval"])
-        self.assertIsNone(state["reviews"]["plan"]["packet_digest"])
+        self.assertIsNone(state["reviews"]["deliverable"]["packet_digest"])
 
     def test_unchanged_revision_preserves_evidence(self):
         self.seed(); self.approve()
@@ -263,9 +263,9 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_changing_approved_depth_clears_review_evidence(self):
         self.seed(); self.approve("standard")
-        self.store.mutate(lambda s: s["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64}))
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "1" * 64}))
         self.approve("thorough")
-        self.assertIsNone(self.state()["reviews"]["plan"]["packet_digest"])
+        self.assertIsNone(self.state()["reviews"]["deliverable"]["packet_digest"])
 
     def test_checkpoint_requires_approval(self):
         self.seed()
@@ -572,14 +572,28 @@ class TestNoPlanReachesGitHub(unittest.TestCase):
 
 
 class TestReviewAndFindings(CoordinatorCase):
+    """One review on this side, and it is the deliverable review.
+
+    The plan panel and everything that governed it — the panel ledger, the cadence cap, the retrospective
+    waiver, the plan stage on `review packet`/`review record` — moved to the plan side with the panel. What
+    stays here is the deliverable review, unchanged, and the DISCLOSURE of a plan that was revised away from
+    the seal it entered on.
+    """
+
     def setUp(self):
         super().setUp()
         self.seed(); self.approve("thorough")
+        self.integrate_all()
+        self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "self-test", "commit": HEAD_A, "passed": True, "summary": "green"}]}}))
 
-    def packet(self, stage="plan", head=HEAD_A, roster=None):
+    DELIVERABLE_LENSES = ["spec-conformance", "divergence-hunter", "usability",
+                          "technical-integrity", "security-governance"]
+
+    def packet(self, stage="deliverable", head=HEAD_A, roster=None):
         args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None)
         out = io.StringIO()
-        lenses = roster if roster is not None else (["product-intent", "architecture", "feasibility", "risk-governance"] if stage == "plan" else ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"])
+        lenses = roster if roster is not None else self.DELIVERABLE_LENSES
         with mock.patch.object(bc, "_installed", return_value=lenses), mock.patch.object(bc, "_head", return_value=head), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
             bc._packet(args, self.store)
         return json.loads(out.getvalue())
@@ -591,77 +605,77 @@ class TestReviewAndFindings(CoordinatorCase):
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
                                   code_execution="none")
 
-    # --- one design panel per Build (cost-cadence cap) ---------------------------------
-
     def complete_panel(self):
-        """Run the plan panel and receipt every lens, as a real Build does."""
-        pkt = self.packet("plan")
-        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
+        """Run the deliverable panel and receipt every lens, as a real Build does."""
+        pkt = self.packet()
+        for lens in self.DELIVERABLE_LENSES:
             with contextlib.redirect_stdout(io.StringIO()):
                 bc.cmd_review_record(self.receipt_args(pkt, lens, ["F-" + lens]), self.store)
         return pkt
 
-    def test_first_plan_panel_is_free_and_is_recorded_with_what_it_found(self):
-        self.complete_panel()
-        panels = self.state()["plan_panels"]
-        self.assertEqual(len(panels), 1)
-        entry = panels[0]
-        self.assertTrue(entry["complete"])
-        self.assertEqual(entry["plan_digest"], self.state()["plan"]["digest"])
-        self.assertEqual(entry["lenses"], ["architecture", "feasibility", "product-intent", "risk-governance"])
-        # The ack-free freeze still needs the panel's substance on record: a later reader must be able to
-        # see what it found, not merely that one ran.
-        self.assertEqual(entry["finding_ids"], sorted("F-" + x for x in
-                         ["product-intent", "architecture", "feasibility", "risk-governance"]))
+    # --- the plan stage is gone from this side ----------------------------------------
 
-    def test_a_reviewed_plan_is_frozen_against_unescalated_revision(self):
-        self.complete_panel()
-        self.write_plan(plan("A materially different intent."))
-        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False, operator_change=None)
-        with self.assertRaisesRegex(bc.CoordinatorError, "already been reviewed"):
-            bc.cmd_plan_revise(args, self.store)
-        # The refusal must name the escalation path, not just say no: a session told only "you cannot revise"
-        # is a session nudged into building on against a plan it already doubts.
-        with self.assertRaisesRegex(bc.CoordinatorError, "--operator-change"):
-            bc.cmd_plan_revise(args, self.store)
+    def test_a_plan_review_packet_is_refused_and_names_where_plan_review_lives(self):
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
+        with self.assertRaisesRegex(bc.CoordinatorError, "runs one review"):
+            bc._packet(args, self.store)
 
-    def test_operator_authorized_change_revises_without_re_running_the_panel(self):
-        self.complete_panel()
+    def test_the_parser_offers_no_plan_stage_and_no_waive_verb(self):
+        parser = bc.parser()
+        for argv in (["review", "packet", "--stage", "plan", "--plan", "x"],
+                     ["review", "record", "--stage", "plan", "--lens", "architecture",
+                      "--packet-digest", "x", "--lens-packet-digest", "y", "--code-execution", "none"],
+                     ["review", "waive", "--stage", "plan", "--reason", "r", "--adopted-commit", "c"],
+                     ["finding", "record", "--id", "F", "--stage", "plan", "--lens", "architecture",
+                      "--severity", "nit", "--summary", "s", "--disposition", "rejected",
+                      "--rationale", "r", "--does-not-block-this-pr"]):
+            with self.subTest(argv=argv[:3]), contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit):
+                parser.parse_args(argv)
+        self.assertFalse(hasattr(bc, "cmd_review_waive"))
+        self.assertFalse(hasattr(bc, "_record_plan_panel"))
+        self.assertFalse(hasattr(bc, "_plan_review_ready"))
+
+    def test_no_waiver_survives_anywhere_for_any_review(self):
+        # BC-12's waiver went with the gate it excused. The state's own shape is the assertion, because a
+        # field nothing writes is a field something can start writing again.
+        self.assertNotIn("waiver", bc._empty_review())
+        self.assertNotIn("waiver", json.dumps(self.state()["reviews"]))
+        schema = json.loads((bc.ROOT / ".engine" / "schemas" / "build-state.v2.json").read_text())
+        self.assertNotIn("waiver", json.dumps(schema["$defs"]["review_stage"]["properties"]))
+
+    def test_the_build_snapshot_carries_exactly_one_review_stage(self):
+        self.assertEqual(set(self.state()["reviews"]), {"deliverable"})
+        self.assertNotIn("plan_panels", self.state())
+
+    def test_the_build_protocol_no_longer_declares_a_plan_review_roster(self):
+        protocol = json.loads((bc.ROOT / ".engine" / "build-protocol.json").read_text())
+        self.assertNotIn("plan_review", protocol)
+        self.assertIn("deliverable_review", protocol)
+
+    # --- divergence from the seal, which is what survives of the escalation path -------
+
+    def test_an_authorized_revision_records_the_escalation_and_demands_no_plan_review(self):
         reviewed = self.state()["plan"]["digest"]
         self.write_plan(plan("A materially different intent."))
-        args = argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
-                                  operator_change="Operator: the API shape changed; adjust and ship without re-review.")
         with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_revise(args, self.store)
+            bc.cmd_plan_revise(self.revise_args(
+                operator_change="Operator: the API shape changed; adjust and ship without re-review."),
+                self.store)
         state = self.state()
         escalations = state["plan_change_escalations"]
         self.assertEqual(len(escalations), 1)
         self.assertEqual(escalations[0]["reviewed_plan_digest"], reviewed)
         self.assertEqual(escalations[0]["plan_digest"], state["plan"]["digest"])
-        # The panel is NOT re-run: no plan-review packet is demanded of the new digest...
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(state)
-        self.assertNotIn("plan-review packet", status["required_evidence"])
-        # ...and the gap is disclosed rather than hidden.
+        self.assertFalse([x for x in status["required_evidence"] if "plan-review" in x],
+                         status["required_evidence"])
         self.assertTrue(any("not re-reviewed" in w and "API shape changed" in w for w in status["warnings"]))
-
-    def test_receipts_are_never_rebound_to_the_changed_plan(self):
-        # The escalation authorizes shipping an unreviewed delta; it must not forge review OF that delta.
-        pkt = self.complete_panel()
-        self.write_plan(plan("A materially different intent."))
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
-                                                  operator_change="Operator: proceed."), self.store)
-        state = self.state()
-        self.assertEqual(state["reviews"]["plan"]["receipts"], [])
-        # The completed panel stays on record against the digest it actually read.
-        self.assertEqual([e["plan_digest"] for e in state["plan_panels"]], [pkt["plan_digest"]])
-        self.assertNotEqual(pkt["plan_digest"], state["plan"]["digest"])
 
     def test_revising_always_needs_recorded_operator_authority(self):
         # There is no free-iteration window left on the Build side. Every Build enters on a plan that was
-        # reviewed and sealed before any code was written, so changing it is always the operator's call —
-        # the wall no longer keys on a Build-side panel ledger that the panel move leaves permanently empty.
+        # reviewed and sealed before any code was written, so changing it is always the operator's call.
         self.write_plan(plan("A materially different intent."))
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 self.assertRaisesRegex(bc.CoordinatorError, "entered on a sealed plan"):
@@ -678,161 +692,108 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual([e["operator_change"] for e in state["plan_change_escalations"]],
                          ["The operator authorized this change."])
 
-    def test_a_contract_forced_lens_rerun_is_not_a_second_panel(self):
-        # A changed reviewer persona moves that lens's contract but NOT the plan digest, so the packet digest
-        # differs and the re-issue is legitimate. Re-running the one lens must re-complete the SAME ledger
-        # entry, never read as a fresh panel. The roster is spelled out as real contracts because a bare-name
-        # roster derives its digest FROM THE NAME — an identical packet, which tests the wrong thing.
+    def test_a_revision_clears_the_deliverable_receipts_it_invalidates(self):
+        # The escalation authorizes shipping an unreviewed delta; it must not forge review OF that delta.
         self.complete_panel()
-        changed = [{"lens": lens, "path": f"test-reviewer/{lens}.md",
-                    "digest": "sha256:" + ("9" * 64 if lens == "architecture" else "1" * 64)}
-                   for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
-        pkt = self.packet("plan", roster=changed)
-        with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "architecture", ["F-again"]), self.store)
-        panels = self.state()["plan_panels"]
-        self.assertEqual(len(panels), 1)
-        self.assertEqual(panels[0]["plan_digest"], self.state()["plan"]["digest"])
-
-    def test_an_escalated_plan_change_unwedges_the_enforcing_gate_not_just_status(self):
-        # The gate checkpoint/validate consult is a DIFFERENT function from the status render. When only
-        # status knew about the escalation, status reported plan review satisfied while the gate refused.
-        #
-        # The re-approve below is load-bearing and was missing the first time: a revision clears approval,
-        # and _plan_review_ready returns EARLY when approval is None, which masked the real defect behind a
-        # green test. Every real session re-approves before it can proceed, so the test must too — checking
-        # a state the workflow never reaches proves nothing.
-        self.complete_panel()
-        revised = plan("A materially different intent.")
-        self.write_plan(revised)
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
-                                                  operator_change="Operator: adjust and ship."), self.store)
-        self.approve("thorough")
-        self.assertIsNotNone(self.state()["approval"], "the workflow re-approves; the test must not skip it")
-        # Real contract dicts: _plan_review_ready calls _required directly, without _packet's coercion.
-        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
-                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
-        with mock.patch.object(bc, "_installed", return_value=roster):
-            ready, missing = bc._plan_review_ready(self.state(), revised)
-        self.assertTrue(ready, missing)
-        self.assertEqual(missing, [])
-
-    def escalate(self, text="Operator: adjust and ship."):
-        """Drive the FULL real escalation path: revise, then re-approve as any session must."""
-        revised = plan("A materially different intent.")
-        self.write_plan(revised)
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
-                                                  operator_change=text), self.store)
-        self.approve("thorough")
-        return revised
-
-    def test_an_escalated_build_leaves_plan_review_and_is_not_told_to_re_panel(self):
-        # This asserts on what a SESSION actually experiences -- the derived phase and the next action --
-        # not on an internal predicate. Two earlier attempts at this defect passed while the Build was still
-        # wedged, because they stopped at a helper. The observable behaviour is the contract.
-        self.complete_panel()
-        self.escalate()
-        roster = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "1" * 64}
-                  for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]]
-        with mock.patch.object(bc, "_installed", return_value=roster), \
-             mock.patch.object(bc, "_head", return_value=HEAD_A):
-            status = bc._status(self.state())
-        self.assertNotEqual(status["phase"], "plan-review", status["required_evidence"])
-        self.assertNotIn("plan-review packet", status["required_evidence"])
-        self.assertNotIn("refresh plan-review coverage for the currently installed reviewers",
-                         status["required_evidence"])
-        self.assertFalse([x for x in status["required_evidence"] if x.startswith("plan-review receipt")],
-                         status["required_evidence"])
-        # ...and the escalation is still disclosed, never silently swallowed.
-        self.assertTrue(any("not re-reviewed" in w for w in status["warnings"]))
-
-    def test_the_pr_body_states_honestly_why_no_plan_review_is_recorded(self):
-        # Asserts on the SENTENCE, not on a predicate: the previous version of this test checked only that
-        # plan_change_escalation returned non-None, so the three-way split shipped unguarded.
-        self.complete_panel()
-        state = self.state()
-        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
-
-        self.escalate()
-        escalated = self.state()
-        self.assertIn("was NOT reviewed", bc._plan_review_clause(escalated))
-        self.assertIn("earlier version", bc._plan_review_clause(escalated))
-
-        # A waived Build must NOT be told its panel read an earlier plan: no panel ever ran.
-        waived = json.loads(json.dumps(escalated))
-        waived["plan_change_escalations"] = []
-        waived["reviews"]["plan"]["waiver"] = {"plan_digest": waived["plan"]["digest"], "depth": "thorough",
-                                               "reason": "operator waived", "adopted_commit": HEAD_A}
-        clause = bc._plan_review_clause(waived)
-        self.assertIn("explicitly waived", clause)
-        self.assertNotIn("earlier version", clause)
-
-        # And neither: no claim either way.
-        neither = json.loads(json.dumps(escalated))
-        neither["plan_change_escalations"] = []
-        self.assertEqual(bc._plan_review_clause(neither), "No plan review is recorded for the shipped plan")
-
-    def test_the_body_never_claims_a_plan_was_both_reviewed_and_not_reviewed(self):
-        # Reachable only after the packet-level cap was removed: escalate, then cut a fresh panel on the new
-        # plan. The body would then assert "Plan review ran before any code" AND "was NOT re-reviewed" about
-        # the same plan. The authorization stays disclosed either way; only the review claim is conditional.
-        self.complete_panel()
-        self.escalate()
-        state = self.state()
-        self.assertEqual(bc._plan_review_clause(state).startswith("The shipped plan was NOT reviewed"), True)
-        # ...now a fresh panel completes against the revised plan.
-        pkt = self.packet("plan")
-        for lens in ["product-intent", "architecture", "feasibility", "risk-governance"]:
-            with contextlib.redirect_stdout(io.StringIO()):
-                bc.cmd_review_record(self.receipt_args(pkt, lens, []), self.store)
-        state = self.state()
-        self.assertEqual(bc._plan_review_clause(state), "Plan review ran before any code")
-        re_reviewed = bool(state["reviews"]["plan"]["receipts"])
-        self.assertTrue(re_reviewed)
-        # the escalation is still published, but as re-reviewed rather than contradicting the clause
-        line = (f"the plan changed after its review panel, on recorded operator authority, and was "
-                f"subsequently re-reviewed: {state['plan_change_escalations'][0]['operator_change']}")
-        self.assertNotIn("NOT re-reviewed", line)
-        self.assertIn("subsequently re-reviewed", line)
-
-    def test_re_cutting_a_plan_packet_is_deliberately_not_gated(self):
-        # Operator decision: the freeze in cmd_plan_revise is the whole enforcement. A packet-level cap was
-        # tried twice and wedged the Build both times -- a depth change or a lens install legitimately needs
-        # a re-cut, and refusing it left no exit but a faked plan edit. Pinned so the cap is not quietly
-        # reintroduced without revisiting why it was dropped.
-        self.complete_panel()
-        pkt = self.packet("plan")
-        self.assertTrue(pkt["reviewer_contracts"])
-        self.assertEqual(len(self.state()["plan_panels"]), 1)
-
-    def test_an_escalation_does_not_relax_deliverable_coverage(self):
-        # The first attempt folded the escalation into plan_waived, which also suppressed reviewer-coverage
-        # refresh. The escalation must satisfy plan review for its digest and NOTHING else.
-        self.complete_panel()
+        self.assertTrue(self.state()["reviews"]["deliverable"]["receipts"])
         self.write_plan(plan("A materially different intent."))
         with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), ack_visibility=False,
-                                                  operator_change="Operator: adjust and ship."), self.store)
+            bc.cmd_plan_revise(self.revise_args(), self.store)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"], [])
+
+    def test_a_divergence_does_not_relax_deliverable_coverage(self):
+        self.write_plan(plan("A materially different intent."))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_revise(self.revise_args(), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(self.state())
         self.assertIn("deliverable-review packet", status["required_evidence"])
 
-    def test_an_incomplete_panel_neither_frees_nor_blocks_a_revision(self):
-        # The panel ledger no longer decides this either way: authority does. An incomplete panel used to
-        # leave a free-edit window, and that window is what the seal closed.
-        pkt = self.packet("plan")
-        with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(pkt, "architecture", []), self.store)
-        self.assertFalse(self.state()["plan_panels"][0]["complete"])
+    # --- the PR body's plan-review sentence, now read from the sealed plan record ------
+
+    def _with_plan_review(self, review):
+        return mock.patch.object(bc, "_sealed_plan_review", return_value=review)
+
+    def test_the_pr_body_states_honestly_what_the_plan_review_was(self):
+        state = self.state()
+        recorded = {"lenses": ["architecture", "risk-governance"], "findings": []}
+        with self._with_plan_review(recorded):
+            self.assertIn("Plan review ran before any code", bc._plan_review_clause(state))
+            self.assertIn("architecture, risk-governance", bc._plan_review_clause(state))
+        with self._with_plan_review(None):
+            self.assertIn("No cold plan review is recorded", bc._plan_review_clause(state))
+        diverged = json.loads(json.dumps(state))
+        diverged["plan"]["diverged_from_seal"] = True
+        with self._with_plan_review(recorded):
+            clause = bc._plan_review_clause(diverged)
+            self.assertIn("what was BUILT differs from it", clause)
+            self.assertIn("does not cover the delta", clause)
+        with self._with_plan_review(None):
+            self.assertIn("no cold plan review is recorded for either",
+                          bc._plan_review_clause(diverged))
+
+    def test_the_body_cannot_claim_a_plan_was_both_reviewed_and_not_reviewed(self):
+        # The contradiction is now impossible by construction rather than by a conditional: a seal is
+        # terminal, so a mid-Build change can never be followed by a re-review of the sealed plan. Every
+        # escalation line therefore states the un-reviewed delta, with no re-reviewed arm to disagree with.
         self.write_plan(plan("A materially different intent."))
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                self.assertRaisesRegex(bc.CoordinatorError, "entered on a sealed plan"):
-            bc.cmd_plan_revise(argparse.Namespace(input=str(self.plan_path), operator_change=None), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_revise(self.revise_args(), self.store)
-        self.assertTrue(self.state()["plan"]["diverged_from_seal"])
+        source = Path(bc.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("subsequently re-reviewed", source)
+        self.assertIn("without re-review", source)
+
+    def test_a_plan_reviews_findings_and_disagreements_reach_the_merge_surface(self):
+        # The disclosure the panel move must not drop: what the plan review found, how it was answered, and
+        # any blocking finding that was decided not to block.
+        recorded = {"lenses": ["risk-governance"], "findings": [
+            {"id": "RISK-1", "lens": "risk-governance", "severity": "blocking",
+             "summary": "internal detail", "disposition": "accepted-tracked",
+             "rationale": "private", "blocks_this_pr": False,
+             "operator_summary": "The store is writable by anything on this workstation."},
+            {"id": "ARCH-2", "lens": "architecture", "severity": "serious",
+             "summary": "a seam is wrong", "disposition": "accepted-fixed", "rationale": "fixed",
+             "blocks_this_pr": False},
+        ]}
+        state = self.state()
+        with self._with_plan_review(recorded):
+            lines = bc._plan_finding_lines(state)
+            disagreements = bc._plan_disagreement_lines(state)
+        self.assertTrue(any("`RISK-1`" in x and "accepted-tracked" in x for x in lines), lines)
+        self.assertTrue(any("`ARCH-2`" in x and "accepted-fixed" in x for x in lines), lines)
+        self.assertEqual(len(disagreements), 1)
+        self.assertIn("RISK-1", disagreements[0])
+        self.assertIn("writable by anything", disagreements[0])
+        # ...and the internal summary never travels when an operator-safe one exists.
+        self.assertNotIn("internal detail", "\n".join(lines + disagreements))
+
+    def test_a_plan_finding_is_immune_to_build_side_receipt_supersession(self):
+        # Structural immunity, not a flag: plan findings never enter state["findings"], so the rule that
+        # strips a finding no live receipt demands cannot reach them. This is the silent-drop the review
+        # located, asserted by driving the mechanism that used to do the dropping.
+        recorded = {"lenses": ["risk-governance"], "findings": [
+            {"id": "RISK-1", "lens": "risk-governance", "severity": "blocking", "summary": "s",
+             "disposition": "accepted-tracked", "rationale": "r", "blocks_this_pr": False,
+             "operator_summary": "A residual the operator must weigh."}]}
+        pkt = self.complete_panel()
+        for lens in self.DELIVERABLE_LENSES:
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_finding_record(argparse.Namespace(
+                    id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="s",
+                    disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr=False,
+                    handoff_summary="s", operator_summary=None, private_reference=None), self.store)
+        # Regenerate the deliverable packet against MOVED reviewer contracts, which is what supersedes
+        # Build-side findings — the mechanism whose reach over plan findings is the subject here.
+        moved = [{"lens": lens, "path": f"test-reviewer/{lens}.md", "digest": "sha256:" + "9" * 64}
+                 for lens in self.DELIVERABLE_LENSES]
+        regenerated = self.packet(roster=moved)
+        self.assertNotEqual(regenerated["packet_digest"], pkt["packet_digest"])
+        state = self.state()
+        self.assertTrue(any(f.get("superseded") for f in state["findings"]),
+                        "fixture sanity: regeneration does supersede Build-side findings")
+        with self._with_plan_review(recorded):
+            self.assertEqual(len(bc._plan_disagreement_lines(state)), 1)
+            self.assertEqual(len(bc._plan_finding_lines(state)), 1)
 
     def test_packet_contains_exact_plan_raw_intent_and_digest(self):
         packet = self.packet()
@@ -850,18 +811,16 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(set(packet["required_lenses"]), set(packet["installed_lenses"]))
 
     def test_deliverable_packet_requires_green_validation(self):
+        self.store.mutate(lambda s: s.update({"validation": None}))
         args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green validation"):
             bc._packet(args, self.store)
 
     def test_deliverable_packet_captures_a_checkout_baseline(self):
         # the deliverable review packet snapshots the checkout so the submission preflight can verify the
-        # review fan-out did not mutate it (StarshipSuperjam/engine-template#947); a plan packet captures none.
+        # review fan-out did not mutate it (StarshipSuperjam/engine-template#947).
+        self.store.mutate(lambda s: s.update({"checkout_snapshot": None}))
         self.assertIsNone(self.state()["checkout_snapshot"])
-        self.packet(stage="plan")
-        self.assertIsNone(self.state()["checkout_snapshot"], "plan review needs no checkout baseline")
-        self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
-            {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
         self.packet(stage="deliverable")
         snap = self.state()["checkout_snapshot"]
         self.assertIsNotNone(snap, "the deliverable packet captures a checkout baseline")
@@ -912,21 +871,6 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(packet["schema_version"], "build-review-packet.v1")
         self.assertEqual(packet["plan"]["spec"]["posture"], "none")
 
-    def test_operator_can_waive_only_retrospective_plan_review(self):
-        adopted = self.state()["plan"]["bound_head"]
-        changed = subprocess.CompletedProcess([], 1, "", "")
-        with mock.patch.object(bc, "_head", return_value=adopted), mock.patch.object(bc, "_run", return_value=changed), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_waive(argparse.Namespace(stage="plan", reason="Implementation preceded the coordinator.", adopted_commit=adopted), self.store)
-        state = self.state()
-        self.assertEqual(state["reviews"]["plan"]["waiver"]["plan_digest"], state["plan"]["digest"])
-        with self.assertRaisesRegex(bc.CoordinatorError, "only retrospective plan review"):
-            bc.cmd_review_waive(argparse.Namespace(stage="deliverable", reason="not allowed", adopted_commit=adopted), self.store)
-
-    def test_plan_review_waiver_cannot_erase_started_review(self):
-        self.packet()
-        with self.assertRaisesRegex(bc.CoordinatorError, "already started"):
-            bc.cmd_review_waive(argparse.Namespace(stage="plan", reason="too late", adopted_commit=self.state()["plan"]["bound_head"]), self.store)
-
     def test_standalone_packet_needs_no_pr_or_snapshot(self):
         args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, standalone=True,
                                   repository="owner/repo", commit=HEAD_A, base=BASE, depth="thorough",
@@ -942,28 +886,37 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertNotIn('"raw_intent"', output.getvalue())
 
     def test_default_packet_output_is_concise_and_json_is_explicit(self):
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None, standalone=False,
-                                  output=None, json=False)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
+                                  standalone=False, output=None, json=False)
+        pins = lambda: (mock.patch.object(bc, "_installed", return_value=[]),
+                        mock.patch.object(bc, "_head", return_value=HEAD_A),
+                        mock.patch.object(bc, "_base", return_value=BASE))
         concise = io.StringIO()
-        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(concise):
+        with contextlib.ExitStack() as es:
+            for pin in pins():
+                es.enter_context(pin)
+            es.enter_context(contextlib.redirect_stdout(concise))
             bc._packet(args, self.store)
         self.assertEqual(len(concise.getvalue().splitlines()), 1)
         args.json = True
         verbose = io.StringIO()
-        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(verbose):
+        with contextlib.ExitStack() as es:
+            for pin in pins():
+                es.enter_context(pin)
+            es.enter_context(contextlib.redirect_stdout(verbose))
             bc._packet(args, self.store)
         self.assertIn('"raw_intent"', verbose.getvalue())
 
     def test_retrying_identical_packet_preserves_receipts_and_findings(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "product-intent", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="plan", lens="product-intent", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
         after = self.state()
         self.assertEqual(retried["packet_digest"], packet["packet_digest"])
-        self.assertEqual(after["reviews"]["plan"]["receipts"], before["reviews"]["plan"]["receipts"])
+        self.assertEqual(after["reviews"]["deliverable"]["receipts"], before["reviews"]["deliverable"]["receipts"])
         self.assertEqual(after["findings"], before["findings"])
 
     def test_retrying_deliverable_packet_ignores_random_artifact_transport_path(self):
@@ -978,14 +931,14 @@ class TestReviewAndFindings(CoordinatorCase):
 
     def test_review_receipt_must_attest_the_lens_packet_contract(self):
         packet = self.packet()
-        args = self.receipt_args(packet, "product-intent", [])
+        args = self.receipt_args(packet, "spec-conformance", [])
         args.lens_packet_digest = "sha256:" + "f" * 64
         with self.assertRaisesRegex(bc.CoordinatorError, "attest"):
             bc.cmd_review_record(args, self.store)
 
     def test_review_receipt_inventory_drives_disposition_completeness(self):
         packet = self.packet()
-        args = self.receipt_args(packet, "product-intent", ["PI-1"])
+        args = self.receipt_args(packet, "spec-conformance", ["PI-1"])
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(args, self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
@@ -995,15 +948,15 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_wrong_lens_disposition_does_not_satisfy_receipt(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "product-intent", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="plan", lens="architecture", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), ["PI-1"])
 
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(self.receipt_args(packet, "product-intent", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="plan", lens="product-intent", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
+            bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
         self.assertEqual(finding["disposition"], "rejected")
@@ -1012,12 +965,12 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_partial_acceptance_keeps_bounded_remedy(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="plan", lens="architecture", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr=False, handoff_summary="Bounded remedy chosen."), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="deliverable", lens="divergence-hunter", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr=False, handoff_summary="Bounded remedy chosen."), self.store)
         self.assertEqual(self.state()["findings"][0]["disposition"], "partially-accepted")
 
     def test_escalation_names_an_operator_owned_boundary(self):
         self.packet()
-        args = argparse.Namespace(id="A-2", stage="plan", lens="architecture", severity="serious",
+        args = argparse.Namespace(id="A-2", stage="deliverable", lens="divergence-hunter", severity="serious",
                                   summary="Boundary", disposition="escalated", rationale="Changes authority.",
                                   escalation_kind=None, blocks_this_pr=True, handoff_summary=None)
         with self.assertRaisesRegex(bc.CoordinatorError, "operator-owned"):
@@ -1026,7 +979,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_engineering_blocker_remains_orchestrator_work(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_finding_record(argparse.Namespace(id="A-3", stage="plan", lens="architecture", severity="blocking",
+            bc.cmd_finding_record(argparse.Namespace(id="A-3", stage="deliverable", lens="divergence-hunter", severity="blocking",
                 summary="Engineering repair", disposition="accepted-fixed", rationale="Repair stays in approved design.",
                 escalation_kind=None, blocks_this_pr=True, handoff_summary=None), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
@@ -1041,10 +994,6 @@ class TestArtifactSync(CoordinatorCase):
     def setUp(self):
         super().setUp()
         self.seed(); self.approve("quick")
-        state = self.state()
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64, "required_lenses": [],
-                                         "installed_lenses": [], "receipts": []})
-        self.store.mutate(lambda s: s.update(state))
         self.integrate_all()
 
     def test_validate_pre_gate_refuses_on_drift_naming_the_sync_command(self):
@@ -1175,9 +1124,6 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     def setUp(self):
         super().setUp()
         self.seed(); self.approve("quick")
-        state = self.state()
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64, "required_lenses": [], "installed_lenses": [], "receipts": []})
-        self.store.mutate(lambda s: s.update(state))
         self.integrate_all()
 
     def test_validation_records_every_result_against_head(self):
@@ -1301,8 +1247,6 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     def test_the_ledgers_survive_a_handoff_round_trip_and_a_legacy_restore(self):
         # Unauthorized work is also unverified work: carrying the ledgers across handoff reversed a stated
         # non-goal, so it needs its own coverage in both directions.
-        panels = [{"plan_digest": "sha256:" + "7" * 64, "depth": "standard", "lenses": ["architecture"],
-                   "finding_ids": ["F-1"], "complete": True}]
         rounds = [{"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "judgment": "scoped",
                    "lenses": ["usability"], "guidance": None}]
         escalations = [{"reviewed_plan_digest": "sha256:" + "7" * 64,
@@ -1310,9 +1254,9 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         restored = bc._restore_base_state(
             {"build": {}, "plan": {}, "approval": None, "reviews": {}, "finding_summaries": [],
              "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None,
-             "plan_panels": panels, "repair_rounds": rounds, "plan_change_escalations": escalations},
+             "repair_rounds": rounds, "plan_change_escalations": escalations},
             "build-state.v1")
-        self.assertEqual(restored["plan_panels"], panels)
+        self.assertNotIn("plan_panels", restored)
         self.assertEqual(restored["repair_rounds"], rounds)
         self.assertEqual(restored["plan_change_escalations"], escalations)
         # A handoff exported BEFORE this change carries none of these keys and must still restore, reading
@@ -1321,7 +1265,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             {"build": {}, "plan": {}, "approval": None, "reviews": {}, "finding_summaries": [],
              "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None},
             "build-state.v1")
-        self.assertEqual(legacy["plan_panels"], [])
+        self.assertNotIn("plan_panels", legacy)
         self.assertEqual(legacy["repair_rounds"], [])
         self.assertEqual(legacy["plan_change_escalations"], [])
 
@@ -1464,8 +1408,6 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.write_plan(value)
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, 11, "unattended")
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
-                                           "referent_digest": "sha256:" + "2" * 64})
         self.store = bc.StateStore(str(Path(self.temp.name) / "routine.json")); self.store.create(state)
         note = {"objective": "x", "current_work": "second", "work_item": "W2", "assumptions": [],
                 "non_goals": [], "planned_scope": ["README.md"], "remaining_verification": [], "judgment": "aligned"}
@@ -1952,9 +1894,12 @@ status: locked
         self.seed(); self.approve("thorough")
         canonical = {"posture": "settled", "documents": [{"criteria": [{"text": "exact criterion"}]}],
                      "review_steps": [{"operator_steps": ["exact criterion"]}], "digest": "sha256:" + "1" * 64}
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
-        with mock.patch.object(bc, "_assert_spec_current", return_value=canonical), mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(out):
+        self.integrate_all()
+        self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
+        with mock.patch.object(bc, "_assert_spec_current", return_value=canonical), mock.patch.object(bc, "_installed", return_value=[]), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
             bc._packet(args, self.store)
         self.assertEqual(json.loads(out.getvalue())["spec"], canonical)
 
@@ -2179,8 +2124,6 @@ class TestV2CompletionGate(CoordinatorCase):
         self.write_plan(self.v2)
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, self.v2, 11)
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
-                                         "referent_digest": "sha256:" + "2" * 64})
         self.store = bc.StateStore(str(Path(self.temp.name) / "v2-gate.json"))
         self.store.create(state)
 
@@ -2272,7 +2215,7 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertIn("shared", json.dumps(bc._handoff(state)))
 
     def test_the_retrospective_waiver_still_reads_injected_progress_as_prospective_work(self):
-        # Reader 2 of progress.completed, exercised through cmd_review_waive itself. The waiver's
+        # Reader 2 of progress.completed, exercised directly now that the waiver is gone. The
         # earlier guards refuse a Build that already has plan-review evidence, so this case builds a
         # snapshot that reaches the progress condition and nothing else.
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
@@ -2281,9 +2224,9 @@ class TestV2CompletionGate(CoordinatorCase):
             store = bc.StateStore(str(Path(self.temp.name) / "waiver.json"))
             store.create(state)
             store.mutate(lambda s: s["progress"]["completed"].append({"id": "shared", "commit": HEAD_A}))
-            args = argparse.Namespace(stage="plan", adopted_commit=HEAD_A, reason="adopted work")
-            with self.assertRaisesRegex(bc.CoordinatorError, "prospective coordinator progress"):
-                bc.cmd_review_waive(args, store)
+            # The waiver this used to exercise is gone; what still matters is that an injected
+            # completion is read as unearned wherever progress is inspected.
+            self.assertEqual(bc._unearned_completions(store.read()), ["shared"])
 
     def test_the_documented_remedy_actually_clears_the_gate(self):
         # The refusal is only half the requirement: the remedy it names must WORK. An unearned
@@ -2404,34 +2347,33 @@ class TestDepthsVerb(unittest.TestCase):
     def _roster(*lenses):
         return [{"lens": lens, "path": f".claude/agents/{lens}.md", "digest": "d"} for lens in lenses]
 
-    def _run(self, plan_roster, deliverable_roster, as_json=False):
-        def installed(stage):
-            return plan_roster if stage == "plan" else deliverable_roster
+    def _run(self, deliverable_roster, as_json=False):
         out = io.StringIO()
-        with mock.patch.object(bc, "_installed", side_effect=installed), contextlib.redirect_stdout(out):
+        with mock.patch.object(bc, "_installed", return_value=deliverable_roster), contextlib.redirect_stdout(out):
             bc.cmd_depths(argparse.Namespace(json=as_json), None)
         return out.getvalue()
 
     def test_full_roster_offers_all_three_with_stepped_effort(self):
-        plan_roster = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
         deliverable_roster = self._roster("spec-conformance", "divergence-hunter", "usability",
                                           "technical-integrity", "security-governance")
-        result = json.loads(self._run(plan_roster, deliverable_roster, as_json=True))
+        result = json.loads(self._run(deliverable_roster, as_json=True))
         self.assertEqual(result["available"], ["quick", "standard", "thorough"])
         self.assertIsNone(result["depths"]["quick"]["effort"])
         # Depth scales reviewer effort off the shipped review_depths defaults (standard steps down, thorough
         # holds the anchor); no operator override in the tree, so these are the shipped values.
         self.assertEqual(result["depths"]["standard"]["effort"], "medium")
         self.assertEqual(result["depths"]["thorough"]["effort"], "high")
-        # Standard's plan gate runs all four lenses (the reopened row) — coverage over per-lens depth.
-        self.assertEqual(len(result["depths"]["standard"]["plan_lenses"]), 4)
+        # Standard's deliverable gate runs its three lenses; the plan roster is no longer this verb's
+        # business, and the plan side offers its own depths from its own roster.
+        self.assertEqual(len(result["depths"]["standard"]["deliverable_lenses"]), 3)
+        self.assertNotIn("plan_lenses", result["depths"]["standard"])
 
     def test_zero_reviewers_collapse_to_quick_alone(self):
         # The #763 heart: with no installed reviewers every heavier depth buys nothing, so only quick is offered.
-        text = self._run([], [])
+        text = self._run([])
         self.assertIn("quick: no cold reviewers", text)
         self.assertIn("Collapsed", text)
-        result = json.loads(self._run([], [], as_json=True))
+        result = json.loads(self._run([], as_json=True))
         self.assertEqual(result["available"], ["quick"])
 
     def test_depths_needs_no_state(self):
@@ -2649,10 +2591,13 @@ class TestEvidenceDurability(CoordinatorCase):
                                   code_execution="none")
 
     def _plan_reviewed(self):
-        """Complete the plan panel so the phase driver can reach the later gates."""
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
+        """Complete the deliverable panel so the phase driver can reach the later gates."""
+        self.integrate_all()
+        self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
-        roster = ["product-intent", "architecture", "feasibility", "risk-governance"]
+        roster = ["spec-conformance", "divergence-hunter", "usability"]
         with mock.patch.object(bc, "_installed", return_value=roster), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
@@ -3020,18 +2965,17 @@ class TestEvidenceDurability(CoordinatorCase):
     def test_two_receipts_naming_one_finding_id_keep_both_demands(self):
         """A single-key map let the last receipt iterated win, silently dropping the other demand and
         deleting an already-recorded disposition at the next regeneration."""
-        state = {"reviews": {"plan": {"packet_digest": "sha256:" + "1" * 64, "receipts": [
+        state = {"reviews": {"deliverable": {"packet_digest": "sha256:" + "1" * 64, "receipts": [
                      {"lens": "architecture", "packet_digest": "sha256:" + "1" * 64,
                       "lens_packet_digest": "sha256:" + "a" * 64, "commit": None, "finding_ids": ["X-1"]},
                      {"lens": "usability", "packet_digest": "sha256:" + "1" * 64,
-                      "lens_packet_digest": "sha256:" + "b" * 64, "commit": None, "finding_ids": ["X-1"]}]},
-                     "deliverable": {"packet_digest": None, "receipts": []}},
+                      "lens_packet_digest": "sha256:" + "b" * 64, "commit": None, "finding_ids": ["X-1"]}]}},
                  "repair": None, "findings": []}
         demanded = bc.review.demanded_findings(state)
         self.assertEqual(len(demanded["X-1"]), 2)
         # Recorded under the FIRST receipt iterated, not the last: the old last-wins map kept the LAST
         # one's key, so a fixture using `usability` here passes against the defect and proves nothing.
-        state["findings"] = [{"id": "X-1", "stage": "plan", "lens": "architecture",
+        state["findings"] = [{"id": "X-1", "stage": "deliverable", "lens": "architecture",
                               "packet_digest": "sha256:" + "1" * 64,
                               "lens_packet_digest": "sha256:" + "a" * 64, "commit": None}]
         self.assertEqual(bc.review.missing_findings(state), [])
@@ -3193,7 +3137,7 @@ class TestEvidenceDurability(CoordinatorCase):
                  "plan": self.state()["plan"], "approval": self.state()["approval"],
                  "reviews": self.state()["reviews"], "finding_summaries": [],
                  "progress": {}, "validation": None, "repair": None, "preflights": [], "pr_contract": None,
-                 "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [],
+                 "repair_rounds": [], "plan_change_escalations": [],
                  "reconciles": [entry]}
         restored = bc._restore_base_state(value, "build-state.v1")
         self.assertEqual(restored["reconciles"], [entry])

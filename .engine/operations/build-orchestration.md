@@ -93,47 +93,43 @@ reconstruct an approved plan from a summary, transcript fragments, or implementa
 
 ### 2. Assess risk and approve the Build gate
 
-**Assess risk; offer only depths that add something.** Run the knowledge impact check, inspect installed review
-personas, and run `build_coordinator.py depths` — it lists the depths worth offering, dropping any that would run
-what a lighter one does (only Quick when no reviewers, StarshipSuperjam/engine-template#763), and prints each depth's resolved
-reviewer EFFORT. Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what
-review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no
-time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review record.
-
-The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
---depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved
-depth clears review coverage; progress prose does neither. An ordinary implementation leaf does not revise the plan —
-revision is warranted only when intent, outcome, capability boundary, non-goals, settled criteria, authority, or scope change.
-
-The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success
-obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one
-commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change,
-guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to
-`normal` and renewed approval.
-
-### 3. Run one cold plan review
-
-`review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
-plan, cited evidence supplied as impact input, settled criteria when present, installed and required lenses,
-protocol digest, and each required reviewer's source path and content digest. The approved depth determines
-required coverage; Thorough runs every installed lens. A changed reviewer contract invalidates only that lens's receipt; unchanged lenses remain current against the same referent.
+**Risk and depth are settled on the plan side, before the seal.** Run the knowledge impact check, then
+`plan_coordinator.py depths <plan>`: it lists only the depths worth offering for this repository's installed
+reviewers, dropping any that would run what a lighter one does (only Quick when no reviewers,
+StarshipSuperjam/engine-template#763), with each depth's resolved reviewer EFFORT.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
+Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see
+`model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review
+record.
 
-Cold reviewers judge product intent, architecture, feasibility, and risk/governance within their independent
-mandates. Record each receipt and its finding IDs. Then critically adjudicate every finding under the finding
-policy. Accepting a concern does not mean accepting its remedy. A finding may be accepted and fixed, accepted
-and tracked, partly accepted with a bounded remedy, rejected with rationale, or escalated for a genuine
-operator decision. Record separately whether it still blocks this PR. Severity alone never blocks.
-Before involving the operator, synthesize the plan-review findings into one recommended call and state its
-tradeoff; never relay a stack of raw reviewer outputs as the decision surface.
-Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
-leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
-Normal and Routine implementation checkpoints remain closed until this review's required receipts and
-finding dispositions are complete and no plan finding remains explicitly blocking.
-When a completed implementation is adopted after this before-code gate, the operator may explicitly waive the
-now-retrospective plan review only for a same-session normal Build bound to that already-implemented commit;
-record the commit and reason, disclose the waiver, and never fabricate receipts. Routine and prospective work
-cannot use the waiver.
+The operator approves plan and depth together with `plan_coordinator.py approve <plan> --depth
+quick|standard|thorough`. **That one choice covers both gates**: it names the lenses the seal will require, and
+it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
+`approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved
+depth clears review coverage, and progress prose does not. A sealed plan's revision is always the operator's
+call, recorded with `--operator-change` and disclosed at merge.
+
+The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change, guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to `normal` and renewed approval.
+
+### 3. The plan review already happened
+
+There is no plan review on this side. There is exactly one cold plan review per plan, run on the plan side
+against the approved revision before the seal — `review packet` cuts it, `review record` files the one receipt
+(re-rendering the packet and refusing a mismatched digest), `finding dispose` answers each finding, and `seal`
+refuses while the recorded lenses do not cover the approved depth's roster. A bound plan is a reviewed plan by
+construction, which is why this side has no plan-review gate and no waiver for one.
+
+Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
+be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
+escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the
+operator, synthesize the findings into one recommended call and state its tradeoff; never relay raw reviewer
+outputs as the decision surface. Return to the operator only when the review changes design, law, authority, or
+the agreed capability boundary, or leaves a genuine operator decision unresolved.
+
+What the Build still owes is DISCLOSURE. The composed PR contract renders the sealed plan review's findings,
+their dispositions, and a disagreement line for any blocking finding decided not to block — read from the plan
+record, so the Build's own receipt bookkeeping cannot strip them. A plan revised away from its seal has that
+divergence disclosed too, with the review stated as not covering the delta.
 
 ### 4. Implement and reground
 

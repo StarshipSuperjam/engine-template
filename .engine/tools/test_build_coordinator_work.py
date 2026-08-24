@@ -524,8 +524,6 @@ class TestStatusV2(WorkCase):
         self.write_plan(value)
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, 11, "unattended")
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
-                                         "referent_digest": "sha256:" + "2" * 64})
         os.remove(self.state_path)
         self.store.create(state)
         note = {"objective": "x", "current_work": "later item", "work_item": "adapter", "assumptions": [],

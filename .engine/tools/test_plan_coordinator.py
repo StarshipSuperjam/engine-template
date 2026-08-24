@@ -347,13 +347,26 @@ class _Governed(_Surface):
         path.write_text(json.dumps(list(findings)), encoding="utf-8")
         return str(path)
 
-    def _to_reviewed(self, findings=(), **over):
+    def _packet_digest(self, slug):
+        """The digest of the packet the coordinator would actually cut — never the plan digest.
+
+        The two were interchangeable while nothing verified the receipt; now that `review record`
+        re-renders and compares, a receipt has to name the packet it really read."""
+        import plan_projection as _pp
+        return plan_coordinator.core.digest(
+            _pp.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+
+    def _covering_lenses(self, depth="standard"):
+        """Every lens the approved depth requires — the seal refuses anything short of it."""
+        return plan_coordinator.required_lenses(depth, plan_coordinator.installed_lenses())
+
+    def _to_reviewed(self, findings=(), depth="standard", lenses=None, **over):
         slug, document = self._plan(**over)
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", "standard")[0], 0)
-        digest = self.lib.read_record(slug)["current"]["plan_digest"]
-        argv = ["review", "record", slug, "--lens", "architecture", "--lens", "risk-governance",
-                "--packet-digest", digest]
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth)[0], 0)
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
+        for lens in (lenses if lenses is not None else self._covering_lenses(depth)):
+            argv += ["--lens", lens]
         if findings:
             argv += ["--findings", self._findings(*findings)]
         self.assertEqual(self.run_command(*argv)[0], 0)
@@ -514,7 +527,16 @@ class SealRefusals(_Governed):
         code, _, err = self.run_command("seal", slug)
         self.assertEqual(code, 1)
         self.assertIn("has not been approved", err)
-        self.assertIn("no cold plan review", err)
+        # With no approval there is no depth, so no roster to demand — the review refusal is keyed on
+        # the approved depth's roster now, and reporting a coverage gap for a depth nobody chose would
+        # be noise. Approve, and the missing review is named alongside everything else still in the way.
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("no cold plan review has been recorded", err)
+        for lens in self._covering_lenses():
+            self.assertIn(lens, err)
 
 
 class SealIsTerminal(_Governed):
@@ -543,7 +565,7 @@ class SealIsTerminal(_Governed):
         slug, _ = self._to_reviewed()
         self.run_command("seal", slug)
         self.run_command("preview", slug)
-        code, _, err = self.run_command("approve", slug, "--depth", "light")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick")
         self.assertEqual(code, 2)
         self.assertIn("terminal", err)
 
@@ -950,7 +972,7 @@ class SingleMintedGatesUnderConcurrency(_Governed):
         slug, _ = self._plan()
         self.run_command("preview", slug)
         self.run_command("approve", slug, "--depth", "standard")
-        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        digest = self._packet_digest(slug)
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
                                           "--packet-digest", digest)[0], 0)
@@ -1181,7 +1203,7 @@ class ErrorLegibility(_Governed):
         findings.write_text(json.dumps([{"id": "A1", "lens": "architecture",
                                          "severity": "major", "summary": "s"}]), encoding="utf-8")
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
-                                        "--packet-digest", self.lib.read_record(slug)["current"]["plan_digest"],
+                                        "--packet-digest", self._packet_digest(slug),
                                         "--findings", str(findings))
         self.assertEqual(code, 2)
         self.assertIn("severity", err)
@@ -1195,7 +1217,10 @@ class ErrorLegibility(_Governed):
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
                                         "--packet-digest", "sha256:abc")
         self.assertEqual(code, 2)
-        self.assertIn("packet_digest", err)
+        # The receipt no longer has to be malformed to be caught: it has to be WRONG. The refusal names
+        # the digest given and the digest the approved revision actually renders to.
+        self.assertIn("sha256:abc", err)
+        self.assertIn(self._packet_digest(slug), err)
 
     def test_validate_reports_one_problem_once(self):
         slug, _ = self._plan()
@@ -1543,9 +1568,108 @@ class ImportToleratesADamagedNeighbour(_Governed):
         self.assertEqual(code, 0)
         self.assertNotIn("incomplete", err)
 
+class ThePanelMovedHere(_Governed):
+    """The enforcement that came across with the panel, not just the panel."""
+
+    def test_a_one_lens_review_at_thorough_is_refused_at_seal_naming_the_missing_lenses(self):
+        # The hole this closes: "a sealed plan is reviewed by definition" was an assumption. A single lens
+        # could seal a plan approved at thorough, and nothing said otherwise.
+        slug, _ = self._to_reviewed(depth="thorough", lenses=["architecture"])
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("missing", err)
+        for lens in self._covering_lenses("thorough"):
+            if lens != "architecture":
+                self.assertIn(lens, err)
+
+    def test_a_covering_review_seals(self):
+        slug, _ = self._to_reviewed(depth="thorough")
+        code, out, err = self.run_command("seal", slug)
+        self.assertEqual(code, 0, err)
+        self.assertIn("sealed", out)
+
+    def test_quick_needs_no_cold_lenses_and_still_seals(self):
+        # At quick the operator's own read IS the review, by their choice at approval. Demanding a recorded
+        # review anyway would make the depth unusable; the demand is keyed on the roster the depth requires.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick")[0], 0)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 0, err)
+
+    def test_a_receipt_naming_a_packet_nobody_cut_is_refused(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", "sha256:" + "4" * 64)
+        self.assertEqual(code, 2)
+        self.assertIn("renders to", err)
+        self.assertIn(self._packet_digest(slug), err)
+
+    def test_the_depth_offer_is_computed_from_the_installed_roster_with_resolved_effort(self):
+        roster = [{"lens": "architecture"}, {"lens": "feasibility"},
+                  {"lens": "product-intent"}, {"lens": "risk-governance"}]
+        efforts = {"quick": None, "standard": "medium", "thorough": "high"}
+        self.assertEqual(plan_coordinator.available_depths(roster, efforts=efforts),
+                         ["quick", "standard", "thorough"])
+        # A depth that buys nothing is suppressed: with no reviewers every heavier depth runs what quick
+        # runs, so only the floor is offered (the 763/677 protection, moved with the consent surface).
+        self.assertEqual(plan_coordinator.available_depths([], efforts=efforts), ["quick"])
+        # ...and with equal lens-sets AND equal effort, the heavier depth collapses too.
+        flat = {"quick": None, "standard": "medium", "thorough": "medium"}
+        self.assertEqual(plan_coordinator.available_depths(roster, efforts=flat), ["quick", "standard"])
+
+    def test_a_depth_that_buys_nothing_cannot_be_approved_either(self):
+        # Suppressing it from the offer is not enough if it can still be typed: consent spent on nothing
+        # is the failure, wherever it is spent.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        with mock.patch.object(plan_coordinator, "installed_lenses", return_value=[]):
+            code, _, err = self.run_command("approve", slug, "--depth", "thorough")
+        self.assertEqual(code, 2)
+        self.assertIn("not offered here", err)
+
+    def test_the_depths_verb_names_the_lenses_the_seal_will_require(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        out = self.run_command("depths", slug)[1]
+        for lens in self._covering_lenses("standard"):
+            self.assertIn(lens, out)
+        self.assertIn("only those that add coverage or effort", out)
+
+    def test_a_blocking_finding_left_unblocking_owes_an_operator_summary(self):
+        slug, _ = self._to_reviewed(findings=({"id": "RISK-1", "lens": "risk-governance",
+                                               "severity": "blocking",
+                                               "summary": "internal reviewer detail"},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
+                                        "--disposition", "accepted-tracked", "--rationale", "tracked")
+        self.assertEqual(code, 2)
+        self.assertIn("--operator-summary", err)
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
+                                        "--disposition", "accepted-tracked", "--rationale", "tracked",
+                                        "--operator-summary", "A residual the operator must weigh.")
+        self.assertEqual(code, 0, err)
+        finding = self.lib.read_record(slug)["plan_review"]["findings"][0]
+        self.assertEqual(finding["operator_summary"], "A residual the operator must weigh.")
+        self.assertFalse(finding["blocks_this_pr"])
+
+    def test_a_finding_left_blocking_is_recorded_as_blocking_and_holds_the_seal(self):
+        slug, _ = self._to_reviewed(findings=({"id": "RISK-2", "lens": "risk-governance",
+                                               "severity": "blocking", "summary": "s"},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-2",
+                                        "--disposition", "escalated", "--rationale", "operator's call",
+                                        "--blocks-this-pr", "--operator-summary", "Still blocking.")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self.lib.read_record(slug)["plan_review"]["findings"][0]["blocks_this_pr"])
+
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
-        self.assertEqual(set(plan_coordinator.DEPTHS), {"light", "standard", "thorough"})
+        self.assertEqual(set(plan_coordinator.DEPTHS), {"quick", "standard", "thorough"})
+        # ONE vocabulary across both coordinators, which is what lets a single consent cover both gates.
+        import build_coordinator_review as bcr
+        self.assertEqual(set(plan_coordinator.DEPTHS), set(bcr.DEPTH_ORDER))
 
     def test_every_status_the_surface_can_report_is_in_the_enumeration(self):
         for status in ("draft", "awaiting-approval", "awaiting-review", "review-recorded",

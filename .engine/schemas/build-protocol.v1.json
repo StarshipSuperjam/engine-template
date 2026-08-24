@@ -2,10 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "build-protocol.v1 — current runtime Build mechanics",
   "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "plan_review", "deliverable_review", "validation_commands", "preflights", "hard_holds"],
+  "required": ["schema_version", "deliverable_review", "validation_commands", "preflights", "hard_holds"],
   "properties": {
     "schema_version": {"const": "build-protocol.v1"},
-    "plan_review": {"$ref": "#/$defs/depths"},
     "deliverable_review": {"$ref": "#/$defs/depths"},
     "validation_commands": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "label", "command"], "properties": {"id": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1}, "command": {"type": "array", "minItems": 1, "items": {"type": "string"}}}}},
     "preflights": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "command", "required"], "properties": {"id": {"type": "string", "minLength": 1}, "command": {"type": "array", "items": {"type": "string"}}, "required": {"type": "boolean"}}}},
