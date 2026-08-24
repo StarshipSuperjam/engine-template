@@ -1216,12 +1216,16 @@ class ErrorLegibility(_Governed):
         out = self.run_command("show", slug)[1]
         self.assertIn("but the gates do", out)
 
-    def test_resume_does_not_promise_a_handoff_this_pr_does_not_ship(self):
-        slug, _ = self._to_reviewed()
+    def test_resume_on_a_sealed_plan_states_the_bind_command(self):
+        # The counterpart of the honesty this case used to enforce: the handoff DOES ship now, so the
+        # next step names the exact command rather than steering the operator to clone.
+        slug, document = self._to_reviewed()
         self.run_command("seal", slug)
         out = self.run_command("resume", slug)[1]
-        self.assertIn("not wired up yet", out)
-        self.assertIn("clone", out)
+        self.assertIn("plan bind --plan " + document["plan_id"], out)
+        self.assertIn("--repository <owner/repo> --pr <number>", out)
+        self.assertNotIn("not wired up yet", out)
+        self.assertIn("clone", out)   # still the only way past a terminal seal
 
 class ImportCannotOverwriteANeighbour(_Governed):
     """Constraining the slug's SHAPE stops a bundle escaping the library. It does nothing to stop one

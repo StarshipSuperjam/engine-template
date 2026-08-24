@@ -14,12 +14,17 @@
     "build": {"type": "object"},
     "plan": {
       "type": "object", "additionalProperties": false,
-      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue", "profile", "bound_head", "promotion_nonce"],
+      "required": ["plan_id", "sealed_digest", "diverged_from_seal", "digest", "intent_digest",
+                   "spec_digest", "authorizing_issue", "profile", "bound_head"],
       "properties": {
-        "source": {"const": "issue"}, "digest": {"type": "string"}, "intent_digest": {"type": "string"},
-        "spec_digest": {"type": ["string", "null"]}, "durable_issue": {"type": "integer", "minimum": 1},
-        "profile": {"enum": ["normal", "routine"]}, "bound_head": {"type": "string"},
-        "promotion_nonce": {"type": ["string", "null"]}
+        "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+        "sealed_digest": {"type": "string"},
+        "diverged_from_seal": {"const": false,
+                               "description": "A handoff is only exportable while the executed plan still equals the sealed one: a cold session recovers the SEALED payload from the library, so a diverged Build would resume against a plan nobody is building."},
+        "digest": {"type": "string"}, "intent_digest": {"type": "string"},
+        "spec_digest": {"type": ["string", "null"]},
+        "authorizing_issue": {"type": ["integer", "null"], "minimum": 1},
+        "profile": {"enum": ["normal", "routine"]}, "bound_head": {"type": "string"}
       }
     },
     "approval": {"type": ["object", "null"]},

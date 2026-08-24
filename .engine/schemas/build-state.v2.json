@@ -24,16 +24,22 @@
     },
     "plan": {
       "type": "object", "additionalProperties": false,
-      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue", "profile", "bound_head", "promotion_nonce"],
+      "required": ["plan_id", "sealed_digest", "diverged_from_seal", "digest", "intent_digest",
+                   "spec_digest", "authorizing_issue", "profile", "bound_head"],
       "properties": {
-        "source": {"enum": ["session", "issue"]},
+        "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$",
+                    "description": "The sealed plan in the local library that this Build entered on. A plan reaches a Build only this way; there is no Issue-carried plan and no session-local plan."},
+        "sealed_digest": {"$ref": "#/$defs/digest",
+                          "description": "The plan-document digest the seal minted. Cold continuation re-verifies against this, which is what replaced the durable Issue body as the tamper anchor."},
+        "diverged_from_seal": {"type": "boolean",
+                               "description": "True once the executed payload has been revised away from the sealed one on recorded operator authority. Recorded rather than inferred, so the seal cannot silently appear to cover what is actually being built."},
         "digest": {"$ref": "#/$defs/digest"},
         "intent_digest": {"$ref": "#/$defs/digest"},
         "spec_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
-        "durable_issue": {"type": ["integer", "null"], "minimum": 1},
+        "authorizing_issue": {"type": ["integer", "null"], "minimum": 1,
+                              "description": "The Issue that authorizes this work. Authorization only: the plan authority is the sealed plan, and neither artifact stands in for the other."},
         "profile": {"enum": ["trivial", "normal", "routine"]},
-        "bound_head": {"$ref": "#/$defs/commit"},
-        "promotion_nonce": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"}
+        "bound_head": {"$ref": "#/$defs/commit"}
       }
     },
     "approval": {

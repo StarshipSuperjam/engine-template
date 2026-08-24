@@ -25,25 +25,20 @@ class TestRemoteBounds(unittest.TestCase):
         with self.assertRaisesRegex(github.core.CoordinatorError, "safe publication budget"):
             github.require_body_budget("x" * 60_001, "Issue body")
 
-    def test_interrupted_issue_creation_resumes_authenticated_marked_issue(self):
-        value = plan()
-        nonce = "a" * 32
-        marker = github.BUILD_MARKER.format(
-            nonce=nonce, repo="owner/repo", pr=7, plan_digest=github.core.digest(value)
-        )
-        rows = [{"number": 42, "body": marker, "author": {"login": "builder"}}]
-        published = github.replace_plan_block(marker, value)
-        bodies = [marker, marker, marker, published]
-        with mock.patch.object(github, "_current_login", return_value="builder"), \
-                mock.patch.object(github, "gh_json", return_value=rows), \
-                mock.patch.object(github, "issue_body", side_effect=bodies), \
-                mock.patch.object(github.core, "must_run", return_value="") as remote:
-            issue = github.create_or_resume_build_issue(
-                ROOT, "owner/repo", 7, "Build", value, nonce,
-                plan_schema=ROOT / ".engine/schemas/build-plan.v1.json",
-            )
-        self.assertEqual(issue, 42)
-        self.assertFalse(any(call.args[0][1:3] == ["issue", "create"] for call in remote.call_args_list))
+    def test_nothing_here_writes_a_plan_to_github_any_more(self):
+        # The publication half of this module retired with the sealed-plan cutover: no plan is written
+        # into an Issue body, no dedicated Build Issue is authored behind a creation nonce, and no
+        # closing link is stamped onto the PR from here. Asserted against the module surface, because a
+        # write path with no caller is exactly the kind of spare part that gets wired back up.
+        for gone in ("publish_issue", "create_or_resume_build_issue", "ensure_pr_closes_issue",
+                     "replace_handoff_block", "BUILD_MARKER"):
+            self.assertFalse(hasattr(github, gone), gone)
+
+    def test_the_readers_that_recognise_an_old_body_are_kept(self):
+        # They are what lets a pre-cutover artifact be identified and refused by name rather than
+        # misread; they retire with the v1 schemas in the successor plan's sunset.
+        for kept in ("plan_block", "durable_plan", "handoff_block", "find_handoff_block"):
+            self.assertTrue(hasattr(github, kept), kept)
 
 
 class TestReadyTransitionRace(CoordinatorCase):

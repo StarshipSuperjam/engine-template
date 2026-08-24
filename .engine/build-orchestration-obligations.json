@@ -26,11 +26,11 @@
     },
     {
       "id": "BO-03",
-      "intent": "Store same-session plans locally and require durable authority for unattended continuation.",
+      "intent": "Keep plans in the local library and require durable Issue authority for unattended continuation.",
       "classification": "recovery-behavior",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_unattended_bind_requires_durable_issue_plan"
+      "anchor": "test_unattended_bind_requires_an_authorizing_issue"
     },
     {
       "id": "BO-04",
@@ -394,7 +394,7 @@
       "classification": "recovery-behavior",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_routine_progress_does_not_change_plan_digest"
+      "anchor": "test_recording_progress_does_not_change_the_plan_digest"
     },
     {
       "id": "BO-49",

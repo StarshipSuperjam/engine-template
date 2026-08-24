@@ -61,7 +61,7 @@ OTHER_HEAD = "b" * 40  # a syntactically valid but different head, for the moved
 # A minimal, schema-true fixture plan: trivial profile + quick depth takes the coordinator's fast path to the
 # ready gate (no cold-review packets), and a `direct`/`none` spec needs no Issue read (spec_digest is None).
 FIXTURE_PLAN = {
-    "schema_version": "build-plan.v1",
+    "schema_version": "build-plan.v2",
     "profile": "trivial",
     "intent_source": {"kind": "direct"},
     "raw_intent": "Fixture build whose only purpose is to exercise the finalize/ready transition.",
@@ -72,8 +72,13 @@ FIXTURE_PLAN = {
     ],
     "work_items": [
         {"id": "W1", "description": "Fixture work item (no real change).",
-         "paths": [".engine/tools/build_coordinator.py"], "verification": ["Fixture only."]}
+         "paths": [".engine/tools/build_coordinator.py"], "verification": ["Fixture only."],
+         "depends_on": [], "exclusive_resources": [], "executor_class": "integrator",
+         "output_contract": {"deliverable": "The fixture work item",
+                             "artifact_kinds": ["integrated-commit"],
+                             "required_evidence": ["changed_paths", "verification_results"]}}
     ],
+    "parallelism": {"mode": "serial", "max_concurrency": 1},
     "spec": {"posture": "none", "selection_basis": "Demo fixture; no product specification governs it.",
              "disclosure": "No settled spec; the fixture's obligations are the referent."},
 }
@@ -167,16 +172,21 @@ def _ready_state(head: str) -> dict:
     commit-bound receipt pinned to the copy's HEAD. `submit apply` runs the real readiness gate over this."""
     required_preflights = [x["id"] for x in bc._protocol()["preflights"] if x["required"]]
     return {
-        "schema_version": "build-state.v1", "revision": 1,
+        "schema_version": "build-state.v2", "revision": 1,
         "build": {"repository": REPO, "pr": PR, "base_at_bind": head, "mode": "same-session"},
-        "plan": {"source": "session", "digest": bc._digest(FIXTURE_PLAN),
+        "plan": {"plan_id": "pln_0000000d0959", "sealed_digest": "sha256:" + "0" * 64,
+                 "diverged_from_seal": False, "digest": bc._digest(FIXTURE_PLAN),
                  "intent_digest": bc._digest(FIXTURE_PLAN["raw_intent"].encode()),
-                 "spec_digest": None, "durable_issue": None, "profile": "trivial",
-                 "bound_head": head, "promotion_nonce": None},
+                 "spec_digest": None, "authorizing_issue": None, "profile": "trivial",
+                 "bound_head": head},
         "approval": {"plan_digest": bc._digest(FIXTURE_PLAN), "spec_digest": None, "depth": "quick"},
         "reviews": {"plan": bc._empty_review(), "deliverable": bc._empty_review()},
         "findings": [], "checkpoint": None,
-        "progress": {"current_item": None, "completed": []},
+        "progress": {"current_item": None, "completed": [{"id": "W1", "commit": head}]},
+        "work": {"W1": {"attempt_count": 1, "claim": None, "latest_result": None,
+                        "latest_failure": None,
+                        "integration": {"attempt_id": "0" * 32, "commit": head,
+                                        "focused_verification": "fixture only"}}},
         "validation": {"commit": head, "results": [
             {"id": "self-test", "commit": head, "passed": True,
              "summary": "seeded green for the finalize-transition fixture"}]},

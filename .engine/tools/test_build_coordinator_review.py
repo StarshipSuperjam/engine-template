@@ -17,7 +17,7 @@ import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_review as review  # noqa: E402
-from test_build_coordinator import BASE, HEAD_A, CoordinatorCase, plan  # noqa: E402
+from test_build_coordinator import BASE, HEAD_A, CoordinatorCase, plan, PLAN_ID, SEALED  # noqa: E402
 
 
 def _needs_design_review(case) -> None:
@@ -78,7 +78,7 @@ class TestPlanReviewOrdering(CoordinatorCase):
         value["profile"] = "routine"
         value["intent_source"] = {"kind": "issue", "issue": 7}
         self.write_plan(value)
-        state = bc._initial_state("owner/repo", 7, BASE, "issue", value, 7, "unattended")
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, 7, "unattended")
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
         routine = bc.StateStore(str(Path(self.temp.name) / "routine.json"))
         routine.create(state)

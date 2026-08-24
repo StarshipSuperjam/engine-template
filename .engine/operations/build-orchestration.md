@@ -32,13 +32,14 @@ Reviewer severity is advice. It never selects a remedy and never makes a finding
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
 be one session. An Issue is never created merely because a Build exists — not even to track the work; an
-Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold promotes its
-plan instead (see "Where the plan lives").
+Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
+plan from the local plan library (see "Where the plan lives").
 
-Turn the initiating request or Issue into a structured JSON `build-plan.v1` document. Present a readable
-harness projection generated directly from that exact document; it is a view, not a second authority, and
-must never be independently edited or translated back into JSON after approval. Keep raw intent distinct from
-the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
+The plan is not authored here. It is authored, reviewed and SEALED through the Plan Coordinator first, and a
+Build binds that sealed plan's `build-plan.v2` payload. The discipline below is what that lifecycle enforces
+on the way to a seal. Present a readable projection generated from that exact document; it is a view, not a
+second authority, and must never be edited or translated back into JSON after approval. Keep raw intent
+distinct from the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
 verified, accepted risk, or unresolved, and state the objective, checkable success obligations, scope,
 non-goals, important risks, implementation outline, and review strategy. Include settled-spec mapping when
 one exists. Otherwise disclose that there is no settled spec; the plan's success obligations still govern
@@ -59,8 +60,12 @@ Bind the plan once:
 
 ```text
 build_coordinator.py --state <OS-temp-path> plan bind \
-  --source session --input <plan.json> --repository <owner/repo> --pr <number>
+  --plan <plan-id> --repository <owner/repo> --pr <number>
 ```
+
+`--plan` names a SEALED plan in the local library, and nothing else enters a Build: an unsealed plan is
+refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
+For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
 The snapshot must live in the OS temporary directory. It is one atomically replaced, lock-protected document
 of current evidence, not an append-only event ledger and not repository state. There is no editable phase;
@@ -68,28 +73,23 @@ of current evidence, not an append-only event ledger and not repository state. T
 
 ### Where the plan lives
 
-For an interactive Build expected to finish in this harness session, the harness is the content store. The
-snapshot keeps only the canonical digest and source facts. Every checkpoint, review packet, and submission
-preview receives the plan again and refuses a mismatch. This works whether or not the runtime has a formal
-Plan feature: the orchestrator may author and present the same `build-plan.v1` JSON conversationally and pass
-that exact document by file or stdin. The JSON document is the harness plan, not a second plan authority.
+In the local plan library, on this workstation. The snapshot keeps the plan's id, the digest its seal
+minted, and the payload digest — never the plan's content. Every checkpoint, review packet, and submission
+preview receives the payload again and refuses a mismatch.
 
-A Build begun from a suitable Issue keeps that Issue as the intent record; it need not duplicate the plan.
+No plan is published to GitHub: no promotion step, no plan block in an Issue or PR body. An Issue may still
+AUTHORIZE a Build, which is what `--issue` records, but authorization and plan authority are two artifacts and
+neither stands in for the other.
 
-Before intentional cold-session or unattended continuation, promote the exact plan to a suitable writable
-Issue. Promotion appends or replaces one bounded machine block in the Issue body while preserving the
-human-authored text and GitHub's edit history. It requires an explicit visibility acknowledgement, compares
-the Issue body again immediately before writing, aborts on concurrent edits, and verifies the written bytes.
-Reuse an originating Issue that represents exactly this Build. When none is suitable, `plan promote --create-issue
-<title>` uses `.engine/tools/issue_author.py`, applies the `engine` label, states ordered scope and recovery purpose, then publishes the bounded plan. A broad epic,
-read-only external Issue, or Issue spanning independent PRs is not suitable authority.
+Cold continuation is anchored on the sealed plan RECORD. `handoff export --output <file>` writes the Build's
+own evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in
+the library — same id, same sealed digest, same payload. Gone, unsealed or changed, and continuation is
+blocked rather than guessed at. A Build whose executed plan was revised away from its seal cannot hand off
+cold at all, since a cold session would recover the sealed payload rather than the one being built: finish it
+in the session that holds it, or re-plan into a new plan.
 
-No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. A
-deleted durable plan blocks only cold continuation; never reconstruct an approved plan from a summary,
-transcript fragments, or implementation. `handoff export --publish --ack-visibility` places one bounded,
-redacted snapshot block in the PR contract with an optimistic-concurrency check; it never creates a comment.
-`handoff restore --repository <owner/repo> --pr <number>` reads that block and verifies the promoted plan carried on the Issue.
-File/stdin export and restore remain available for a harness that transports the same bytes itself.
+No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. Never
+reconstruct an approved plan from a summary, transcript fragments, or implementation.
 
 ### 2. Assess risk and approve the Build gate
 
@@ -142,9 +142,9 @@ isolated workers for cleanly separable work when context pressure justifies them
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
 writer and judges cohesion.
 
-Routine follows [Routine entry](routine-entry.md): the immutable promoted Issue plan supplies ordered work items; the
-snapshot, handoff, and git record completed commits and `N of M` progress, counted from `work integrate` on a v2 plan,
-where `checkpoint --complete-item` (v1's path) is refused. Owned product work
+Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
+items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
+`N of M` progress, counted from `work integrate`, where `checkpoint --complete-item` is refused. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair

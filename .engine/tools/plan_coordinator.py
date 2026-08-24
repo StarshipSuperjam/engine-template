@@ -175,10 +175,11 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
     if status == "active":
         return "nothing here — the Build this plan authorized is running."
     if status == "sealed":
-        return ("this plan is sealed and read-only. Handing a sealed plan to a Build is not wired up "
-                "yet — the Build Coordinator still takes whatever plan a session hands it — so for now the "
-                "seal is the record that this plan was reviewed and settled. To keep working on the "
-                "idea, `clone` it into a new plan.")
+        return (f"this plan is sealed and read-only, and a sealed plan is now the only thing a Build "
+                f"runs on. Open a draft pull request for the work, then hand this plan to it:\n"
+                f"    build_coordinator.py --state <snapshot> plan bind --plan {record['plan_id']} "
+                f"--repository <owner/repo> --pr <number>\n"
+                f"  To keep working on the idea instead, `clone` it into a new plan — a seal is terminal.")
     if status == "review-recorded":
         outstanding = [f for f in (record["plan_review"] or {}).get("findings", [])
                        if not f.get("disposition")]

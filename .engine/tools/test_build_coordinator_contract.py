@@ -287,7 +287,7 @@ class TestPreviewEvidence(unittest.TestCase):
     def _state(self, findings=None):
         return {
             "build": {"repository": "owner/repo", "pr": 977, "base_at_bind": "b" * 40},
-            "plan": {"durable_issue": None},
+            "plan": {"authorizing_issue": None},
             "approval": {"depth": "thorough"},
             "validation": {"commit": "a" * 40,
                            "results": [{"id": "engine-ci", "commit": "a" * 40, "passed": True,
@@ -375,11 +375,11 @@ class TestPreviewEvidence(unittest.TestCase):
             ev = bc._assemble_evidence(state, plan, claim, "c" * 40, pr_data)
         self.assertEqual(ev["assumption_resolutions"], [])
 
-    def test_durable_issue_added_to_closes(self):
+    def test_authorizing_issue_added_to_closes(self):
         import build_coordinator as bc
         from unittest import mock
         state = self._state()
-        state["plan"]["durable_issue"] = 500
+        state["plan"]["authorizing_issue"] = 500
         claim = _good_claim()
         pr_data = {"body": "", "baseRefOid": "b" * 40}
         with mock.patch.object(bc, "_run", return_value=mock.Mock(stdout="p", returncode=0)), \
@@ -536,7 +536,7 @@ class TestContractApply(unittest.TestCase):
         import contextlib, io
         pr, verify_draft, must_run = self._env(source_body)
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 977, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         digest = bc._digest(source_body.encode())
         args = self._args(digest, ack=ack)
         patches = self._patches(bc, verify_draft, must_run, close_result)
@@ -560,7 +560,7 @@ class TestContractApply(unittest.TestCase):
         from unittest import mock
         pr, verify_draft, must_run = self._env("live body")
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"a DIFFERENT body"))            # stale digest
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -591,7 +591,7 @@ class TestContractApply(unittest.TestCase):
         import build_coordinator as bc
         pr, verify_draft, must_run = self._env("orig")
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run,
@@ -615,7 +615,7 @@ class TestContractApply(unittest.TestCase):
                 edits.append(input_text); pr["body"] = input_text
             return ""
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(composed.encode()))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -635,7 +635,7 @@ class TestContractApply(unittest.TestCase):
             def __init__(self):
                 self.reads = 0
                 self.s = {"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                          "plan": {"durable_issue": None}}
+                          "plan": {"authorizing_issue": None}}
             def read(self):
                 self.reads += 1
                 snap = dict(self.s)
@@ -666,7 +666,7 @@ class TestContractApply(unittest.TestCase):
                 pr["body"] = "orig" if input_text == "orig" else input_text + " [MANGLED BY GITHUB]"
             return ""
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -686,7 +686,7 @@ class TestContractApply(unittest.TestCase):
             return {"lines": ["x"], "defang": None}
 
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, close_result):
