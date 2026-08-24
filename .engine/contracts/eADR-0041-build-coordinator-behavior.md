@@ -28,6 +28,14 @@ integrity guarantees (attempt/base result binding, compare-and-swap claim writes
 integration), each demonstrated by a focused test cited inline. The capability introduced no new submission
 hard hold — the graph's resource and slot admission is a derived refusal, not a merge-blocking condition._
 
+_Amended 2026-08-24: that last sentence is revised by name. The v2 capability now carries one submission hard
+hold — a work item unintegrated, or recorded complete without its integration commit, refuses final validation
+— registered in the hard-holds table with the demonstrated failure it prevents. `checkpoint --complete-item` is
+refused for a build-plan.v2 Build, leaving `work integrate` as the only writer of a v2 completion; the flag and
+its behaviour are unchanged for a legacy build-plan.v1 Build, whose sole completion path it is. BC-27's
+evidence citation is corrected in the same change: it had cited only the work path, which never exercised the
+second writer._
+
 _Amended 2026-08-16 for coordinator-owned PR composition: the `contract` verb family (`template`, `preview`,
 `apply`) composes the complete PR body from one typed claim (`pr-body-claim.v1`, judgment-bearing narrative and
 session-only observations) plus coordinator-computed evidence, replacing the hand-pasted template. This does not
@@ -122,7 +130,7 @@ entry; until that lands and amends this record again, every plan-stage assertion
 | BC-24 | explicit non-goal | The coordinator does not certify plan quality, finding rationale, implementation coherence, or release value. | Reviewer and operator boundaries | Schema validity was treated as quality evidence. | These remain explicit judgment fields and reviewer/operator responsibilities. |
 | BC-25 | mechanical fact | A DAG worker result binds only to its claim's attempt id and base SHA. | build-plan.v2 work verbs; `test_build_coordinator_work.TestWorkClaims` | Without binding, a superseded worker's result could satisfy a replacement attempt or a wrong base and corrupt completion evidence. | The result is rejected unless its attempt id and reported base match the active claim. |
 | BC-26 | mechanical fact | Every claim and result write compare-and-swaps against the current snapshot revision. | Work-verb `_work_mutate`; `test_build_coordinator_work.TestWorkClaims` | Without it, a concurrent or stale write could overwrite a sibling claim or lose a snapshot update. | Each work verb writes under an explicit from-revision guard and refuses a stale write. |
-| BC-27 | mechanical fact | A DAG node is complete only with a recorded integration commit on the PR branch and focused verification. | Work integrate; `test_build_coordinator_work.TestWorkDispositions` | Without it, a returned worker artifact could be treated as completion without the orchestrator integrating and verifying it. | Completion requires an integration commit proven on the PR branch plus recorded focused verification; worker commits are transport, never completion. |
+| BC-27 | mechanical fact | A DAG node is complete only with a recorded integration commit on the PR branch and focused verification. | Work integrate; `test_build_coordinator_work.TestWorkDispositions`; `test_build_coordinator.TestV2CompletionGate` | Without it, a returned worker artifact could be treated as completion without the orchestrator integrating and verifying it. | Completion requires an integration commit proven on the PR branch plus recorded focused verification; worker commits are transport, never completion. Until 2026-08-24 the cited evidence covered only the work path, while `checkpoint --complete-item` wrote the same completion with no integration — so the assertion held of one writer and not of the coordinator as a whole. The second citation closes that gap by exercising the refusal itself. |
 
 ### Hard holds and demonstrated failures
 
@@ -142,6 +150,7 @@ to this table with equivalent evidence before it can become mandatory.
 | PR contract incomplete | The operator receives an unreadable or materially incomplete merge surface. |
 | PR is not the expected open draft during construction | Evidence is attached to the wrong or already-submitted claim. |
 | Operation would merge | The coordinator crosses the human-only merge boundary. |
+| A v2 work item is unintegrated, or is recorded complete without its integration commit | Final validation becomes evidence about a graph that is not built, and the merge surface reads as though the plan were finished. Demonstrated, not hypothetical: `checkpoint --complete-item` appended to `progress.completed` with no integration evidence in shipped code, from before BC-27 was written until this change — so a DAG Build could reach green validation with a node never integrated, by the coordinator's own published flag. The flag is now refused for v2, and a snapshot already carrying such an entry is refused with the remedy named. |
 
 No other condition is a hard hold. In particular, reviewer severity, unexpected paths, accepted risks,
 unresolved non-blocking findings, and the size of a diff are inputs to judgment rather than mechanical stop

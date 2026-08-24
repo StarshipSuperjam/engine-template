@@ -73,6 +73,42 @@ _digest = core.digest
 # version rule has one home now that the Plan Coordinator reads it too.
 _plan_version = dag.plan_version
 
+# A v2 node's completion is earned at `work integrate`, which records the integration commit BC-27
+# requires. `checkpoint --complete-item` writes the same progress entry with no such evidence, so on a
+# DAG Build it is a published bypass of the graph's own completion rule. The flag stays for v1, whose
+# only completion path it is.
+_V2_COMPLETE_ITEM_REFUSAL = (
+    "checkpoint --complete-item cannot complete a work item on a build-plan.v2 Build: completion is "
+    "earned by `work result` and then `work integrate`, which records the integration commit on the PR "
+    "branch. Checkpoint still records the note and the current item — drop the flag. The flag remains "
+    "only for a legacy build-plan.v1 Build, whose sole completion path it is.")
+
+# The mid-flight refusal. A snapshot written before this change can carry v2 completions that no
+# integration ever earned; every gate reading them would be reading a bypass. The remedy is to earn or
+# withdraw them — never to rebind, which on a live draft PR discards the Build's whole evidence trail.
+_UNEARNED_COMPLETION_REMEDY = (
+    "earn each one with `work integrate --item <id> --attempt <attempt> --commit <sha>` (claim the node "
+    "first if no attempt returned), or `work reject`/`work abandon` the node and let the graph re-derive "
+    "it. Do NOT rebind the plan: a rebind on a live Build discards the recorded evidence rather than "
+    "repairing it.")
+
+
+def _unearned_completions(state: dict) -> list[str]:
+    """Work-item ids recorded complete on a v2 snapshot without the integration evidence BC-27 requires.
+
+    Read-only and plan-free, so every caller — the two gates and the status render — asks the same
+    question of the same field. Empty for a v1 snapshot: there `progress.completed` IS the completion
+    record and has no integration to disagree with.
+    """
+    if state.get("schema_version") != "build-state.v2":
+        return []
+    unearned = []
+    for entry in state["progress"]["completed"]:
+        integration = ((state.get("work") or {}).get(entry["id"]) or {}).get("integration") or {}
+        if integration.get("commit") != entry.get("commit"):
+            unearned.append(entry["id"])
+    return unearned
+
 
 def _plan(path: str) -> dict:
     """Read a Build plan document from `path` and validate it.
@@ -460,6 +496,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         warnings.extend(resolved_notes)
     if trivial_violations:
         judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
+    # Surfaced rather than refused: `status` is what a session runs to find out WHY it is stuck, so the
+    # snapshot that the two gates will refuse must still be readable and must name its own remedy here.
+    unearned = _unearned_completions(state)
+    if unearned:
+        judgments.append("completions recorded without integration evidence (" + ", ".join(unearned)
+                         + "); " + _UNEARNED_COMPLETION_REMEDY)
     # Advisory artifact-preparation line: a recorded sync receipt whose commit is no longer HEAD means the
     # tree moved since the last sync, so derived artifacts may be stale. Advisory only — validate's read-only
     # pre-gate and CI's drift checks are the authority; this just tells a session to re-sync before validating.
@@ -1264,6 +1306,11 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         plan_ready, missing_review = _plan_review_ready(state, plan)
         if not plan_ready:
             raise CoordinatorError("implementation cannot begin before plan review: " + "; ".join(missing_review))
+        unearned = _unearned_completions(state)
+        if unearned:
+            raise CoordinatorError(
+                "this v2 snapshot records completions no integration earned (" + ", ".join(unearned)
+                + "); " + _UNEARNED_COMPLETION_REMEDY)
         items = {item["id"]: item for item in plan["work_items"]}
         if note["work_item"] not in items:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
@@ -1275,6 +1322,8 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
             raise CoordinatorError(f"Routine must advance the next {noun} work item {next_item}")
         if args.complete_item:
+            if _plan_version(plan) == "build-plan.v2":
+                raise CoordinatorError(_V2_COMPLETE_ITEM_REFUSAL)
             if args.complete_item not in items:
                 raise CoordinatorError(f"completed work item {args.complete_item} is not in the approved plan")
             if args.complete_item not in completed:
@@ -1315,6 +1364,30 @@ def cmd_validate(args, store: StateStore) -> None:
     plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
     if not plan_ready:
         raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
+    unearned = _unearned_completions(state)
+    if unearned:
+        raise CoordinatorError(
+            "this v2 snapshot records completions no integration earned (" + ", ".join(unearned)
+            + "); " + _UNEARNED_COMPLETION_REMEDY)
+    # A DAG Build's validation is evidence about the WHOLE graph, so it cannot be earned while a node is
+    # still outstanding: a green suite over a half-built graph reads at merge as though the plan were
+    # done. The roster lives only in the plan, so a v2 snapshot must be handed the approved plan here —
+    # the same exact-artifact discipline `checkpoint` and `status` already keep (BC-11).
+    if state.get("schema_version") == "build-state.v2":
+        if not getattr(args, "plan", None):
+            raise CoordinatorError(
+                "final validation of a build-plan.v2 Build needs the approved plan to know its node "
+                "roster — re-run with `validate --plan <plan.json>`")
+        plan = _plan(args.plan)
+        _assert_plan(state, plan)
+        outstanding = [f"{node_id} ({node['state']})"
+                       for node_id, node in sorted(dag.derive_lifecycle(plan, state).items())
+                       if node["state"] != dag.COMPLETE]
+        if outstanding:
+            raise CoordinatorError(
+                "final validation cannot become evidence while a work item is unintegrated: "
+                + "; ".join(outstanding)
+                + ". Integrate every node first — focused verification is the tool for a partial graph.")
     # Fail-fast pre-gate (read-only), BEFORE the expensive StableCommit run: if a derived artifact is stale,
     # refuse naming the exact remedy rather than spending the full CI suite + self-tests only to go red on a
     # drift check. This is NOT a new hard hold (eADR-0041) — it is a cheap early refusal; CI's drift checks
@@ -2880,7 +2953,7 @@ def parser() -> argparse.ArgumentParser:
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
-    validate = sub.add_parser("validate"); validate.set_defaults(func=cmd_validate)
+    validate = sub.add_parser("validate"); validate.add_argument("--plan"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
