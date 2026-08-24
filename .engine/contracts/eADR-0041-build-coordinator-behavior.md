@@ -28,7 +28,8 @@ integrity guarantees (attempt/base result binding, compare-and-swap claim writes
 integration), each demonstrated by a focused test cited inline. The capability introduced no new submission
 hard hold — the graph's resource and slot admission is a derived refusal, not a merge-blocking condition._
 
-_Amended 2026-08-24: that last sentence is revised by name. The v2 capability now carries one submission hard
+_Amended 2026-08-24, revising the 2026-08-15 amendment above: its closing sentence — that the build-plan.v2
+capability "introduced no new submission hard hold" — no longer holds. The v2 capability now carries one submission hard
 hold — a work item unintegrated, or recorded complete without its integration commit, refuses final validation
 — registered in the hard-holds table with the demonstrated failure it prevents. `checkpoint --complete-item` is
 refused for a build-plan.v2 Build, leaving `work integrate` as the only writer of a v2 completion; the flag and

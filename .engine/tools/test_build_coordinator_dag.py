@@ -266,6 +266,21 @@ class TestAdmissionRankingAndDeferrals(unittest.TestCase):
         self.assertEqual([(d["id"], d["kind"]) for d in admission["deferred"]],
                          [("b", dag.DEFER_CAPACITY)])
 
+    def test_capacity_reason_distinguishes_real_occupancy_from_pass_exhaustion(self):
+        # With no slot actually occupied, saying "all slots are in use" contradicts the slot count
+        # status prints directly above the deferral line. The two situations get different sentences.
+        p = plan([item("a"), item("b")])
+        empty = state({})
+        self.assertEqual(dag.slots_in_use(p, empty), 0)
+        pass_exhausted = dag.admission_plan(p, empty)["deferred"][0]["reason"]
+        self.assertIn("this pass filled the last", pass_exhausted)
+        self.assertIn("a", pass_exhausted)                      # names who took the slot
+        self.assertNotIn("are in use", pass_exhausted)
+        busy = state({"a": node(claim=claim())})
+        really_busy = dag.admission_plan(p, busy)["deferred"][0]["reason"]
+        self.assertEqual(dag.slots_in_use(p, busy), 1)
+        self.assertIn("all 1 worker slot(s) are in use", really_busy)
+
     def test_a_capacity_deferred_node_is_still_claimable(self):
         # Eligibility is not selection: the scheduler would advance "a", but a direct claim on "b"
         # stays permitted while a slot is free. Ranking orders the frontier; it never seizes the
@@ -293,6 +308,15 @@ class TestAdmissionRankingAndDeferrals(unittest.TestCase):
         self.assertEqual(dag.ready_set(p, state(integrated)), ["deep", "flat"])
         self.assertEqual(dag.next_ready(p, state(integrated)), "deep")
         self.assertEqual(dag.admission_plan(p, state(integrated))["admitted"], ["deep"])
+
+    def test_a_deep_chain_does_not_exhaust_the_python_stack(self):
+        # critical_path_lengths walks a topological order rather than recursing, so a chain far longer
+        # than the interpreter's recursion limit answers instead of raising RecursionError.
+        depth = 2000
+        items = [item("n0")] + [item(f"n{i}", [f"n{i - 1}"]) for i in range(1, depth)]
+        lengths = dag.critical_path_lengths(plan(items))
+        self.assertEqual(lengths["n0"], depth)
+        self.assertEqual(lengths[f"n{depth - 1}"], 1)
 
     def test_next_ready_ignores_capacity_and_held_resources(self):
         # "Next" answers which item to advance, so a busy slot must not change it.

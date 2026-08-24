@@ -2130,8 +2130,9 @@ class TestV2CompletionGate(CoordinatorCase):
                 mock.patch.object(bc, "_run", return_value=failed), \
                 self.assertRaisesRegex(bc.CoordinatorError, "not contained by the live PR head"):
             bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
-        # 2. the retrospective plan-review waiver still treats progress as prospective work.
-        self.assertTrue(state["progress"]["completed"])
+        # 2. the retrospective plan-review waiver still treats progress as prospective work — driven
+        # through the real reader in its own case below, since the waiver refuses earlier on this
+        # fixture's recorded plan-review evidence.
         # 3. the status render still reports it.
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_installed", return_value=[]):
             status = bc._status(state, self.v2)
@@ -2140,6 +2141,49 @@ class TestV2CompletionGate(CoordinatorCase):
                             for j in status["engineering_judgment"]))
         # 4. handoff publication still carries it.
         self.assertIn("shared", json.dumps(bc._handoff(state)))
+
+    def test_the_retrospective_waiver_still_reads_injected_progress_as_prospective_work(self):
+        # Reader 2 of progress.completed, exercised through cmd_review_waive itself. The waiver's
+        # earlier guards refuse a Build that already has plan-review evidence, so this case builds a
+        # snapshot that reaches the progress condition and nothing else.
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            state = bc._initial_state("owner/repo", 7, BASE, "session", self.v2, None)
+            state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
+            store = bc.StateStore(str(Path(self.temp.name) / "waiver.json"))
+            store.create(state)
+            store.mutate(lambda s: s["progress"]["completed"].append({"id": "shared", "commit": HEAD_A}))
+            args = argparse.Namespace(stage="plan", adopted_commit=HEAD_A, reason="adopted work")
+            with self.assertRaisesRegex(bc.CoordinatorError, "prospective coordinator progress"):
+                bc.cmd_review_waive(args, store)
+
+    def test_the_documented_remedy_actually_clears_the_gate(self):
+        # The refusal is only half the requirement: the remedy it names must WORK. An unearned
+        # completion is repaired by integrating the node for real, and the gate must then clear —
+        # otherwise the mid-flight refusal is a permanent deadlock on exactly the snapshots it exists
+        # to rescue, which is what shipped before this case was written.
+        self._inject_unearned()
+        self.assertEqual(bc._unearned_completions(self.state()), ["shared"])
+        claim = bc.work.new_claim("1" * 32, HEAD_A, "/tmp/wt", [], {"executor_class": "builder",
+                                 "provider": "claude", "model": "sonnet", "effort": "medium", "inline": False})
+        item = next(i for i in self.v2["work_items"] if i["id"] == "shared")
+        payload = {"outcome": "returned", "base_sha": HEAD_A,
+                   "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                                "verification_results": ["focused tests green"]}}
+        def stage_returned_attempt(state):
+            nw = state["work"].setdefault("shared", bc.work.empty_node())
+            nw["attempt_count"] = 1
+            nw["claim"] = claim
+            nw["latest_result"] = bc.work.bind_result(nw, item, "1" * 32, HEAD_A, payload)
+        self.store.mutate(stage_returned_attempt)
+        args = argparse.Namespace(item="shared", attempt="1" * 32, commit=HEAD_B,
+                                  verification_input="focused tests green")
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_integrate(args, self.store)
+        state = self.state()
+        # The stale entry is corrected in place, not left beside the new integration evidence.
+        self.assertEqual(state["progress"]["completed"], [{"id": "shared", "commit": HEAD_B}])
+        self.assertEqual(bc._unearned_completions(state), [])
 
     def test_validation_is_refused_while_a_node_is_unintegrated(self):
         with self.assertRaises(bc.CoordinatorError) as caught:

@@ -347,31 +347,30 @@ def critical_path_lengths(plan: dict) -> dict:
     for item in items:
         for dep in item.get("depends_on", []):
             dependents[dep].append(item["id"])
+    # Iterative, not recursive: a deep chain would otherwise cost one stack frame per node and raise
+    # RecursionError on a long enough plan instead of answering. graphlib gives a topological order of
+    # the dependency graph; walking it in REVERSE visits every node after all of its dependents, so
+    # each length is final when it is read. A sink is length 1.
+    order = list(graphlib.TopologicalSorter(
+        {item["id"]: set(item.get("depends_on", [])) for item in items}).static_order())
     lengths: dict[str, int] = {}
-
-    def resolve(node_id: str) -> int:
-        if node_id not in lengths:
-            # The plan is validated acyclic before this runs (validate_plan_document), so the recursion
-            # terminates; a sink is length 1.
-            lengths[node_id] = 1 + max((resolve(child) for child in dependents[node_id]), default=0)
-        return lengths[node_id]
-
-    for item in items:
-        resolve(item["id"])
+    for node_id in reversed(order):
+        lengths[node_id] = 1 + max((lengths[child] for child in dependents[node_id]), default=0)
     return lengths
 
 
-def admission_rank(plan: dict) -> list[str]:
+def admission_rank(plan: dict, lengths: dict | None = None) -> list[str]:
     """Every node id in deterministic admission order: critical path descending, then id ascending.
 
     Total and deterministic — a lexical tie-break means two graphs that differ only in array order
-    produce the identical ranking.
+    produce the identical ranking. `lengths` lets one render compute the critical paths once and
+    share them across the several derivations that need the same ranking.
     """
-    lengths = critical_path_lengths(plan)
+    lengths = critical_path_lengths(plan) if lengths is None else lengths
     return sorted(lengths, key=lambda node_id: (-lengths[node_id], node_id))
 
 
-def admission_plan(plan: dict, state: dict) -> dict:
+def admission_plan(plan: dict, state: dict, rank: list | None = None) -> dict:
     """The one admission derivation: which nodes a fresh claim is permitted on, and why the rest wait.
 
     Greedy over `admission_rank`: each candidate is admitted unless a DIFFERENT node already holds
@@ -392,7 +391,7 @@ def admission_plan(plan: dict, state: dict) -> dict:
     holders = resource_holders(plan, state)
     admitted: list[str] = []
     deferred: list[dict] = []
-    for node_id in admission_rank(plan):
+    for node_id in (admission_rank(plan) if rank is None else rank):
         node = lifecycle[node_id]
         if node["state"] == BLOCKED:
             deferred.append({"id": node_id, "kind": DEFER_DEPENDENCY,
@@ -413,25 +412,34 @@ def admission_plan(plan: dict, state: dict) -> dict:
                              "reason": f"conflicts with {selected}, admitted earlier in this pass"})
             continue
         if free_slots <= 0:
-            deferred.append({"id": node_id, "kind": DEFER_CAPACITY,
-                             "reason": f"all {max_concurrency} worker slot(s) are in use"})
+            # Two different situations reach here and a session must be able to tell them apart:
+            # every slot is genuinely occupied by a dispatched claim, or this pass filled the last
+            # free slot with higher-ranked siblings. Saying "all slots are in use" for the second
+            # contradicts the slot count status prints directly above it.
+            in_use = slots_in_use(plan, state)
+            reason = (f"all {max_concurrency} worker slot(s) are in use"
+                      if in_use >= max_concurrency else
+                      f"this pass filled the last of {max_concurrency} worker slot(s) with "
+                      f"higher-ranked nodes ({', '.join(admitted)})")
+            deferred.append({"id": node_id, "kind": DEFER_CAPACITY, "reason": reason})
             continue
         admitted.append(node_id)
         free_slots -= 1
     return {"admitted": admitted, "deferred": deferred}
 
 
-def next_ready(plan: dict, state: dict) -> str | None:
+def next_ready(plan: dict, state: dict, rank: list | None = None) -> str | None:
     """The single ready node the scheduler would advance next.
 
     Ranked, but deliberately NOT filtered by capacity or resource holds: a busy slot or a held
     resource must not change WHICH item is next to advance — only dependency readiness and rank do.
     """
     ready = set(ready_set(plan, state))
-    return next((node_id for node_id in admission_rank(plan) if node_id in ready), None)
+    order = admission_rank(plan) if rank is None else rank
+    return next((node_id for node_id in order if node_id in ready), None)
 
 
-def claimable_set(plan: dict, state: dict) -> list[str]:
+def claimable_set(plan: dict, state: dict, rank: list | None = None) -> list[str]:
     """The ready nodes a fresh claim is PERMITTED on right now, in admission order.
 
     Eligibility, not selection — and the distinction is deliberate. Membership is exactly the
@@ -450,6 +458,6 @@ def claimable_set(plan: dict, state: dict) -> list[str]:
     by_id = {item["id"]: item for item in _work_items(plan)}
     holders = resource_holders(plan, state)
     ready = set(ready_set(plan, state))
-    return [node_id for node_id in admission_rank(plan) if node_id in ready
+    return [node_id for node_id in (admission_rank(plan) if rank is None else rank) if node_id in ready
             and not any(holder_id != node_id and resources_conflict(by_id[node_id], held)
                         for holder_id, held in holders.items())]
