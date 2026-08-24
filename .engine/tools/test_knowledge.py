@@ -383,7 +383,7 @@ class TestImportResolver(unittest.TestCase):
         self.root = ".engine/tools"
 
     def _resolve(self, src, source_rel="t.py"):
-        return self.kg._resolve_tool_imports(source_rel, ast.parse(src), self.index, self.root)
+        return self.kg.resolve_tool_imports(source_rel, ast.parse(src), self.index, self.root)
 
     def test_bare_module_and_package_imports(self):
         self.assertEqual(self._resolve("import top"), [".engine/tools/top.py"])
@@ -431,7 +431,7 @@ class TestImportResolver(unittest.TestCase):
         # `from p import anything` edges to the package rather than false-raising. (No tools package uses star
         # imports today; this guards the future.)
         index = ({("p",)}, {("p", "x")}, {("p",): frozenset({"*"})})
-        out = self.kg._resolve_tool_imports("t.py", ast.parse("from p import anything"), index, ".engine/tools")
+        out = self.kg.resolve_tool_imports("t.py", ast.parse("from p import anything"), index, ".engine/tools")
         self.assertEqual(out, [".engine/tools/p/__init__.py"])
 
     def test_dangling_from_name_raises_loud(self):
@@ -478,7 +478,7 @@ class TestOptionalModuleSubtreeCarveOut(unittest.TestCase):
         self.assertIn(("memory", "semantic"), self.kg._OPTIONAL_MODULE_SUBTREES)
 
     def _resolve(self, src, index, source_rel="t.py"):
-        return self.kg._resolve_tool_imports(source_rel, ast.parse(src), index, self.root)
+        return self.kg.resolve_tool_imports(source_rel, ast.parse(src), index, self.root)
 
     def test_absent_optional_subtree_drops_the_import_no_edge_no_raise(self):
         # the failing deployment shape: `memory` package present (owns mcp_server.py), `memory/semantic` GONE.
@@ -558,7 +558,7 @@ class TestOptionalModuleSubtrees(unittest.TestCase):
     @unittest.skipUnless(_CONSTRUCTION, "construction-repo registry check — a deployment may decline the "
                          "owning module, so its subtree and manifest are legitimately absent (#646)")
     def test_each_subtree_is_present_here_and_owned_by_a_removable_module(self):
-        packages, _modules, _syms = knowledge_gen._tool_module_index(self.tools_root)
+        packages, _modules, _syms = knowledge_gen.tool_module_index(self.tools_root)
         for sub in knowledge_gen._OPTIONAL_MODULE_SUBTREES:
             # (0) at least two segments deep — never a whole top-level tool package. A top-level package that
             # is wholly declined is already dropped as external by `_head_in_repo`, so it needs no carve-out;
@@ -622,8 +622,8 @@ class TestPass4Attributes(unittest.TestCase):
                 fh.write("x = 1\n")
             with open(bad, "w", encoding="utf-8") as fh:
                 fh.write("def (:\n")
-            self.assertIsNotNone(self.kg._parse_tool_ast(good))
-            self.assertIsNone(self.kg._parse_tool_ast(bad))
+            self.assertIsNotNone(self.kg.parse_tool_ast(good))
+            self.assertIsNone(self.kg.parse_tool_ast(bad))
 
     def test_summary_truncates_to_160_chars(self):
         t = ast.parse('"""' + ("word " * 60).strip() + '"""')

@@ -373,7 +373,7 @@ def _dangling_import_message(source_rel: str, name: str) -> str:
             f"refuses to record an edge to something that is not there. Regenerate with `{REGEN_CMD}`.")
 
 
-def _parse_tool_ast(abs_path: str):
+def parse_tool_ast(abs_path: str):
     """Parse a `.py` tool to an AST, or None if it is MALFORMED (a SyntaxError — its own lint/schema check is
     the gate, so a broken tool still entitizes with `guarded` but harvests no imports/summary/entrypoint). A
     read error is left to propagate: the file was already read to fingerprint it in Pass 1, so it is readable
@@ -413,7 +413,7 @@ def _py_declared_names(abs_init_path: str) -> frozenset:
     return frozenset(names)
 
 
-def _tool_module_index(tools_root_abs: str):
+def tool_module_index(tools_root_abs: str):
     """Walk the tool tree ONCE and return (packages, modules, init_symbols) for import resolution. Top-level
     tools are on sys.path (a bare `import validate` -> the tuple `('validate',)`), so names resolve relative
     to the tools root, not to the importing file's directory.
@@ -464,9 +464,9 @@ def _tool_module_index(tools_root_abs: str):
 _OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})
 
 
-def _resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> list:
+def resolve_tool_imports(source_rel: str, tree, index, tools_root_rel: str) -> list:
     """The IN-REPO import targets of one tool source, as repo-relative `.py` paths, from its parsed AST
-    (`ast.walk` so a lazy in-function import counts too). `index` is `_tool_module_index`'s triple. Raises
+    (`ast.walk` so a lazy in-function import counts too). `index` is `tool_module_index`'s triple. Raises
     `DanglingImportError` on an in-repo name that resolves to nothing (so no silent in-repo miss); drops a
     name whose head is not an in-repo top-level module (stdlib/external). A RELATIVE import is resolved
     against the source file's own package (dropped only if it climbs above the tools root); the engine
@@ -856,7 +856,7 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
             "knowledge graph: the guardrail classifier is in its blanket fail-safe (a check rule under "
             ".engine/check/ could not be read), so every tool would be marked guarded. Refusing to record a "
             "graph with a degraded 'guarded' derivation — fix the unreadable check rule and regenerate.")
-    mod_index = _tool_module_index(tools_root_abs)
+    mod_index = tool_module_index(tools_root_abs)
     hook_tools_by_mod = _hook_wired_tools(manifests)
     hook_tool_set = {p for ps in hook_tools_by_mod.values() for p in ps}
     handle_to_tool = _mcp_handle_to_tool(os.path.join(validate.ROOT, ".mcp.json"))
@@ -902,10 +902,10 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         ent["guarded"] = rel in guarded_set                  # EVERY tool entity, incl. non-.py (e.g. .sh)
         if not rel.endswith(".py"):
             continue                                       # imports/summary/entrypoint are .py-only
-        tree = _parse_tool_ast(os.path.join(validate.ROOT, rel))
+        tree = parse_tool_ast(os.path.join(validate.ROOT, rel))
         if tree is None:
             continue                                       # a malformed .py harvests nothing (its own gate)
-        targets = _resolve_tool_imports(rel, tree, mod_index, tools_root_rel)
+        targets = resolve_tool_imports(rel, tree, mod_index, tools_root_rel)
         predicate = "tests" if os.path.basename(rel).startswith("test_") else "imports"
         tids = sorted({path_to_id[t] for t in targets if t in path_to_id and path_to_id[t] != eid})
         if tids:

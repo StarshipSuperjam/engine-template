@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "selftest-run-record.v1.json",
+  "title": "selftest-run-record.v1 — what one self-test run actually did",
+  "description": "The machine-readable account `selftest.py --run-record-path` writes. IT IS DELIBERATELY NOT CALLED A RECEIPT. In this repository a receipt already means the opposite thing: the CI gatekeeper's `engine-ci-receipt` is precisely what lets a merge go green WITHOUT re-running the inventory. This document is the reverse — a record of a run that may deliberately have executed a subset, and that must never substitute for anything. Reviewers judged two artifacts sharing one word with inverse meanings a real hazard, and the rename is the fix.\n\nThree properties make a focused run structurally distinguishable rather than merely legible. `scope` is REQUIRED and has no default, so a record that does not say what it covered is invalid rather than ambiguous. `inventory` always reports the COMPLETE discovered tree even when the run was focused, so what was skipped is visible by subtraction. And `attests` names the single validation command this record speaks for, saying nothing about the other command the Build protocol registers — a documentation-only change legitimately runs no self-tests while still being able to break the validator suite, and a bare 'passed' would read as 'this tree is validated'.\n\nA focused run NEVER satisfies the Build coordinator's validation-freshness hold. The hold exists so a submitted commit is the one that passed validation; a focused run passes a subset chosen by a heuristic, and `scope` is the field that makes that mechanically checkable rather than a matter of trust.\n\nThe body is written by the CHILD process, which holds every outcome first-hand, and finished by the parent, which adds the verbatim exit status and the log digest. The child writes it rather than the parent deriving it from the progress pipe because that pipe is a best-effort liveness channel — never drained after the child exits, its trailing partial line discarded — which is right for a heartbeat and silently lossy for a record.\n\nWHAT THIS RECORD DOES NOT BIND, stated plainly because a later consumer will be tempted to trust it: there is no commit or tree identity in it. A truthful record produced against one tree can sit beside another and read as an attestation of that one. `scope: \"full\"` also means only 'unfiltered' — a run pointed at an empty directory yields a valid full record with an inventory count of zero. The load-bearing fields are the inventory counts and digests, and a consumer must RE-DERIVE the inventory rather than believe the record's own count, exactly as the CI gatekeeper re-derives rather than believing its receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attests",
+    "detail",
+    "executed",
+    "exit_status",
+    "finished_at",
+    "inventory",
+    "log",
+    "modules",
+    "nested_sentinel",
+    "problems",
+    "record_incomplete",
+    "schema_version",
+    "scope",
+    "selection",
+    "selection_digest",
+    "slowest",
+    "started_at",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "selftest-run-record.v1"
+    },
+    "attests": {
+      "description": "The one registered validation command this record speaks for. It says nothing about the other, and a reader must not infer anything about it.",
+      "const": "engine-selftest"
+    },
+    "scope": {
+      "description": "REQUIRED and non-defaultable, so a record cannot be silent about what it covered. `full` means the complete discovered inventory ran. `focused` means a selected subset ran and the rest was deliberately not executed — never a claim about the modules that did not run.",
+      "enum": [
+        "full",
+        "focused"
+      ]
+    },
+    "verdict": {
+      "description": "`passed` and `failed` are the ordinary outcomes and follow the child's own result, never parsed text. `setup-failed` is a discovery that did not complete. `selection-unmatched` is a focused selection the tree cannot satisfy — naming modules it does not produce, or naming none at all — refused with its own status because an empty filtered suite is reported by unittest as SUCCESSFUL, which would be a clean green having run nothing. `crashed` is written by the parent when the child died before writing its own record. `nested-refusal`, `log-unavailable` and `spawn-failed` are the three parent-side exits the child never reaches.",
+      "enum": [
+        "passed",
+        "failed",
+        "setup-failed",
+        "selection-unmatched",
+        "crashed",
+        "nested-refusal",
+        "log-unavailable",
+        "spawn-failed"
+      ]
+    },
+    "detail": {
+      "description": "One plain explanation for a person, or the unmatched module list. Null on an ordinary pass or failure, where the verdict says everything.",
+      "type": [
+        "string",
+        "array",
+        "null"
+      ]
+    },
+    "exit_status": {
+      "description": "The launcher's exit status, verbatim from the child process. The record's verdict agrees with this and is never derived from parsed output — the launcher's load-bearing invariant, preserved.",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "finished_at": {
+      "type": "number"
+    },
+    "inventory": {
+      "description": "The COMPLETE discovered tree, always — taken from the canonical full discovery the child runs before any filtering. This is what lets a later reader tell a focused run from a full one, and is half of what makes a focused record unusable as merge evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_count",
+        "case_count",
+        "modules_digest",
+        "cases_digest"
+      ],
+      "properties": {
+        "module_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modules_digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cases_digest": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "executed": {
+      "description": "What this run actually ran. `skipped_count` matters more than it looks: a run through this launcher deliberately skips construction-gated tests that the raw CI discovery executes, so a record without it would overstate coverage.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_count",
+        "skipped_count"
+      ],
+      "properties": {
+        "case_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "selection": {
+      "description": "The selection manifest verbatim, or null for an ordinary full run. This schema checks only that the embedded object identifies itself and carries a classification — it does NOT fully validate the nested shape, and the earlier wording ('is governed by') overstated that; a reviewer was right to call it. selftest-selection.v1.json is the authority for the shape, applied by the fixture that checks a produced record, and `selection_digest` below is what carries the embedded copy's identity. The nesting is deliberately not a cross-file $ref: this would be the only one in the engine's whole schema corpus, and it would oblige every consumer to carry a reference registry to validate a record at all. A nested JSON object is not byte-preserved in any case, so a digest is the only thing that could carry identity across the boundary.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "schema_version",
+            "classification"
+          ],
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "classification": {
+              "enum": [
+                "focused",
+                "full"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nested_sentinel": {
+      "description": "Whether the engine's nested-run sentinel was set in the running environment. True in every launcher run by construction, and recorded because it is the reason some tests were skipped — the honest companion to `skipped_count`.",
+      "type": "boolean"
+    },
+    "modules": {
+      "description": "Per-module wall time, summed from the child's own per-case clock. Derived from the case OBJECT's module, never from a printed representation whose shape shifts across Python versions and which attributes an import failure to the loader rather than the module.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module",
+          "seconds",
+          "cases"
+        ],
+        "properties": {
+          "module": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "slowest": {
+      "description": "The slowest individual cases, capped — this is a summary, not a log. The full output always lives in the run log.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "module",
+          "seconds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "module": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "problems": {
+      "description": "Every error and failure, taken from the result's own error and failure hooks rather than from the progress stream — because a module-level setup failure is reported straight to the error hook and never passes through a start or stop event at all, so a list built from those events would be silently empty while the exit status said FAILED.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "module"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "error",
+              "failure"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "module": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "log": {
+      "description": "Where the run's full output was written, and its digest. The digest is taken from the parent's in-memory capture rather than by re-reading the file: the two are byte-identical by construction, and this way it does not depend on a buffered flush having completed during teardown — precisely the condition under which the record matters most. Null when the run never opened a log. NOTE BEFORE SHARING A RECORD: this path contains the local operating-system username, because the run log is minted per user. Nothing else in the record is sensitive — problems carry only a kind, an id and a module with no tracebacks, and the log is referenced by digest, never embedded.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "selection_digest": {
+      "description": "The digest of the selection manifest's own canonical serialization, so the embedded copy's identity survives being nested. Null when there is no selection, or when the digest could not be computed — which is recorded rather than guessed.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "record_incomplete": {
+      "description": "True if any part of the run's own bookkeeping failed while being collected — a case whose printed form raised, say. The run's VERDICT is unaffected and remains the child's exit status verbatim; this says only that the timings, failures or skips below may be incomplete. Recorded because the alternative was a silently partial record in the artifact that exists to be honest about what a run covered.",
+      "type": "boolean"
+    }
+  }
+}
