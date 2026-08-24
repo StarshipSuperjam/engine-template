@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "engine-program.v1 — an ordered set of plans that together deliver one thing across several PRs",
+  "description": "A plan is per-Build: one plan, one seal, one pull request. Work that genuinely spans several PRs was, until now, a shelf of related plans held together by memory — and the failure that produces is obligation decay, where something the first PR promised to finish in the second is simply never mentioned again. A program is the smallest object that makes that failure mechanical instead of human. What it guarantees is deliberately narrow and worth stating exactly: an obligation a plan declares it is CARRYING cannot vanish from its successor. It is satisfied, re-declared as still carried, or released with a stated reason. That is all. The program does NOT judge whether splitting the work this way was wise, whether the order is right, or whether a release was justified — those are judgment, and a mechanism that pretended to check them would only launder them. It also never auto-selects a current child: a program is a sequence someone decided on, not a queue something pops from.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "program_id", "slug", "title", "objective", "created_at", "children"],
+  "properties": {
+    "schema_version": {"const": "engine-program.v1"},
+    "program_id": {"type": "string", "pattern": "^prg_[0-9a-f]{12}$"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$"},
+    "title": {"type": "string", "minLength": 1},
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the whole program delivers — the thing no single child PR delivers on its own, and the reason the split exists at all."
+    },
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "children": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/child"},
+      "description": "In intended order. Order is a record of a decision, never a schedule anything executes: nothing here starts, selects, or advances a child."
+    },
+    "closure": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
+      "description": "Set only to abandon or retire a program outright. Ordinary completion is DERIVED from the children being complete, so a program cannot be marked finished while a child is not."
+    }
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_id", "position", "added_at"],
+      "properties": {
+        "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+        "position": {"type": "integer", "minimum": 1},
+        "added_at": {"$ref": "#/$defs/timestamp"},
+        "predecessor_plan_id": {
+          "type": "string",
+          "pattern": "^pln_[0-9a-f]{12}$",
+          "description": "Absent for the first child. Present for every other, and it is what the carry-forward check reads: a successor is checked against ITS declared predecessor, not against whatever happens to sit above it in the array."
+        }
+      }
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "at", "reason"],
+      "properties": {
+        "state": {"enum": ["retired", "abandoned"]},
+        "at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
