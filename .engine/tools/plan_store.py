@@ -441,9 +441,19 @@ class PlanLibrary:
                 "snapshot": snapshot,
             }
             record["title"] = document["title"]
-            # Approval binds a digest. A new revision means the approved document no longer exists, so
-            # the approval retires by construction rather than by anyone remembering to clear it.
-            record["approval"] = None
+            # The approval and the review are NOT cleared here, and that is the whole cadence.
+            #
+            # The order is approve -> one cold review -> fold the fixes in as revisions -> one
+            # proportional judgment of the delta -> seal. Folding a fix is a revision, so clearing the
+            # approval on revision would make the agreed sequence impossible: by the time the plan was
+            # sealable there would be no record it had ever been approved, and the only way out would
+            # be re-approving and re-reviewing after every fix — the death spiral this cadence exists
+            # to avoid.
+            #
+            # Both gates record the revision and digest they were granted against, so a stale approval
+            # is DERIVED (approved, never reviewed, and the head has moved since) rather than erased.
+            # Deriving it keeps the evidence: an operator can still see what was approved and when,
+            # which is exactly what they need in order to decide whether re-approving is warranted.
             core.validate(record, RECORD_SCHEMA)
             self._write_json(self._record_path(slug), record)
             return record
@@ -505,6 +515,22 @@ STATUSES = ("draft", "awaiting-approval", "awaiting-review", "review-recorded",
             "sealed", "active", "complete", "retired", "abandoned")
 
 
+def approval_is_stale(record: dict) -> bool:
+    """Was this plan approved, never reviewed, and then changed?
+
+    That combination means the review would run against something the operator never approved, so the
+    approval no longer speaks for the head. Revising AFTER the review is a different thing entirely —
+    that is folding fixes in, which the seal's proportional delta judgment covers — so a review at the
+    approved revision keeps the approval live no matter how many fix revisions follow.
+    """
+    approval = record.get("approval")
+    if not approval:
+        return False
+    if record.get("plan_review"):
+        return False
+    return record["current"]["plan_digest"] != approval["plan_digest"]
+
+
 def derived_status(record: dict, *, head_blockers: list | None = None) -> str:
     """The plan's lifecycle status, derived from evidence every time and stored nowhere.
 
@@ -527,7 +553,7 @@ def derived_status(record: dict, *, head_blockers: list | None = None) -> str:
         return "sealed"
     if record.get("plan_review"):
         return "review-recorded"
-    if record.get("approval"):
+    if record.get("approval") and not approval_is_stale(record):
         return "awaiting-review"
     if head_blockers is not None and not head_blockers:
         return "awaiting-approval"

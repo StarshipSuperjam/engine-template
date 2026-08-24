@@ -352,6 +352,275 @@ def cmd_doctor(args) -> int:
     return 1
 
 
+# --- governance --------------------------------------------------------------
+
+def cmd_approve(args) -> int:
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    if record.get("seal"):
+        raise PlanCoordinatorError("this plan is sealed; a seal is terminal and nothing about it changes")
+    digest = record["current"]["plan_digest"]
+    if not was_previewed(library, slug, digest):
+        raise PlanCoordinatorError(
+            f"the full plan has not been presented at this revision. Run `preview {args.plan}` first — "
+            "approving a plan nobody has read is what this refusal exists to prevent.")
+    if args.depth not in DEPTHS:
+        raise PlanCoordinatorError(f"unknown review depth {args.depth!r}; choose one of "
+                                   + ", ".join(DEPTHS))
+    revision = record["current"]["revision"]
+    library.update_record(slug, lambda r: r.update({"approval": {
+        "revision": revision, "plan_digest": digest, "depth": args.depth, "at": _now()}}),
+        expected_revision=revision)
+    print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
+    print(f"  bound to {digest}")
+    print("\nnext: run the one cold plan review against this revision.")
+    return 0
+
+
+def cmd_review_packet(args) -> int:
+    """Emit the packet the cold lenses read: the whole plan, at a named digest.
+
+    The digest is what makes a receipt mean anything later — a lens receipt that did not name what it
+    read could be replayed against any revision.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    approval = record.get("approval")
+    if not approval:
+        raise PlanCoordinatorError("approve the plan and choose a review depth before building a packet")
+    if plan_store.approval_is_stale(record):
+        raise PlanCoordinatorError(
+            f"the approval covers revision {approval['revision']}, but the plan has been revised since "
+            f"and never reviewed. Re-preview and re-approve at revision {record['current']['revision']} "
+            "so the review reads what the operator actually approved.")
+    document = library.head(slug)
+    packet = plan_projection.render_plan(document, record)
+    packet_digest = core.digest(packet.encode("utf-8"))
+    header = (f"Plan review packet — {record['plan_id']} revision {record['current']['revision']}\n"
+              f"Plan digest: {record['current']['plan_digest']}\n"
+              f"Packet digest: {packet_digest}\n"
+              f"Depth: {approval['depth']} — {DEPTHS[approval['depth']]}\n"
+              + "=" * 78 + "\n\n")
+    if args.output:
+        Path(args.output).write_text(header + packet, encoding="utf-8")
+        print(f"packet written to {args.output}")
+    else:
+        print(header + packet)
+    print(f"\npacket digest: {packet_digest}", file=sys.stderr)
+    return 0
+
+
+def cmd_review_record(args) -> int:
+    """Record the ONE cold review for this approved revision.
+
+    Single-minted on purpose. A plan whose every revision re-triggered a panel would never converge,
+    which is the failure the Build side already removed; folding fixes in afterwards is covered by the
+    seal's proportional delta judgment, not by another panel.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    if record.get("plan_review"):
+        existing = record["plan_review"]
+        raise PlanCoordinatorError(
+            f"a plan review is already recorded for revision {existing['revision']} of this plan, and "
+            "there is exactly one per plan. Fold the fixes in as revisions and let the seal's delta "
+            "judgment cover them; re-running the panel on a churning plan is the loop this refuses to "
+            "rebuild. If the shape itself is wrong, that is a scrap-and-redesign decision for the "
+            "operator, not another review.")
+    approval = record.get("approval")
+    if not approval:
+        raise PlanCoordinatorError("a review records findings against an APPROVED revision; approve first")
+    if plan_store.approval_is_stale(record):
+        raise PlanCoordinatorError(
+            f"the approval covers revision {approval['revision']} but the head is revision "
+            f"{record['current']['revision']}; re-approve before recording a review")
+    findings = json.loads(core.input_text(args.findings)) if args.findings else []
+    if not args.lens:
+        raise PlanCoordinatorError("name at least one lens the review was run through")
+    review = {
+        "revision": approval["revision"],
+        "plan_digest": approval["plan_digest"],
+        "packet_digest": args.packet_digest,
+        "at": _now(),
+        "lenses": list(args.lens),
+        "findings": findings,
+    }
+    library.update_record(slug, lambda r: r.update({"plan_review": review}))
+    blocking = [f for f in findings if f["severity"] == "blocking"]
+    print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
+          f"{len(findings)} finding(s), {len(blocking)} blocking")
+    if findings:
+        print("\nnext: disposition every finding, then fold fixes in as revisions.")
+    return 0
+
+
+def cmd_finding_dispose(args) -> int:
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    review = record.get("plan_review")
+    if not review:
+        raise PlanCoordinatorError("no plan review is recorded, so there is nothing to disposition")
+    match = [f for f in review.get("findings", []) if f["id"] == args.id]
+    if not match:
+        known = ", ".join(f["id"] for f in review.get("findings", [])) or "none"
+        raise PlanCoordinatorError(f"no finding {args.id!r} in this review; it holds: {known}")
+
+    def change(current):
+        for finding in current["plan_review"]["findings"]:
+            if finding["id"] == args.id:
+                finding["disposition"] = args.disposition
+                finding["rationale"] = args.rationale
+    library.update_record(slug, change)
+    outstanding = [f["id"] for f in library.read_record(slug)["plan_review"]["findings"]
+                   if not f.get("disposition")]
+    print(f"{args.id}: {args.disposition}")
+    print(f"outstanding: {', '.join(outstanding) if outstanding else 'none'}")
+    return 0
+
+
+def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
+    """Every reason this plan may not be sealed, together, in operator-facing language.
+
+    All at once rather than one at a time: someone getting a plan to a seal should see everything in
+    the way in a single reading, not discover the next obstacle only after clearing the last.
+    """
+    record = library.read_record(slug)
+    refusals = []
+    if record.get("seal"):
+        return [f"this plan was already sealed at revision {record['seal']['revision']}. A seal is "
+                "terminal and single-minted: to change the plan now, clone it into a new one."]
+    if record.get("closure"):
+        return [f"this plan is {record['closure']['state']} ({record['closure']['reason']}); reopen it "
+                "before sealing."]
+    refusals.extend(library.verify_chain(slug))
+    try:
+        document = library.head(slug)
+    except PlanCoordinatorError as exc:
+        return refusals + [str(exc)]
+    # Unresolved decisions, unresolved assumptions, and a payload the Build Coordinator would refuse
+    # all arrive from the contract — delegated, not re-expressed here.
+    refusals.extend(plan_contract.seal_blockers(document))
+    approval = record.get("approval")
+    if not approval:
+        refusals.append("the plan has not been approved at any revision")
+    elif plan_store.approval_is_stale(record):
+        refusals.append(
+            f"the approval covers revision {approval['revision']} but the plan changed before it was "
+            "ever reviewed, so nothing reviewed reflects what was approved; re-preview and re-approve")
+    review = record.get("plan_review")
+    if not review:
+        refusals.append("no cold plan review has been recorded; a sealed plan is by definition a "
+                        "reviewed one")
+    elif approval and review["revision"] != approval["revision"]:
+        refusals.append(f"the review covers revision {review['revision']} but the approval covers "
+                        f"revision {approval['revision']}")
+    if review:
+        outstanding = [f["id"] for f in review.get("findings", []) if not f.get("disposition")]
+        if outstanding:
+            refusals.append("these findings have no disposition: " + ", ".join(outstanding))
+    return refusals
+
+
+def cmd_seal(args) -> int:
+    """The terminal act. Nothing locks before this, and nothing changes after it.
+
+    There is deliberately no sealed-but-failed state. A plan carrying blocking findings simply stays
+    an unsealed draft that still carries them — editable, resumable, on the shelf — because a plan
+    stuck in a limbo it cannot leave is worse than one that plainly is not ready.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    refusals = seal_refusals(library, slug)
+    if refusals:
+        print(f"not sealing {slug}; it remains an editable draft:", file=sys.stderr)
+        for refusal in refusals:
+            print(f"  - {refusal}", file=sys.stderr)
+        return 1
+
+    record = library.read_record(slug)
+    document = library.head(slug)
+    reviewed_digest = record["plan_review"]["plan_digest"]
+    sealed_digest = record["current"]["plan_digest"]
+    changed = reviewed_digest != sealed_digest
+    if changed and not args.delta_judgment:
+        raise PlanCoordinatorError(
+            f"the plan changed after its review (reviewed revision {record['plan_review']['revision']}, "
+            f"sealing revision {record['current']['revision']}). That is the expected shape — fixes fold "
+            "in as revisions — but the delta needs one proportional judgment before it locks. Read it "
+            f"with `diff {args.plan} --from {record['plan_review']['revision']} --to "
+            f"{record['current']['revision']}`, then seal with --delta-judgment none or scoped.")
+    if args.delta_judgment == "scoped" and not args.delta_rationale:
+        raise PlanCoordinatorError("a scoped delta judgment needs a rationale saying what changed and "
+                                   "why it is still the reviewed plan")
+    judgment = args.delta_judgment or "none"
+
+    seal = {
+        "revision": record["current"]["revision"],
+        "reviewed_digest": reviewed_digest,
+        "sealed_digest": sealed_digest,
+        "build_plan_digest": plan_contract.build_plan_digest(document),
+        "at": _now(),
+        "delta_judgment": judgment,
+    }
+    if args.delta_rationale:
+        seal["delta_rationale"] = args.delta_rationale
+    library.update_record(slug, lambda r: r.update({"seal": seal}),
+                          expected_revision=record["current"]["revision"])
+    plan_projection.project_library(library)
+    print(f"sealed {record['plan_id']} at revision {seal['revision']}")
+    print(f"  reviewed  {reviewed_digest}")
+    print(f"  sealed    {sealed_digest}"
+          + ("  (unchanged since review)" if not changed else f"  (delta judged {judgment})"))
+    print(f"  payload   {seal['build_plan_digest']}")
+    if changed:
+        print("\nThe PR must disclose that the sealed plan differs from the reviewed one, and by what.")
+    return 0
+
+
+def cmd_close(args) -> int:
+    """retire / abandon / complete — how a plan ends. None of them deletes anything."""
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    if record.get("closure"):
+        raise PlanCoordinatorError(
+            f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
+    library.update_record(slug, lambda r: r.update({"closure": {
+        "state": args.state, "at": _now(), "reason": args.reason}}))
+    plan_projection.project_library(library)
+    print(f"{record['plan_id']} is now {args.state}: {args.reason}")
+    print("Nothing was deleted — the plan and every revision stay on the shelf.")
+    return 0
+
+
+def cmd_reopen(args) -> int:
+    """Undo a retirement or an abandonment. Deliberately CANNOT undo a seal.
+
+    Retiring and abandoning are bookkeeping about attention, and an operator may change their mind.
+    A seal is a promise that a specific plan, at a specific digest, was reviewed and handed to a
+    Build — and unsealing would let a plan be edited while something downstream still believes it
+    said what it said. The way past a seal is a new plan, which is why `clone` exists.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.read_record(slug)
+    if not record.get("closure"):
+        raise PlanCoordinatorError("this plan is not closed, so there is nothing to reopen")
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
+            "a digest a Build already trusted. Clone it into a new plan instead.")
+    previous = record["closure"]["state"]
+    library.update_record(slug, lambda r: r.update({"closure": None}))
+    plan_projection.project_library(library)
+    print(f"reopened {record['plan_id']} (was {previous})")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="plan_coordinator.py",
@@ -385,6 +654,55 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--from", dest="from_revision", type=int)
     diff.add_argument("--to", dest="to_revision", type=int)
     diff.set_defaults(func=cmd_diff)
+
+    approve = sub.add_parser("approve", help="bind a review depth to this revision's digest")
+    approve.add_argument("plan")
+    approve.add_argument("--depth", required=True, choices=sorted(DEPTHS))
+    approve.set_defaults(func=cmd_approve)
+
+    review = sub.add_parser("review", help="the one cold plan review").add_subparsers(
+        dest="review_command", required=True)
+    packet = review.add_parser("packet", help="the plan as the cold lenses read it, at a named digest")
+    packet.add_argument("plan")
+    packet.add_argument("--output")
+    packet.set_defaults(func=cmd_review_packet)
+    record_review = review.add_parser("record", help="record the review — once per plan")
+    record_review.add_argument("plan")
+    record_review.add_argument("--lens", action="append", required=True)
+    record_review.add_argument("--packet-digest", required=True)
+    record_review.add_argument("--findings", help="a JSON array of findings")
+    record_review.set_defaults(func=cmd_review_record)
+
+    finding = sub.add_parser("finding", help="adjudicate review findings").add_subparsers(
+        dest="finding_command", required=True)
+    dispose = finding.add_parser("dispose", help="record how one finding was answered")
+    dispose.add_argument("plan")
+    dispose.add_argument("--id", required=True)
+    dispose.add_argument("--disposition", required=True,
+                         choices=["accepted-fixed", "accepted-tracked", "partially-accepted",
+                                  "rejected", "escalated"])
+    dispose.add_argument("--rationale", required=True)
+    dispose.set_defaults(func=cmd_finding_dispose)
+
+    seal = sub.add_parser("seal", help="the terminal act — nothing locks before it")
+    seal.add_argument("plan")
+    seal.add_argument("--delta-judgment", choices=["none", "scoped"])
+    seal.add_argument("--delta-rationale")
+    seal.set_defaults(func=cmd_seal)
+
+    for state, helptext in (("retire", "superseded by a later plan, kept for the record"),
+                            ("abandon", "deliberately dropped"),
+                            ("complete", "the Build it authorized was merged")):
+        closer = sub.add_parser(state, help=helptext)
+        closer.add_argument("plan")
+        closer.add_argument("--reason", required=True)
+        closer.set_defaults(func=cmd_close,
+                            state={"retire": "retired", "abandon": "abandoned",
+                                   "complete": "complete"}[state])
+
+    reopen = sub.add_parser("reopen", help="undo a retirement or abandonment (never a seal)")
+    reopen.add_argument("plan")
+    reopen.set_defaults(func=cmd_reopen)
     return parser
 
 

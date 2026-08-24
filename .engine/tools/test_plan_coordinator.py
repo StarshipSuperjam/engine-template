@@ -337,6 +337,332 @@ class Validate(_Surface):
         self.assertIn("missing from disk", err)
 
 
+class _Governed(_Surface):
+    """A plan walked to the edge of a seal, so each test can remove exactly one precondition."""
+
+    def _findings(self, *findings) -> str:
+        path = Path(self._tmp.name) / "findings.json"
+        path.write_text(json.dumps(list(findings)), encoding="utf-8")
+        return str(path)
+
+    def _to_reviewed(self, findings=(), **over):
+        slug, document = self._plan(**over)
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard")[0], 0)
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        argv = ["review", "record", slug, "--lens", "architecture", "--lens", "risk-governance",
+                "--packet-digest", digest]
+        if findings:
+            argv += ["--findings", self._findings(*findings)]
+        self.assertEqual(self.run_command(*argv)[0], 0)
+        return slug, document
+
+
+class Approval(_Surface):
+    def test_approval_is_refused_before_the_plan_is_presented(self):
+        slug, _ = self._plan()
+        code, _, err = self.run_command("approve", slug, "--depth", "standard")
+        self.assertEqual(code, 2)
+        self.assertIn("has not been presented", err)
+
+    def test_approval_binds_the_revision_and_its_digest(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        code, out, _ = self.run_command("approve", slug, "--depth", "thorough")
+        self.assertEqual(code, 0)
+        approval = self.lib.read_record(slug)["approval"]
+        self.assertEqual(approval["depth"], "thorough")
+        self.assertEqual(approval["revision"], 1)
+        self.assertEqual(approval["plan_digest"], self.lib.read_record(slug)["current"]["plan_digest"])
+        self.assertIn("one cold plan review", out)
+
+
+class OneReviewPerPlan(_Governed):
+    def test_a_second_review_is_refused_with_the_reason(self):
+        slug, _ = self._to_reviewed()
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", digest)
+        self.assertEqual(code, 2)
+        self.assertIn("exactly one per plan", err)
+        self.assertIn("scrap-and-redesign", err)
+
+    def test_folding_fixes_in_does_not_force_a_re_panel(self):
+        # The whole point of the cadence: revisions after the review are fixes, not a new plan.
+        slug, _ = self._to_reviewed()
+        for revision in (2, 3):
+            self.lib.append_revision(slug, _document(revision=revision), expected_revision=revision - 1)
+        record = self.lib.read_record(slug)
+        self.assertIsNotNone(record["plan_review"])
+        self.assertFalse(plan_store.approval_is_stale(record))
+        # The next step is a seal, not another panel.
+        next_step = self.run_command("resume", slug)[1].split("next:")[1]
+        self.assertIn("seal the plan", next_step)
+        self.assertNotIn("run the one cold plan review", next_step)
+
+    def test_a_packet_names_the_digest_it_rendered(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, out, err = self.run_command("review", "packet", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("Packet digest: sha256:", out)
+        self.assertIn(self.lib.read_record(slug)["current"]["plan_digest"], out)
+        self.assertIn("packet digest:", err)
+
+    def test_a_packet_is_refused_on_a_stale_approval(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        code, _, err = self.run_command("review", "packet", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("re-approve", err)
+
+
+class SealRefusals(_Governed):
+    """Every refusal N06 requires, each proven by removing exactly one precondition."""
+
+    def _blocking(self):
+        return {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking",
+                "summary": "The store's first write precedes its fence."}
+
+    def test_a_clean_reviewed_plan_seals(self):
+        slug, _ = self._to_reviewed()
+        code, out, _ = self.run_command("seal", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("sealed", out)
+        seal = self.lib.read_record(slug)["seal"]
+        self.assertEqual(seal["reviewed_digest"], seal["sealed_digest"])
+        self.assertEqual(seal["delta_judgment"], "none")
+
+    def test_an_unresolved_decision_refuses_the_seal(self):
+        document = _document()
+        document["deliberation"]["unresolved_decisions"] = ["Who owns retention?"]
+        slug = self.lib.create(document)
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        self.run_command("review", "record", slug, "--lens", "architecture", "--packet-digest", digest)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("unresolved", err)
+        self.assertIsNone(self.lib.read_record(slug)["seal"])
+
+    def test_an_unresolved_assumption_refuses_the_seal(self):
+        document = _document()
+        document["build_plan"]["assumptions"] = [{"claim": "The disk is durable.", "status": "unresolved"}]
+        slug = self.lib.create(document)
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        self.run_command("review", "record", slug, "--lens", "architecture", "--packet-digest", digest)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("The disk is durable.", err)
+
+    def test_a_missing_review_refuses_the_seal(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("no cold plan review", err)
+
+    def test_a_missing_approval_refuses_the_seal(self):
+        slug, _ = self._plan()
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("has not been approved", err)
+
+    def test_an_undispositioned_finding_refuses_the_seal(self):
+        slug, _ = self._to_reviewed(findings=(self._blocking(),))
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("no disposition", err)
+        self.assertIn("ARCH-B1", err)
+
+    def test_a_stale_approval_refuses_the_seal(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("changed before it was ever reviewed", err)
+
+    def test_a_payload_the_build_coordinator_would_refuse_refuses_the_seal(self):
+        # Delegated, not re-expressed: a v1 payload reads fine and cannot be handed to a DAG Build.
+        slug, _ = self._to_reviewed()
+        record = self.lib.read_record(slug)
+        document = self.lib.head(slug)
+        v1 = {k: v for k, v in document["build_plan"].items() if k != "parallelism"}
+        v1["schema_version"] = "build-plan.v1"
+        v1["work_items"] = [{k: v for k, v in item.items()
+                             if k in ("id", "description", "paths", "verification")}
+                            for item in v1["work_items"]]
+        second = _document(revision=2, build_plan=v1)
+        self.lib.append_revision(slug, second, expected_revision=record["current"]["revision"])
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("only build-plan.v2 can be sealed", err)
+
+    def test_all_refusals_are_reported_together(self):
+        slug, _ = self._plan()
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("has not been approved", err)
+        self.assertIn("no cold plan review", err)
+
+
+class SealIsTerminal(_Governed):
+    def test_a_blocking_finding_leaves_a_resumable_draft_and_no_seal_artifact(self):
+        # There is deliberately no sealed-but-failed state.
+        slug, _ = self._to_reviewed(findings=({"id": "RISK-B1", "lens": "risk-governance",
+                                               "severity": "blocking",
+                                               "summary": "The library is the only copy."},))
+        self.assertEqual(self.run_command("seal", slug)[0], 1)
+        record = self.lib.read_record(slug)
+        self.assertIsNone(record["seal"])
+        self.assertEqual(plan_store.derived_status(record), "review-recorded")
+        # Still editable, still resumable — the plan is not stuck anywhere.
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        self.assertIn("disposition 1 outstanding finding", self.run_command("resume", slug)[1])
+
+    def test_sealing_twice_is_refused(self):
+        slug, _ = self._to_reviewed()
+        self.assertEqual(self.run_command("seal", slug)[0], 0)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("already sealed", err)
+        self.assertIn("clone", err)
+
+    def test_a_sealed_plan_cannot_be_approved_again(self):
+        slug, _ = self._to_reviewed()
+        self.run_command("seal", slug)
+        self.run_command("preview", slug)
+        code, _, err = self.run_command("approve", slug, "--depth", "light")
+        self.assertEqual(code, 2)
+        self.assertIn("terminal", err)
+
+    def test_a_seal_cannot_be_reopened(self):
+        slug, _ = self._to_reviewed()
+        self.run_command("seal", slug)
+        self.run_command("retire", slug, "--reason", "trying to escape the seal")
+        code, _, err = self.run_command("reopen", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("terminal", err)
+
+
+class DeltaJudgment(_Governed):
+    def _reviewed_then_revised(self):
+        slug, _ = self._to_reviewed()
+        second = _document(revision=2)
+        second["deliberation"]["failure_modes"].append("A fix folded in after the review.")
+        self.lib.append_revision(slug, second, expected_revision=1)
+        return slug
+
+    def test_a_changed_plan_needs_one_proportional_judgment(self):
+        slug = self._reviewed_then_revised()
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("delta needs one proportional judgment", err)
+        self.assertIn("diff", err)
+        self.assertIsNone(self.lib.read_record(slug)["seal"])
+
+    def test_the_judgment_seals_and_the_delta_is_recorded_for_disclosure(self):
+        slug = self._reviewed_then_revised()
+        code, out, _ = self.run_command("seal", slug, "--delta-judgment", "scoped",
+                                        "--delta-rationale", "One failure mode added; nothing else moved.")
+        self.assertEqual(code, 0)
+        seal = self.lib.read_record(slug)["seal"]
+        self.assertNotEqual(seal["reviewed_digest"], seal["sealed_digest"])
+        self.assertEqual(seal["delta_judgment"], "scoped")
+        self.assertIn("One failure mode added", seal["delta_rationale"])
+        self.assertIn("must disclose", out)
+
+    def test_a_scoped_judgment_needs_a_rationale(self):
+        slug = self._reviewed_then_revised()
+        code, _, err = self.run_command("seal", slug, "--delta-judgment", "scoped")
+        self.assertEqual(code, 2)
+        self.assertIn("needs a rationale", err)
+
+    def test_an_unchanged_plan_needs_no_judgment(self):
+        slug, _ = self._to_reviewed()
+        code, out, _ = self.run_command("seal", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("unchanged since review", out)
+
+
+class Dispositions(_Governed):
+    def test_disposing_a_finding_clears_it_and_reports_what_is_left(self):
+        slug, _ = self._to_reviewed(findings=(
+            {"id": "A1", "lens": "architecture", "severity": "serious", "summary": "One."},
+            {"id": "A2", "lens": "architecture", "severity": "nit", "summary": "Two."}))
+        code, out, _ = self.run_command("finding", "dispose", slug, "--id", "A1",
+                                        "--disposition", "accepted-fixed",
+                                        "--rationale", "Folded into revision 2.")
+        self.assertEqual(code, 0)
+        self.assertIn("outstanding: A2", out)
+        self.run_command("finding", "dispose", slug, "--id", "A2",
+                         "--disposition", "rejected", "--rationale", "Style preference.")
+        self.assertIn("outstanding: none", self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-fixed",
+            "--rationale", "Folded into revision 2.")[1])
+
+    def test_an_unknown_finding_id_lists_the_real_ones(self):
+        slug, _ = self._to_reviewed(findings=({"id": "A1", "lens": "architecture",
+                                               "severity": "nit", "summary": "One."},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "NOPE",
+                                        "--disposition", "rejected", "--rationale", "n/a")
+        self.assertEqual(code, 2)
+        self.assertIn("A1", err)
+
+    def test_disposing_without_a_review_is_refused(self):
+        slug, _ = self._plan()
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "A1",
+                                        "--disposition", "rejected", "--rationale", "n/a")
+        self.assertEqual(code, 2)
+        self.assertIn("nothing to disposition", err)
+
+
+class Closing(_Surface):
+    def test_retire_abandon_and_complete_all_keep_everything(self):
+        for verb, state, plan_id in (("retire", "retired", "pln_aaaaaaaaaaaa"),
+                                     ("abandon", "abandoned", "pln_bbbbbbbbbbbb"),
+                                     ("complete", "complete", "pln_cccccccccccc")):
+            with self.subTest(verb=verb):
+                slug, _ = self._plan(plan_id=plan_id, title=f"Plan to {verb}")
+                before = sorted(p.name for p in (self.root / slug / "revisions").iterdir())
+                code, out, _ = self.run_command(verb, slug, "--reason", f"because {verb}")
+                self.assertEqual(code, 0)
+                self.assertIn(state, out)
+                self.assertEqual(sorted(p.name for p in (self.root / slug / "revisions").iterdir()),
+                                 before)
+                self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), state)
+
+    def test_reopen_undoes_a_retirement(self):
+        slug, _ = self._plan()
+        self.run_command("retire", slug, "--reason", "superseded")
+        code, out, _ = self.run_command("reopen", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("was retired", out)
+        self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), "draft")
+
+    def test_reopening_an_open_plan_says_so(self):
+        slug, _ = self._plan()
+        code, _, err = self.run_command("reopen", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("not closed", err)
+
+    def test_closing_twice_is_refused(self):
+        slug, _ = self._plan()
+        self.run_command("retire", slug, "--reason", "superseded")
+        code, _, err = self.run_command("abandon", slug, "--reason", "changed my mind")
+        self.assertEqual(code, 2)
+        self.assertIn("already retired", err)
+
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
         self.assertEqual(set(plan_coordinator.DEPTHS), {"light", "standard", "thorough"})

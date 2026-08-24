@@ -304,15 +304,44 @@ class ConcurrentWriters(_Library):
             self.lib.append_revision(slug, _document(revision=2, plan_id="pln_ffffffffffff"),
                                      expected_revision=1)
 
-    def test_revising_retires_the_approval_by_construction(self):
-        slug, doc = self._create()
+    def _approve(self, slug, document):
         self.lib.update_record(slug, lambda r: r.update(
-            {"approval": {"revision": 1, "plan_digest": core.digest(doc),
+            {"approval": {"revision": document["revision"], "plan_digest": core.digest(document),
                           "depth": "standard", "at": "2026-08-23T01:00:00Z"}}))
+
+    def _review(self, slug, document):
+        self.lib.update_record(slug, lambda r: r.update(
+            {"plan_review": {"revision": document["revision"], "plan_digest": core.digest(document),
+                             "packet_digest": core.digest(document), "at": "2026-08-23T02:00:00Z",
+                             "lenses": ["architecture"]}}))
+
+    def test_revising_before_review_makes_the_approval_stale_without_erasing_it(self):
+        # The approval is NOT cleared. It records what was approved and when, which is what an
+        # operator needs in order to judge whether re-approving is warranted; staleness is derived so
+        # the evidence survives.
+        slug, document = self._create()
+        self._approve(slug, document)
         self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), "awaiting-review")
+
         self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
-        self.assertIsNone(self.lib.read_record(slug)["approval"])
-        self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), "draft")
+        record = self.lib.read_record(slug)
+        self.assertIsNotNone(record["approval"], "the approval evidence was destroyed")
+        self.assertEqual(record["approval"]["revision"], 1)
+        self.assertTrue(plan_store.approval_is_stale(record))
+        self.assertEqual(plan_store.derived_status(record), "draft")
+
+    def test_revising_after_review_keeps_the_approval_live(self):
+        # This IS the agreed cadence: approve, review once, fold fixes in as revisions, judge the
+        # delta, seal. Clearing the approval on revision would make that sequence impossible.
+        slug, document = self._create()
+        self._approve(slug, document)
+        self._review(slug, document)
+        for revision in (2, 3):
+            self.lib.append_revision(slug, _document(revision=revision), expected_revision=revision - 1)
+        record = self.lib.read_record(slug)
+        self.assertFalse(plan_store.approval_is_stale(record))
+        self.assertEqual(record["approval"]["revision"], 1)
+        self.assertEqual(plan_store.derived_status(record), "review-recorded")
 
     def test_update_record_enforces_the_same_compare_and_swap(self):
         slug, _ = self._create()
@@ -499,17 +528,29 @@ class VolumeWarnings(unittest.TestCase):
 class DerivedStatus(unittest.TestCase):
     def _record(self, **over):
         record = {"approval": None, "plan_review": None, "seal": None,
-                  "build_binding": None, "closure": None}
+                  "build_binding": None, "closure": None,
+                  "current": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
+                              "build_plan_digest": "sha256:" + "b" * 64, "snapshot": "x.json"}}
         record.update(over)
         return record
+
+    def _live_approval(self):
+        """An approval bound to the head digest — the not-stale case."""
+        return {"revision": 1, "plan_digest": "sha256:" + "a" * 64, "depth": "standard",
+                "at": "2026-08-23T01:00:00Z"}
 
     def test_every_status_is_derived_from_evidence(self):
         self.assertEqual(plan_store.derived_status(self._record()), "draft")
         self.assertEqual(plan_store.derived_status(self._record(), head_blockers=["something open"]), "draft")
         self.assertEqual(plan_store.derived_status(self._record(), head_blockers=[]), "awaiting-approval")
-        self.assertEqual(plan_store.derived_status(self._record(approval={"x": 1})), "awaiting-review")
-        self.assertEqual(plan_store.derived_status(self._record(approval={}, plan_review={"x": 1})),
-                         "review-recorded")
+        self.assertEqual(plan_store.derived_status(self._record(approval=self._live_approval())),
+                         "awaiting-review")
+        self.assertEqual(
+            plan_store.derived_status(self._record(approval=self._live_approval(), plan_review={"x": 1})),
+            "review-recorded")
+        # An approval bound to a digest that is no longer the head, with no review: back to draft.
+        stale = dict(self._live_approval(), plan_digest="sha256:" + "c" * 64)
+        self.assertEqual(plan_store.derived_status(self._record(approval=stale)), "draft")
         self.assertEqual(plan_store.derived_status(self._record(seal={"x": 1})), "sealed")
         self.assertEqual(plan_store.derived_status(self._record(seal={}, build_binding={"x": 1})), "active")
         for state in ("complete", "retired", "abandoned"):
