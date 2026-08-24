@@ -345,6 +345,10 @@ def _write_run_record(args, outcome: dict, started: float, *, inventory=None, se
                           key=lambda e: (-e["seconds"], e["id"]))[:_SLOWEST_KEPT],
         "problems": sorted(getattr(result, "problems", []) or [],
                            key=lambda e: (e["module"], e["id"])),
+        # Surfaced, not swallowed. The guards around the new bookkeeping turned a loud failure into a
+        # silently partial record, and the flag they set was read nowhere — so a record could
+        # under-report in the artifact this slice calls the honesty record, with no trace at all.
+        "record_incomplete": bool(getattr(result, "_record_broke", False)),
         "log": None,
     }
     _atomic_write_json(path, record)
@@ -754,7 +758,10 @@ def _not_started_record(args, verdict: str, detail: str) -> None:
         "executed": {"case_count": 0, "skipped_count": 0},
         "selection": None,
         "selection_digest": None,
-        "nested_sentinel": bool(os.environ.get(_NESTED_ENV)),
+        # True for the same reason as the crash record: the launcher sets the sentinel for the child it
+        # spawns, so reading the parent's own environment reported False on every ordinary run. The
+        # earlier fix corrected one of the two parent-written record paths and left this one.
+        "nested_sentinel": True,
         "modules": [], "slowest": [], "problems": [],
         "log": None,
     })

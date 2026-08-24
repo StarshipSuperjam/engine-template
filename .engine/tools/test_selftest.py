@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -333,6 +334,7 @@ def _selection(modules, classification="focused", code=None):
         "changed_paths": [],
         "full_reason": None if classification == "focused"
                        else {"code": code or "path-not-classifiable", "detail": "fixture"},
+        "exempt_paths": [],
         "selected": [{"module": m, "path": f".engine/tools/{m}.py",
                       "reason": {"code": "changed-test-module", "detail": "fixture"}}
                      for m in modules],
@@ -626,7 +628,10 @@ class RecordHonesty(unittest.TestCase):
         self.assertTrue(record["nested_sentinel"])
 
     def test_a_record_is_written_with_owner_only_permissions(self):
-        """The run log's own docstring already argued this posture; the new files must match it."""
+        """The run log's own docstring already argued this posture; the new files must match it.
+
+        The first version of this test asserted only that the file existed, which passed identically
+        against the commit before the permission fix — a test named for a property it never checked."""
         tmp = _write_suite({"test_one.py": _CLEAN})
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         record_path = os.path.join(tmp, "record.json")
@@ -634,6 +639,8 @@ class RecordHonesty(unittest.TestCase):
                         "--heartbeat-interval", "0.05", "--log-path", os.path.join(tmp, "run.log"),
                         "--run-record-path", record_path], capture_output=True, text=True, timeout=60)
         self.assertTrue(os.path.exists(record_path))
+        self.assertEqual(stat.S_IMODE(os.stat(record_path).st_mode), 0o600,
+                         "the record must be owner-only, like the run log beside it")
 
     def test_the_atomic_write_refuses_a_symlink_planted_at_its_temporary_name(self):
         """A predictable temporary name opened with a plain write follows symlinks — an arbitrary

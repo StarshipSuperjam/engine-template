@@ -346,18 +346,56 @@ class ManifestHonesty(unittest.TestCase):
         self.assertEqual(entry["reason"]["code"], "changed-test-module")
 
     def test_a_real_dangling_import_keeps_its_whole_explanation(self):
-        """The detail was taken as everything before the first period — which, in a message opening
-        with a repo-relative path, is the period inside `.engine`. The file, the bad import and the
-        explanation were all lost, in the failure a session would most need explained."""
-        import knowledge_gen
-        message = knowledge_gen._dangling_import_message(f"{_TOOLS}/thing.py", "validate.gone")
-        self.assertGreater(len(message), 100)
-        try:
-            raise knowledge_gen.DanglingImportError(message)
-        except knowledge_gen.DanglingImportError as exc:
-            detail = " ".join(str(exc).split())
-        self.assertIn("thing.py", detail)
-        self.assertIn("validate.gone", detail)
+        """Drives the REAL code path, which the first version of this test did not.
+
+        The detail was taken as everything before the first period — which, in a message opening with a
+        repo-relative path, is the period inside `.engine`, so the file, the bad import and the whole
+        explanation were lost in the failure a session would most need explained. The first version of
+        this test rebuilt the fixed transformation inline in its own body and never called
+        `build_importer_index`, where the truncation lived, so it passed against the buggy commit."""
+        tmp = tempfile.mkdtemp(prefix="selftest-dangling-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        tools = os.path.join(tmp, _TOOLS)
+        pkg = os.path.join(tools, "anchorpkg")
+        os.makedirs(pkg)
+        # A PACKAGE, because that is the shape the resolver refuses: `from <in-repo package> import
+        # <name>` where the name is neither a submodule nor something the package declares.
+        with open(os.path.join(pkg, "__init__.py"), "w") as fh:
+            fh.write("")
+        with open(os.path.join(pkg, "present.py"), "w") as fh:
+            fh.write("VALUE = 1\n")
+        with open(os.path.join(tools, "broken.py"), "w") as fh:
+            fh.write("from anchorpkg import definitely_not_a_real_name\n")
+        with self.assertRaises(S.SelectionError) as caught:
+            S.build_importer_index(tmp)
+        code, detail = caught.exception.args[0]
+        self.assertEqual(code, "dangling-import")
+        self.assertIn("broken.py", detail)
+        self.assertIn("definitely_not_a_real_name", detail)
+
+    def test_every_exempt_output_is_policed_by_a_hard_check(self):
+        """The exemption's real bound, held mechanically rather than asserted in a comment.
+
+        A path exempt from classification is one the selector deliberately stops reasoning about, so
+        something else must police it. That something is each derived member's own drift check, hard and
+        in the validator suite — the other registered validation command, which is never narrowed. A
+        reviewer showed the first rationale named the wrong mechanism, claiming the guard's test modules
+        covered all of them when three only exercise synthetic trees. This asserts the bound that is
+        actually true, so a derived member added later cannot become exempt without a hard check."""
+        import derived_state
+        exempt = S.derived_output_paths()
+        self.assertTrue(exempt, "an empty exempt set would make this test vacuous")
+        for member in derived_state.members():
+            with self.subTest(member=member.path):
+                self.assertTrue(member.check_rules,
+                                f"{member.path} is exempt but declares no drift check")
+                for rule_id in member.check_rules:
+                    rule_path = os.path.join(validate.ENGINE_DIR, "check",
+                                             rule_id.split("/")[-1] + ".json")
+                    with open(rule_path, encoding="utf-8") as fh:
+                        rule = json.load(fh)
+                    self.assertEqual(rule["tier"], "hard", f"{rule_id} must be a hard check")
+                    self.assertIn("CI", rule["suites"], f"{rule_id} must run in the validator suite")
 
 
 class TheIterationLoopIsReachable(unittest.TestCase):
@@ -387,6 +425,77 @@ class TheIterationLoopIsReachable(unittest.TestCase):
         m = S.classify([(".engine/knowledge/graph.json", "M")], lambda: importers, changed_from="base")
         self.assertEqual(m["classification"], "focused")
         self.assertIn("test_knowledge", {e["module"] for e in m["selected"]})
+
+
+class ExemptionIsInjectableAndRecorded(unittest.TestCase):
+    """The exemption removes a path from consideration entirely, so it must be both testable in
+    isolation and visible in the artifact — a reviewer found it was neither."""
+
+    def test_the_exemption_can_be_injected_so_a_synthetic_tree_does_not_inherit_the_real_one(self):
+        m = S.classify([(_p("widget"), "M"), ("generated/thing.json", "M")],
+                       lambda: _index({"test_widget": ["widget"]}),
+                       guard_factory=_no_guard,
+                       exempt_factory=lambda: frozenset({"generated/thing.json"}),
+                       changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertEqual([e["module"] for e in m["selected"]], ["test_widget"])
+
+    def test_an_exempted_path_is_named_in_the_manifest(self):
+        m = S.classify([(_p("widget"), "M"), ("generated/thing.json", "M")],
+                       lambda: _index({"test_widget": ["widget"]}),
+                       guard_factory=_no_guard,
+                       exempt_factory=lambda: frozenset({"generated/thing.json"}),
+                       changed_from="base")
+        self.assertEqual(m["exempt_paths"], ["generated/thing.json"],
+                         "a waived path must be visible, not silently dropped")
+
+    def test_nothing_is_exempt_when_the_register_cannot_be_read(self):
+        m = S.classify([("generated/thing.json", "M")], lambda: {}, guard_factory=_no_guard,
+                       exempt_factory=frozenset, changed_from="base")
+        self.assertEqual(m["classification"], "full")
+        self.assertEqual(m["exempt_paths"], [])
+
+
+class ThePartitionHasExactlyThreeCategories(unittest.TestCase):
+    """The exemption is a real third category, and this is where that is stated and checked.
+
+    A conformance reviewer caught the source asserting a two-category partition it no longer had — the
+    module docstring and the schema description both still said "there is no third category" after the
+    guard had forced one. The categories are: tool code narrows, a registered generated output is
+    exempt, everything else runs the full inventory. Totality still holds because the third is a
+    catch-all; what changed is that the second exists."""
+
+    def test_a_registered_generated_output_neither_narrows_nor_forces_the_full_inventory(self):
+        importers = S.build_importer_index(validate.ROOT)
+        for output in (".engine/knowledge/graph.json", ".engine/self-map.md",
+                       ".engine/docs/ci-assurance.md"):
+            with self.subTest(output=output):
+                self.assertIn(output, S.derived_output_paths())
+                m = S.classify([(output, "M")], lambda: importers, changed_from="base")
+                self.assertEqual(m["classification"], "focused",
+                                 "a regenerated map must not force the complete inventory")
+                self.assertEqual({e["reason"]["code"] for e in m["selected"]},
+                                 {"derived-artifact-guard"},
+                                 "it contributes nothing of its own; the guard is the whole selection")
+
+    def test_deleting_a_registered_generated_output_is_exempt_too(self):
+        """Stated explicitly because it is the surprising half: deletions otherwise always force full."""
+        importers = S.build_importer_index(validate.ROOT)
+        m = S.classify([(".engine/knowledge/graph.json", "D")], lambda: importers, changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertIn("test_knowledge", {e["module"] for e in m["selected"]},
+                      "the drift test must still run — that is what makes the exemption safe")
+
+    def test_a_governed_file_that_is_not_a_generated_output_still_forces_the_full_inventory(self):
+        """The exemption is exactly the register's contents, never a general softening."""
+        importers = S.build_importer_index(validate.ROOT)
+        for path in (".engine/check/link-integrity.json", ".engine/operations/build-orchestration.md",
+                     ".engine/suites.json"):
+            with self.subTest(path=path):
+                self.assertNotIn(path, S.derived_output_paths())
+                m = S.classify([(path, "M")], lambda: importers, changed_from="base")
+                self.assertEqual(m["classification"], "full")
+                self.assertEqual(m["full_reason"]["code"], "path-not-classifiable")
 
 
 class RealManifestMatchesItsSchema(unittest.TestCase):
@@ -435,11 +544,14 @@ class ProtocolCannotReachTheNarrowingFlags(unittest.TestCase):
         commands = protocol.get("validation_commands", protocol.get("validation", []))
         argv = [c for c in commands if c.get("id") == "engine-selftest"]
         self.assertEqual(len(argv), 1, "the self-test command must be registered exactly once")
-        registered = argv[0]["command"]
-        for flag in ("--changed-from", "--selection-path", "--run-record-path"):
-            self.assertNotIn(flag, registered,
-                             f"{flag} in the registered command would let a focused run be recorded "
-                             f"as the full validation the coordinator binds to a submitted commit")
+        self.assertEqual(
+            argv[0]["command"],
+            ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"],
+            "the registered command must be EXACTLY the bare runner. This is an allowlist, not a "
+            "denylist of flag names, because a denylist cannot hold this claim: the first version "
+            "listed three flags and a reviewer defeated it two ways — `--changed-from=origin/main` is "
+            "a single token, so a name check never fires, and `--pattern` narrows discovery just as "
+            "effectively and was not on the list at all. Any addition, in any spelling, fails here.")
 
 
 class Determinism(unittest.TestCase):

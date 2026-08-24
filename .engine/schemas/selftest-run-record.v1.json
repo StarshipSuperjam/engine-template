@@ -16,6 +16,7 @@
     "modules",
     "nested_sentinel",
     "problems",
+    "record_incomplete",
     "schema_version",
     "scope",
     "selection",
@@ -270,6 +271,10 @@
         "string",
         "null"
       ]
+    },
+    "record_incomplete": {
+      "description": "True if any part of the run's own bookkeeping failed while being collected — a case whose printed form raised, say. The run's VERDICT is unaffected and remains the child's exit status verbatim; this says only that the timings, failures or skips below may be incomplete. Recorded because the alternative was a silently partial record in the artifact that exists to be honest about what a run covered.",
+      "type": "boolean"
     }
   }
 }
