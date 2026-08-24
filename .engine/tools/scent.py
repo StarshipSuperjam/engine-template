@@ -14,11 +14,15 @@ the question, already tried and rejected the approach, or already stated a prefe
 of that possibility cannot be a word-match, so the payload is constant and the firing is unconditional. The
 model still decides whether recall would help; the workflow the cue names carries the retrieval intelligence.
 
-OWNERSHIP — the close-relay twin (NOT memory-owned). `UserPromptSubmit` is a single-owner `boot/orientation`
-event (hooks.py EVENT_INVENTORY `("boot",)`; the locked hooks owner table), so this is a boot/core-owned tool,
-wired in core's manifest. Its ONLY reach toward memory is asking whether the module is installed at all — it
-reads no memory, opens no store, and resolves no data path. On a repo without the memory module the seam is
-inert (silent), never a fault — the close-relay degrade-clean precedent.
+OWNERSHIP — the close-relay twin (NOT memory-owned). This is the `boot/orientation` owner of
+`UserPromptSubmit` (hooks.py EVENT_INVENTORY), so it is a boot/core-owned tool, wired in core's manifest.
+The event is no longer single-owner: on Codex it also carries modes' native-plan intake adapter, registered
+after this one in a defined order. That costs the scent nothing — the adapter reads the prompt's opening
+bytes and stays silent on every prompt that is not an acceptance envelope, and it writes nothing this seam
+reads — so the reflex below still fires on every prompt, identically. Its ONLY reach toward memory is asking
+whether the module is installed at all — it reads no memory, opens no store, and resolves no data path. On a
+repo without the memory module the seam is inert (silent), never a fault — the close-relay degrade-clean
+precedent.
 
 THE LAWS (all load-bearing here and pinned by tests):
   - EVERY PROMPT. The reflex is the deliverable: a per-prompt event that fires only sometimes teaches the model

@@ -6,7 +6,15 @@
       "id": ".engine/tools/modes.py accept-hook",
       "missing_or_weaker": "missing",
       "provider": "codex",
-      "reason": "The plan-acceptance Build entry is Claude Code's plan-mode completion signal; Codex has no equivalent stable signal, and inferring build intent would break the explicit-entry law. On Codex, building starts only by the typed $engine-start — the absence of this hook is the enforcement of that, not a gap.",
+      "reason": "This hook rides Claude Code's plan-mode completion signal (ExitPlanMode), which Codex has no equivalent for, so it cannot be registered there. What it DOES is no longer what this entry once recorded: it imports the accepted plan into the Plan Coordinator as an unapproved draft, and it does not enter Build on either runtime. The Codex side is not left without the capability — the same import runs there through the typed acceptance envelope on UserPromptSubmit (see the plan-import-hook entry below), which is why this asymmetry is one of SIGNAL, not of function. Build entry stays the typed $engine-start on both runtimes; importing a draft grants no Build authority, so nothing here infers build intent from an acceptance.",
+      "contract_ref": "eADR-0034"
+    },
+    {
+      "kind": "hook",
+      "id": ".engine/tools/modes.py plan-import-hook",
+      "missing_or_weaker": "missing",
+      "provider": "claude",
+      "reason": "The mirror of the entry above, and the reason that one is not a capability gap. Codex exposes no plan-exit completion, so its native-plan import is keyed on the acceptance envelope the operator types, read by a UserPromptSubmit owner registered after boot's per-prompt scent. Claude does not carry this registration because it does not need it: acceptance there arrives as a plan-exit completion and is already handled on PostToolUse. Registering both on Claude would give one event two importers of the same document — a duplicate-writer shape, and the second import would mint a second plan id for one accepted plan.",
       "contract_ref": "eADR-0034"
     },
     {

@@ -5,6 +5,26 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "plan_id", "title", "revision", "created_at", "revised_at", "intent", "deliberation", "build_plan"],
+  "allOf": [
+    {
+      "title": "The imported-draft allowance",
+      "description": "A plan that arrived as an accepted native Claude or Codex plan has not been deliberated here and has not been decomposed here, and the honest thing for it to say is nothing. Everywhere else the deliberation prose carries a non-empty floor, because a plan that cannot frame its problem or state the case against itself has not been thought about. An import is the one case where that floor would produce the opposite of what it is for: the only way to satisfy it at import time is to write placeholder prose, and placeholder prose in `case_against` is precisely the decoy that field's own description warns is worse than an empty one. So the floor is stated as a conditional instead of as a base rule, keyed on the payload the import carries (`build-plan.imported`, which forbids a non-empty decomposition for the same reason). The exception is not a hole: an imported draft must carry `intake` saying where it came from, and must record at least one `unresolved_decisions` entry — the gaps, named as gaps. Since the seal refuses while any unresolved decision remains, and `build-plan.imported` can never be sealed, an imported draft cannot reach a Build until someone actually does the work this allowance declines to fake.",
+      "if": {
+        "required": ["build_plan"],
+        "properties": {"build_plan": {"required": ["schema_version"], "properties": {"schema_version": {"const": "build-plan.imported"}}}}
+      },
+      "then": {
+        "required": ["intake"],
+        "properties": {"deliberation": {"properties": {"unresolved_decisions": {"minItems": 1}}}}
+      },
+      "else": {
+        "properties": {"deliberation": {"properties": {
+          "problem_frame": {"minLength": 1},
+          "case_against": {"minLength": 1}
+        }}}
+      }
+    }
+  ],
   "properties": {
     "schema_version": {"const": "engine-plan.v1"},
     "plan_id": {
@@ -44,11 +64,10 @@
       "additionalProperties": false,
       "required": ["problem_frame", "case_against", "alternatives", "failure_modes", "unresolved_decisions"],
       "properties": {
-        "problem_frame": {"type": "string", "minLength": 1},
+        "problem_frame": {"type": "string"},
         "case_against": {
           "type": "string",
-          "minLength": 1,
-          "description": "The strongest honest argument for NOT doing this, stated at its full weight. A plan that cannot state one has not been deliberated; a decoy here is worse than an empty field, because it launders the absence of thought."
+          "description": "The strongest honest argument for NOT doing this, stated at its full weight. A plan that cannot state one has not been deliberated; a decoy here is worse than an empty field, because it launders the absence of thought. Non-empty is REQUIRED and enforced in this schema's `allOf` below — the floor lives there, not here, only so that the one case that may leave it empty (an imported native plan, which has not been deliberated here and must not pretend otherwise) can be stated as an explicit exception rather than as a hole in the base shape."
         },
         "alternatives": {"type": "array", "items": {"$ref": "#/$defs/alternative"}},
         "failure_modes": {"type": "array", "items": {"type": "string", "minLength": 1}},

@@ -22,6 +22,7 @@ import unittest
 
 from unittest import mock
 
+import plan_contract
 import plan_coordinator
 import plan_projection
 import plan_store
@@ -1662,6 +1663,111 @@ class ThePanelMovedHere(_Governed):
                                         "--blocks-this-pr", "--operator-summary", "Still blocking.")
         self.assertEqual(code, 0, err)
         self.assertTrue(self.lib.read_record(slug)["plan_review"]["findings"][0]["blocks_this_pr"])
+
+
+class ImportingANativePlan(_Surface):
+    """Native-plan intake: groundwork, not bypass and not restart.
+
+    An accepted Claude or Codex plan lands as an unapproved draft revision 1 carrying the text
+    verbatim. Nothing interprets it, decomposes it, or writes deliberation prose on its behalf — the
+    four things an import cannot know are recorded as unresolved decisions, which the seal refuses
+    while any remain. So the import moves a plan onto the shelf and moves nobody closer to building
+    it, which is what makes it safe to run from a hook on an operator's ordinary keystroke.
+    """
+
+    NATIVE = "# Cache the widgets\n\nThey are slow, so cache them.\n"
+
+    def _import(self, text=None, provenance="Accepted Claude Code plan, imported at plan-exit."):
+        return plan_coordinator.import_native_plan(text if text is not None else self.NATIVE,
+                                                   provenance=provenance, library=self.lib)
+
+    def test_the_native_text_is_kept_verbatim_as_the_raw_intent(self):
+        # The gap between what was said and what anyone made of it is the thing a reviewer needs, so
+        # the text is never tidied on the way in.
+        document = self.lib.head(self._import()["slug"])
+        self.assertEqual(document["intent"]["raw"], self.NATIVE)
+
+    def test_nothing_is_interpreted_decomposed_or_deliberated(self):
+        document = self.lib.head(self._import()["slug"])
+        self.assertEqual(document["build_plan"],
+                         {"schema_version": "build-plan.imported", "work_items": []})
+        self.assertEqual(document["deliberation"]["problem_frame"], "")
+        self.assertEqual(document["deliberation"]["case_against"], "")
+        self.assertGreaterEqual(len(document["deliberation"]["unresolved_decisions"]), 4)
+
+    def test_an_import_lands_unapproved_unreviewed_and_unsealed(self):
+        record = self.lib.read_record(self._import()["slug"])
+        self.assertIsNone(record["approval"])
+        self.assertIsNone(record["plan_review"])
+        self.assertIsNone(record["seal"])
+        self.assertIsNone(record["build_binding"])
+
+    def test_the_gaps_are_what_stands_between_an_import_and_a_seal(self):
+        document = self.lib.head(self._import()["slug"])
+        blockers = plan_contract.seal_blockers(document)
+        self.assertTrue(any("unresolved" in b for b in blockers), blockers)
+        self.assertTrue(any("imported native plan" in b for b in blockers), blockers)
+
+    def test_the_title_is_lifted_from_the_text_never_invented(self):
+        self.assertEqual(self._import()["title"], "Cache the widgets")
+        self.assertEqual(self._import("no heading here, just prose\n")["title"],
+                         "no heading here, just prose")
+        self.assertEqual(self._import("   \n\n   \n.")["title"], ".")
+
+    def test_an_empty_document_is_refused_rather_than_imported_as_a_blank_plan(self):
+        for text in ("", "   \n\t\n", None):
+            with self.assertRaises(plan_coordinator.PlanCoordinatorError):
+                self._import(text if text is not None else "")
+
+    def test_every_import_mints_its_own_identity(self):
+        first, second = self._import(), self._import()
+        self.assertNotEqual(first["plan_id"], second["plan_id"])
+        self.assertNotEqual(first["slug"], second["slug"])
+
+    def test_the_readable_projection_renders_and_says_there_is_no_build_half(self):
+        # The arrival report points the operator at `preview`, which renders through this same
+        # function — so an import that cannot be rendered would hand them a crash as their next step.
+        rendered = (self.lib.plan_dir(self._import()["slug"]) / plan_projection.PLAN_MD).read_text()
+        self.assertIn("## The Build half", rendered)
+        self.assertIn("an import decomposes nothing", rendered)
+        self.assertIn("Not stated", rendered)                 # the deliberation gaps read AS gaps
+        self.assertNotIn("## Execution graph", rendered)
+
+    def test_the_arrival_report_names_the_plan_the_revision_and_the_next_command(self):
+        report = plan_coordinator.arrival_report(self._import())
+        self.assertIn(self.lib.read_record(self.lib.slugs()[0])["plan_id"], report)
+        self.assertIn("revision 1", report)
+        self.assertIn("preview --plan", report)
+        self.assertIn("no Build authority", report)
+        self.assertIn("tell the operator", report.lower())     # unlike the directive it replaces
+
+    def test_the_typed_verb_performs_the_identical_import(self):
+        # The recovery path for envelope drift or a declined hook trust: an extra command, never a
+        # lesser import. Same document shape, same status, same gaps.
+        path = Path(self._tmp.name) / "native.md"
+        path.write_text(self.NATIVE, encoding="utf-8")
+        code, out, err = self.run_command("import-native", "--input", str(path),
+                                          "--provenance", "Typed recovery path.")
+        self.assertEqual(code, 0, err)
+        self.assertIn("revision 1", out)
+        self.assertIn("preview --plan", out)
+        document = self.lib.head(self.lib.slugs()[0])
+        self.assertEqual(document["intent"]["raw"], self.NATIVE)
+        self.assertEqual(document["build_plan"]["schema_version"], "build-plan.imported")
+
+    def test_an_import_records_where_it_came_from_on_the_document_and_the_record(self):
+        arrival = self._import(provenance="Accepted Codex plan, imported from the typed envelope.")
+        self.assertIn("Codex", self.lib.head(arrival["slug"])["intake"]["provenance"])
+        self.assertIn("Codex", self.lib.read_record(arrival["slug"])["intake"]["provenance"])
+
+    def test_an_imported_draft_can_be_revised_into_a_real_plan(self):
+        # The whole point of importing rather than restarting: the coordinator continues from here.
+        arrival = self._import()
+        real = _document(plan_id=arrival["plan_id"], revision=2)
+        self.lib.append_revision(arrival["slug"], real, expected_revision=1)
+        head = self.lib.head(arrival["slug"])
+        self.assertEqual(head["build_plan"]["schema_version"], "build-plan.v2")
+        self.assertEqual(len(self.lib.read_record(arrival["slug"])["ledger"]), 2)
 
 
 class Enumeration(unittest.TestCase):

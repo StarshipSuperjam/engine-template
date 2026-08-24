@@ -46,7 +46,14 @@ PLAN_SCHEMAS = {"engine-plan.v1": PLAN_SCHEMA}
 BUILD_PLAN_SCHEMAS = {
     "build-plan.v1": ROOT / ".engine" / "schemas" / "build-plan.v1.json",
     "build-plan.v2": ROOT / ".engine" / "schemas" / "build-plan.v2.json",
+    # The honestly-empty payload an imported native plan carries until someone actually decomposes it.
+    # It is registered HERE, on the one validation path, rather than given a branch of its own: a
+    # second and laxer path is how an undecomposed plan would eventually find its way to a Build. It
+    # finds none — the version is not sealable, so the seal blocker below states the refusal in the
+    # operator's own words, and `plan bind` (which only ever sees a sealed payload) never meets it.
+    "build-plan.imported": ROOT / ".engine" / "schemas" / "build-plan.imported.json",
 }
+IMPORTED_BUILD_PLAN_VERSION = "build-plan.imported"
 SEALABLE_BUILD_PLAN_VERSION = "build-plan.v2"
 
 PlanContractError = core.CoordinatorError
@@ -135,7 +142,17 @@ def seal_blockers(document: dict) -> list[str]:
         blockers.append(
             f"{len(open_assumptions)} assumption(s) are neither verified nor accepted as risk: "
             + "; ".join(open_assumptions))
-    if payload_version != SEALABLE_BUILD_PLAN_VERSION:
+    if payload_version == IMPORTED_BUILD_PLAN_VERSION:
+        # Named apart from the generic version refusal because the operator meeting THIS one is not
+        # holding an old plan they need to migrate — they are holding a plan nobody has decomposed
+        # yet, and the remedy is work, not a conversion.
+        blockers.append(
+            "this plan arrived as an imported native plan and still carries the empty payload it was "
+            "imported with: no work has been decomposed, so there is nothing to hand a Build. Author "
+            f"a {SEALABLE_BUILD_PLAN_VERSION} payload and mint it with `revise`. Nothing will infer one "
+            "from the imported text, because a decomposition nobody wrote is a decomposition nobody can "
+            "be held to")
+    elif payload_version != SEALABLE_BUILD_PLAN_VERSION:
         blockers.append(
             f"the Build payload is {payload_version}; only {SEALABLE_BUILD_PLAN_VERSION} can be sealed, because a "
             "sealed handoff must hand the Build Coordinator a graph it can schedule")

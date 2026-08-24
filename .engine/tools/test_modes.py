@@ -634,11 +634,23 @@ class TestHarnessMemoryCarveOut(unittest.TestCase):
             self.assertIn(token, scope, f"Explore-scope copy must carry {token!r}")
 
 
-class TestPlanAcceptanceBuildEntry(unittest.TestCase):
-    """#67: a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
-    Build AND injects a do-not-relay assistant-internal stance directive (gated on the flip succeeding);
-    every other completion leaves it untouched and proceeds with no inject; the handler ALWAYS proceeds,
-    never blocks; a rejected plan fires no PostToolUse so the stance stays Explore (fail-safe to the floor)."""
+class TestNativePlanIntake(unittest.TestCase):
+    """Accepting a plan is GROUNDWORK, not a Build entry.
+
+    Two adapters, one import. Claude's plan-exit completion (`ExitPlanMode`, PostToolUse) and Codex's
+    typed acceptance envelope (UserPromptSubmit) both import the accepted document into the Plan
+    Coordinator as an unapproved draft and inject the arrival report. Neither writes the stance signal:
+    after this change the signal has exactly two writers, both typed operator verbs, so `$engine-start`
+    is the only way into Build on either runtime. Fail-safe runs in every direction — no plan text, a
+    prompt that is not the envelope, an envelope with nothing after it, and a failing import all leave
+    the session exactly where it was.
+
+    The import itself is stubbed here so these tests say nothing about the operator's real plan library
+    and write nothing to it; the real end-to-end import is exercised in test_plan_coordinator.
+    """
+
+    CLAUDE_ACCEPT = {"session_id": "s", "tool_name": "ExitPlanMode",
+                     "tool_input": {"plan": "# Cache widgets\n\nThey are slow."}}
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -649,85 +661,197 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
         self._patch.stop()
         self._tmp.cleanup()
 
-    def test_accepting_a_plan_enters_build(self):
-        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
-        d = modes.accept_handler({"session_id": "s", "tool_name": "ExitPlanMode"})
-        self.assertEqual(d.get("action"), "inject")                # sets the signal AND injects the directive
-        self.assertEqual(modes.current_stance("s"), modes.BUILD)
-        self.assertIn(modes._STANCE_LINES[modes.BUILD], d.get("context", ""))
+    @staticmethod
+    @contextlib.contextmanager
+    def _importer(arrival=None, raises=None):
+        """Stand in for plan_coordinator's import seam. modes imports the module lazily inside the
+        handler, so patching the module's attribute is what the handler will actually reach."""
+        import plan_coordinator
+        arrival = arrival or {"plan_id": "pln_0123456789ab", "revision": 1, "slug": "cache--0123ab",
+                              "title": "Cache widgets", "folder": "/tmp/plans/cache--0123ab",
+                              "next_command": "python tools/plan_coordinator.py preview --plan pln_0123456789ab"}
+        target = mock.Mock(side_effect=raises) if raises else mock.Mock(return_value=arrival)
+        with mock.patch.object(plan_coordinator, "import_native_plan", target):
+            yield target
 
-    def test_non_plan_exit_completion_does_not_enter_build(self):
-        # The false-fire guard: ONLY ExitPlanMode enters Build. A subagent's inner tool calls do not fire
-        # the parent PostToolUse, and a leave-without-approving fires no ExitPlanMode (platform behavior,
-        # live-confirmed); this locks that the handler keys solely on the ExitPlanMode completion event.
+    # -- the Claude adapter ----------------------------------------------------
+
+    def test_accepting_a_plan_does_not_enter_build(self):
+        # The headline reversal. Acceptance used to flip the signal to Build with no verb typed; the
+        # gates that flip skipped — full presentation, the depth choice, one cold review, the seal —
+        # are exactly the ones the plan side exists to run, so it imports instead and stays in Explore.
+        with self._importer():
+            modes.accept_handler(self.CLAUDE_ACCEPT)
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
+
+    def test_accepting_a_plan_imports_the_accepted_document_verbatim(self):
+        with self._importer() as importer:
+            decision = modes.accept_handler(self.CLAUDE_ACCEPT)
+        importer.assert_called_once()
+        self.assertEqual(importer.call_args.args[0], self.CLAUDE_ACCEPT["tool_input"]["plan"])
+        self.assertIn("Claude", importer.call_args.kwargs["provenance"])
+        self.assertEqual(decision.get("action"), "inject")
+
+    def test_the_arrival_report_names_the_plan_the_revision_and_the_next_command(self):
+        # Arrival is graded, not just departure: an operator who accepts a plan and then meets a write
+        # refusal has been told the engine is broken. The report is explicitly for relaying.
+        with self._importer():
+            text = modes.accept_handler(self.CLAUDE_ACCEPT).get("context", "")
+        self.assertIn("pln_0123456789ab", text)
+        self.assertIn("revision 1", text)
+        self.assertIn("preview --plan pln_0123456789ab", text)
+        self.assertIn("tell the operator", text.lower())
+
+    def test_an_acceptance_carrying_no_plan_text_imports_nothing(self):
+        for payload in ({"session_id": "s", "tool_name": "ExitPlanMode"},
+                        {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": {}},
+                        {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": {"plan": "  "}},
+                        {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": "not a dict"}):
+            with self._importer() as importer:
+                self.assertEqual(modes.accept_handler(payload).get("action"), "proceed")
+            importer.assert_not_called()
+
+    def test_only_the_plan_exit_completion_imports(self):
+        # The false-fire guard: a subagent's inner tool calls do not fire the parent PostToolUse, and a
+        # leave-without-approving fires no ExitPlanMode, so the completion event is the discriminator.
         for tool in ("Edit", "Task", "Bash", "Read", "SomeFutureTool"):
-            modes.accept_handler({"session_id": "s", "tool_name": tool})
-            self.assertEqual(modes.current_stance("s"), modes.EXPLORE, f"{tool} must not enter Build")
+            with self._importer() as importer:
+                decision = modes.accept_handler({"session_id": "s", "tool_name": tool,
+                                                 "tool_input": {"plan": "text"}})
+            importer.assert_not_called()
+            self.assertEqual(decision.get("action"), "proceed")
+
+    def test_a_failed_import_says_so_plainly_and_still_proceeds(self):
+        # Deliberately not silent: the operator has just accepted a plan and is entitled to know it did
+        # not land. It still proceeds, still writes no stance, and names the typed recovery path.
+        with self._importer(raises=RuntimeError("the library is unreadable")):
+            decision = modes.accept_handler(self.CLAUDE_ACCEPT)
+        self.assertEqual(decision.get("action"), "inject")
+        text = decision.get("context", "")
+        self.assertIn("could NOT be imported", text)
+        self.assertIn("the library is unreadable", text)
+        self.assertIn("import-native", text)
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
     def test_handler_always_proceeds_and_tolerates_a_bad_payload(self):
-        # The inject is gated on the durable flip succeeding, so a sessionless/bad payload proceeds with NO
-        # inject (no split-brain) — set_stance returns False, the directive is never emitted.
-        self.assertEqual(modes.accept_handler({"tool_name": "ExitPlanMode"}).get("action"), "proceed")  # no sid
-        self.assertEqual(modes.accept_handler({}).get("action"), "proceed")
-        self.assertEqual(modes.accept_handler({"session_id": "s"}).get("action"), "proceed")  # no tool_name
-        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)        # none of those entered Build
+        for payload in ({}, {"session_id": "s"}, {"tool_name": "ExitPlanMode"}, None, "nonsense"):
+            with self._importer():
+                self.assertEqual(modes.accept_handler(payload).get("action"), "proceed")
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
-    def test_end_to_end_via_run_hook_sets_build_and_injects(self):
+    def test_end_to_end_via_run_hook_injects_the_arrival_report(self):
         out, err = io.StringIO(), io.StringIO()
-        payload = json.dumps({"session_id": "s", "tool_name": "ExitPlanMode"})
-        code = hooks.run_hook("PostToolUse", modes.accept_handler,
-                              stdin=io.StringIO(payload), stdout=out, stderr=err)
-        self.assertEqual(code, hooks.EXIT_PROCEED)        # the inject rides exit 0 — non-blocking, by design
-        emitted = json.loads(out.getvalue())              # sets the signal AND emits the directive
+        with self._importer():
+            code = hooks.run_hook("PostToolUse", modes.accept_handler,
+                                  stdin=io.StringIO(json.dumps(self.CLAUDE_ACCEPT)),
+                                  stdout=out, stderr=err)
+        self.assertEqual(code, hooks.EXIT_PROCEED)     # the inject rides exit 0 — non-blocking, by design
+        emitted = json.loads(out.getvalue())
         self.assertEqual(emitted["hookSpecificOutput"]["hookEventName"], "PostToolUse")
-        self.assertIn(modes._STANCE_LINES[modes.BUILD],
-                      emitted["hookSpecificOutput"]["additionalContext"])
-        self.assertEqual(modes.current_stance("s"), modes.BUILD)
+        self.assertIn("pln_0123456789ab", emitted["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
-    def test_build_entry_directive_is_do_not_relay_and_carries_no_operator_announcement(self):
-        # The directive is assistant-facing machine context: it NAMES Build, is self-labelled
-        # do-not-relay, points the turn into the kickoff, and carries NO imperative relay marker (the
-        # `INFORM THE USER THAT…` class) and no raw mechanism jargon — so if it ever leaks it reads plainly.
-        # It ALSO names the pre-work consent gate (the risk assessment + the operator's depth choice) as a
-        # short label, so a cold session is primed to run it — without reproducing the risk-assessment copy.
-        text = modes._build_entry_directive()
-        self.assertIn(modes._STANCE_LINES[modes.BUILD], text)         # names the new stance (fidelity anchor)
-        self.assertIn("don't relay", text.lower())                   # self-labelled do-not-relay
-        self.assertIn("kickoff", text.lower())                       # triggers, never replaces, the kickoff
-        self.assertIn("modes.py stance", text)                       # the live-signal re-read guard names its tool
-        self.assertIn("risk assessment", text.lower())               # step 2: names the pre-work consent gate
-        self.assertIn("depth", text.lower())                         # ... and the operator's how-careful choice
-        low = text.lower()
-        for marker in ("inform the user", "tell the operator", "let the user know"):
-            self.assertNotIn(marker, low)                            # no imperative relay marker
-        for jargon in ("posttooluse", "additionalcontext", "hookspecificoutput"):
-            self.assertNotIn(jargon, low)                            # degrades to plain language if surfaced
+    # -- the Codex adapter -----------------------------------------------------
 
-    def test_resumes_to_explore_so_a_replayed_directive_is_inert(self):
-        # Proves the cleared-signal floor + the live-signal authority: after accept (Build), a SessionStart
-        # clear returns the LIVE signal to Explore, so the assistant reports Explore (not any replayed line)
-        # and the gate denies an Edit. The genuine REPLAY of additionalContext is the platform ceiling, not a
-        # unit test; this pins the half the engine owns — the live signal, and the gate as the mechanical floor.
-        modes.accept_handler({"session_id": "s", "tool_name": "ExitPlanMode"})
-        self.assertEqual(modes.current_stance("s"), modes.BUILD)
-        modes.clear_stance("s")                                      # what boot does at every SessionStart
-        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)  # reports from the live signal, not a line
-        d = modes.handler({"session_id": "s", "tool_name": "Edit", "tool_input": {}})
-        self.assertEqual(d.get("permissionDecision"), "deny")       # the replayed 'you are in Build' is inert
+    def test_the_envelope_at_byte_zero_imports(self):
+        with self._importer() as importer:
+            decision = modes.prompt_import_handler(
+                {"session_id": "s", "prompt": modes._PLAN_ENVELOPE + "\n# Cache widgets\n"})
+        importer.assert_called_once()
+        self.assertEqual(importer.call_args.args[0], "\n# Cache widgets\n")
+        self.assertIn("Codex", importer.call_args.kwargs["provenance"])
+        self.assertEqual(decision.get("action"), "inject")
+
+    def test_anything_but_the_envelope_at_byte_zero_imports_nothing(self):
+        # The anchor IS the fail-safe. A prompt that mentions, quotes or discusses the phrase is a
+        # prompt about plans, not an acceptance — and drift in the platform's own wording costs the
+        # operator one typed command, never a surprise import.
+        for prompt in ("please fix the failing test",
+                       "as I was saying, " + modes._PLAN_ENVELOPE + " do the thing",
+                       'he typed "' + modes._PLAN_ENVELOPE + '" at me',
+                       " " + modes._PLAN_ENVELOPE + " leading space",
+                       modes._PLAN_ENVELOPE.lower() + " wrong case",
+                       modes._PLAN_ENVELOPE,
+                       modes._PLAN_ENVELOPE + "   \n  ",
+                       ""):
+            with self._importer() as importer:
+                self.assertEqual(
+                    modes.prompt_import_handler({"session_id": "s", "prompt": prompt}).get("action"),
+                    "proceed", prompt)
+            importer.assert_not_called()
+
+    def test_prompt_handler_tolerates_a_bad_payload(self):
+        for payload in ({}, {"prompt": None}, {"prompt": 7}, None, "nonsense"):
+            with self._importer() as importer:
+                self.assertEqual(modes.prompt_import_handler(payload).get("action"), "proceed")
+            importer.assert_not_called()
+
+    def test_the_envelope_constant_matches_the_coordinator(self):
+        # modes spells the envelope out rather than importing it, because this handler runs on every
+        # prompt and must not drag the plan library in to learn one string. This is what keeps the two
+        # copies honest — the same shape the depth vocabulary uses across the two coordinators.
+        import plan_coordinator
+        self.assertEqual(modes._PLAN_ENVELOPE, plan_coordinator.NATIVE_PLAN_ENVELOPE)
+
+    # -- the stance-writer property --------------------------------------------
+
+    def test_no_hook_writes_the_stance_signal(self):
+        """The property stated precisely: the stance signal's only writers are the typed operator
+        verbs. Neither intake adapter writes it — not on an import, not on a no-import, not on a
+        failure — so importing a draft grants no Build authority on either runtime."""
+        payloads = [self.CLAUDE_ACCEPT, {"session_id": "s", "tool_name": "Edit"}, {}]
+        prompts = [{"session_id": "s", "prompt": modes._PLAN_ENVELOPE + " text"},
+                   {"session_id": "s", "prompt": "ordinary"}]
+        with mock.patch.object(modes, "set_stance") as writer:
+            for raises in (None, RuntimeError("boom")):
+                with self._importer(raises=raises):
+                    for payload in payloads:
+                        modes.accept_handler(payload)
+                    for prompt in prompts:
+                        modes.prompt_import_handler(prompt)
+        writer.assert_not_called()
+
+    # -- the wiring ------------------------------------------------------------
 
     def test_main_accept_hook_routes_to_posttooluse(self):
         with mock.patch.object(modes.hooks, "run_hook", return_value=0) as rh:
             self.assertEqual(modes.main(["accept-hook"]), 0)
         rh.assert_called_once_with("PostToolUse", modes.accept_handler)
 
-    def test_wired_command_ends_in_accept_hook(self):
+    def test_main_plan_import_hook_routes_to_userpromptsubmit(self):
+        with mock.patch.object(modes.hooks, "run_hook", return_value=0) as rh:
+            self.assertEqual(modes.main(["plan-import-hook"]), 0)
+        rh.assert_called_once_with("UserPromptSubmit", modes.prompt_import_handler)
+
+    @staticmethod
+    def _wires():
         manifest_path = os.path.join(validate.ROOT, ".engine", "modules", "core", "manifest.json")
         with open(manifest_path, encoding="utf-8") as fh:
-            wires = json.load(fh)["wires"]
-        post = [w for w in wires if w.get("type") == "hook" and w.get("event") == "PostToolUse"]
-        self.assertTrue(post, "core manifest must wire a PostToolUse hook (the modes plan-acceptance trigger)")
+            return json.load(fh)["wires"]
+
+    def test_wired_claude_command_ends_in_accept_hook(self):
+        post = [w for w in self._wires() if w.get("type") == "hook" and w.get("event") == "PostToolUse"]
+        self.assertTrue(post, "core manifest must wire a PostToolUse hook (the Claude intake adapter)")
         self.assertTrue(any(w["hook"]["command"].rstrip().endswith(" accept-hook") for w in post),
                         "the PostToolUse modes wire must invoke `modes.py accept-hook`")
+
+    def test_the_codex_intake_adapter_is_wired_after_boot_on_userpromptsubmit(self):
+        # Order is the point. eADR-0042 refuses writers of undefined order; a registered owner in a
+        # stated position is not that. boot's per-prompt scent runs first and this runs after it.
+        prompts = [w for w in self._wires()
+                   if w.get("type") == "codex-hook" and w.get("event") == "UserPromptSubmit"]
+        commands = [w["hook"]["command"] for w in prompts]
+        self.assertEqual(len(commands), 2, "UserPromptSubmit carries exactly two Codex owners")
+        self.assertIn("scent.py", commands[0])
+        self.assertTrue(commands[1].rstrip().endswith(" plan-import-hook"), commands[1])
+        self.assertEqual(hooks.EVENT_INVENTORY["UserPromptSubmit"]["owners"], ("boot", "modes"))
+
+    def test_the_claude_side_has_no_second_importer(self):
+        # Registering the Codex adapter on Claude too would give one event two importers of the same
+        # document, and the second would mint a second plan id for one accepted plan. The parity
+        # ledger records that asymmetry deliberately; this pins the wiring it describes.
+        claude = [w for w in self._wires() if w.get("type") == "hook"]
+        self.assertFalse([w for w in claude if "plan-import-hook" in w["hook"]["command"]])
 
 
 class TestResolveSession(unittest.TestCase):

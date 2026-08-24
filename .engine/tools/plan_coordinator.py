@@ -925,6 +925,137 @@ def cmd_clone(args) -> int:
     return 0
 
 
+# --- importing an accepted native plan --------------------------------------
+#
+# Both runtimes end up here. On Claude the operator accepts a plan and the plan-exit PostToolUse hook
+# calls this with the accepted document; on Codex the operator prefixes a prompt with the acceptance
+# envelope and the UserPromptSubmit hook calls this with the rest of the prompt. One import, one
+# result, one arrival report — the adapters differ only in where the text came from.
+#
+# GROUNDWORK, NOT BYPASS AND NOT RESTART. What lands is an unapproved draft revision 1: no approval,
+# no review, no seal, and no Build authority of any kind. The native text is kept verbatim as the raw
+# intent, because the gap between what was said and what anyone made of it is the thing a reviewer
+# needs; nothing here interprets it, decomposes it, or writes deliberation prose on its behalf. The
+# payload is `build-plan.imported`, whose schema forbids a non-empty decomposition, and the four
+# things an import cannot know are written down as unresolved decisions, which the seal refuses while
+# any remain. So an import moves a plan onto the shelf and moves nobody any closer to building it —
+# which is the honest position, and the reason this is safe to run from a hook.
+
+NATIVE_PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
+
+_IMPORTED_INTERPRETATION = (
+    "Not interpreted. This plan arrived as an accepted native plan and was imported verbatim; no one "
+    "has yet restated what it is asking for, and this sentence is a placeholder for that work, not a "
+    "summary of it.")
+
+_IMPORTED_GAPS = (
+    "What is this plan actually asking for? The imported text is the raw intent; nothing has restated "
+    "it as an interpretation the operator can confirm or correct.",
+    "What problem does it solve, and for whom? The import wrote no problem frame.",
+    "What is the strongest honest case AGAINST doing this? The import wrote none, and a placeholder "
+    "would be worse than the gap.",
+    "How does it decompose into work? The imported payload is empty by construction; a real "
+    "build-plan.v2 payload has to be authored before this plan can be sealed.",
+)
+
+
+def _imported_title(text: str) -> str:
+    """A title lifted from the imported text, never invented. The first markdown heading if there is
+    one, else the first non-blank line; a document with neither gets a plainly generic name rather
+    than a guess dressed up as a title."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            line = line.lstrip("#").strip()
+        if not line:
+            continue
+        return line[:120].rstrip() if len(line) > 120 else line
+    return "Imported plan"
+
+
+def import_native_plan(text: str, *, provenance: str,
+                       library: plan_store.PlanLibrary | None = None) -> dict:
+    """Import an accepted native plan as an unapproved draft. Returns the arrival facts.
+
+    Raises PlanCoordinatorError when there is nothing to import. Callers running inside a hook treat
+    that as no-import-and-carry-on: an acceptance that imports nothing must never cost the operator
+    their turn, and a session that cannot reach its plan library is still a session that can talk.
+    """
+    text = text if isinstance(text, str) else ""
+    if not text.strip():
+        raise PlanCoordinatorError("there is no plan text to import")
+    library = library or plan_store.PlanLibrary()
+    now = _now()
+    document = {
+        "schema_version": "engine-plan.v1",
+        "plan_id": plan_store.mint_plan_id(),
+        "title": _imported_title(text),
+        "revision": 1,
+        "created_at": now,
+        "revised_at": now,
+        "revision_note": "Imported verbatim from an accepted native plan. Nothing interpreted, "
+                         "nothing decomposed, nothing deliberated.",
+        "intent": {"raw": text, "interpretation": _IMPORTED_INTERPRETATION, "source": {"kind": "direct"}},
+        "deliberation": {
+            "problem_frame": "",
+            "case_against": "",
+            "alternatives": [],
+            "failure_modes": [],
+            "unresolved_decisions": list(_IMPORTED_GAPS),
+        },
+        "intake": {"provenance": provenance},
+        "build_plan": {"schema_version": plan_contract.IMPORTED_BUILD_PLAN_VERSION, "work_items": []},
+    }
+    slug = library.create(document, intake={"provenance": provenance})
+    plan_projection.project_library(library)
+    return {
+        "plan_id": document["plan_id"],
+        "revision": 1,
+        "slug": slug,
+        "title": document["title"],
+        "folder": str(library.plan_dir(slug)),
+        "next_command": f"python tools/plan_coordinator.py preview --plan {document['plan_id']}",
+    }
+
+
+def arrival_report(arrival: dict) -> str:
+    """What the session says after an import — the whole point of grading arrival, not just departure.
+
+    An operator who accepts a plan and is then handed a write refusal has been told the engine is
+    broken. So this names what happened, what did NOT happen, and the one command that moves it
+    forward, and it is explicitly for relaying: unlike the stance directive it replaces, its whole
+    job is to reach the operator.
+    """
+    return (
+        f"The plan you just accepted was imported into the Plan Coordinator as {arrival['plan_id']}, "
+        f"revision {arrival['revision']} — an unapproved draft titled \"{arrival['title']}\". "
+        "Your stance did not change and nothing was built: an imported draft carries no approval, no "
+        "review, no seal and no Build authority. Tell the operator this in your own words now, "
+        "including the next command, so they are not left guessing why nothing happened. "
+        f"The next command is: {arrival['next_command']} — reading the plan whole is what unlocks the "
+        "depth choice (`depths`, then `approve --depth ...`), which is where the operator sees the "
+        "risk assessment and says how careful the reviews should be. The imported payload is empty "
+        "by construction, so a real build-plan.v2 payload still has to be authored before this plan "
+        "can be sealed and handed to a Build.")
+
+
+def cmd_import_native(args) -> int:
+    """The typed recovery path. The hooks are the ordinary door; this exists for the two ways a hook
+    can be unavailable — an acceptance envelope the handler no longer recognizes, and a Codex
+    registration the operator has not re-trusted — so a drifted platform costs an extra command
+    rather than the whole capability."""
+    library = _library(args)
+    arrival = import_native_plan(core.input_text(args.input),
+                                 provenance=args.provenance, library=library)
+    print(f"imported {arrival['plan_id']} revision {arrival['revision']} at {arrival['folder']}")
+    print(f"  title       {arrival['title']}")
+    print("  status      draft — unapproved, unreviewed, unsealed, and carrying an empty payload")
+    print(f"  next        {arrival['next_command']}")
+    return 0
+
+
 def build_bundle(library: plan_store.PlanLibrary, slug: str) -> dict:
     """A plan as a self-contained, self-verifying local bundle.
 
@@ -1326,6 +1457,15 @@ def build_parser() -> argparse.ArgumentParser:
     importer = sub.add_parser("import", help="read a bundle back, verifying every digest first")
     importer.add_argument("--bundle", required=True)
     importer.set_defaults(func=cmd_import)
+
+    import_native = sub.add_parser(
+        "import-native",
+        help="import an accepted native plan as an unapproved draft — the recovery path when a hook cannot")
+    import_native.add_argument("--input", required=True, help="the native plan text, or - for stdin")
+    import_native.add_argument("--provenance", required=True,
+                               help="where this text came from, in plain words — an import with no "
+                                    "provenance is a plan nobody can trace")
+    import_native.set_defaults(func=cmd_import_native)
 
     redact = sub.add_parser("redact", help="excise one revision's body, keeping the chain honest")
     redact.add_argument("plan")

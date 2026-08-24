@@ -277,5 +277,61 @@ class TextFidelity(_Projected):
         self.assertEqual((self.root / slug / plan_projection.PLAN_MD).stat().st_mode & 0o777, 0o600)
 
 
+class ImportedDraft(_Projected):
+    """A plan with no Build half still renders, and says so.
+
+    Rendering is not optional for an imported draft. `project_library` runs on every write, and the
+    arrival report an import produces points the operator at `preview`, which renders through the same
+    function — so a plan this could not render would hand them a crash as their next experience. The
+    deliberation half, the intent and the ledger render through the SAME code as any other plan, which
+    is why there is no second renderer to drift.
+    """
+
+    def _imported(self):
+        document = _document(
+            build_plan={"schema_version": "build-plan.imported", "work_items": []},
+            deliberation={"problem_frame": "", "case_against": "", "alternatives": [],
+                          "failure_modes": [], "unresolved_decisions": ["What is this asking for?"]},
+            intake={"provenance": "Accepted Claude Code plan, imported at plan-exit."})
+        slug = self.lib.create(document)
+        plan_projection.project_library(self.lib)
+        return slug, (self.root / slug / plan_projection.PLAN_MD).read_text(encoding="utf-8")
+
+    def test_it_renders_and_names_the_missing_build_half(self):
+        _, rendered = self._imported()
+        self.assertIn("## The Build half", rendered)
+        self.assertIn("an import decomposes nothing", rendered)
+        self.assertIn("none yet — imported verbatim and not decomposed", rendered)
+
+    def test_the_payload_sections_are_absent_rather_than_empty(self):
+        # An empty "Execution graph" or a bare "Scope" heading would read as a rendering fault; the
+        # honest projection of a plan with no Build half is that those sections are not there.
+        _, rendered = self._imported()
+        for heading in ("## Objective", "## Execution graph", "## Scope", "## What success requires",
+                        "## The work, node by node", "## Specification posture"):
+            self.assertNotIn(heading, rendered, heading)
+
+    def test_the_deliberation_gaps_read_as_gaps(self):
+        _, rendered = self._imported()
+        self.assertEqual(rendered.count("_Not stated."), 2)     # problem frame and case against
+        self.assertIn("### The strongest case against doing this", rendered)
+        self.assertIn("What is this asking for?", rendered)
+        self.assertIn("cannot be sealed", rendered)
+
+    def test_the_shared_halves_render_through_the_same_code(self):
+        # The anti-drift property: intent, intake and the ledger appear for an imported draft exactly
+        # as they do for any other plan, because one function renders both shapes.
+        _, rendered = self._imported()
+        for shared in ("## Intent", "**As the operator put it:**", "## Where this plan came from",
+                       "## Revision history"):
+            self.assertIn(shared, rendered)
+
+    def test_it_regenerates_byte_identically(self):
+        slug, first = self._imported()
+        (self.root / slug / plan_projection.PLAN_MD).unlink()
+        plan_projection.project_library(self.lib)
+        self.assertEqual((self.root / slug / plan_projection.PLAN_MD).read_text(encoding="utf-8"), first)
+
+
 if __name__ == "__main__":
     unittest.main()

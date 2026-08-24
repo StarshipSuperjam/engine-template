@@ -37,6 +37,26 @@ reserves the Claude ones. Three invariants bind every adapter, now and for any r
   post-merge validation against a written pass bar — a failure inside that bar is a defect owed a fix, never a
   scope removal.
 
+_Amended 2026-08-24, for the native-plan intake adapters. The plan-acceptance hook was the standing example of
+a capability present on one runtime and deliberately absent on the other: Claude Code entered Build when the
+operator accepted a plan, Codex had no comparable signal, and the ledger recorded the absence as the
+enforcement of explicit entry rather than a gap. Two things changed, so that ledger entry is revised in place
+rather than duplicated. Accepting a plan no longer enters Build on either runtime — it imports the accepted
+document into the Plan Coordinator as an unapproved draft, which grants no Build authority at all, so nothing
+infers build intent from an acceptance anywhere. And the capability now exists on both sides: Claude keys on
+its plan-exit completion, Codex on the acceptance envelope the operator types, read by a `UserPromptSubmit`
+owner registered after boot's per-prompt scent. What stays asymmetric is the SIGNAL each runtime offers, not
+the function the engine provides, and the ledger carries one entry per direction saying so. Adding that second
+`UserPromptSubmit` owner amends the hooks owner table, single-owner on that event until now, and it is
+admissible on the terms that table already sets: eADR-0042 refuses writers of undefined order, not registered
+owners, and `PostToolUse` has carried three owners in a stated order from the start. The two cannot contend —
+boot injects a constant cue without reading the prompt's content, and the adapter reads the prompt's opening
+bytes and acts only on an envelope anchored at byte zero — and the adapter writes no stance signal and no file
+the scent touches. One consequence is the operator's to absorb, and is named rather than buried: a changed
+Codex hook registration turns that project's local guardrails off until the hooks are re-approved (the
+`hook-trust-gate` entry in the same ledger), and the typed `import-native` verb is the recovery path for both
+a declined trust and a reworded envelope._
+
 ## Significance
 
 This locks the extension grammar for every future runtime: one core, thin adapters, and capability routed

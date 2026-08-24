@@ -1119,6 +1119,9 @@
   ".engine/schemas/build-orchestration-obligations.v1.json": [
    "core"
   ],
+  ".engine/schemas/build-plan.imported.json": [
+   "core"
+  ],
   ".engine/schemas/build-plan.v1.json": [
    "core"
   ],
