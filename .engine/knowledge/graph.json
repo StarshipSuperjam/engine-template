@@ -8036,7 +8036,7 @@
       },
       "slug": "selftest-run-record.v1",
       "source": {
-        "fingerprint": "sha256:fc5891fa602ced24fdb6c51c1f00c79eafc1c358755dc766710ff6c8ce5ffc17",
+        "fingerprint": "sha256:18a59e248f05da7910a6347bad756b494b6e5934b8b0cc85975add2773e901b0",
         "path": ".engine/schemas/selftest-run-record.v1.json"
       },
       "status": "active",
@@ -14639,7 +14639,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:362e5f74599717734d83b42f11d620c59b2abec4754465bc573a00e1213da810",
+        "fingerprint": "sha256:ba799b919ebac0aa3a5f9428fcd0382b6ad09e23f8bd62a69dd6f1abb0962be3",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -14654,6 +14654,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:derived_state",
           "tool:knowledge_gen",
           "tool:validate"
         ],
@@ -14663,7 +14664,7 @@
       },
       "slug": "selftest_select",
       "source": {
-        "fingerprint": "sha256:601033fbbde5fb129aa2c1dfc4c921fe4317b88750a41c01acbc1d6acc8c2478",
+        "fingerprint": "sha256:b61ea12ea2e1406c1b5bddadd332032185f77d77fec2abb04dbb995d85d68517",
         "path": ".engine/tools/selftest_select.py"
       },
       "status": "active",
@@ -17174,7 +17175,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:b8a897ec137df58077254789932e264c828b8db77543ecd2a6dbecdd02da5027",
+        "fingerprint": "sha256:f2410662c5eee50498db56c6041da7ed5eae8141dea3a913713b42de04eb2569",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -18979,12 +18980,13 @@
         ],
         "tests": [
           "tool:selftest",
+          "tool:selftest_select",
           "tool:validate"
         ]
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:c9138dab3182dc82ce87baf17f31c9134ab68603e18e9f1c17f94b3d20864ea0",
+        "fingerprint": "sha256:3970b86e335b5df1a2c258c261063de20e9cfc81f06111e788ad2a977ed77b76",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
@@ -19035,7 +19037,7 @@
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:58ea197f2ea688aa7be200c8656e0b83ebb68a95f35c755e4274b3f627684b8a",
+        "fingerprint": "sha256:032844a512f0f8e412fccab3d3f2c7655b27833534b241546f477c57f1b424eb",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",

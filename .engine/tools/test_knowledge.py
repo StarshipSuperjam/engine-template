@@ -613,7 +613,7 @@ class TestPass4Attributes(unittest.TestCase):
             self.assertNotIn(bad, s)
         self.assertEqual(s, "safetext here and more.")
 
-    def testparse_tool_ast_returns_none_on_malformed_source(self):
+    def test_parse_tool_ast_returns_none_on_malformed_source(self):
         # the malformed-.py skip path: a broken tool parses to None (so it still entitizes with `guarded` but
         # harvests no imports/summary/entrypoint), a good one parses to a tree; a read error is NOT swallowed.
         with tempfile.TemporaryDirectory() as d:

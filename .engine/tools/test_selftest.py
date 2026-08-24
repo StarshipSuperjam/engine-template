@@ -312,9 +312,11 @@ class SelftestLauncher(_LauncherCase):
 
 
 # --------------------------------------------------------------------------------------------------
-# Focused runs and the run record. Everything above this line is the launcher's ORIGINAL fixture and is
-# byte-identical to its state before this change — preservation is verified by diffing that region, not
-# by counting `def test_`, which also matches the synthetic suite bodies these fixtures embed as strings.
+# Focused runs and the run record. Every pre-existing CASE above this line is unchanged: the whole file
+# diffs against the Build base with zero deletions. Two import lines near the top were added, so the
+# region is not literally byte-identical and this comment no longer claims it is. Preservation is
+# verified by that diff, never by counting `def test_` — a count also matches the synthetic suite bodies
+# these fixtures embed as strings, which is how a figure in this Build's own plan came out wrong.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -411,6 +413,50 @@ class FocusedRuns(unittest.TestCase):
                             "an unimportable module must fail the run even when it was not selected")
         self.assertEqual(record["verdict"], "failed")
         self.assertIn("test_broken", [p["module"] for p in record["problems"]])
+
+    def test_a_selected_module_that_fails_to_import_reports_the_real_error(self):
+        """The realistic mid-edit case, and the one the first fixture pair missed between them.
+
+        One case covered an unimportable module that was NOT selected; another covered a selected module
+        that did not exist. Neither covered the ordinary one — you broke the import in the very file you
+        are editing — which was misdiagnosed as a module "this tree does not produce", with the actual
+        ImportError never shown. Two reviewers hit it independently."""
+        proc, record = self._run(
+            {"test_one.py": _CLEAN, "test_broken.py": _BAD_IMPORT},
+            _selection(["test_one", "test_broken"]))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(record["verdict"], "failed",
+                         "a broken selected module exists; it must not be called absent")
+        self.assertIn("test_broken", [p["module"] for p in record["problems"]])
+        self.assertIn("a_module_that_is_definitely_not_installed", proc.stdout + proc.stderr,
+                      "the real import error must reach the reader")
+
+    def test_a_focused_selection_naming_no_module_at_all_is_refused(self):
+        """An empty filtered suite reports as successful, so a focused run naming nothing would be a
+        clean green having executed nothing. The selector cannot emit this; the runner can be handed it."""
+        proc, record = self._run({"test_one.py": _CLEAN}, _selection([]))
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(record["verdict"], "selection-unmatched")
+        self.assertEqual(record["executed"]["case_count"], 0)
+
+    def test_a_focused_run_says_so_in_its_closing_banner(self):
+        """The opening announcement is hundreds of lines up the buffer after a long run."""
+        proc, _ = self._run({"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN},
+                            _selection(["test_one"]))
+        tail = proc.stdout[proc.stdout.rfind("Self-tests"):]
+        self.assertIn("Focused run", tail)
+        self.assertIn("NOT a full-inventory result", tail)
+
+    def test_a_crashed_focused_run_does_not_claim_it_was_a_full_one(self):
+        """`scope` is the field the schema calls its load-bearing honesty field; a crashed focused run
+        used to report `full`, meaning the complete inventory had run."""
+        _, record = self._run({"test_suicide.py": """
+            import os, signal, unittest
+            class T(unittest.TestCase):
+                def test_dies(self):
+                    os.kill(os.getpid(), signal.SIGKILL)
+        """}, _selection(["test_suicide"]))
+        self.assertEqual(record["scope"], "focused")
 
     def test_a_selection_naming_modules_this_tree_does_not_produce_is_refused(self):
         """The other false-green case. An empty filtered suite is reported by unittest as SUCCESSFUL,
@@ -541,8 +587,13 @@ class RunRecord(unittest.TestCase):
                     # oblige every consumer to carry a registry. The SELECTION schema is checked here as
                     # the authority for the nested object, and `selection_digest` carries its identity.
                     jsonschema.validate(record["selection"], selection_schema)
-                    self.assertTrue(record["selection_digest"],
-                                    "an embedded selection must carry its own digest")
+                    # The obligation asks that the embedded copy's digest MATCH the standalone
+                    # serialization, not merely that one is present — a truthiness check would pass on
+                    # any string at all, which is the gap a reviewer named.
+                    import selftest_select
+                    self.assertEqual(record["selection_digest"],
+                                     selftest_select.digest(record["selection"]),
+                                     "the embedded selection's digest must match its own canonical bytes")
 
     def test_the_scope_field_is_required_by_the_schema(self):
         """Required and non-defaultable, so a record cannot be silent about what it covered."""

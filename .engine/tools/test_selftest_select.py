@@ -42,6 +42,15 @@ def _p(name: str) -> str:
     return f"{_TOOLS}/{name}.py"
 
 
+def _no_guard(_importers):
+    """No derived-artifact guard, for the cases that exercise classification over a synthetic tree.
+
+    The real guard is derived from the engine's own register of generated artifacts, which describes THIS
+    repository — applying it to a fabricated three-module tree would (correctly) fail closed and tell us
+    nothing about the logic under test. `DerivedArtifactGuard` below exercises the real thing."""
+    return set(), None
+
+
 def _index(edges: dict) -> dict:
     """A reverse import index from `{importer: [imported, ...]}`, using bare module names."""
     importers: dict = {}
@@ -55,7 +64,8 @@ class Classification(unittest.TestCase):
     """The pure half: given changed paths and a graph, what runs."""
 
     def _classify(self, changed, edges=None):
-        return S.classify(changed, lambda: _index(edges or {}), changed_from="base")
+        return S.classify(changed, lambda: _index(edges or {}), guard_factory=_no_guard,
+                          changed_from="base")
 
     def test_a_changed_test_module_selects_itself(self):
         m = self._classify([(_p("test_alpha"), "M")])
@@ -94,7 +104,8 @@ class Classification(unittest.TestCase):
             path: {imp for imp in imps if S.is_test_module(imp)}
             for path, imps in importers.items()
         }
-        narrowed = S.classify([(_p("deep"), "M")], lambda: direct_only, changed_from="base")
+        narrowed = S.classify([(_p("deep"), "M")], lambda: direct_only, guard_factory=_no_guard,
+                              changed_from="base")
         self.assertNotEqual(
             narrowed["classification"], "focused",
             "a direct-importers-only graph must NOT reproduce the transitive selection")
@@ -133,7 +144,7 @@ class FullFallbacks(unittest.TestCase):
     """Every way of not knowing runs everything, and says which way it was."""
 
     def _full(self, changed, edges=None, git_failure=None):
-        m = S.classify(changed, lambda: _index(edges or {}),
+        m = S.classify(changed, lambda: _index(edges or {}), guard_factory=_no_guard,
                        changed_from="base", git_failure=git_failure)
         self.assertEqual(m["classification"], "full")
         self.assertEqual(m["selected"], [])
@@ -159,13 +170,13 @@ class FullFallbacks(unittest.TestCase):
     def test_an_unparseable_tool_runs_everything(self):
         def boom():
             raise S.SelectionError(("unparseable-python", "tools/broken.py will not parse"))
-        m = S.classify([(_p("broken"), "M")], boom, changed_from="base")
+        m = S.classify([(_p("broken"), "M")], boom, guard_factory=_no_guard, changed_from="base")
         self.assertEqual(m["full_reason"]["code"], "unparseable-python")
 
     def test_a_dangling_import_runs_everything(self):
         def boom():
             raise S.SelectionError(("dangling-import", "tools/a.py imports a module that is gone"))
-        m = S.classify([(_p("a"), "M")], boom, changed_from="base")
+        m = S.classify([(_p("a"), "M")], boom, guard_factory=_no_guard, changed_from="base")
         self.assertEqual(m["full_reason"]["code"], "dangling-import")
 
     def test_documentation_and_governed_data_run_everything(self):
@@ -205,11 +216,19 @@ class SurfaceCatalogueTotality(unittest.TestCase):
 
     @staticmethod
     def _sample(kind: str, entry: dict):
-        """A representative path for one registered surface kind, from its declared home."""
-        home = entry.get("location") if isinstance(entry, dict) else None
+        """A representative path for one registered surface kind, from its declared home and CLASS.
+
+        The extension comes from the catalogue's own `class` field, never from the kind's name. Hardcoding
+        `.py` for the literal string "tool" and `.md` for everything else made this test unable to do the
+        one job it exists for: a reviewer added a hypothetical fourteenth kind of class `code` homed under
+        the tools directory — precisely the shape that WOULD become positively classifiable — and the test
+        still passed, because it could never construct a `.py` sample for a kind not named "tool"."""
+        if not isinstance(entry, dict):
+            return None
+        home = entry.get("location")
         if not isinstance(home, str) or not home:
             return None
-        suffix = ".py" if kind == "tool" else ".md"
+        suffix = ".py" if entry.get("class") == "code" else ".md"
         return f"{home.rstrip('/')}/representative-sample{suffix}"
 
     def test_tool_is_the_only_positively_classified_surface_kind(self):
@@ -221,7 +240,7 @@ class SurfaceCatalogueTotality(unittest.TestCase):
             if sample and S.is_tool_python(sample):
                 positively.add(kind)
         self.assertEqual(
-            positively, {"tool"},
+            positively, {"tool"},  # noqa: the message below is the point of this assertion
             "exactly one governed surface kind may be positively classified; anything else must fall "
             "to the full inventory. If this failed because the engine grew a surface kind, decide "
             "deliberately whether the selector should narrow on it.")
@@ -234,17 +253,63 @@ class SurfaceCatalogueTotality(unittest.TestCase):
             with self.subTest(kind=kind):
                 if S.is_tool_python(sample):
                     continue
-                m = S.classify([(sample, "M")], lambda: {}, changed_from="base")
+                m = S.classify([(sample, "M")], lambda: {}, guard_factory=_no_guard,
+                               changed_from="base")
                 self.assertEqual(m["classification"], "full")
                 self.assertEqual(m["full_reason"]["code"], "path-not-classifiable")
+
+
+class DerivedArtifactGuard(unittest.TestCase):
+    """The guard that closes the last silent-miss path, exercised against the real register.
+
+    Editing any tracked file restates that file's recorded fingerprint and stales the engine's generated
+    maps. The tests that police that staleness import nothing the edited file touches, so no import graph
+    can ever reach them — which is why they are added structurally instead."""
+
+    def test_a_focused_run_always_includes_the_generated_map_drift_tests(self):
+        importers = S.build_importer_index(validate.ROOT)
+        guard, unreachable = S.derived_artifact_guard(importers)
+        self.assertIsNone(unreachable)
+        modules = {S.module_name(p) for p in guard}
+        for expected in ("test_knowledge", "test_ci_assurance", "test_self_map",
+                         "test_module_surfaces", "test_module_catalog"):
+            self.assertIn(expected, modules)
+
+    def test_editing_one_leaf_tool_still_selects_the_drift_tests(self):
+        """The concrete case a reviewer proved: append a comment to a tool, and without the guard the
+        selection excludes the very test that would have caught the resulting stale map."""
+        importers = S.build_importer_index(validate.ROOT)
+        m = S.classify([(f"{_TOOLS}/quiet_call.py", "M")], lambda: importers, changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertIn("test_knowledge", {e["module"] for e in m["selected"]})
+
+    def test_the_guard_is_far_smaller_than_the_transitive_closure_of_the_generators(self):
+        """Direct test importers only. The transitive closure of those generators is most of the tree,
+        which would erase the feature; the direct set leaves a leaf edit selecting a small fraction."""
+        importers = S.build_importer_index(validate.ROOT)
+        guard, _ = S.derived_artifact_guard(importers)
+        every_test = {p for p in importers if S.is_test_module(p)}
+        every_test |= {imp for imps in importers.values() for imp in imps if S.is_test_module(imp)}
+        self.assertLess(len(guard), len(every_test) / 3,
+                        "the guard must stay a small fraction of the inventory or it defeats the feature")
+
+    def test_a_generator_no_test_imports_forces_the_full_inventory(self):
+        """Fail closed: an incomplete guard set is exactly the silent miss the guard exists to prevent."""
+        m = S.classify([(_p("widget"), "M")], lambda: _index({"test_widget": ["widget"]}),
+                       guard_factory=lambda _i: (set(), f"{_TOOLS}/some_generator.py"),
+                       changed_from="base")
+        self.assertEqual(m["classification"], "full")
+        self.assertEqual(m["full_reason"]["code"], "derived-guard-unreachable")
 
 
 class Determinism(unittest.TestCase):
 
     def test_the_same_tree_and_changed_set_serialize_byte_identically(self):
         edges = {"test_a": ["core"], "mid": ["core"], "test_b": ["mid"]}
-        first = S.classify([(_p("core"), "M")], lambda: _index(edges), changed_from="base")
-        second = S.classify([(_p("core"), "M")], lambda: _index(edges), changed_from="base")
+        first = S.classify([(_p("core"), "M")], lambda: _index(edges), guard_factory=_no_guard,
+                           changed_from="base")
+        second = S.classify([(_p("core"), "M")], lambda: _index(edges), guard_factory=_no_guard,
+                            changed_from="base")
         self.assertEqual(S.serialize(first), S.serialize(second))
         self.assertEqual(S.digest(first), S.digest(second))
 
@@ -254,9 +319,10 @@ class Determinism(unittest.TestCase):
             schema = json.load(fh)
         import jsonschema
         for manifest in (
-            S.classify([(_p("test_a"), "M")], lambda: {}, changed_from="base"),
-            S.classify([("README.md", "M")], lambda: {}, changed_from="base"),
-            S.classify([], lambda: {}, changed_from="base", git_failure="git exploded"),
+            S.classify([(_p("test_a"), "M")], lambda: {}, guard_factory=_no_guard, changed_from="base"),
+            S.classify([("README.md", "M")], lambda: {}, guard_factory=_no_guard, changed_from="base"),
+            S.classify([], lambda: {}, guard_factory=_no_guard, changed_from="base",
+                       git_failure="git exploded"),
         ):
             jsonschema.validate(manifest, schema)
 

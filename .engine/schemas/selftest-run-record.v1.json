@@ -125,7 +125,7 @@
       }
     },
     "selection": {
-      "description": "The selection manifest verbatim, or null for an ordinary full run. Its shape is governed by selftest-selection.v1.json, which it names in its own `schema_version` — deliberately NOT expressed as a cross-file $ref. This would be the only cross-file reference in the engine's whole schema corpus; every other schema here is self-contained, and introducing the first one would oblige every consumer to carry a reference registry to validate a record at all. A reviewer asked that the embedded copy's identity survive nesting, which is the real requirement, and `selection_digest` below answers it exactly — a nested JSON object is not byte-preserved, so a digest is the only thing that can carry identity across the boundary anyway.",
+      "description": "The selection manifest verbatim, or null for an ordinary full run. This schema checks only that the embedded object identifies itself and carries a classification — it does NOT fully validate the nested shape, and the earlier wording ('is governed by') overstated that; a reviewer was right to call it. selftest-selection.v1.json is the authority for the shape, applied by the fixture that checks a produced record, and `selection_digest` below is what carries the embedded copy's identity. The nesting is deliberately not a cross-file $ref: this would be the only one in the engine's whole schema corpus, and it would oblige every consumer to carry a reference registry to validate a record at all. A nested JSON object is not byte-preserved in any case, so a digest is the only thing that could carry identity across the boundary.",
       "oneOf": [
         {
           "type": "null"

@@ -76,12 +76,14 @@ FULL_REASONS = frozenset({
     "unparseable-python",     # a changed tool will not parse, so its imports cannot be read
     "dangling-import",        # an in-repo import resolves to no file; the graph refuses to record it
     "unreached-tool",         # a changed non-test tool that no test module reaches, directly or transitively
+    "derived-guard-unreachable",  # a derived artifact's generator has no test importing it; the guard set is incomplete
 })
 
 SELECTION_REASONS = frozenset({
     "changed-test-module",    # the test module itself changed
     "direct-import",          # the test module imports the changed tool directly
     "transitive-import",      # the test module reaches the changed tool through a chain of imports
+    "derived-artifact-guard", # always included: ANY change can stale a derived artifact, and no import expresses that
 })
 
 
@@ -249,11 +251,49 @@ def reaching_tests(target: str, importers: dict):
     return found
 
 
-def classify(changed, importers_factory, *, changed_from=None, git_failure=None) -> dict:
+def derived_artifact_guard(importers: dict):
+    """The test modules a focused run must ALWAYS include, whatever the import graph says.
+
+    THIS CLOSES THE LAST SILENT-MISS PATH, and it is the one the import graph can never express.
+    Editing any tracked file changes that file's recorded source fingerprint, which stales the engine's
+    generated maps — and the tests that police that staleness (`test_knowledge` and its peers) import
+    nothing the edited file touches. A reviewer proved it on the real tree: append one comment to a tool,
+    and the selector returns `focused` over a set that excludes `test_knowledge` while the knowledge-drift
+    check reports HARD. Both of the most ordinary shapes of work here — edit a tool, add a test — hit it.
+
+    The dependency is real but is not an import, so it is added structurally instead. The engine already
+    names every derived artifact and its generator in one place (`derived_state.members()`), so the guard
+    set is DERIVED from that register rather than listed here: the tests that import each generator are
+    exactly the ones that assert its output is current. A hand-written list would rot; this cannot.
+
+    Only DIRECT test importers, deliberately. The transitive closure of these generators is 157 of 179
+    modules on the real tree — it would erase the feature — while the direct set is 17, which leaves a
+    leaf-tool edit selecting 18 rather than 179. The drift assertions live in the modules that import the
+    generator; a module that merely reaches one transitively does not make that assertion.
+
+    Returns `(guard paths, unreachable generator)`. A generator no test imports means the guard set is
+    incomplete, and an incomplete guard is exactly the silent miss this exists to prevent — so the caller
+    runs everything instead."""
+    import derived_state          # imported here so the module stays importable without the register
+    guard: set = set()
+    for member in derived_state.members():
+        generator = f"{TOOLS_ROOT_REL}/{member.tool}"
+        direct = {path for path in importers.get(generator, ()) if is_test_module(path)}
+        if not direct:
+            return set(), generator
+        guard |= direct
+    return guard, None
+
+
+def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard,
+             changed_from=None, git_failure=None) -> dict:
     """Decide, and return the `selftest-selection.v1` manifest. Pure with respect to git and the clock.
 
     `changed` is `changed_paths`' entry list. `importers_factory` is called only when there is something
-    to resolve, so a classification that falls back never pays for the graph."""
+    to resolve, so a classification that falls back never pays for the graph. `guard_factory` is injected
+    rather than reached for, which keeps this function pure — it otherwise had to import the engine's
+    derived-artifact register, and a fixture over a synthetic tree would then fail closed on a register
+    describing a repository it is not looking at."""
     def full(code: str, detail: str) -> dict:
         assert code in FULL_REASONS, code
         return {
@@ -275,11 +315,13 @@ def classify(changed, importers_factory, *, changed_from=None, git_failure=None)
             return full("deleted-or-renamed",
                         f"{path} was deleted or renamed; the import graph is built from the current "
                         f"tree and has no node for a file that is gone")
-    for path, _ in sorted(changed):
-        if not is_tool_python(path):
-            return full("path-not-classifiable",
-                        f"{path} is not a Python file under {TOOLS_ROOT_REL}/, so nothing here can say "
-                        f"which tests read it")
+    unclassifiable = [path for path, _ in sorted(changed) if not is_tool_python(path)]
+    if unclassifiable:
+        shown = ", ".join(unclassifiable[:3])
+        more = f" (and {len(unclassifiable) - 3} more)" if len(unclassifiable) > 3 else ""
+        return full("path-not-classifiable",
+                    f"{shown}{more} — not a Python file under {TOOLS_ROOT_REL}/, so nothing here can "
+                    f"say which tests read it")
 
     try:
         importers = importers_factory()
@@ -287,20 +329,32 @@ def classify(changed, importers_factory, *, changed_from=None, git_failure=None)
         code, detail = exc.args[0]
         return full(code, detail)
 
-    selected: dict = {}
+    guard, unreachable = guard_factory(importers)
+    if unreachable is not None:
+        return full("derived-guard-unreachable",
+                    f"no test module imports {unreachable}, so the derived-artifact guard set is "
+                    f"incomplete and a stale generated map could go unnoticed")
+
+    selected: dict = {path: "derived-artifact-guard" for path in guard}
+    reached_for: dict = {}
     for path, _ in sorted(changed):
         if is_test_module(path):
             selected.setdefault(path, "changed-test-module")
             continue
         reached = reaching_tests(path, importers)
+        reached_for[path] = reached
         if not reached:
             return full("unreached-tool",
                         f"{path} changed but no test module imports it, directly or transitively")
         for test_path, reason in reached.items():
-            # A stronger reason wins: a module both changed and imported reads as changed.
-            if selected.get(test_path) != "changed-test-module":
-                if reason == "direct-import" or test_path not in selected:
-                    selected[test_path] = reason
+            # A more specific reason wins. The guard is the weakest — it says only "this module could
+            # notice a stale generated map" — so any real import relationship replaces it, and a module
+            # that itself changed outranks everything.
+            current = selected.get(test_path)
+            if current == "changed-test-module":
+                continue
+            if current is None or current == "derived-artifact-guard" or reason == "direct-import":
+                selected[test_path] = reason
 
     if not selected:
         # Unreachable given the checks above; kept because a silent empty focused selection is the one
@@ -315,19 +369,30 @@ def classify(changed, importers_factory, *, changed_from=None, git_failure=None)
         "full_reason": None,
         "selected": [
             {"module": module_name(p), "path": p,
-             "reason": {"code": selected[p], "detail": _selection_detail(selected[p], p)}}
+             "reason": {"code": selected[p],
+                        "detail": _selection_detail(selected[p], p, reached_for)}}
             for p in sorted(selected)
         ],
     }
 
 
-def _selection_detail(code: str, path: str) -> str:
+def _selection_detail(code: str, path: str, reached_for: dict) -> str:
+    """One plain sentence naming WHICH changed file put this test in the selection.
+
+    Naming the specific file matters more than it looks. With several files changed at once — the normal
+    case mid-build — "reaches a changed tool" is the same sentence for every entry and tells a reader
+    nothing they did not already know, which is how a traceability artifact stops being read."""
     assert code in SELECTION_REASONS, code
     if code == "changed-test-module":
         return f"{path} is itself among the changed files"
+    if code == "derived-artifact-guard":
+        return (f"{path} asserts a generated map is current; ANY change can stale one, and no import "
+                f"expresses that dependency, so it is always included in a focused run")
+    causes = sorted(changed for changed, reached in reached_for.items() if path in reached)
+    named = ", ".join(causes) if causes else "a changed tool"
     if code == "direct-import":
-        return f"{path} imports a changed tool directly"
-    return f"{path} reaches a changed tool through a chain of imports"
+        return f"{path} imports {named} directly"
+    return f"{path} reaches {named} through a chain of imports"
 
 
 def select(root: str, since: str) -> dict:

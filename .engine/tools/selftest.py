@@ -336,7 +336,7 @@ def _write_run_record(args, outcome: dict, started: float, *, inventory=None, se
     _atomic_write_json(path, record)
 
 
-def _finish_run_record(path, rc: int, log_path, captured: str) -> None:
+def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", selection=None) -> None:
     """The parent's postscript: the VERBATIM exit status, and the log digest.
 
     The digest is taken from the parent's in-memory capture rather than by re-reading the file. The two
@@ -350,17 +350,21 @@ def _finish_run_record(path, rc: int, log_path, captured: str) -> None:
         return
     record = _read_json(path)
     if record is None:
+        # The parent knows the scope even when the child died before saying so. Defaulting this to
+        # "full" made a crashed focused run claim the complete inventory had run — the exact field the
+        # schema calls its load-bearing honesty field.
         record = {
             "schema_version": RECORD_SCHEMA_VERSION,
             "attests": RECORD_ATTESTS,
-            "scope": "full",
+            "scope": scope,
             "verdict": "crashed",
             "detail": "the run ended before it could write its own record",
             "started_at": None, "finished_at": round(time.time(), 3),
             "inventory": {"module_count": 0, "case_count": 0,
                           "modules_digest": _sha256_text(""), "cases_digest": _sha256_text("")},
             "executed": {"case_count": 0, "skipped_count": 0},
-            "selection": None, "selection_digest": None, "nested_sentinel": True,
+            "selection": selection, "selection_digest": _selection_digest(selection),
+            "nested_sentinel": bool(os.environ.get(_NESTED_ENV)),
             "modules": [], "slowest": [], "problems": [],
         }
     record["exit_status"] = rc
@@ -395,15 +399,25 @@ def _filter_to_modules(suite, selected: frozenset):
     selection says.
 
     That exception is load-bearing, not defensive tidiness. A test module that fails to IMPORT is
-    presented by unittest as a synthetic case attributed to `unittest.loader`, not to the module that
-    broke; a filter keyed on module name alone therefore discards the import failure, the filtered suite
-    runs clean, and the child exits 0. That is an unearned green in exactly the mode a build loop is
-    meant to trust. Returns (filtered suite, set of selected modules that matched at least one case)."""
+    presented by unittest as a synthetic case whose printed form attributes it to `unittest.loader`; a
+    filter that dropped it would let the filtered suite run clean and the child exit 0 — an unearned
+    green in exactly the mode a build loop is meant to trust.
+
+    A collection error also COUNTS AS A MATCH for its own module, and that half was wrong at first. Two
+    reviewers hit the same case independently: break the import in the very file you are editing, and the
+    module is selected, kept in the suite — and then reported as one the tree "does not produce", with the
+    run abandoned before it could show the actual ImportError. The module plainly exists; it is broken.
+    `_case_module` recovers the real module name from the synthetic case, so counting it as matched lets
+    the suite run and surface the real traceback, which is the whole point of not filtering it out.
+
+    Returns (filtered suite, set of selected modules that matched at least one case)."""
     kept, matched = [], set()
     for case in _flatten(suite):
         module = _case_module(case)
         if type(case).__name__ in ("_FailedTest", "_ErrorHolder"):
             kept.append(case)                       # never filtered out, whatever was selected
+            if module in selected:
+                matched.add(module)                 # it exists and is broken — let the run say so
             continue
         if module in selected:
             kept.append(case)
@@ -439,7 +453,10 @@ def _run_child(args: argparse.Namespace) -> int:
         _progress({"event": "total", "total": 0})
         print(f"selftest: discovery failed: {exc!r}", file=sys.stderr)
         _write_run_record(args, {"verdict": "setup-failed", "detail": repr(exc)}, started)
-        return 2
+        # Deliberately 1, not 2. This branch is on the DEFAULT path, and the obligation to leave the
+        # default invocation's exit status untouched outranks the tidier "2 means setup failure"
+        # reading — a reviewer caught the drift. The 2s below are on paths that did not exist before.
+        return 1
 
     inventory_modules, inventory_ids = _inventory(suite)
     selection = _read_selection(args.selection_path)
@@ -448,6 +465,17 @@ def _run_child(args: argparse.Namespace) -> int:
     if selection is not None and selection.get("classification") == "focused":
         scope = "focused"
         wanted = frozenset(entry["module"] for entry in selection.get("selected", ()))
+        if not wanted:
+            # The SELECTOR cannot produce this — a run is focused only when something was positively
+            # selected. The RUNNER can still be handed it, and an empty filtered suite is reported by
+            # unittest as successful, so the guard belongs here too rather than only upstream.
+            print("selftest: refusing a focused selection that names no module — an empty suite would "
+                  "report success having run nothing.", file=sys.stderr)
+            _write_run_record(args, {"verdict": "selection-unmatched",
+                                     "detail": "the focused selection named no module"}, started,
+                              inventory=(inventory_modules, inventory_ids), selection=selection,
+                              scope=scope)
+            return 2
         suite, matched = _filter_to_modules(suite, wanted)
         unmatched = sorted(wanted - matched)
         if unmatched:
@@ -569,11 +597,18 @@ def _extract_failure_blocks(lines: list) -> list:
     return blocks
 
 
-def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str) -> None:
+def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
+                  scope_note: Optional[str] = None) -> None:
     print()
     print("=" * 78)
     verdict = "PASSED" if rc == 0 else f"FAILED (exit {rc})"
     print(f"Self-tests {verdict} in {elapsed:0.0f}s")
+    if scope_note:
+        # The closing banner is what a reader actually sees after a long run — the opening announcement
+        # is hundreds of lines up the buffer, and this launcher's own docstring says output here is
+        # routinely read through `tail`. An unqualified "PASSED" on a focused run is the one place the
+        # qualifier could silently drop off, so it is repeated where the verdict is.
+        print(scope_note)
     if log_path:  # always set now — the log is kept for every run, and its path is printed so the session can read it
         print(f"Full output: {log_path}")
     if rc == 0:
@@ -648,6 +683,31 @@ def _compute_selection(changed_from: str) -> dict:
         }
 
 
+def _cleanup_selection(selection_path, caller_supplied) -> None:
+    """Remove the manifest we minted for the child. Never one the caller handed us, and never so early
+    that the run record cannot still embed it. The log sweeper matches only `*.log`, so a manifest left
+    behind on an error path would never be collected by anything."""
+    if selection_path and selection_path != caller_supplied:
+        try:
+            os.remove(selection_path)
+        except OSError:
+            pass
+
+
+def _discoverable_module_count(start_dir: str, pattern: str):
+    """How many test modules the tree holds, for the focused announcement's denominator. Best-effort —
+    a count that cannot be taken simply goes unmentioned rather than failing the run."""
+    try:
+        count = 0
+        for dirpath, dirnames, filenames in os.walk(start_dir):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__" and not d.startswith(".")]
+            count += sum(1 for f in filenames
+                         if f.startswith("test_") and f.endswith(".py"))
+        return count or None
+    except OSError:
+        return None
+
+
 def _not_started_record(args, verdict: str, detail: str) -> None:
     """A record for the three parent-side exits the child never reaches. Their existence is the reason
     the promise is 'every outcome where the parent survives to return' rather than 'every outcome': a
@@ -694,6 +754,7 @@ def _run_parent(args: argparse.Namespace) -> int:
 
     # An explicitly supplied selection wins: that is the fixture's seam, letting a test hand in a
     # manifest without constructing a git repository to derive one from.
+    scope_note = None
     selection_path = args.selection_path
     if selection_path is None and args.changed_from:
         selection_path = os.path.join(os.path.dirname(log_path),
@@ -704,8 +765,16 @@ def _run_parent(args: argparse.Namespace) -> int:
         # silently got the whole inventory would otherwise have no idea the selector declined.
         manifest = _read_json(selection_path) or {}
         if manifest.get("classification") == "focused":
-            print(f"Focused run: {len(manifest.get('selected', ()))} self-test module(s) selected by "
-                  f"the changes since {manifest.get('changed_from')}.", flush=True)
+            picked = len(manifest.get("selected", ()))
+            # Say the proportion, not just the count. Editing a leaf tool selects a couple of modules;
+            # editing a widely-imported one can select most of the tree, and both used to be announced
+            # in identical words — leaving a session unable to tell a cheap run from a near-full one
+            # until it watched the clock.
+            available = _discoverable_module_count(start_dir, args.pattern)
+            of_total = f" of {available}" if available else ""
+            print(f"Focused run: {picked}{of_total} self-test module(s) selected by the changes since "
+                  f"{manifest.get('changed_from')}.", flush=True)
+            scope_note = f"Focused run — {picked}{of_total} module(s) ran; this is NOT a full-inventory result."
         else:
             reason = (manifest.get("full_reason") or {}).get("detail", "no selection was possible")
             print(f"Running the COMPLETE inventory: {reason}", flush=True)
@@ -744,6 +813,7 @@ def _run_parent(args: argparse.Namespace) -> int:
         except OSError as exc:
             print(f"selftest: failed to start the suite: {exc}", file=sys.stderr)
             _not_started_record(args, "spawn-failed", f"failed to start the suite: {exc}")
+            _cleanup_selection(selection_path, args.selection_path)
             os.close(progress_write_fd)  # the `finally` closes the read fd and the log
             # The suite never started, so the log is empty — the sole exception to the otherwise-always-
             # keep rule: there is nothing to read, and this run reports its failure loudly via the exit
@@ -856,13 +926,11 @@ def _run_parent(args: argparse.Namespace) -> int:
     # reads a vanished log as a failure. Cleanup is the daily sweep (_sweep_stale_logs) at the next run.
     elapsed = time.monotonic() - start
     output = "".join(captured)
-    _finish_run_record(args.run_record_path, rc, log_path, output)
-    if selection_path and selection_path != args.selection_path:
-        try:
-            os.remove(selection_path)      # the record embeds it verbatim; our temp copy is spent
-        except OSError:
-            pass
-    _print_result(rc, elapsed, log_path, output)
+    _finish_run_record(args.run_record_path, rc, log_path, output,
+                       scope="focused" if scope_note else "full",
+                       selection=_read_json(selection_path) if selection_path else None)
+    _cleanup_selection(selection_path, args.selection_path)
+    _print_result(rc, elapsed, log_path, output, scope_note)
     return rc  # VERBATIM — the child's exit status is the launcher's verdict.
 
 
