@@ -373,13 +373,24 @@ class PlanLibrary:
             record = self.read_record(slug)
         except PlanStoreError as exc:
             return [str(exc)]
+        # Collected first: a revision with an interrupted redaction gets ONE truthful line below,
+        # not that line plus a "loss rather than intent" that contradicts it.
+        interrupted = set(self.interrupted_redactions(slug))
         expected = 1
+        seen: set = set()
         for entry in record["ledger"]:
-            if entry["revision"] < expected:
+            duplicate = entry["revision"] in seen
+            seen.add(entry["revision"])
+            if duplicate:
                 problems.append(
                     f"revision {entry['revision']} appears more than once in the ledger; each revision "
                     "is minted once and its entry is never rewritten, so a duplicate means the record "
                     "was edited outside the store")
+            elif entry["revision"] < expected:
+                problems.append(
+                    f"revision {entry['revision']} appears after revision {expected - 1}; the ledger is "
+                    "append-only and oldest-first, so an out-of-order entry means the record was "
+                    "reordered outside the store")
             elif entry["revision"] != expected:
                 problems.append(
                     f"the revision chain jumps from {expected - 1} to {entry['revision']}; revisions must be "
@@ -387,7 +398,7 @@ class PlanLibrary:
             if entry["revision"] != expected:
                 expected = entry["revision"]
             expected += 1
-            if "redacted" in entry:
+            if "redacted" in entry or entry["revision"] in interrupted:
                 continue
             try:
                 self.read_revision(slug, entry["revision"])
@@ -396,6 +407,11 @@ class PlanLibrary:
         head_rev = record["current"]["revision"]
         if not any(e["revision"] == head_rev for e in record["ledger"]):
             problems.append(f"the record's head points at revision {head_rev}, which is not in the ledger")
+        for revision in self.interrupted_redactions(slug):
+            problems.append(
+                f"the redaction of revision {revision} began and did not finish, so its body may still "
+                f"be on disk even if the record says otherwise. Re-run `redact` on revision {revision} "
+                "to complete it. If what was redacted was a credential, rotate it regardless.")
         return problems
 
     def recover_head(self, slug: str) -> tuple[int, list[str]]:
@@ -564,25 +580,62 @@ class PlanLibrary:
                 raise PlanStoreError(f"plan {slug} has no revision {revision}")
             path = self.plan_dir(slug) / entry["snapshot"]
             if "redacted" in entry:
-                # Already marked. Re-running finishes the job rather than reporting success over a
-                # half-done redaction: if a crash landed between the mark and the unlink, the body is
-                # still on disk, and this is what heals it.
+                # Already marked. Finish the job rather than reporting success over a half-done
+                # redaction, and take the operator's corrected reason if they supplied a new one —
+                # a retry usually happens because something about the first attempt was wrong.
                 self._unlink_body(path)
+                if reason.strip() != entry["redacted"]["reason"]:
+                    entry["redacted"]["reason"] = reason.strip()
+                    core.validate(record, RECORD_SCHEMA)
+                    self._write_json(self._record_path(slug), record)
+                self._clear_intent(slug, entry)
                 return record
 
-            # ORDER MATTERS, and it is the opposite of the obvious one. Marking the record durably
-            # BEFORE deleting the body means a crash in between leaves a revision marked redacted
-            # whose file still exists — unreadable through the store, and healed by re-running. The
-            # obvious order (delete, then mark) leaves the opposite: a body genuinely gone with no
-            # marker, which `verify_chain` correctly reports as loss rather than intent. That is
-            # precisely the confusion this method exists to prevent, so it must not be able to cause
-            # it. The leftover-body window is the lesser harm and it is recoverable; a redaction that
-            # reads as corruption is neither.
+            # THREE STEPS, and the order of all three is load-bearing. Neither of the two obvious
+            # orderings is safe, because each leaves a crash window that LIES about what happened:
+            #
+            #   unlink then mark  -> a crash leaves a body genuinely gone with no marker, which
+            #                        verify_chain correctly reports as loss. A deliberate redaction
+            #                        reads as corruption.
+            #   mark then unlink  -> a crash leaves the record saying "cleanly redacted" while the
+            #                        body — the credential this was run to remove — is still on disk
+            #                        and readable. The store vouches for a confidentiality it does
+            #                        not have, which is the worse of the two by a distance.
+            #
+            # So a durable INTENT marker is written first, before anything is destroyed. Every crash
+            # window then has a truthful reading: intent present and body present means "interrupted,
+            # re-run"; intent present and body gone means "interrupted after deletion, re-run"; no
+            # intent and a marked entry means done. The record is marked only AFTER the body is
+            # actually gone, so the store can never report a redaction it has not completed.
+            self._write_intent(slug, entry, reason.strip())
+            self._unlink_body(path)
             entry["redacted"] = {"at": _now(), "reason": reason.strip()}
             core.validate(record, RECORD_SCHEMA)
             self._write_json(self._record_path(slug), record)
-            self._unlink_body(path)
+            self._clear_intent(slug, entry)
             return record
+
+    def _intent_path(self, slug: str, entry: dict) -> Path:
+        return self.plan_dir(slug) / REVISIONS_DIRNAME / f".redacting-{entry['revision']:06d}"
+
+    def _write_intent(self, slug: str, entry: dict, reason: str) -> None:
+        core.atomic_write(self._intent_path(slug, entry), reason + "\n",
+                          durable=True, mode=FILE_MODE)
+
+    def _clear_intent(self, slug: str, entry: dict) -> None:
+        path = self._intent_path(slug, entry)
+        if path.exists():
+            path.unlink()
+            core.fsync_dir(path.parent)
+
+    def interrupted_redactions(self, slug: str) -> list:
+        """Revisions whose redaction began and did not finish. A crash cannot hide one: the intent
+        marker outlives it, so `verify_chain` can say 'interrupted, re-run redact' instead of either
+        reporting corruption or quietly vouching that a secret is gone."""
+        directory = self.plan_dir(slug) / REVISIONS_DIRNAME
+        if not directory.is_dir():
+            return []
+        return sorted(int(p.name.rsplit("-", 1)[1]) for p in directory.glob(".redacting-*"))
 
     @staticmethod
     def _unlink_body(path: Path) -> None:
@@ -617,6 +670,16 @@ def approval_is_stale(record: dict) -> bool:
     if record.get("plan_review"):
         return False
     return record["current"]["plan_digest"] != approval["plan_digest"]
+
+
+def exclusive_lock_for(library: "PlanLibrary", slug: str):
+    """The plan's own lock, for a writer that lives outside PlanLibrary (today: `import`).
+
+    Exposed rather than letting a caller assemble the lock path itself, so the lock a writer takes is
+    provably the same one every other writer takes. A second, subtly-different lock path would look
+    exactly like locking and serialise nothing.
+    """
+    return core.exclusive_lock(library._lock_path(slug))
 
 
 def derived_status(record: dict, *, head_blockers: list | None = None) -> str:

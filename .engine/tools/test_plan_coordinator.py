@@ -954,7 +954,6 @@ class SingleMintedGatesUnderConcurrency(_Governed):
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
                                           "--packet-digest", digest)[0], 0)
-        first = self.lib.read_record(slug)["plan_review"]
 
         def racing_write(current):
             current["plan_review"] = {"revision": 1, "plan_digest": digest, "packet_digest": digest,
@@ -1017,37 +1016,6 @@ class DurabilityIsReported(_Governed):
         with mock.patch.object(plan_coordinator.core, "fsync_dir", return_value=False):
             slug, document = self._plan()
         self.assertEqual(self.lib.head(slug), document)
-
-
-class RedactionOrdering(_Governed):
-    def test_a_crash_between_marking_and_unlinking_heals_on_retry(self):
-        slug, _ = self._plan()
-        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
-        snapshot = self.root / slug / self.lib.read_record(slug)["ledger"][0]["snapshot"]
-
-        # Crash exactly after the record is marked and before the body is removed.
-        with mock.patch.object(plan_store.PlanLibrary, "_unlink_body", side_effect=OSError("crash")):
-            with self.assertRaises(OSError):
-                self.lib.redact_revision(slug, 1, reason="a credential")
-
-        # The marker is durable, so the chain reads as intent — never as loss.
-        self.assertIn("redacted", self.lib.read_record(slug)["ledger"][0])
-        self.assertEqual(self.lib.verify_chain(slug), [])
-        self.assertTrue(snapshot.exists(), "fixture sanity: the body should still be there")
-
-        # Re-running finishes the job rather than reporting success over a half-done redaction.
-        self.lib.redact_revision(slug, 1, reason="a credential")
-        self.assertFalse(snapshot.exists())
-        self.assertEqual(self.lib.verify_chain(slug), [])
-
-    def test_the_redact_verb_says_it_is_a_logical_deletion(self):
-        slug, _ = self._plan()
-        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
-        code, out, _ = self.run_command("redact", slug, "--revision", "1",
-                                        "--reason", "raw intent held a credential")
-        self.assertEqual(code, 0)
-        self.assertIn("logical deletion", out)
-        self.assertIn("rotate it", out)
 
 
 class RecoverVerb(_Governed):
@@ -1209,7 +1177,7 @@ class ErrorLegibility(_Governed):
     def test_show_does_not_over_reassure_on_an_unapproved_plan(self):
         slug, _ = self._plan()
         out = self.run_command("show", slug)[1]
-        self.assertIn("the gates still do", out)
+        self.assertIn("but the gates do", out)
 
     def test_resume_does_not_promise_a_handoff_this_pr_does_not_ship(self):
         slug, _ = self._to_reviewed()
@@ -1217,6 +1185,243 @@ class ErrorLegibility(_Governed):
         out = self.run_command("resume", slug)[1]
         self.assertIn("not wired up yet", out)
         self.assertIn("clone", out)
+
+class ImportCannotOverwriteANeighbour(_Governed):
+    """Constraining the slug's SHAPE stops a bundle escaping the library. It does nothing to stop one
+    landing on top of a neighbour — a slug is not secret; it is printed by `list` and it is the
+    folder name."""
+
+    def test_a_bundle_claiming_another_plans_slug_is_refused(self):
+        victim_slug, victim = self._plan(plan_id="pln_aaaaaaaaaaaa", title="Victim plan")
+        attacker_root = Path(self._tmp.name) / "attacker"
+        attacker = plan_store.PlanLibrary(attacker_root)
+        attacker.create(_document(plan_id="pln_bbbbbbbbbbbb", title="Attacker plan"))
+        bundle = str(Path(self._tmp.name) / "b.json")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            plan_coordinator.main(["--library", str(attacker_root), "export",
+                                   attacker.slugs()[0], "--output", bundle])
+        payload = json.loads(Path(bundle).read_text(encoding="utf-8"))
+        payload["record"]["slug"] = victim_slug          # the only edit
+        payload["bundle_digest"] = plan_coordinator.core.digest(
+            {"record": payload["record"], "revisions": payload["revisions"]})
+        Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
+
+        code, _, err = self.run_command("import", "--bundle", bundle)
+        self.assertEqual(code, 2)
+        self.assertIn("a different plan already occupies", err)
+        self.assertEqual(self.lib.read_record(victim_slug)["plan_id"], victim["plan_id"],
+                         "an imported bundle destroyed a different local plan")
+        self.assertEqual(self.lib.head(victim_slug), victim)
+
+    def test_re_importing_the_same_plan_at_its_own_slug_is_still_fine(self):
+        # The guard is about a DIFFERENT plan; a plan's own backup must still import.
+        slug, _ = self._plan()
+        bundle = str(Path(self._tmp.name) / "own.json")
+        self.run_command("export", slug, "--output", bundle)
+        code, out, _ = self.run_command("import", "--bundle", bundle)
+        self.assertEqual(code, 0)
+        self.assertIn("already here and identical", out)
+
+    def test_import_takes_the_plans_own_lock(self):
+        import ast
+        source = Path(plan_coordinator.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        importer = next(node for node in ast.walk(tree)
+                        if isinstance(node, ast.FunctionDef) and node.name == "cmd_import")
+        locked = [node for node in ast.walk(importer)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                  and node.func.attr == "exclusive_lock_for"]
+        self.assertTrue(locked, "cmd_import writes without taking the plan's lock")
+
+
+class RedactionCannotLie(_Governed):
+    """Neither crash window may misreport: a redaction must never read as corruption, and the store
+    must never vouch that a body is gone while it is still on disk."""
+
+    def _two_revisions(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        return slug
+
+    def test_a_crash_before_the_unlink_reads_as_interrupted_not_as_done(self):
+        slug = self._two_revisions()
+        snapshot = self.root / slug / self.lib.read_record(slug)["ledger"][0]["snapshot"]
+        with mock.patch.object(plan_store.PlanLibrary, "_unlink_body", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self.lib.redact_revision(slug, 1, reason="a credential")
+
+        # The body is still there — and crucially the record does NOT claim it is gone.
+        self.assertTrue(snapshot.exists())
+        self.assertNotIn("redacted", self.lib.read_record(slug)["ledger"][0],
+                         "the record claimed a redaction that had not happened")
+        problems = self.lib.verify_chain(slug)
+        self.assertTrue(any("began and did not finish" in p for p in problems), problems)
+        self.assertTrue(any("rotate it regardless" in p for p in problems), problems)
+
+    def test_a_crash_after_the_unlink_reads_as_interrupted_not_as_loss(self):
+        slug = self._two_revisions()
+        snapshot = self.root / slug / self.lib.read_record(slug)["ledger"][0]["snapshot"]
+        real_write = plan_store.PlanLibrary._write_json
+
+        def fail_on_the_record(self_, path, value):
+            if path.name == plan_store.RECORD_FILENAME:
+                raise OSError("crash")
+            return real_write(self_, path, value)
+
+        with mock.patch.object(plan_store.PlanLibrary, "_write_json", fail_on_the_record):
+            with self.assertRaises(OSError):
+                self.lib.redact_revision(slug, 1, reason="a credential")
+
+        self.assertFalse(snapshot.exists())
+        problems = self.lib.verify_chain(slug)
+        # Named as an interrupted redaction, never as the "loss rather than intent" corruption line.
+        self.assertTrue(any("began and did not finish" in p for p in problems), problems)
+        self.assertFalse(any("loss rather than intent" in p for p in problems), problems)
+
+    def test_retrying_completes_the_redaction_and_clears_the_marker(self):
+        slug = self._two_revisions()
+        with mock.patch.object(plan_store.PlanLibrary, "_unlink_body", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self.lib.redact_revision(slug, 1, reason="a credential")
+        self.lib.redact_revision(slug, 1, reason="a credential")
+        self.assertEqual(self.lib.interrupted_redactions(slug), [])
+        self.assertEqual(self.lib.verify_chain(slug), [])
+        self.assertIn("redacted", self.lib.read_record(slug)["ledger"][0])
+
+    def test_a_completed_redaction_leaves_no_marker_behind(self):
+        slug = self._two_revisions()
+        self.lib.redact_revision(slug, 1, reason="a credential")
+        self.assertEqual(self.lib.interrupted_redactions(slug), [])
+        self.assertEqual(self.lib.verify_chain(slug), [])
+
+    def test_a_retry_takes_a_corrected_reason(self):
+        slug = self._two_revisions()
+        self.lib.redact_revision(slug, 1, reason="wrong reason typed in haste")
+        self.lib.redact_revision(slug, 1, reason="the actual reason")
+        self.assertEqual(self.lib.read_record(slug)["ledger"][0]["redacted"]["reason"],
+                         "the actual reason")
+
+
+class ProjectionsNeverGoStale(_Governed):
+    def test_closing_a_plan_updates_its_own_plan_md(self):
+        # The transition an earlier skip-heuristic broke: `close` projects immediately afterwards, so
+        # a skip keyed on "is closed" fired on the very first render and PLAN.md kept its old status
+        # forever, disagreeing with the index beside it.
+        slug, _ = self._plan()
+        self.run_command("retire", slug, "--reason", "superseded")
+        text = (self.root / slug / plan_projection.PLAN_MD).read_text(encoding="utf-8")
+        self.assertIn("**Status**: retired", text)
+        index = json.loads((self.root / plan_projection.INDEX_JSON).read_text(encoding="utf-8"))
+        self.assertEqual(index["plans"][0]["status"], "retired")
+
+    def test_reopening_then_reclosing_updates_it_again(self):
+        slug, _ = self._plan()
+        self.run_command("retire", slug, "--reason", "superseded")
+        self.run_command("reopen", slug)
+        self.run_command("abandon", slug, "--reason", "dropped for good")
+        text = (self.root / slug / plan_projection.PLAN_MD).read_text(encoding="utf-8")
+        self.assertIn("**Status**: abandoned", text)
+
+    def test_plan_md_and_the_index_never_disagree_about_status(self):
+        slug, _ = self._plan()
+        for verb, reason in (("retire", "a"), ("reopen", None), ("complete", "merged")):
+            self.run_command(*( [verb, slug] + (["--reason", reason] if reason else []) ))
+            text = (self.root / slug / plan_projection.PLAN_MD).read_text(encoding="utf-8")
+            index = json.loads((self.root / plan_projection.INDEX_JSON).read_text(encoding="utf-8"))
+            self.assertIn(f"**Status**: {index['plans'][0]['status']}", text)
+
+
+class RecoverOnTotalLoss(_Governed):
+    def test_total_loss_gives_guidance_rather_than_a_bare_exception(self):
+        # The case `recover` most exists for, and the one where its advice used to be unreachable.
+        slug, _ = self._plan()
+        (self.root / slug / self.lib.read_record(slug)["current"]["snapshot"]).unlink()
+        code, out, err = self.run_command("recover", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("No revision of this plan is intact", out)
+        self.assertIn("restore", out)
+        self.assertIn("import", out)
+        self.assertIn("re-authoring", out)
+        self.assertNotIn("Traceback", err)
+
+    def test_total_loss_still_changes_nothing(self):
+        slug, _ = self._plan()
+        (self.root / slug / self.lib.read_record(slug)["current"]["snapshot"]).unlink()
+        before = (self.root / slug / "record.json").read_bytes()
+        self.run_command("recover", slug)
+        self.assertEqual((self.root / slug / "record.json").read_bytes(), before)
+
+
+class ReadyToSealReadsCleanly(_Governed):
+    def test_a_fully_clear_plan_says_ready_rather_than_contradicting_itself(self):
+        slug, _ = self._to_reviewed()
+        out = self.run_command("show", slug)[1]
+        self.assertIn("ready to seal", out)
+        self.assertNotIn("but the gates do", out)
+
+    def test_a_plan_with_gates_ahead_of_it_still_says_so(self):
+        slug, _ = self._plan()
+        out = self.run_command("show", slug)[1]
+        self.assertIn("but the gates do", out)
+        self.assertIn("preview the full revision", out)
+
+
+class SchemaErrorsNameTheRealProblem(_Governed):
+    """Depth alone was not enough: a missing required field and an unexpected key are reported AT the
+    object's own path, tying with the null branch's 'not of type null'."""
+
+    def _refusal(self, approval) -> str:
+        slug, _ = self._plan()
+        with self.assertRaises(plan_store.PlanStoreError) as caught:
+            self.lib.update_record(slug, lambda r: r.update({"approval": approval}))
+        return str(caught.exception)
+
+    def test_a_missing_required_field_is_named(self):
+        message = self._refusal({"revision": 1, "plan_digest": "sha256:" + "a" * 64,
+                                 "at": "2026-08-23T00:00:00Z"})
+        self.assertIn("'depth' is a required property", message)
+        self.assertNotIn("is not of type 'null'", message)
+
+    def test_an_unexpected_key_is_named(self):
+        message = self._refusal({"revision": 1, "plan_digest": "sha256:" + "a" * 64,
+                                 "depth": "standard", "at": "2026-08-23T00:00:00Z", "bogus": "x"})
+        self.assertIn("'bogus' was unexpected", message)
+        self.assertNotIn("is not of type 'null'", message)
+
+    def test_a_deeper_failure_still_names_its_field(self):
+        message = self._refusal({"revision": 1, "plan_digest": "not-a-digest",
+                                 "depth": "standard", "at": "2026-08-23T00:00:00Z"})
+        self.assertIn("approval.plan_digest", message)
+
+
+class LedgerDiagnostics(_Governed):
+    def test_a_reordered_ledger_is_named_as_reordered_not_duplicated(self):
+        slug, _ = self._plan()
+        for revision in (2, 3):
+            self.lib.append_revision(slug, _document(revision=revision), expected_revision=revision - 1)
+
+        def reorder(record):
+            record["ledger"] = [record["ledger"][1], record["ledger"][0], record["ledger"][2]]
+        self.lib.update_record(slug, reorder)
+        problems = self.lib.verify_chain(slug)
+        self.assertTrue(any("appears after revision" in p for p in problems), problems)
+        self.assertFalse(any("more than once" in p for p in problems), problems)
+
+    def test_a_genuinely_duplicated_entry_is_named_as_duplicated(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+
+        def duplicate(record):
+            record["ledger"] = [record["ledger"][0], record["ledger"][0], record["ledger"][1]]
+        self.lib.update_record(slug, duplicate)
+        self.assertTrue(any("more than once" in p for p in self.lib.verify_chain(slug)))
+
+    def test_reopen_reports_the_state_it_actually_found(self):
+        slug, _ = self._plan()
+        self.run_command("abandon", slug, "--reason", "dropped")
+        out = self.run_command("reopen", slug)[1]
+        self.assertIn("was abandoned", out)
 
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):

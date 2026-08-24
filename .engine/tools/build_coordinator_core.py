@@ -191,20 +191,37 @@ def _most_specific(error) -> Any:
 
     Choosing the right branch is the whole difficulty, and it takes two rules in this order.
 
-    DEPTH decides: the branch whose error reached furthest into the document is the one the author
-    plainly meant, so a `oneOf(null, {...})` reports the field inside the object rather than "this is
-    not of type null".
+    DEPTH decides first: the branch whose error reached furthest into the document is the one the
+    author plainly meant, so a `oneOf(null, {...})` reports the field inside the object rather than
+    "this is not of type null".
 
-    A const/enum failure breaks TIES only. When two branches fail at the same depth, one of them is
-    usually a discriminator saying "you did not mean this branch" while the other is the real
-    complaint — so the non-discriminator wins. Applying that rule before depth would be wrong: a
-    genuinely misspelled enum value deep inside the right branch is exactly the error worth showing.
+    At EQUAL depth two tie-breaks apply, in order. A branch that failed only because the value is the
+    wrong KIND entirely — `type` against a `null` or scalar branch — is a discriminator saying "you
+    did not mean this branch", never a complaint about the branch that was meant; it loses to any
+    substantive error. This matters more than it sounds: a missing required field or an unexpected
+    extra key on an optional object is reported AT that object's own path, tying with the null
+    branch's "not of type null", and without this rule the useless message wins on a coin toss.
+    Then a const/enum failure loses to anything else, for the same discriminator reason.
+
+    Applying either tie-break before depth would be wrong: a genuinely misspelled enum value deep
+    inside the right branch is exactly the error worth showing.
     """
     while getattr(error, "context", None):
-        error = max(error.context,
-                    key=lambda sub: (len(list(sub.absolute_path)),
-                                     sub.validator not in ("const", "enum")))
+        error = max(error.context, key=_specificity)
     return error
+
+
+# Wrong-kind-entirely, in descending order of "this is just the wrong branch": a `type` mismatch
+# against a null/scalar alternative says nothing about the object the author actually wrote.
+_DISCRIMINATOR_VALIDATORS = ("type", "const", "enum")
+
+
+def _specificity(error) -> tuple:
+    """Rank one candidate branch error: deeper is better, and a discriminator failure is worse."""
+    validator = getattr(error, "validator", None)
+    return (len(list(error.absolute_path)),
+            validator not in _DISCRIMINATOR_VALIDATORS,
+            validator not in ("const", "enum"))
 
 
 def canonical(value: Any) -> bytes:

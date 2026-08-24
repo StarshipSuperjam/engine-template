@@ -16,7 +16,6 @@ nothing at all — a refusal that has already written half its change is not a r
 """
 from __future__ import annotations
 
-import copy
 import json
 import os
 from pathlib import Path
@@ -444,11 +443,15 @@ class Redaction(_Library):
         with self.assertRaisesRegex(plan_store.PlanStoreError, "stated reason"):
             self.lib.redact_revision(slug, 1, reason="   ")
 
-    def test_redacting_twice_is_a_no_op_rather_than_an_error(self):
+    def test_redacting_twice_is_safe_and_takes_a_corrected_reason(self):
+        # Not a pure no-op: a retry finishes a half-done redaction, and a retry usually happens
+        # because something about the first attempt was wrong — including the reason.
         slug = self._two_revisions()
         first = self.lib.redact_revision(slug, 1, reason="once")
+        self.assertEqual(first["ledger"][0]["redacted"]["reason"], "once")
         second = self.lib.redact_revision(slug, 1, reason="again")
-        self.assertEqual(first["ledger"][0]["redacted"], second["ledger"][0]["redacted"])
+        self.assertEqual(second["ledger"][0]["redacted"]["reason"], "again")
+        self.assertEqual(first["ledger"][0]["redacted"]["at"], second["ledger"][0]["redacted"]["at"])
 
     def test_the_head_still_reads_after_an_ancestor_is_redacted(self):
         slug = self._two_revisions()

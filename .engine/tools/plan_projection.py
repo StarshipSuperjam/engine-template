@@ -358,15 +358,20 @@ def project_library(library: plan_store.PlanLibrary, *, force: bool = False) -> 
             document = library.head(slug)
             entry["status"] = plan_store.derived_status(
                 record, head_blockers=plan_contract.seal_blockers(document))
-            # A CLOSED plan's inputs are frozen — its revisions are immutable and its record cannot
-            # change again without being reopened — so its PLAN.md is re-rendered only if it is
-            # missing. Without this, every mutating command pays to re-render the entire accumulated
-            # history of the workstation, and nothing here ever deletes a plan. `reindex` still
-            # rebuilds everything unconditionally, so the rebuildable-from-revisions property is
-            # untouched: this skips work that would produce identical bytes, never work that matters.
+            # Render ALWAYS; skip only the WRITE, and only when the bytes are provably identical.
+            #
+            # An earlier version skipped rendering a plan whose `closure` was set, reasoning that a
+            # closed plan's inputs are frozen. That was wrong on the one transition it most had to
+            # handle: `close` sets the closure and then projects, so the skip fired on the very first
+            # render after closing and PLAN.md kept its pre-closure status forever, disagreeing with
+            # the index that sat beside it. The lesson is the one the disposition of the original
+            # performance finding already stated and then failed to honour — any staleness heuristic
+            # over these files risks the single property they exist to have. Comparing bytes cannot
+            # go stale: it saves the I/O and the mtime churn, and concedes the CPU.
             target = library.plan_dir(slug) / PLAN_MD
-            if force or not (record.get("closure") and target.exists()):
-                _write(library, target, render_plan(document, record))
+            rendered = render_plan(document, record)
+            if force or not target.exists() or target.read_text(encoding="utf-8") != rendered:
+                _write(library, target, rendered)
         except plan_store.PlanStoreError as exc:
             entry["status"] = plan_store.derived_status(record)
             entry["readable"] = False

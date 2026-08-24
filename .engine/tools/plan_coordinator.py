@@ -135,8 +135,13 @@ def cmd_show(args) -> int:
         for blocker in blockers:
             print(f"  - {blocker}")
     elif document and not record.get("seal"):
-        print(f"\nnothing in the plan document itself blocks a seal — but the gates still do: "
-              f"{_next_step(status, record, blockers)}")
+        # Two different sentences, because there are two different situations and the earlier single
+        # template collapsed them into "but the gates still do: nothing outstanding blocks it".
+        step = _next_step(status, record, blockers)
+        if status == "review-recorded" and not blockers:
+            print(f"\nready to seal: {step}")
+        else:
+            print(f"\nnothing in the plan document itself blocks a seal, but the gates do — {step}")
     return 0
 
 
@@ -171,7 +176,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         return "nothing here — the Build this plan authorized is running."
     if status == "sealed":
         return ("this plan is sealed and read-only. Handing a sealed plan to a Build is not wired up "
-                "yet — the Build Coordinator still takes the plan a session hands it — so for now the "
+                "yet — the Build Coordinator still takes whatever plan a session hands it — so for now the "
                 "seal is the record that this plan was reviewed and settled. To keep working on the "
                 "idea, `clone` it into a new plan.")
     if status == "review-recorded":
@@ -655,9 +660,10 @@ def cmd_reopen(args) -> int:
         raise PlanCoordinatorError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
             "a digest a Build already trusted. Clone it into a new plan instead.")
-    previous = record["closure"]["state"]
+    previous = {}
 
     def reopen(current):
+        previous["state"] = current["closure"]["state"]   # read under the lock, not before it
         if not current.get("closure"):   # re-asserted inside the lock
             raise PlanCoordinatorError("another session reopened this plan already")
         if current.get("seal"):
@@ -666,7 +672,7 @@ def cmd_reopen(args) -> int:
 
     library.update_record(slug, reopen)
     plan_projection.project_library(library)
-    print(f"reopened {record['plan_id']} (was {previous})")
+    print(f"reopened {record['plan_id']} (was {previous['state']})")
     return 0
 
 
@@ -825,6 +831,17 @@ def cmd_import(args) -> int:
             "ambiguous. Clone the incoming plan under a new id, or remove the local one first.")
 
     slug = record["slug"]
+    # A DIFFERENT plan already living at this folder is refused. Constraining `slug` to a safe SHAPE
+    # stopped a bundle escaping the library; it does nothing to stop one landing on top of a
+    # neighbour, because a slug is not secret — it is printed by `list`, it is the folder name, and
+    # anyone who has seen it once can put it in a bundle. `create()` has always had this guard; the
+    # first version of this function reimplemented directory creation instead of reusing it and lost
+    # the check along the way, which is the whole reason the write path now goes through the store.
+    if slug in library.slugs() and library.read_record(slug)["plan_id"] != record["plan_id"]:
+        raise PlanCoordinatorError(
+            f"a different plan already occupies {library.plan_dir(slug)}: "
+            f"{library.read_record(slug)['plan_id']}, not {record['plan_id']}. Importing would "
+            "destroy it. Move or remove the local plan first if you meant to replace it.")
     plan_dir = library.plan_dir(slug)
     # Belt and braces over the schema check above: containment is asserted again at the point of
     # every join, so a record written before the pattern existed — or a future edit that relaxes it —
@@ -838,14 +855,22 @@ def cmd_import(args) -> int:
 
     plan_store.ensure_dir(plan_dir, within=library.root)
     plan_store.ensure_dir(plan_dir / plan_store.REVISIONS_DIRNAME, within=library.root)
-    for path, entry in targets:
-        core.atomic_write(path,
-                          json.dumps(revisions[str(entry["revision"])], indent=2, sort_keys=True,
-                                     ensure_ascii=False) + "\n",
+    # Under the plan's own lock, like every other writer. Without it an import racing a `revise` on
+    # the same plan has no interlock at all — the compare-and-swap those verbs rely on assumes this
+    # lock is the thing serialising them, and an unlocked writer silently opts out of it.
+    with plan_store.exclusive_lock_for(library, slug):
+        if slug in library.slugs() and library.read_record(slug)["plan_id"] != record["plan_id"]:
+            raise PlanCoordinatorError(          # re-asserted inside the lock, not from the read above
+                f"another session created a different plan at {plan_dir} while this import was being "
+                "verified; nothing was written.")
+        for path, entry in targets:
+            core.atomic_write(path,
+                              json.dumps(revisions[str(entry["revision"])], indent=2, sort_keys=True,
+                                         ensure_ascii=False) + "\n",
+                              durable=True, mode=plan_store.FILE_MODE)
+        core.atomic_write(record_path,
+                          json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                           durable=True, mode=plan_store.FILE_MODE)
-    core.atomic_write(record_path,
-                      json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-                      durable=True, mode=plan_store.FILE_MODE)
     problems = library.verify_chain(slug)
     if problems:
         raise PlanCoordinatorError("the imported plan does not verify after writing: "
@@ -891,7 +916,21 @@ def cmd_recover(args) -> int:
     print(f"{len(problems)} problem(s) in {slug}:")
     for problem in problems:
         print(f"  - {problem}")
-    revision, skipped = library.recover_head(slug)
+    try:
+        revision, skipped = library.recover_head(slug)
+    except PlanCoordinatorError:
+        # Total loss. This is the case `recover` most exists for, and the guidance below used to be
+        # unreachable here — the refusal propagated to the generic handler and the operator got a
+        # bare exception instead of the advice the command promises.
+        print("\nNo revision of this plan is intact — every one is missing, redacted, or altered.")
+        print("Nothing was changed, and nothing here can be recovered from the library itself.")
+        print("\nWhat is left, in the order worth trying:")
+        print(f"  - restore {library.plan_dir(slug)} from a backup or filesystem snapshot, then "
+              f"re-run `validate {args.plan}`;")
+        print("  - if you exported a bundle of this plan, `import` it into a clean library;")
+        print("  - otherwise the plan is gone and re-authoring it is the only way forward. The "
+              "record's own ledger still shows how many revisions there were and when.")
+        return 1
     record = library.read_record(slug)
     print(f"\nThe newest intact revision is {revision}; the record's head is "
           f"{record['current']['revision']}.")
