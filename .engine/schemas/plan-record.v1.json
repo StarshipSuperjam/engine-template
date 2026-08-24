@@ -23,7 +23,7 @@
         "revision": {"type": "integer", "minimum": 1},
         "plan_digest": {"$ref": "#/$defs/digest"},
         "build_plan_digest": {"$ref": "#/$defs/digest"},
-        "snapshot": {"type": "string", "minLength": 1}
+        "snapshot": {"type": "string", "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$", "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."}
       },
       "description": "The head. `revision` doubles as the compare-and-swap token every mutating verb must present."
     },
@@ -62,7 +62,7 @@
       "properties": {
         "revision": {"type": "integer", "minimum": 1},
         "plan_digest": {"$ref": "#/$defs/digest"},
-        "snapshot": {"type": "string", "minLength": 1},
+        "snapshot": {"type": "string", "pattern": "^revisions/[0-9]{6}--[0-9a-f]{6}\\.json$", "description": "The revision file, relative to the plan folder. Pattern-constrained because this string is JOINED ONTO A FILESYSTEM PATH: an absolute value or one carrying `..` would let an imported record choose where the store writes. The shape matches what the store itself mints and nothing else."},
         "revised_at": {"$ref": "#/$defs/timestamp"},
         "note": {"type": "string", "minLength": 1},
         "redacted": {

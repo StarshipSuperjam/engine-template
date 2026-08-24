@@ -34,6 +34,7 @@ import sys
 import build_coordinator_core as core
 import moment
 import plan_contract
+import plan_program
 import plan_projection
 import plan_store
 
@@ -134,7 +135,8 @@ def cmd_show(args) -> int:
         for blocker in blockers:
             print(f"  - {blocker}")
     elif document and not record.get("seal"):
-        print("\nnothing in the plan itself blocks a seal.")
+        print(f"\nnothing in the plan document itself blocks a seal — but the gates still do: "
+              f"{_next_step(status, record, blockers)}")
     return 0
 
 
@@ -168,7 +170,10 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
     if status == "active":
         return "nothing here — the Build this plan authorized is running."
     if status == "sealed":
-        return "hand this plan to a Build; the seal is terminal and the plan is now read-only."
+        return ("this plan is sealed and read-only. Handing a sealed plan to a Build is not wired up "
+                "yet — the Build Coordinator still takes the plan a session hands it — so for now the "
+                "seal is the record that this plan was reviewed and settled. To keep working on the "
+                "idea, `clone` it into a new plan.")
     if status == "review-recorded":
         outstanding = [f for f in (record["plan_review"] or {}).get("findings", [])
                        if not f.get("disposition")]
@@ -241,12 +246,12 @@ def cmd_depths(args) -> int:
 def cmd_validate(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
+    # verify_chain already walks the head as one of its ledger entries, so reading it again here
+    # would report a damaged head twice and read as two faults where there is one.
     problems = library.verify_chain(slug)
     document = None
-    try:
+    if not problems:
         document = library.head(slug)
-    except PlanCoordinatorError as exc:
-        problems.append(str(exc))
     if problems:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
@@ -297,8 +302,11 @@ def cmd_diff(args) -> int:
 
 
 def cmd_reindex(args) -> int:
+    # force=True: reindex is the verb that exists to rebuild everything from the revisions, including
+    # the closed plans the incremental path skips. If it inherited that skip it would stop being the
+    # answer to "regenerate the library" and become a slightly cheaper no-op.
     library = _library(args)
-    entries = plan_projection.project_library(library)
+    entries = plan_projection.project_library(library, force=True)
     unreadable = [entry for entry in entries if not entry["readable"]]
     print(f"projected {len(entries)} plan(s) into {library.root}")
     for entry in unreadable:
@@ -332,16 +340,24 @@ def cmd_doctor(args) -> int:
             where = "library directory" if directory == library.root else "directory"
             findings.append(
                 f"the {where} {directory} is mode {mode:04o} and should be 0700. It holds operator "
-                "intent; other accounts on this machine can read it, or at least list what is in it.")
+                "intent; other accounts on this machine can read it, or at least list what is in it. "
+                f"Fix: chmod 700 {directory}")
     for slug in library.slugs():
         for problem in library.verify_chain(slug):
             findings.append(f"{slug}: {problem}")
     for path in library.root.rglob("*.json"):
         mode = path.stat().st_mode & 0o777
         if mode & 0o077:
-            findings.append(f"the file {path} is mode {mode:04o} and should be 0600.")
+            findings.append(f"the file {path} is mode {mode:04o} and should be 0600. "
+                            f"Fix: chmod 600 {path}")
     print(f"plan library: {library.root}")
     print(f"plans: {len(library.slugs())}")
+    if not plan_store.volume_determined(library.root):
+        # Said plainly rather than folded into "no problems found": a check that could not run and a
+        # check that passed are different facts, and only one of them is reassuring.
+        print("\nnote: this platform would not tell me what filesystem the library sits on, so the "
+              "network-volume check did not run. If it is on a network share, the store's file lock "
+              "is not reliable across hosts.")
     if not findings:
         print("\nno problems found.")
         return 0
@@ -368,9 +384,14 @@ def cmd_approve(args) -> int:
         raise PlanCoordinatorError(f"unknown review depth {args.depth!r}; choose one of "
                                    + ", ".join(DEPTHS))
     revision = record["current"]["revision"]
-    library.update_record(slug, lambda r: r.update({"approval": {
-        "revision": revision, "plan_digest": digest, "depth": args.depth, "at": _now()}}),
-        expected_revision=revision)
+
+    def approve(current):
+        if current.get("seal"):          # re-asserted inside the lock, not from the copy above
+            raise PlanCoordinatorError("this plan was sealed while you were reading it; a seal is terminal")
+        current["approval"] = {"revision": revision, "plan_digest": digest,
+                               "depth": args.depth, "at": _now()}
+
+    library.update_record(slug, approve, expected_revision=revision)
     print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
     print(f"  bound to {digest}")
     print("\nnext: run the one cold plan review against this revision.")
@@ -447,7 +468,17 @@ def cmd_review_record(args) -> int:
         "lenses": list(args.lens),
         "findings": findings,
     }
-    library.update_record(slug, lambda r: r.update({"plan_review": review}))
+    def record_review(current):
+        # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
+        # `current.revision` cannot catch a concurrent second review — only re-checking here can, and
+        # "exactly one review per plan" is worth exactly as much as this line.
+        if current.get("plan_review"):
+            raise PlanCoordinatorError(
+                "another session recorded a plan review while this one was being prepared, and there "
+                "is exactly one per plan. Re-read the plan before deciding what to do next.")
+        current["plan_review"] = review
+
+    library.update_record(slug, record_review)
     blocking = [f for f in findings if f["severity"] == "blocking"]
     print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
           f"{len(findings)} finding(s), {len(blocking)} blocking")
@@ -535,7 +566,8 @@ def cmd_seal(args) -> int:
     slug = _select(library, args.plan)
     refusals = seal_refusals(library, slug)
     if refusals:
-        print(f"not sealing {slug}; it remains an editable draft:", file=sys.stderr)
+        print(f"not sealing {library.read_record(slug)['plan_id']}; it remains an editable draft:",
+              file=sys.stderr)
         for refusal in refusals:
             print(f"  - {refusal}", file=sys.stderr)
         return 1
@@ -567,8 +599,12 @@ def cmd_seal(args) -> int:
     }
     if args.delta_rationale:
         seal["delta_rationale"] = args.delta_rationale
-    library.update_record(slug, lambda r: r.update({"seal": seal}),
-                          expected_revision=record["current"]["revision"])
+    def mint_seal(current):
+        if current.get("seal"):          # re-asserted inside the lock; a seal is minted once
+            raise PlanCoordinatorError("another session sealed this plan while this one was reading it")
+        current["seal"] = seal
+
+    library.update_record(slug, mint_seal, expected_revision=record["current"]["revision"])
     plan_projection.project_library(library)
     print(f"sealed {record['plan_id']} at revision {seal['revision']}")
     print(f"  reviewed  {reviewed_digest}")
@@ -588,8 +624,14 @@ def cmd_close(args) -> int:
     if record.get("closure"):
         raise PlanCoordinatorError(
             f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
-    library.update_record(slug, lambda r: r.update({"closure": {
-        "state": args.state, "at": _now(), "reason": args.reason}}))
+    def close(current):
+        if current.get("closure"):       # re-asserted inside the lock
+            raise PlanCoordinatorError(
+                f"another session closed this plan as {current['closure']['state']} while this one was "
+                "reading it; reopen it before closing it differently")
+        current["closure"] = {"state": args.state, "at": _now(), "reason": args.reason}
+
+    library.update_record(slug, close)
     plan_projection.project_library(library)
     print(f"{record['plan_id']} is now {args.state}: {args.reason}")
     print("Nothing was deleted — the plan and every revision stay on the shelf.")
@@ -614,7 +656,15 @@ def cmd_reopen(args) -> int:
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
             "a digest a Build already trusted. Clone it into a new plan instead.")
     previous = record["closure"]["state"]
-    library.update_record(slug, lambda r: r.update({"closure": None}))
+
+    def reopen(current):
+        if not current.get("closure"):   # re-asserted inside the lock
+            raise PlanCoordinatorError("another session reopened this plan already")
+        if current.get("seal"):
+            raise PlanCoordinatorError("this plan is sealed, and a seal is terminal")
+        current["closure"] = None
+
+    library.update_record(slug, reopen)
     plan_projection.project_library(library)
     print(f"reopened {record['plan_id']} (was {previous})")
     return 0
@@ -700,7 +750,10 @@ def cmd_export(args) -> int:
     slug = _select(library, args.plan)
     bundle = build_bundle(library, slug)
     path = Path(args.output)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # The bundle holds the plan in full, so its destination gets the same owner-only treatment the
+    # library itself has. No `within` here: the operator chose this path deliberately and it is
+    # SUPPOSED to be outside the library — that is what an export is for.
+    plan_store.ensure_dir(path.parent)
     core.atomic_write(path, json.dumps(bundle, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                       mode=plan_store.FILE_MODE)
     redacted = [e["revision"] for e in bundle["record"]["ledger"] if "redacted" in e]
@@ -715,11 +768,20 @@ def cmd_export(args) -> int:
 
 
 def cmd_import(args) -> int:
-    """Read a bundle back, verifying every digest before anything reaches the library.
+    """Read a bundle back, verifying every digest AND every path before anything reaches the library.
 
-    Verification is not ceremony here. A bundle is the one way a plan crosses a trust boundary — a
-    backup, another machine, a colleague — so it is the one place where bytes claiming to be a plan
-    have not already been proven to be one.
+    A bundle is the one way a plan crosses a trust boundary — a backup, another machine, a colleague —
+    so it is the one place where bytes claiming to be a plan have not already been proven to be one.
+    Two distinct things therefore have to be checked, and checking only the first is the trap:
+
+      CONTENT is proven by digest. But every digest in a bundle is computed by whoever built it, so
+      self-consistency proves only that the file was not corrupted in transit — never that its author
+      was honest.
+
+      SHAPE is proven by the schema, and it has to be proven BEFORE anything is written. `slug` and
+      each `snapshot` become filesystem paths; an absolute value silently discards the library root
+      it was joined to, and `..` walks out. Validating afterwards (which `verify_chain` does) is too
+      late: by then the writes have landed wherever the bundle asked.
     """
     library = _library(args)
     bundle = json.loads(core.input_text(args.bundle))
@@ -727,6 +789,9 @@ def cmd_import(args) -> int:
         raise PlanCoordinatorError(
             f"not a plan bundle (schema_version {bundle.get('schema_version')!r})")
     record, revisions = bundle["record"], bundle["revisions"]
+    # Shape first. The record's own schema pattern-constrains `slug` and every `snapshot`, so this one
+    # call is what stops a crafted bundle choosing where the store writes.
+    core.validate(record, plan_store.RECORD_SCHEMA)
     recomputed = core.digest({"record": record, "revisions": revisions})
     if recomputed != bundle.get("bundle_digest"):
         raise PlanCoordinatorError(
@@ -761,16 +826,24 @@ def cmd_import(args) -> int:
 
     slug = record["slug"]
     plan_dir = library.plan_dir(slug)
+    # Belt and braces over the schema check above: containment is asserted again at the point of
+    # every join, so a record written before the pattern existed — or a future edit that relaxes it —
+    # still cannot escape. This is the layer that must not be removed for being redundant.
+    plan_store.contain(plan_dir, library.root, "the imported plan folder")
+    targets = [(plan_store.contain(plan_dir / entry["snapshot"], library.root,
+                                   f"revision {entry['revision']}"), entry)
+               for entry in record["ledger"] if "redacted" not in entry]
+    record_path = plan_store.contain(plan_dir / plan_store.RECORD_FILENAME, library.root,
+                                     "the imported plan record")
+
     plan_store.ensure_dir(plan_dir, within=library.root)
     plan_store.ensure_dir(plan_dir / plan_store.REVISIONS_DIRNAME, within=library.root)
-    for entry in record["ledger"]:
-        if "redacted" in entry:
-            continue
-        core.atomic_write(plan_dir / entry["snapshot"],
+    for path, entry in targets:
+        core.atomic_write(path,
                           json.dumps(revisions[str(entry["revision"])], indent=2, sort_keys=True,
                                      ensure_ascii=False) + "\n",
                           durable=True, mode=plan_store.FILE_MODE)
-    core.atomic_write(plan_dir / plan_store.RECORD_FILENAME,
+    core.atomic_write(record_path,
                       json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                       durable=True, mode=plan_store.FILE_MODE)
     problems = library.verify_chain(slug)
@@ -780,6 +853,120 @@ def cmd_import(args) -> int:
     plan_projection.project_library(library)
     print(f"imported {record['plan_id']} as {slug} "
           f"({len(revisions)} revision(s), every digest verified)")
+    return 0
+
+
+# --- repair and redaction -----------------------------------------------------
+
+def cmd_redact(args) -> int:
+    """Excise one revision's body. The operator's remedy when something got written down that must not
+    have been — and the reason the store has a redaction path at all."""
+    library = _library(args)
+    slug = _select(library, args.plan)
+    record = library.redact_revision(slug, args.revision, reason=args.reason)
+    entry = next(e for e in record["ledger"] if e["revision"] == args.revision)
+    plan_projection.project_library(library, force=True)
+    print(f"redacted revision {args.revision} of {record['plan_id']}: {entry['redacted']['reason']}")
+    print(f"  the ledger entry and its digest ({entry['plan_digest']}) remain, so the chain still "
+          "verifies and the excision reads as deliberate.")
+    print("\nThis is a logical deletion: the file is gone and the store cannot reach it, but the disk "
+          "blocks are not overwritten and any backup or filesystem snapshot taken earlier still holds "
+          "it. If what you redacted was a credential, rotate it — redacting is not the remedy.")
+    return 0
+
+
+def cmd_recover(args) -> int:
+    """Find the newest intact revision when the head will not read, and say what was passed over.
+
+    Reports; it does not repair. A damaged head is a fact the operator has to decide about — resume
+    from the intact ancestor, or restore the damaged file from a backup — and quietly rewriting the
+    record would take that decision away and destroy the evidence of what happened.
+    """
+    library = _library(args)
+    slug = _select(library, args.plan)
+    problems = library.verify_chain(slug)
+    if not problems:
+        print(f"{slug} is sound; every revision matches its recorded digest. Nothing to recover.")
+        return 0
+    print(f"{len(problems)} problem(s) in {slug}:")
+    for problem in problems:
+        print(f"  - {problem}")
+    revision, skipped = library.recover_head(slug)
+    record = library.read_record(slug)
+    print(f"\nThe newest intact revision is {revision}; the record's head is "
+          f"{record['current']['revision']}.")
+    if skipped:
+        print(f"Passed over {len(skipped)} damaged revision(s) to get there.")
+    print("\nNothing was changed. Two ways forward, and which is right is your call:")
+    print(f"  - restore the damaged file from a backup, then re-run `validate {args.plan}`; or")
+    print(f"  - carry the plan forward from revision {revision} as a new revision with `revise`.")
+    return 1
+
+
+# --- programs -----------------------------------------------------------------
+
+def _programs(args):
+    return plan_program.ProgramLibrary(_library(args))
+
+
+def cmd_program_new(args) -> int:
+    programs = _programs(args)
+    slug = programs.create(args.title, args.objective)
+    record = programs.read(slug)
+    print(f"created program {record['program_id']} at {programs.program_dir(slug)}")
+    print("Add its first child with `program add`. Order records a decision — nothing here starts, "
+          "selects, or advances a child.")
+    return 0
+
+
+def cmd_program_list(args) -> int:
+    programs = _programs(args)
+    slugs = programs.slugs()
+    if not slugs:
+        print(f"no programs in {programs.root}")
+        return 0
+    for slug in slugs:
+        record = programs.read(slug)
+        outstanding = programs.outstanding_obligations(record)
+        print(f"{record['program_id']}  {programs.derived_status(record):<15} "
+              f"{len(record['children'])} child(ren), {len(outstanding)} obligation(s) outstanding  "
+              f"{record['title']}")
+    return 0
+
+
+def cmd_program_show(args) -> int:
+    programs = _programs(args)
+    print(plan_program.render(programs, programs.read(programs.resolve(args.program))))
+    return 0
+
+
+def cmd_program_add(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.add_child(slug, args.plan, predecessor=args.after)
+    outstanding = programs.outstanding_obligations(record)
+    print(f"added {args.plan} as child {len(record['children'])} of {record['program_id']}")
+    if outstanding:
+        print(f"\n{len(outstanding)} obligation(s) are now carried into the next child:")
+        for obligation in outstanding:
+            print(f"  - {obligation['id']}: {obligation['statement']}")
+        print("\nThe next child must answer for each — satisfied, still carried, or released with a "
+              "stated reason. None of them can be dropped by saying nothing.")
+    return 0
+
+
+def cmd_program_close(args) -> int:
+    programs = _programs(args)
+    record = programs.close(programs.resolve(args.program), args.state, args.reason)
+    print(f"{record['program_id']} is now {args.state}: {args.reason}")
+    print("Nothing was deleted — every child plan and every revision stays on the shelf.")
+    return 0
+
+
+def cmd_program_reopen(args) -> int:
+    programs = _programs(args)
+    record = programs.reopen(programs.resolve(args.program))
+    print(f"reopened {record['program_id']}")
     return 0
 
 
@@ -887,6 +1074,53 @@ def build_parser() -> argparse.ArgumentParser:
     importer = sub.add_parser("import", help="read a bundle back, verifying every digest first")
     importer.add_argument("--bundle", required=True)
     importer.set_defaults(func=cmd_import)
+
+    redact = sub.add_parser("redact", help="excise one revision's body, keeping the chain honest")
+    redact.add_argument("plan")
+    redact.add_argument("--revision", type=int, required=True)
+    redact.add_argument("--reason", required=True,
+                        help="why — an unexplained hole is indistinguishable from damage")
+    redact.set_defaults(func=cmd_redact)
+
+    recover = sub.add_parser("recover", help="find the newest intact revision when the head will not read")
+    recover.add_argument("plan")
+    recover.set_defaults(func=cmd_recover)
+
+    program = sub.add_parser(
+        "program", help="a multi-PR program: an ordered set of plans that carry obligations forward"
+    ).add_subparsers(dest="program_command", required=True)
+
+    program_new = program.add_parser("new", help="start a program")
+    program_new.add_argument("--title", required=True)
+    program_new.add_argument("--objective", required=True,
+                             help="what the whole program delivers that no single child PR does")
+    program_new.set_defaults(func=cmd_program_new)
+
+    program_list = program.add_parser("list", help="every program, its children and what it still owes")
+    program_list.set_defaults(func=cmd_program_list)
+
+    program_show = program.add_parser("show", help="one program, its children and outstanding obligations")
+    program_show.add_argument("program")
+    program_show.set_defaults(func=cmd_program_show)
+
+    program_add = program.add_parser(
+        "add", help="append a plan, enforcing the carry-forward guarantee against its predecessor")
+    program_add.add_argument("program")
+    program_add.add_argument("plan")
+    program_add.add_argument("--after", help="the plan this one succeeds; required after the first child")
+    program_add.set_defaults(func=cmd_program_add)
+
+    for state, helptext in (("retire", "superseded, kept for the record"),
+                            ("abandon", "deliberately dropped")):
+        closer = program.add_parser(state, help=f"close a program: {helptext}")
+        closer.add_argument("program")
+        closer.add_argument("--reason", required=True)
+        closer.set_defaults(func=cmd_program_close,
+                            state={"retire": "retired", "abandon": "abandoned"}[state])
+
+    program_reopen = program.add_parser("reopen", help="undo a program retirement or abandonment")
+    program_reopen.add_argument("program")
+    program_reopen.set_defaults(func=cmd_program_reopen)
     return parser
 
 

@@ -7957,7 +7957,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:a7cb2e7d191f90c925832a70f163813cbcf90feb6cd02d02f56357258cd624b3",
+        "fingerprint": "sha256:246f15daad1e646aef56d00a1f9397027dba9ed331d027d5e7a46d80abcfc1e7",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9903,7 +9903,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:15d8aec53a94b7d105b6947e3a413bec08ffb904da2b2166cf37937f390b06d4",
+        "fingerprint": "sha256:120c9dd9322f0b0e2e4760c1fe9fd3834eec8d6cf261614cea7586d86a05961e",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -13815,6 +13815,7 @@
           "tool:build_coordinator_core",
           "tool:moment",
           "tool:plan_contract",
+          "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store"
         ],
@@ -13824,7 +13825,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:5a97ec1b422c023fa5ba0d65cfa43be4cb05631b6037c81c1a895228ad04be4b",
+        "fingerprint": "sha256:873f4c2ddc6a85e7b876dc8d3837e90f1badeee5a3f71fbfabf18aea94b6bbff",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -13849,7 +13850,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:bce21aa12be657fa6935f34e6ce6bf282959d2732456647a4532d9650d78cb31",
+        "fingerprint": "sha256:adc18c4aaa42e021e4c728083b990a35d4150df7964fdb0bdec141240f6803e0",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13874,7 +13875,7 @@
       },
       "slug": "plan_projection",
       "source": {
-        "fingerprint": "sha256:3cc5f9c234925d83c27941bc5234bb2e85aabd0ae4df89b77f5e1d63ab6f3952",
+        "fingerprint": "sha256:8920e09337fde003724a8a4ec770cd05753d6c48837bad589728754907a1e441",
         "path": ".engine/tools/plan_projection.py"
       },
       "status": "active",
@@ -13900,7 +13901,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:c379398f1df9c2a211328edd451b430edde9ab42a4f959050665e6a870373782",
+        "fingerprint": "sha256:581baecff450c598d1465752146dc008a05167d603137ef2b623010f0ff7c7e7",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -15689,7 +15690,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:c27b3d2d72c3cbc36d1615d732d7bce93e3722110917bf25fdfb3ad49e9513b1",
+        "fingerprint": "sha256:b4adea0f8b590604f13cfba0164ebeafdb2e618079b4e2a5d4713bf0041aad0d",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -18146,6 +18147,7 @@
         ],
         "tests": [
           "tool:plan_coordinator",
+          "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store",
           "tool:test_plan_store"
@@ -18153,7 +18155,7 @@
       },
       "slug": "test_plan_coordinator",
       "source": {
-        "fingerprint": "sha256:a2e49d3a097eab1e2f10b3af934718d08ce7403630c7539bc3205ed592ed2624",
+        "fingerprint": "sha256:e52958b72a850851bbbe2aa74fd2adcf9d1ad57a23cda2dd84307c9bf0acb197",
         "path": ".engine/tools/test_plan_coordinator.py"
       },
       "status": "active",

@@ -82,6 +82,28 @@ _NETWORK_FSTYPES = ("nfs", "smbfs", "cifs", "afpfs", "webdav", "fuse.sshfs", "ft
 _now = moment.utc_now
 
 
+def contain(candidate: Path, boundary: Path, what: str) -> Path:
+    """Return `candidate` resolved, or refuse if it escapes `boundary`. THE containment chokepoint.
+
+    Every path this engine builds from data it did not mint itself passes through here. The hazard is
+    not exotic: `Path("/library") / "/etc/passwd"` is `/etc/passwd` — an absolute component silently
+    discards everything to its left — and `..` walks out just as easily. A store that joins an
+    imported record's own strings onto its root without this is an arbitrary-file-write primitive
+    wearing the costume of a plan importer.
+
+    Resolves both sides before comparing, so a symlink cannot point out of the library and back in
+    under a name that looks contained.
+    """
+    resolved = Path(candidate).resolve()
+    limit = Path(boundary).resolve()
+    if resolved != limit and limit not in resolved.parents:
+        raise PlanStoreError(
+            f"refused: {what} would land at {resolved}, outside the plan library at {limit}. A plan's "
+            "own record cannot choose where it is written; this is what an imported bundle would need "
+            "to do to overwrite a file elsewhere on the machine.")
+    return resolved
+
+
 def ensure_dir(path: Path, *, within: Path | None = None) -> None:
     """Create a library directory owner-only, and every library directory on the way to it.
 
@@ -92,9 +114,15 @@ def ensure_dir(path: Path, *, within: Path | None = None) -> None:
     how the library root itself ends up 0755 while every plan folder inside it is 0700, leaving slug
     names — which carry plan titles — readable by every account on the machine.
 
-    `within` bounds the walk so this only ever tightens directories inside the library, never a
-    parent of it that belongs to the operator or the system.
+    `within` REFUSES: a target that is not the boundary itself or inside it raises before anything is
+    created, and the permission walk then stops at the boundary so it never touches a parent that
+    belongs to the operator or the system. The refusal is the load-bearing half. An earlier version
+    bounded only the walk and created the directory unconditionally first, which made `within` read
+    like containment while providing none — a trap for any caller that passed a path derived from
+    outside input believing this helper made it safe.
     """
+    if within is not None:
+        contain(path, Path(within), "a directory")
     boundary = Path(within).resolve() if within is not None else path.resolve()
     path.mkdir(parents=True, exist_ok=True, mode=DIR_MODE)
     current = path.resolve()
@@ -142,8 +170,12 @@ def volume_warning(path: Path | None = None) -> str | None:
     things writing these files. A sync client can resurrect, revert, or stale a file underneath a
     compare-and-swap; a network filesystem makes the advisory lock unreliable across hosts. Neither
     is refused — an operator may have good reasons, and refusing would strand them — but neither is
-    passed over in silence. Returns None when the volume cannot be determined, because inventing
-    reassurance is worse than admitting the check did not run.
+    passed over in silence.
+
+    Three outcomes, not two, and the third is the honest one: None means NO PROBLEM FOUND, and a
+    caller that needs to know whether the check actually ran must ask `volume_determined()`. An
+    earlier version claimed "unknown never reads as local" while returning None for both, which is
+    the reassurance-by-omission it was written to avoid.
     """
     target = Path(path) if path is not None else library_root()
     lowered = str(target).lower()
@@ -160,6 +192,22 @@ def volume_warning(path: Path | None = None) -> str | None:
                 "file lock is not reliable across hosts there, so two machines could write the same plan "
                 f"without either being refused. Move the library to a local disk, or set {ENV_DIR}.")
     return None
+
+
+def volume_determined(path: Path | None = None) -> bool:
+    """Could the network-filesystem check actually run here?
+
+    A path-marker match (iCloud, Dropbox and friends) is decided from the path alone and always
+    counts as determined. Otherwise it depends on whether the platform probe answered. `doctor`
+    reports an undetermined volume as a stated gap rather than folding it into "no problems found" —
+    a check that did not run and a check that passed are different facts, and only one of them is
+    reassuring.
+    """
+    target = Path(path) if path is not None else library_root()
+    lowered = str(target).lower() + "/"
+    if any(marker in lowered for marker in _SYNCED_MARKERS):
+        return True
+    return _filesystem_type(target) is not None
 
 
 def _filesystem_type(path: Path) -> str | None:
@@ -327,10 +375,16 @@ class PlanLibrary:
             return [str(exc)]
         expected = 1
         for entry in record["ledger"]:
-            if entry["revision"] != expected:
+            if entry["revision"] < expected:
+                problems.append(
+                    f"revision {entry['revision']} appears more than once in the ledger; each revision "
+                    "is minted once and its entry is never rewritten, so a duplicate means the record "
+                    "was edited outside the store")
+            elif entry["revision"] != expected:
                 problems.append(
                     f"the revision chain jumps from {expected - 1} to {entry['revision']}; revisions must be "
                     "contiguous from 1, and a gap means an entry was removed from the record itself")
+            if entry["revision"] != expected:
                 expected = entry["revision"]
             expected += 1
             if "redacted" in entry:
@@ -375,13 +429,18 @@ class PlanLibrary:
             raise PlanStoreError(f"malformed plan id {plan_id!r}")
         slug = slug_for(document["title"], plan_id)
         plan_dir = self.plan_dir(slug)
-        if (plan_dir / RECORD_FILENAME).exists():
-            raise PlanStoreError(f"a plan already exists at {plan_dir}")
         self._mkdir(plan_dir)
-        self._mkdir(plan_dir / REVISIONS_DIRNAME)
-        for extra in ("reviews", "seals", "builds"):
-            self._mkdir(plan_dir / extra)
         with core.exclusive_lock(self._lock_path(slug)):
+            # INSIDE the lock. Checking before acquiring it would let two concurrent creates both
+            # pass and the second silently overwrite the first — the exact shape the compare-and-swap
+            # exists to prevent everywhere else in this class.
+            if (plan_dir / RECORD_FILENAME).exists():
+                raise PlanStoreError(f"a plan already exists at {plan_dir}")
+            # The remaining directories are created after the existence check, so a create that
+            # refuses (or that fails validation below) does not leave an orphan skeleton behind.
+            self._mkdir(plan_dir / REVISIONS_DIRNAME)
+            for extra in ("reviews", "seals", "builds"):
+                self._mkdir(plan_dir / extra)
             digest_value = core.digest(document)
             snapshot = self._snapshot_name(1, digest_value)
             self._write_json(plan_dir / snapshot, document)
@@ -462,7 +521,14 @@ class PlanLibrary:
     def update_record(self, slug: str, change, *, expected_revision: int | None = None) -> dict:
         """Apply `change` to the record under the lock, with the same compare-and-swap. For the gate
         evidence — approval, review, seal, binding — which changes the record without minting a
-        revision. The revisions themselves are never touched here; they are immutable."""
+        revision. The revisions themselves are never touched here; they are immutable.
+
+        `change` receives the record as re-read INSIDE the lock, and that is the only copy it may
+        judge. A caller that decides "no review is recorded yet" from a copy read before the lock and
+        then writes unconditionally has a check-then-act race: the compare-and-swap on
+        `current.revision` will not catch it, because recording a review does not mint a revision. So
+        every single-minted gate re-asserts its own precondition inside `change` and raises there.
+        """
         with core.exclusive_lock(self._lock_path(slug)):
             record = self.read_record(slug)
             core.assert_revision(record["current"]["revision"], expected_revision, "plan",
@@ -496,16 +562,37 @@ class PlanLibrary:
             entry = next((e for e in record["ledger"] if e["revision"] == revision), None)
             if entry is None:
                 raise PlanStoreError(f"plan {slug} has no revision {revision}")
-            if "redacted" in entry:
-                return record
             path = self.plan_dir(slug) / entry["snapshot"]
-            if path.exists():
-                path.unlink()
-                core.fsync_dir(path.parent)
+            if "redacted" in entry:
+                # Already marked. Re-running finishes the job rather than reporting success over a
+                # half-done redaction: if a crash landed between the mark and the unlink, the body is
+                # still on disk, and this is what heals it.
+                self._unlink_body(path)
+                return record
+
+            # ORDER MATTERS, and it is the opposite of the obvious one. Marking the record durably
+            # BEFORE deleting the body means a crash in between leaves a revision marked redacted
+            # whose file still exists — unreadable through the store, and healed by re-running. The
+            # obvious order (delete, then mark) leaves the opposite: a body genuinely gone with no
+            # marker, which `verify_chain` correctly reports as loss rather than intent. That is
+            # precisely the confusion this method exists to prevent, so it must not be able to cause
+            # it. The leftover-body window is the lesser harm and it is recoverable; a redaction that
+            # reads as corruption is neither.
             entry["redacted"] = {"at": _now(), "reason": reason.strip()}
             core.validate(record, RECORD_SCHEMA)
             self._write_json(self._record_path(slug), record)
+            self._unlink_body(path)
             return record
+
+    @staticmethod
+    def _unlink_body(path: Path) -> None:
+        """Remove a redacted revision's body, durably. This is a LOGICAL deletion: the directory entry
+        goes and the store can no longer reach the content, but the underlying blocks are not
+        overwritten, and any backup or filesystem snapshot taken before now still holds it. If what
+        was redacted was a credential, redacting is not the remedy — rotating it is."""
+        if path.exists():
+            path.unlink()
+            core.fsync_dir(path.parent)
 
 
 # The nine statuses a plan can be in. There is no `phase` field anywhere in the record: each of these

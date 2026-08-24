@@ -330,7 +330,7 @@ def render_index(entries: list) -> str:
     return "\n".join(out) + "\n"
 
 
-def project_library(library: plan_store.PlanLibrary) -> list:
+def project_library(library: plan_store.PlanLibrary, *, force: bool = False) -> list:
     """Regenerate every projection in the library and return the index entries.
 
     A plan whose head is damaged still gets an INDEX row, marked, rather than being dropped: an
@@ -358,7 +358,15 @@ def project_library(library: plan_store.PlanLibrary) -> list:
             document = library.head(slug)
             entry["status"] = plan_store.derived_status(
                 record, head_blockers=plan_contract.seal_blockers(document))
-            _write(library, library.plan_dir(slug) / PLAN_MD, render_plan(document, record))
+            # A CLOSED plan's inputs are frozen — its revisions are immutable and its record cannot
+            # change again without being reopened — so its PLAN.md is re-rendered only if it is
+            # missing. Without this, every mutating command pays to re-render the entire accumulated
+            # history of the workstation, and nothing here ever deletes a plan. `reindex` still
+            # rebuilds everything unconditionally, so the rebuildable-from-revisions property is
+            # untouched: this skips work that would produce identical bytes, never work that matters.
+            target = library.plan_dir(slug) / PLAN_MD
+            if force or not (record.get("closure") and target.exists()):
+                _write(library, target, render_plan(document, record))
         except plan_store.PlanStoreError as exc:
             entry["status"] = plan_store.derived_status(record)
             entry["readable"] = False

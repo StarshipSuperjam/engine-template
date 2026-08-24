@@ -20,6 +20,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from unittest import mock
+
 import plan_coordinator
 import plan_projection
 import plan_store
@@ -859,6 +861,362 @@ class Transport(_Governed):
         self.assertEqual(code, 2)
         self.assertIn("not a plan bundle", err)
 
+
+class HostileBundles(_Governed):
+    """A bundle is the one untrusted input this tool has. Its own digests prove nothing about the
+    honesty of whoever built it — every one of them is computed by that same author — so the checks
+    that matter are on SHAPE, and they must run before any write."""
+
+    def _hostile(self, name, mutate) -> str:
+        slug, _ = self._plan()
+        path = str(Path(self._tmp.name) / f"{name}.json")
+        self.run_command("export", slug, "--output", path)
+        bundle = json.loads(Path(path).read_text(encoding="utf-8"))
+        mutate(bundle)
+        # Re-stamp the outer digest so content verification cannot be what catches this.
+        bundle["bundle_digest"] = plan_coordinator.core.digest(
+            {"record": bundle["record"], "revisions": bundle["revisions"]})
+        Path(path).write_text(json.dumps(bundle), encoding="utf-8")
+        return path
+
+    def _import_elsewhere(self, path):
+        root = Path(self._tmp.name) / "target"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = plan_coordinator.main(["--library", str(root), "import", "--bundle", path])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_an_absolute_snapshot_path_cannot_write_outside_the_library(self):
+        # `Path("/library") / "/etc/passwd"` is `/etc/passwd` — the left side is discarded silently.
+        victim = Path(self._tmp.name) / "victim.txt"
+        victim.write_text("original\n", encoding="utf-8")
+
+        def point_at_victim(bundle):
+            bundle["record"]["ledger"][0]["snapshot"] = str(victim)
+            bundle["record"]["current"]["snapshot"] = str(victim)
+
+        code, _, err = self._import_elsewhere(self._hostile("absolute", point_at_victim))
+        self.assertEqual(code, 2)
+        self.assertEqual(victim.read_text(encoding="utf-8"), "original\n",
+                         "an imported bundle overwrote a file outside the library")
+
+    def test_a_traversing_snapshot_path_cannot_write_outside_the_library(self):
+        victim = Path(self._tmp.name) / "victim.txt"
+        victim.write_text("original\n", encoding="utf-8")
+
+        def traverse(bundle):
+            bundle["record"]["ledger"][0]["snapshot"] = "revisions/../../../victim.txt"
+
+        code, _, err = self._import_elsewhere(self._hostile("traverse", traverse))
+        self.assertEqual(code, 2)
+        self.assertEqual(victim.read_text(encoding="utf-8"), "original\n")
+
+    def test_a_traversing_slug_cannot_create_directories_outside_the_library(self):
+        def traverse(bundle):
+            bundle["record"]["slug"] = "../../../../escaped--abc123"
+
+        code, _, err = self._import_elsewhere(self._hostile("slug", traverse))
+        self.assertEqual(code, 2)
+        self.assertFalse((Path(self._tmp.name).parent / "escaped--abc123").exists())
+        self.assertFalse((Path(self._tmp.name) / "escaped--abc123").exists())
+
+    def test_a_hostile_bundle_writes_nothing_at_all(self):
+        def traverse(bundle):
+            bundle["record"]["ledger"][0]["snapshot"] = "/tmp/should-never-be-written.json"
+
+        path = self._hostile("nothing", traverse)
+        root = Path(self._tmp.name) / "target"
+        self._import_elsewhere(path)
+        self.assertFalse(root.exists(), "a refused import still created the library")
+
+    def test_ensure_dir_refuses_a_target_outside_its_boundary(self):
+        outside = Path(self._tmp.name) / "outside"
+        with self.assertRaisesRegex(plan_store.PlanStoreError, "outside the plan library"):
+            plan_store.ensure_dir(outside, within=self.root)
+        self.assertFalse(outside.exists(), "the refusal still created the directory")
+
+    def test_contain_allows_the_boundary_itself_and_anything_under_it(self):
+        self.assertEqual(plan_store.contain(self.root, self.root, "x"), self.root.resolve())
+        inside = self.root / "a" / "b"
+        self.assertEqual(plan_store.contain(inside, self.root, "x"), inside.resolve())
+
+
+class SingleMintedGatesUnderConcurrency(_Governed):
+    """Recording a review, sealing, or closing does not mint a revision, so the compare-and-swap on
+    `current.revision` cannot catch a second one. Only re-checking inside the lock can — these drive
+    the exact call shape the CLI uses, which the earlier CAS tests never did."""
+
+    def test_a_second_review_is_refused_even_when_both_readers_saw_none(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        # Both sessions read a record with no review; A records first, B must still be refused.
+        self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
+                                          "--packet-digest", digest)[0], 0)
+        first = self.lib.read_record(slug)["plan_review"]
+
+        def racing_write(current):
+            current["plan_review"] = {"revision": 1, "plan_digest": digest, "packet_digest": digest,
+                                      "at": "2026-08-23T09:00:00Z", "lenses": ["clobber"]}
+        # The raw update_record shape the old code used: no CAS, guard evaluated outside.
+        self.lib.update_record(slug, racing_write)
+        self.assertEqual(self.lib.read_record(slug)["plan_review"]["lenses"], ["clobber"],
+                         "fixture sanity: an unguarded write does clobber")
+        # And through the command, which re-checks inside the lock, it is refused.
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", digest)
+        self.assertEqual(code, 2)
+        self.assertIn("exactly one per plan", err)
+
+    def test_creating_the_same_plan_twice_is_refused_inside_the_lock(self):
+        slug, document = self._plan()
+        with self.assertRaisesRegex(plan_store.PlanStoreError, "already exists"):
+            self.lib.create(document)
+        self.assertEqual(len(self.lib.read_record(slug)["ledger"]), 1)
+
+    def test_a_refused_create_leaves_no_orphan_skeleton(self):
+        bad = _document()
+        del bad["deliberation"]
+        with self.assertRaises(plan_store.PlanStoreError):
+            self.lib.create(bad)
+        stray = [p for p in self.root.iterdir() if p.is_dir()] if self.root.exists() else []
+        for path in stray:
+            self.assertFalse((path / "revisions").exists(),
+                             "a failed create left a revisions/ skeleton behind")
+
+    def test_a_second_close_is_refused_rather_than_silently_dropped(self):
+        slug, _ = self._plan()
+        self.assertEqual(self.run_command("retire", slug, "--reason", "superseded")[0], 0)
+        code, _, err = self.run_command("abandon", slug, "--reason", "changed my mind")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.lib.read_record(slug)["closure"]["state"], "retired")
+
+    def test_a_program_create_holds_the_lock(self):
+        import plan_program
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("A program", "An objective.")
+        self.assertTrue((programs.program_dir(slug) / "record.json").exists())
+        self.assertTrue((programs.program_dir(slug) / "record.json.lock").exists(),
+                        "ProgramLibrary.create did not take its lock")
+
+
+class DurabilityIsReported(_Governed):
+    def test_a_failed_flush_refuses_the_write_instead_of_reporting_success(self):
+        # A silent degrade would make a full or failing disk indistinguishable from a durable write.
+        slug, document = self._plan()
+        before = (self.root / slug / "record.json").read_bytes()
+        with mock.patch.object(plan_coordinator.core, "durable_fsync", return_value=False):
+            with self.assertRaisesRegex(plan_store.PlanStoreError, "flush it to stable storage"):
+                self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        self.assertEqual((self.root / slug / "record.json").read_bytes(), before,
+                         "a failed durable write still changed the record")
+
+    def test_a_declined_directory_flush_is_not_fatal(self):
+        # Some filesystems legitimately refuse to fsync a directory fd; the file is already durable.
+        with mock.patch.object(plan_coordinator.core, "fsync_dir", return_value=False):
+            slug, document = self._plan()
+        self.assertEqual(self.lib.head(slug), document)
+
+
+class RedactionOrdering(_Governed):
+    def test_a_crash_between_marking_and_unlinking_heals_on_retry(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        snapshot = self.root / slug / self.lib.read_record(slug)["ledger"][0]["snapshot"]
+
+        # Crash exactly after the record is marked and before the body is removed.
+        with mock.patch.object(plan_store.PlanLibrary, "_unlink_body", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self.lib.redact_revision(slug, 1, reason="a credential")
+
+        # The marker is durable, so the chain reads as intent — never as loss.
+        self.assertIn("redacted", self.lib.read_record(slug)["ledger"][0])
+        self.assertEqual(self.lib.verify_chain(slug), [])
+        self.assertTrue(snapshot.exists(), "fixture sanity: the body should still be there")
+
+        # Re-running finishes the job rather than reporting success over a half-done redaction.
+        self.lib.redact_revision(slug, 1, reason="a credential")
+        self.assertFalse(snapshot.exists())
+        self.assertEqual(self.lib.verify_chain(slug), [])
+
+    def test_the_redact_verb_says_it_is_a_logical_deletion(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        code, out, _ = self.run_command("redact", slug, "--revision", "1",
+                                        "--reason", "raw intent held a credential")
+        self.assertEqual(code, 0)
+        self.assertIn("logical deletion", out)
+        self.assertIn("rotate it", out)
+
+
+class RecoverVerb(_Governed):
+    def test_recover_reports_the_intact_ancestor_and_changes_nothing(self):
+        slug, _ = self._plan()
+        self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
+        head = self.root / slug / self.lib.read_record(slug)["current"]["snapshot"]
+        head.write_text(json.dumps({"schema_version": "engine-plan.v1"}), encoding="utf-8")
+        before = (self.root / slug / "record.json").read_bytes()
+
+        code, out, _ = self.run_command("recover", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("newest intact revision is 1", out)
+        self.assertIn("Nothing was changed", out)
+        self.assertEqual((self.root / slug / "record.json").read_bytes(), before)
+
+    def test_recover_on_a_sound_plan_says_there_is_nothing_to_do(self):
+        slug, _ = self._plan()
+        code, out, _ = self.run_command("recover", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing to recover", out)
+
+
+class ProgramVerbs(_Governed):
+    def _obligation(self, identifier, statement, state="carried"):
+        return {"id": identifier, "statement": statement, "state": state}
+
+    def _program_with_child(self):
+        code, out, err = self.run_command("program", "new", "--title", "Two-PR program",
+                                          "--objective", "Delivered across two PRs.")
+        self.assertEqual(code, 0, err)
+        program_id = out.split()[2]
+        document = _document(plan_id="pln_aaaaaaaaaaaa", title="PR A")
+        document["program"] = {"program_id": program_id, "carried_obligations": [
+            self._obligation("OB-1", "PR B cuts the Build Coordinator over.")]}
+        self.lib.create(document)
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")[0], 0)
+        return program_id
+
+    def test_a_program_is_creatable_and_readable_from_the_command_line(self):
+        program_id = self._program_with_child()
+        code, out, _ = self.run_command("program", "show", program_id)
+        self.assertEqual(code, 0)
+        self.assertIn("PR A", out)
+        self.assertIn("OB-1", out)
+        self.assertIn(program_id, self.run_command("program", "list")[1])
+
+    def test_the_verb_refuses_a_successor_that_drops_an_obligation(self):
+        program_id = self._program_with_child()
+        successor = _document(plan_id="pln_bbbbbbbbbbbb", title="PR B")
+        successor["program"] = {"program_id": program_id,
+                                "predecessor_plan_id": "pln_aaaaaaaaaaaa",
+                                "carried_obligations": []}
+        self.lib.create(successor)
+        code, _, err = self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                        "--after", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("OB-1", err)
+        self.assertIn("does not answer for", err)
+
+    def test_the_verb_reports_what_the_next_child_now_owes(self):
+        program_id = self._program_with_child()
+        out = self.run_command("program", "show", program_id)[1]
+        self.assertIn("None of them can be dropped by saying nothing", out)
+
+
+class FilesystemProbe(unittest.TestCase):
+    """The df/stat shell-out itself, not a mock of the function that wraps it."""
+
+    def _fake_run(self, results):
+        calls = iter(results)
+
+        def run(argv, **kwargs):
+            return next(calls)
+        return run
+
+    def _completed(self, stdout, code=0):
+        import subprocess
+        return subprocess.CompletedProcess(args=[], returncode=code, stdout=stdout, stderr="")
+
+    def test_a_matching_network_type_is_reported(self):
+        with mock.patch.object(plan_store.os, "uname",
+                               return_value=type("U", (), {"sysname": "Darwin"})()), \
+             mock.patch.object(plan_store.subprocess, "run",
+                               side_effect=self._fake_run([
+                                   self._completed("Filesystem ...\n//host/share  1 1 1 1% /mnt\n"),
+                                   self._completed("smbfs\n")])):
+            self.assertEqual(plan_store._filesystem_type(Path("/")), "smbfs")
+
+    def test_a_local_disk_reports_nothing(self):
+        with mock.patch.object(plan_store.os, "uname",
+                               return_value=type("U", (), {"sysname": "Darwin"})()), \
+             mock.patch.object(plan_store.subprocess, "run",
+                               side_effect=self._fake_run([self._completed("Filesystem ...\n", 1)])):
+            self.assertIsNone(plan_store._filesystem_type(Path("/")))
+
+    def test_a_failing_probe_degrades_to_unknown_rather_than_crashing(self):
+        with mock.patch.object(plan_store.subprocess, "run", side_effect=OSError("no df here")):
+            self.assertIsNone(plan_store._filesystem_type(Path("/")))
+
+    def test_an_undeterminable_volume_is_reported_as_undetermined(self):
+        # The distinction the old code claimed and did not make: unknown is not the same as local.
+        with mock.patch.object(plan_store, "_filesystem_type", return_value=None):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertIsNone(plan_store.volume_warning(Path(tmp)))
+                self.assertFalse(plan_store.volume_determined(Path(tmp)))
+
+    def test_a_determined_local_volume_reads_as_determined(self):
+        with mock.patch.object(plan_store, "_filesystem_type", return_value="apfs"):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertIsNone(plan_store.volume_warning(Path(tmp)))
+                self.assertTrue(plan_store.volume_determined(Path(tmp)))
+
+    def test_a_synced_path_is_determined_from_the_path_alone(self):
+        self.assertTrue(plan_store.volume_determined(Path("/Users/x/Dropbox/repo/.engine/plans")))
+
+
+class ErrorLegibility(_Governed):
+    def test_a_schema_failure_names_the_field_and_the_constraint(self):
+        # Every optional gate is `oneOf(null, {...})`, so without descending into the branch this
+        # reported the whole object as "not valid under any of the given schemas".
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        findings = Path(self._tmp.name) / "bad-findings.json"
+        findings.write_text(json.dumps([{"id": "A1", "lens": "architecture",
+                                         "severity": "major", "summary": "s"}]), encoding="utf-8")
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", self.lib.read_record(slug)["current"]["plan_digest"],
+                                        "--findings", str(findings))
+        self.assertEqual(code, 2)
+        self.assertIn("severity", err)
+        self.assertIn("blocking", err)
+        self.assertNotIn("is not valid under any of the given schemas", err)
+
+    def test_a_malformed_digest_names_the_digest_field(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", "sha256:abc")
+        self.assertEqual(code, 2)
+        self.assertIn("packet_digest", err)
+
+    def test_validate_reports_one_problem_once(self):
+        slug, _ = self._plan()
+        head = self.root / slug / self.lib.read_record(slug)["current"]["snapshot"]
+        head.write_text(json.dumps({"schema_version": "engine-plan.v1"}), encoding="utf-8")
+        code, _, err = self.run_command("validate", slug)
+        self.assertEqual(code, 1)
+        self.assertEqual(err.count("does not match its recorded digest"), 1)
+
+    def test_doctor_states_the_remedy_for_a_permission_finding(self):
+        self._plan()
+        os.chmod(self.root, 0o755)
+        out = self.run_command("doctor")[1]
+        self.assertIn("chmod 700", out)
+
+    def test_show_does_not_over_reassure_on_an_unapproved_plan(self):
+        slug, _ = self._plan()
+        out = self.run_command("show", slug)[1]
+        self.assertIn("the gates still do", out)
+
+    def test_resume_does_not_promise_a_handoff_this_pr_does_not_ship(self):
+        slug, _ = self._to_reviewed()
+        self.run_command("seal", slug)
+        out = self.run_command("resume", slug)[1]
+        self.assertIn("not wired up yet", out)
+        self.assertIn("clone", out)
 
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):

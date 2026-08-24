@@ -131,18 +131,23 @@ class ProgramLibrary:
         program_id = mint_program_id()
         slug = plan_store.slug_for(title, program_id)
         plan_store.ensure_dir(self.program_dir(slug), within=self.plans.root)
-        if self._record_path(slug).exists():
-            raise ProgramError(f"a program already exists at {self.program_dir(slug)}")
-        self._write(slug, {
-            "schema_version": "engine-program.v1",
-            "program_id": program_id,
-            "slug": slug,
-            "title": title,
-            "objective": objective,
-            "created_at": _now(),
-            "children": [],
-            "closure": None,
-        })
+        # Under the lock, like every other mutating path here. This method previously took none at
+        # all while the class docstring claimed it did — and checked existence before writing, which
+        # is a check-then-act race even once a lock exists. Both halves are fixed: the lock is held,
+        # and the check happens inside it.
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            if self._record_path(slug).exists():
+                raise ProgramError(f"a program already exists at {self.program_dir(slug)}")
+            self._write(slug, {
+                "schema_version": "engine-program.v1",
+                "program_id": program_id,
+                "slug": slug,
+                "title": title,
+                "objective": objective,
+                "created_at": _now(),
+                "children": [],
+                "closure": None,
+            })
         return slug
 
     def add_child(self, slug: str, plan_selector: str, *, predecessor: str | None = None) -> dict:
